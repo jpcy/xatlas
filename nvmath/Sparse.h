@@ -13,7 +13,6 @@
 namespace nv
 {
     class FullVector;
-    class FullMatrix;
     class SparseMatrix;
 
 
@@ -62,59 +61,6 @@ namespace nv
         Transposed = 1
     };
 
-    /// Full matrix class.
-    class FullMatrix
-    {
-    public:
-
-        FullMatrix(uint d);
-        FullMatrix(uint w, uint h);
-        FullMatrix(const FullMatrix & m);
-
-        const FullMatrix & operator=(const FullMatrix & m);
-
-        uint width() const { return m_width; }
-        uint height() const { return m_height; }
-        bool isSquare() const { return m_width == m_height; }
-
-        float getCoefficient(uint x, uint y) const;
-
-        void setCoefficient(uint x, uint y, float f);
-        void addCoefficient(uint x, uint y, float f);
-        void mulCoefficient(uint x, uint y, float f);
-
-        float dotRow(uint y, const FullVector & v) const;
-        void madRow(uint y, float alpha, FullVector & v) const;
-
-    protected:
-
-        bool isValid() const {
-            return m_array.size() == (m_width * m_height);
-        }
-
-    private:
-
-        const uint m_width;
-        const uint m_height;
-        Array<float> m_array;
-
-    };
-
-    NVMATH_API void mult(const FullMatrix & M, const FullVector & x, FullVector & y);
-    NVMATH_API void mult(Transpose TM, const FullMatrix & M, const FullVector & x, FullVector & y);
-
-    // y = alpha*A*x + beta*y
-    NVMATH_API void sgemv(float alpha, const FullMatrix & A, const FullVector & x, float beta, FullVector & y);
-    NVMATH_API void sgemv(float alpha, Transpose TA, const FullMatrix & A, const FullVector & x, float beta, FullVector & y);
-
-    NVMATH_API void mult(const FullMatrix & A, const FullMatrix & B, FullMatrix & C);
-    NVMATH_API void mult(Transpose TA, const FullMatrix & A, Transpose TB, const FullMatrix & B, FullMatrix & C);
-
-    // C = alpha*A*B + beta*C
-    NVMATH_API void sgemm(float alpha, const FullMatrix & A, const FullMatrix & B, float beta, FullMatrix & C);
-    NVMATH_API void sgemm(float alpha, Transpose TA, const FullMatrix & A, Transpose TB, const FullMatrix & B, float beta, FullMatrix & C);
-
-
     /**
     * Sparse matrix class. The matrix is assumed to be sparse and to have
     * very few non-zero elements, for this reason it's stored in indexed 
@@ -125,7 +71,6 @@ namespace nv
     **/
     class SparseMatrix
     {
-        friend class FullMatrix;
     public:
 
         // An element of the sparse array.
