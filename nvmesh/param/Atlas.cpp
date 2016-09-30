@@ -17,7 +17,6 @@
 #include "nvmesh/halfedge/Face.h"
 #include "nvmesh/halfedge/Vertex.h"
 
-#include "nvmesh/MeshBuilder.h"
 #include "nvmesh/MeshTopology.h"
 #include "nvmesh/param/Util.h"
 #include "nvmesh/geometry/Measurements.h"
