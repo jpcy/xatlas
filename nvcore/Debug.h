@@ -83,12 +83,6 @@
 #   define NV_ANALYZER_NORETURN
 #endif
 
-#define nvDebugBreakOnce() \
-    NV_MULTI_LINE_MACRO_BEGIN \
-    static bool firstTime = true; \
-    if (firstTime) { firstTime = false; nvDebugBreak(); } \
-    NV_MULTI_LINE_MACRO_END
-
 #define nvAssertMacro(exp) \
     NV_MULTI_LINE_MACRO_BEGIN \
     if (!nvExpect(exp)) { \
@@ -223,22 +217,14 @@ namespace nv
 
     namespace debug
     {
-        NVCORE_API void dumpInfo();
-        NVCORE_API void dumpCallstack( MessageHandler *messageHandler, int callstackLevelsToSkip = 0 );
-
         NVCORE_API void setMessageHandler( MessageHandler * messageHandler );
         NVCORE_API void resetMessageHandler();
 
         NVCORE_API void setAssertHandler( AssertHandler * assertHanlder );
         NVCORE_API void resetAssertHandler();
 
-        NVCORE_API void enableSigHandler(bool interactive);
-        NVCORE_API void disableSigHandler();
-
         NVCORE_API bool isDebuggerPresent();
         NVCORE_API bool attachToDebugger();
-
-        NVCORE_API void terminate(int code);
     }
 
 } // nv namespace

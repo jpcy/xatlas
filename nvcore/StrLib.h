@@ -368,66 +368,6 @@ namespace nv
         uint operator()(const String & str) const { return str.hash(); }
     };
 
-
-    // Like AutoPtr, but for const char strings.
-    class AutoString
-    {
-        NV_FORBID_COPY(AutoString);
-        NV_FORBID_HEAPALLOC();
-    public:
-
-        // Ctor.
-        AutoString(const char * p = NULL) : m_ptr(p) { }
-
-#if NV_CC_CPP11
-        // Move ctor.
-        AutoString(AutoString && ap) : m_ptr(ap.m_ptr) { ap.m_ptr = NULL; }
-#endif
-        
-        // Dtor. Deletes owned pointer.
-        ~AutoString() {
-            delete [] m_ptr;
-            m_ptr = NULL;
-        }
-
-        // Delete owned pointer and assign new one.
-        void operator=(const char * p) {
-            if (p != m_ptr) 
-            {
-                delete [] m_ptr;
-                m_ptr = p;
-            }
-        }
-
-        // Get pointer.
-        const char * ptr() const { return m_ptr; }
-        operator const char *() const { return m_ptr; }
-
-        // Relinquish ownership of the underlying pointer and returns that pointer.
-        const char * release() {
-            const char * tmp = m_ptr;
-            m_ptr = NULL;
-            return tmp;
-        }
-
-        // comparison operators.
-        friend bool operator == (const AutoString & ap, const char * const p) {
-            return (ap.ptr() == p);
-        }
-        friend bool operator != (const AutoString & ap, const char * const p) {
-            return (ap.ptr() != p);
-        }
-        friend bool operator == (const char * const p, const AutoString & ap) {
-            return (ap.ptr() == p);
-        }
-        friend bool operator != (const char * const p, const AutoString & ap) {
-            return (ap.ptr() != p);
-        }
-
-    private:
-        const char * m_ptr;
-    };
-
 } // nv namespace
 
 #endif // NV_CORE_STRING_H

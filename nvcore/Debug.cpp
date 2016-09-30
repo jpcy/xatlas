@@ -828,9 +828,6 @@ namespace
             }
             nvDebug( error_string.str() );
 
-            // Print stack trace:
-            debug::dumpInfo();
-
             if (debug::isDebuggerPresent()) {
                 return NV_ABORT_DEBUG;
             }
@@ -995,43 +992,6 @@ int nvAbort(const char * exp, const char * file, int line, const char * func/*=N
     return result;
 }
 
-// Abnormal termination. Create mini dump and output call stack.
-void debug::terminate(int code)
-{
-#if NV_OS_WIN32 || NV_OS_DURANGO
-    EnterCriticalSection(&s_handler_critical_section);
-
-    writeMiniDump(NULL);
-
-#if NV_OS_WIN32
-    const int max_stack_size = 64;
-    void * trace[max_stack_size];
-    int size = backtrace(trace, max_stack_size);
-
-    // @@ Use win32's CreateFile?
-    FILE * fp = fileOpen("crash.txt", "wb");
-    if (fp != NULL) {
-        Array<const char *> lines;
-        writeStackTrace(trace, size, 0, lines);
-
-        for (uint i = 0; i < lines.count(); i++) {
-            fputs(lines[i], fp);
-            delete lines[i];
-        }
-
-        // @@ Add more info to crash.txt?
-
-        fclose(fp);
-    }
-#endif
-
-    LeaveCriticalSection(&s_handler_critical_section);
-#endif
-
-    exit(code);
-}
-
-
 /// Shows a message through the message handler.
 void NV_CDECL nvDebugPrint(const char *msg, ...)
 {
@@ -1045,50 +1005,6 @@ void NV_CDECL nvDebugPrint(const char *msg, ...)
     }
     va_end(arg);
 }
-
-
-/// Dump debug info.
-void debug::dumpInfo()
-{
-#if (NV_OS_WIN32 && NV_CC_MSVC) || (defined(NV_HAVE_SIGNAL_H) && defined(NV_HAVE_EXECINFO_H))
-    if (hasStackTrace())
-    {
-        void * trace[64];
-        int size = backtrace(trace, 64);
-
-        nvDebug( "\nDumping stacktrace:\n" );
-
-        Array<const char *> lines;
-        writeStackTrace(trace, size, 1, lines);
-
-        for (uint i = 0; i < lines.count(); i++) {
-            nvDebug("%s", lines[i]);
-            delete lines[i];
-        }
-    }
-#endif
-}
-
-/// Dump callstack using the specified handler.
-void debug::dumpCallstack(MessageHandler *messageHandler, int callstackLevelsToSkip /*= 0*/)
-{
-#if (NV_OS_WIN32 && NV_CC_MSVC) || (defined(NV_HAVE_SIGNAL_H) && defined(NV_HAVE_EXECINFO_H))
-    if (hasStackTrace())
-    {
-        void * trace[64];
-        int size = backtrace(trace, 64);
-
-        Array<const char *> lines;
-        writeStackTrace(trace, size, callstackLevelsToSkip + 1, lines);     // + 1 to skip the call to dumpCallstack
-
-        for (uint i = 0; i < lines.count(); i++) {
-            messageHandler->log(lines[i], NULL);
-            delete lines[i];
-        }
-    }
-#endif
-}
-
 
 /// Set the debug message handler.
 void debug::setMessageHandler(MessageHandler * message_handler)
@@ -1113,146 +1029,6 @@ void debug::resetAssertHandler()
 {
     s_assert_handler = NULL;
 }
-
-#if NV_OS_WIN32 || NV_OS_DURANGO
-#if NV_USE_SEPARATE_THREAD
-
-static void initHandlerThread()
-{
-    static const int kExceptionHandlerThreadInitialStackSize = 64 * 1024;
-
-    // Set synchronization primitives and the handler thread.  Each
-    // ExceptionHandler object gets its own handler thread because that's the
-    // only way to reliably guarantee sufficient stack space in an exception,
-    // and it allows an easy way to get a snapshot of the requesting thread's
-    // context outside of an exception.
-    InitializeCriticalSection(&s_handler_critical_section);
-    
-    s_handler_start_semaphore = CreateSemaphoreExW(NULL, 0, 1, NULL, 0,
-        SEMAPHORE_MODIFY_STATE | DELETE | SYNCHRONIZE);
-    nvDebugCheck(s_handler_start_semaphore != NULL);
-
-    s_handler_finish_semaphore = CreateSemaphoreExW(NULL, 0, 1, NULL, 0,
-        SEMAPHORE_MODIFY_STATE | DELETE | SYNCHRONIZE);
-    nvDebugCheck(s_handler_finish_semaphore != NULL);
-
-    // Don't attempt to create the thread if we could not create the semaphores.
-    if (s_handler_finish_semaphore != NULL && s_handler_start_semaphore != NULL) {
-        DWORD thread_id;
-        s_handler_thread = CreateThread(NULL,         // lpThreadAttributes
-                                        kExceptionHandlerThreadInitialStackSize,
-                                        ExceptionHandlerThreadMain,
-                                        NULL,         // lpParameter
-                                        0,            // dwCreationFlags
-                                        &thread_id);
-        nvDebugCheck(s_handler_thread != NULL);
-    }
-
-    /* @@ We should avoid loading modules in the exception handler!
-    dbghelp_module_ = LoadLibrary(L"dbghelp.dll");
-    if (dbghelp_module_) {
-        minidump_write_dump_ = reinterpret_cast<MiniDumpWriteDump_type>(GetProcAddress(dbghelp_module_, "MiniDumpWriteDump"));
-    }
-    */
-}
-
-static void shutHandlerThread() {
-    // @@ Free stuff. Terminate thread.
-}
-
-#endif // NV_USE_SEPARATE_THREAD
-#endif // NV_OS_WIN32
-
-
-// Enable signal handler.
-void debug::enableSigHandler(bool interactive)
-{
-    if (s_sig_handler_enabled) return;
-
-    s_sig_handler_enabled = true;
-    s_interactive = interactive;
-
-#if (NV_OS_WIN32 && NV_CC_MSVC) || NV_OS_DURANGO
-    if (interactive) {
-#if NV_OS_WIN32
-        // Do not display message boxes on error.
-        // http://msdn.microsoft.com/en-us/library/windows/desktop/ms680621(v=vs.85).aspx
-        SetErrorMode(SEM_FAILCRITICALERRORS|SEM_NOGPFAULTERRORBOX|SEM_NOOPENFILEERRORBOX);
-#endif
-
-        // CRT reports errors to debug output only.
-        // http://msdn.microsoft.com/en-us/library/1y71x448(v=vs.80).aspx
-        _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
-        _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
-        _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
-    }
-
-
-#if NV_USE_SEPARATE_THREAD
-    initHandlerThread();
-#else
-    InitializeCriticalSection(&s_handler_critical_section);
-#endif
-
-    s_old_exception_filter = ::SetUnhandledExceptionFilter( handleException );
-
-#if _MSC_VER >= 1400  // MSVC 2005/8
-    _set_invalid_parameter_handler(handleInvalidParameter);
-#endif  // _MSC_VER >= 1400
-
-    _set_purecall_handler(handlePureVirtualCall);
-
-#if NV_OS_WIN32
-    // SYMOPT_DEFERRED_LOADS make us not take a ton of time unless we actual log traces
-    SymSetOptions(SYMOPT_DEFERRED_LOADS|SYMOPT_FAIL_CRITICAL_ERRORS|SYMOPT_LOAD_LINES|SYMOPT_UNDNAME);
-
-    if (!SymInitialize(GetCurrentProcess(), NULL, TRUE)) {
-        DWORD error = GetLastError();
-        nvDebug("SymInitialize returned error : %d\n", error);
-    }
-#endif
-
-#elif !NV_OS_WIN32 && defined(NV_HAVE_SIGNAL_H)
-
-    // Install our signal handler
-    struct sigaction sa;
-    sa.sa_sigaction = nvSigHandler;
-    sigemptyset (&sa.sa_mask);
-    sa.sa_flags = SA_ONSTACK | SA_RESTART | SA_SIGINFO;
-
-    sigaction(SIGSEGV, &sa, &s_old_sigsegv);
-    sigaction(SIGTRAP, &sa, &s_old_sigtrap);
-    sigaction(SIGFPE, &sa, &s_old_sigfpe);
-    sigaction(SIGBUS, &sa, &s_old_sigbus);
-
-#endif
-}
-
-/// Disable signal handler.
-void debug::disableSigHandler()
-{
-    nvCheck(s_sig_handler_enabled == true);
-    s_sig_handler_enabled = false;
-
-#if (NV_OS_WIN32 && NV_CC_MSVC) || NV_OS_DURANGO
-
-    ::SetUnhandledExceptionFilter( s_old_exception_filter );
-    s_old_exception_filter = NULL;
-
-#if NV_OS_WIN32
-    SymCleanup(GetCurrentProcess());
-#endif
-
-#elif !NV_OS_WIN32 && defined(NV_HAVE_SIGNAL_H)
-
-    sigaction(SIGSEGV, &s_old_sigsegv, NULL);
-    sigaction(SIGTRAP, &s_old_sigtrap, NULL);
-    sigaction(SIGFPE, &s_old_sigfpe, NULL);
-    sigaction(SIGBUS, &s_old_sigbus, NULL);
-
-#endif
-}
-
 
 bool debug::isDebuggerPresent()
 {
