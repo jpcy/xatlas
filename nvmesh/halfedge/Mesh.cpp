@@ -7,8 +7,6 @@
 #include "Vertex.h"
 #include "Face.h"
 
-#include "nvmesh/TriMesh.h"
-#include "nvmesh/QuadTriMesh.h"
 //#include "nvmesh/MeshBuilder.h"
 
 #include "nvmath/Vector.inl"
@@ -486,78 +484,6 @@ void Mesh::linkBoundaryEdge(Edge * edge)
         edge->vertex->edge = edge;
     }
 }
-
-
-/// Convert to tri mesh.
-TriMesh * Mesh::toTriMesh() const
-{
-    uint triangleCount = 0;
-
-    // Count triangle faces.
-    const uint faceCount = this->faceCount();
-    for(uint f = 0; f < faceCount; f++)
-    {
-        const Face * face = faceAt(f);
-        triangleCount += face->edgeCount() - 2;
-    }
-
-    TriMesh * triMesh = new TriMesh(triangleCount, vertexCount());
-
-    // Add vertices.
-    Array<TriMesh::Vertex> & vertices = triMesh->vertices();
-
-    const uint vertexCount = this->vertexCount();
-    for(uint v = 0; v < vertexCount; v++)
-    {
-        const Vertex * vertex = vertexAt(v);
-
-        TriMesh::Vertex triVertex;
-        triVertex.id = vertices.count();
-        triVertex.pos = vertex->pos;
-        triVertex.nor = vertex->nor;
-        triVertex.tex = vertex->tex;
-
-        vertices.append(triVertex);
-    }
-
-    // Add triangles.
-    Array<TriMesh::Face> & triangles = triMesh->faces();
-
-    for(uint f = 0; f < faceCount; f++)
-    {
-        const Face * face = faceAt(f);
-
-        // @@ Triangulate arbitrary polygons correctly.
-        const uint v0 = face->edge->vertex->id;
-        uint v1 = face->edge->next->vertex->id;
-
-        for(Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance())
-        {
-            uint v2 = it.current()->vertex->id;
-
-            // Skip the first two vertices.
-            if (v2 == v0 || v2 == v1) continue;
-
-            TriMesh::Face triangle;
-            triangle.id = triangles.count();
-            triangle.v[0] = v0;
-            triangle.v[1] = v1;
-            triangle.v[2] = v2;
-
-            v1 = v2;
-
-            triangles.append(triangle);
-        }
-    }
-
-    return triMesh;
-}
-
-QuadTriMesh * Mesh::toQuadTriMesh() const
-{
-    return NULL;
-}
-
 
 // Triangulate in place.
 void Mesh::triangulate() {

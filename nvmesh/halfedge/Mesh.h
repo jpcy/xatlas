@@ -27,8 +27,6 @@ If I were to redo this again, there are a number of things that I would do diffe
 namespace nv
 {
     class Vector3;
-    class TriMesh;
-    class QuadTriMesh;
     //template <typename T> struct Hash<Mesh::Key>;
 
     namespace HalfEdge
@@ -208,12 +206,6 @@ namespace nv
             ConstEdgeIterator edges() const { return ConstEdgeIterator(this); }
 
             // @@ Add half-edge iterator.
-
-
-
-            // Convert to tri mesh.
-            TriMesh * toTriMesh() const;
-            QuadTriMesh * toQuadTriMesh() const;
 
             bool isValid() const;
 
