@@ -4,14 +4,12 @@
 #ifndef NV_IMAGE_BITMAP_H
 #define NV_IMAGE_BITMAP_H
 
-#include "nvimage.h"
-
 #include "nvcore/BitArray.h"
 
 namespace nv 
 {
     /// Bit map. This should probably be called BitImage.
-    class NVIMAGE_CLASS BitMap
+    class BitMap
     {
     public:
         BitMap() : m_width(0), m_height(0) {}

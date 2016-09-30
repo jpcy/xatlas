@@ -4,7 +4,6 @@
 #ifndef NV_IMAGE_IMAGE_H
 #define NV_IMAGE_IMAGE_H
 
-#include "nvimage.h"
 #include "nvcore/Debug.h"
 
 namespace nv
@@ -12,7 +11,7 @@ namespace nv
     class Color32;
 
     /// 32 bit RGBA image.
-    class NVIMAGE_CLASS Image
+    class Image
     {
     public:
 
