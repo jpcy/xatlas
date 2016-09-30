@@ -15,7 +15,6 @@ namespace nv
     class Vector4;
 
     class Matrix;
-    class Quaternion;
     class Basis;
     class Box;
     class Plane;
@@ -25,7 +24,6 @@ namespace nv
     NVMATH_API Stream & operator<< (Stream & s, Vector4 & obj);
 
     NVMATH_API Stream & operator<< (Stream & s, Matrix & obj);
-    NVMATH_API Stream & operator<< (Stream & s, Quaternion & obj);
     NVMATH_API Stream & operator<< (Stream & s, Basis & obj);
     NVMATH_API Stream & operator<< (Stream & s, Box & obj);
     NVMATH_API Stream & operator<< (Stream & s, Plane & obj);

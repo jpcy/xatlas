@@ -6,7 +6,6 @@
 
 #include "nvmath/Vector.h"
 #include "nvmath/Matrix.h"
-#include "nvmath/Quaternion.h"
 #include "nvmath/Basis.h"
 #include "nvmath/Box.h"
 #include "nvmath/Plane.inl"
@@ -31,11 +30,6 @@ Stream & nv::operator<< (Stream & s, Vector4 & v)
 Stream & nv::operator<< (Stream & s, Matrix & m)
 {
     return s;
-}
-
-Stream & nv::operator<< (Stream & s, Quaternion & q)
-{
-    return s << q.x << q.y << q.z << q.w;
 }
 
 Stream & nv::operator<< (Stream & s, Basis & basis)

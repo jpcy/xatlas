@@ -98,7 +98,6 @@ namespace nv
         Vector4(Vector2::Arg v, Vector2::Arg u);
         Vector4(Vector3::Arg v, float w);
         Vector4(Vector4::Arg v);
-        //	Vector4(const Quaternion & v);
 
         //template <typename T> explicit Vector4(const T & v) : x(v.x), y(v.y), z(v.z), w(v.w) {}
         //template <typename T> operator T() const { return T(x, y, z, w); }
