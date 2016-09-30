@@ -4,8 +4,8 @@
 #ifndef NV_MESH_ATLAS_H
 #define NV_MESH_ATLAS_H
 
+#include <memory>
 #include "nvcore/Array.h"
-#include "nvcore/Ptr.h"
 #include "nvmath/Vector.h"
 #include "nvmesh/halfedge/Mesh.h"
 
@@ -134,10 +134,10 @@ namespace nv
         uint faceCount() const { return m_faceArray.count(); }
         uint faceAt(uint i) const { return m_faceArray[i]; }
 
-        const HalfEdge::Mesh * chartMesh() const { return m_chartMesh.ptr(); }
-        HalfEdge::Mesh * chartMesh() { return m_chartMesh.ptr(); }
-        const HalfEdge::Mesh * unifiedMesh() const { return m_unifiedMesh.ptr(); }
-        HalfEdge::Mesh * unifiedMesh() { return m_unifiedMesh.ptr(); }
+        const HalfEdge::Mesh * chartMesh() const { return m_chartMesh.get(); }
+        HalfEdge::Mesh * chartMesh() { return m_chartMesh.get(); }
+        const HalfEdge::Mesh * unifiedMesh() const { return m_unifiedMesh.get(); }
+        HalfEdge::Mesh * unifiedMesh() { return m_unifiedMesh.get(); }
 
         //uint vertexIndex(uint i) const { return m_vertexIndexArray[i]; }
 
@@ -162,8 +162,8 @@ namespace nv
         bool closeLoop(uint start, const Array<HalfEdge::Edge *> & loop);
 
         // Chart mesh.
-        AutoPtr<HalfEdge::Mesh> m_chartMesh;
-        AutoPtr<HalfEdge::Mesh> m_unifiedMesh;
+        std::auto_ptr<HalfEdge::Mesh> m_chartMesh;
+        std::auto_ptr<HalfEdge::Mesh> m_unifiedMesh;
 
         bool m_isDisk;
         bool m_isVertexMapped;

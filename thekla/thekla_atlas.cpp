@@ -2,6 +2,7 @@
 #include "thekla_atlas.h"
 
 #include <cfloat>
+#include <memory>
 
 #include "nvmesh/halfedge/Edge.h"
 #include "nvmesh/halfedge/Mesh.h"
@@ -203,9 +204,9 @@ Atlas_Output_Mesh * Thekla::atlas_generate(const Atlas_Input_Mesh * input, const
 
 
     // Build half edge mesh.
-    AutoPtr<HalfEdge::Mesh> mesh(new HalfEdge::Mesh);
+    std::auto_ptr<HalfEdge::Mesh> mesh(new HalfEdge::Mesh);
 
-    input_to_mesh(input, mesh.ptr(), error);
+    input_to_mesh(input, mesh.get(), error);
 
     if (*error == Atlas_Error_Invalid_Mesh) {
         return NULL;
@@ -228,7 +229,7 @@ Atlas_Output_Mesh * Thekla::atlas_generate(const Atlas_Input_Mesh * input, const
         segmentation_settings.maxBoundaryLength = options->charter_options.witness.max_boundary_length;
 
         Array<uint> uncharted_materials;
-        atlas.computeCharts(mesh.ptr(), segmentation_settings, uncharted_materials);
+        atlas.computeCharts(mesh.get(), segmentation_settings, uncharted_materials);
     }
 
     // Mapper.
@@ -249,7 +250,7 @@ Atlas_Output_Mesh * Thekla::atlas_generate(const Atlas_Input_Mesh * input, const
 
 
     // Build output mesh.
-    return mesh_atlas_to_output(mesh.ptr(), atlas, error);
+    return mesh_atlas_to_output(mesh.get(), atlas, error);
 }
 
 

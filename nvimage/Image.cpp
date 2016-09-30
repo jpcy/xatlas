@@ -6,7 +6,6 @@
 #include "nvmath/Color.h"
 
 #include "nvcore/Debug.h"
-#include "nvcore/Ptr.h"
 #include "nvcore/Utils.h" // swap
 #include "nvcore/Memory.h" // realloc, free
 

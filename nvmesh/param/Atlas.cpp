@@ -654,7 +654,7 @@ void MeshCharts::parameterizeCharts()
 
 
 
-Chart::Chart() : m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false)
+Chart::Chart() : m_isDisk(false), m_isVertexMapped(false)
 {
 }
 
@@ -665,8 +665,8 @@ void Chart::build(const HalfEdge::Mesh * originalMesh, const Array<uint> & faceA
 
     const uint meshVertexCount = originalMesh->vertexCount();
 
-    m_chartMesh = new HalfEdge::Mesh();
-    m_unifiedMesh = new HalfEdge::Mesh();
+    m_chartMesh.reset(new HalfEdge::Mesh());
+    m_unifiedMesh.reset(new HalfEdge::Mesh());
 
     Array<uint> chartMeshIndices;
     chartMeshIndices.resize(meshVertexCount, ~0);
@@ -763,7 +763,7 @@ void Chart::build(const HalfEdge::Mesh * originalMesh, const Array<uint> & faceA
     //exportMesh(m_unifiedMesh.ptr(), "debug_input.obj");
 
     if (m_unifiedMesh->splitBoundaryEdges()) {
-        m_unifiedMesh = unifyVertices(m_unifiedMesh.ptr());
+        m_unifiedMesh.reset(unifyVertices(m_unifiedMesh.get()));
     }
 
     //exportMesh(m_unifiedMesh.ptr(), "debug_split.obj");
@@ -780,13 +780,13 @@ void Chart::build(const HalfEdge::Mesh * originalMesh, const Array<uint> & faceA
         exportMesh(m_unifiedMesh.ptr(), fileName.str());*/
     }
 
-    m_unifiedMesh = triangulate(m_unifiedMesh.ptr());
+    m_unifiedMesh.reset(triangulate(m_unifiedMesh.get()));
     
     //exportMesh(m_unifiedMesh.ptr(), "debug_triangulated.obj");
 
 
     // Analyze chart topology.
-    MeshTopology topology(m_unifiedMesh.ptr());
+    MeshTopology topology(m_unifiedMesh.get());
     m_isDisk = topology.isDisk();
 
     // This is sometimes failing, when triangulate fails to add a triangle, it generates a hole in the mesh.
@@ -817,7 +817,7 @@ void Chart::build(const HalfEdge::Mesh * originalMesh, const Array<uint> & faceA
 
 void Chart::buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint> & unchartedMaterialArray)
 {
-    nvCheck(m_chartMesh == NULL && m_unifiedMesh == NULL);
+    nvCheck(m_chartMesh.get() == NULL && m_unifiedMesh.get() == NULL);
 
     m_isVertexMapped = true;
 
@@ -844,7 +844,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint
 
     const uint meshVertexCount = originalMesh->vertexCount();
 
-    m_chartMesh = new HalfEdge::Mesh();
+    m_chartMesh.reset(new HalfEdge::Mesh());
 
     Array<uint> chartMeshIndices;
     chartMeshIndices.resize(meshVertexCount, ~0);
@@ -1206,7 +1206,7 @@ bool Chart::closeHoles()
     nvDebugCheck(!m_isVertexMapped);
 
     Array<HalfEdge::Edge *> boundaryEdges;
-    getBoundaryEdges(m_unifiedMesh.ptr(), boundaryEdges);
+    getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
 
     uint boundaryCount = boundaryEdges.count();
     if (boundaryCount <= 1)
@@ -1459,7 +1459,7 @@ bool Chart::closeHoles()
     // In case we messed up:
     //m_unifiedMesh->linkBoundary();
 
-    getBoundaryEdges(m_unifiedMesh.ptr(), boundaryEdges);
+    getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
 
     boundaryCount = boundaryEdges.count();
     nvDebugCheck(boundaryCount == 1);
@@ -1483,7 +1483,7 @@ void Chart::transferParameterization() {
 }
 
 float Chart::computeSurfaceArea() const {
-    return nv::computeSurfaceArea(m_chartMesh.ptr()) * scale;
+    return nv::computeSurfaceArea(m_chartMesh.get()) * scale;
 }
 
 float Chart::computeParametricArea() const {
@@ -1491,7 +1491,7 @@ float Chart::computeParametricArea() const {
     nvDebugCheck(m_isDisk);            
     nvDebugCheck(!m_isVertexMapped);
 
-    return nv::computeParametricArea(m_chartMesh.ptr());
+    return nv::computeParametricArea(m_chartMesh.get());
 }
 
 Vector2 Chart::computeParametricBounds() const {
