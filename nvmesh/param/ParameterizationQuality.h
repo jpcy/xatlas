@@ -4,7 +4,7 @@
 #ifndef NV_MESH_PARAMETERIZATIONQUALITY_H
 #define NV_MESH_PARAMETERIZATIONQUALITY_H
 
-#include <nvmesh/nvmesh.h>
+#include "nvcore/nvcore.h"
 
 namespace nv
 {
@@ -14,7 +14,7 @@ namespace nv
     namespace HalfEdge { class Mesh; }
 
     // Estimate quality of existing parameterization.
-    NVMESH_CLASS class ParameterizationQuality
+    class ParameterizationQuality
     {
     public:
         ParameterizationQuality();

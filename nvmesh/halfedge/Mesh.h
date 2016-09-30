@@ -4,7 +4,6 @@
 #ifndef NV_MESH_HALFEDGE_MESH_H
 #define NV_MESH_HALFEDGE_MESH_H
 
-#include "nvmesh/nvmesh.h"
 #include "nvcore/Array.h"
 #include "nvcore/HashMap.h"
 

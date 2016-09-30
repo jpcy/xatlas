@@ -4,7 +4,6 @@
 #ifndef NV_MESH_BASEMESH_H
 #define NV_MESH_BASEMESH_H
 
-#include "nvmesh.h"
 #include "nvmath/Vector.h"
 #include "nvcore/Array.h"
 #include "nvcore/Hash.h"

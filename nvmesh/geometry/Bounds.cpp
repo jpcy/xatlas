@@ -1,7 +1,5 @@
 // This code is in the public domain -- Ignacio Castaño <castano@gmail.com>
 
-#include "nvmesh.h" // pch
-
 #include "Bounds.h"
 
 #include "nvmesh/BaseMesh.h"

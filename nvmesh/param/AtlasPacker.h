@@ -10,9 +10,6 @@
 #include "nvimage/BitMap.h"
 #include "nvimage/Image.h"
 
-#include "nvmesh/nvmesh.h"
-
-
 namespace nv
 {
     class Atlas;

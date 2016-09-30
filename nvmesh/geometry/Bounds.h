@@ -7,8 +7,6 @@
 #include <nvmath/Sphere.h>
 #include <nvmath/Box.h>
 
-#include <nvmesh/nvmesh.h>
-
 namespace nv
 {
     class BaseMesh;

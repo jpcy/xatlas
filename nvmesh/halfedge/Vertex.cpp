@@ -1,7 +1,5 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include "nvmesh.h" // pch
-
 #include "Vertex.h"
 
 #include "nvmath/Vector.inl"

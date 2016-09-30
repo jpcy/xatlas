@@ -1,6 +1,6 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include "nvmesh/nvmesh.h"
+#include "nvcore/nvcore.h"
 
 namespace nv {
 

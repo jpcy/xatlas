@@ -7,7 +7,6 @@
 #include "nvcore/Array.h"
 #include "nvcore/Ptr.h"
 #include "nvmath/Vector.h"
-#include "nvmesh/nvmesh.h"
 #include "nvmesh/halfedge/Mesh.h"
 
 

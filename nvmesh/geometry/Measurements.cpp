@@ -1,7 +1,5 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include "nvmesh.h" // pch
-
 #include "Measurements.h"
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Face.h"

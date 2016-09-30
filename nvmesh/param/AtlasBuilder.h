@@ -8,7 +8,6 @@
 
 #include "nvmath/Vector.h"
 #include "nvmath/Random.h"
-#include "nvmesh/nvmesh.h"
 
 #include "nvcore/Array.h"
 #include "nvcore/BitArray.h"

@@ -4,8 +4,6 @@
 #ifndef NV_MESH_MESHMEASUREMENTS_H
 #define NV_MESH_MESHMEASUREMENTS_H
 
-#include "nvmesh/nvmesh.h"
-
 namespace nv
 {
     namespace HalfEdge { class Mesh; }

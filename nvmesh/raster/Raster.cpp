@@ -5,8 +5,6 @@
  * specially optimized, but enough for my purposes.
 **/
 
-#include "nvmesh.h" // pch
-
 #include "Raster.h"
 #include "ClippedTriangle.h"
 

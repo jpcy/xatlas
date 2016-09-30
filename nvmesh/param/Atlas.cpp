@@ -1,7 +1,5 @@
 // Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
 
-#include "nvmesh.h" // pch
-
 #include "Atlas.h"
 #include "Util.h"
 #include "AtlasBuilder.h"

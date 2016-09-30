@@ -4,8 +4,6 @@
 #ifndef NV_MESH_MESHTOPOLOGY_H
 #define NV_MESH_MESHTOPOLOGY_H
 
-#include <nvmesh/nvmesh.h>
-
 namespace nv
 {
     namespace HalfEdge { class Mesh; }
@@ -44,7 +42,7 @@ namespace nv
 
     private:
 
-        NVMESH_API void buildTopologyInfo(const HalfEdge::Mesh * mesh);
+        void buildTopologyInfo(const HalfEdge::Mesh * mesh);
 
     private:
 

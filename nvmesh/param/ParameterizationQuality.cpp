@@ -1,7 +1,5 @@
 // Copyright NVIDIA Corporation 2008 -- Ignacio Castano <icastano@nvidia.com>
 
-#include "nvmesh.h" // pch
-
 #include "ParameterizationQuality.h"
 
 #include "nvmesh/halfedge/Mesh.h"

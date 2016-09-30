@@ -1,7 +1,5 @@
 // This code is in the public domain -- castanyo@yahoo.es
 
-#include "nvmesh.h" // pch
-
 #include "Mesh.h"
 #include "Edge.h"
 #include "Vertex.h"
