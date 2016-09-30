@@ -2,30 +2,12 @@
 
 #include "Bounds.h"
 
-#include "nvmesh/BaseMesh.h"
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Vertex.h"
 
 #include "nvmath/Box.inl"
 
 using namespace nv;
-
-Box MeshBounds::box(const BaseMesh * mesh)
-{
-    nvCheck(mesh != NULL);
-
-    Box bounds;
-    bounds.clearBounds();
-
-    const uint vertexCount = mesh->vertexCount();
-    for (uint v = 0; v < vertexCount; v++)
-    {
-        const BaseMesh::Vertex & vertex = mesh->vertexAt(v);
-        bounds.addPointToBounds( vertex.pos );
-    }
-
-    return bounds;
-}
 
 Box MeshBounds::box(const HalfEdge::Mesh * mesh)
 {

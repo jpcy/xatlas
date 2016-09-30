@@ -9,13 +9,11 @@
 
 namespace nv
 {
-    class BaseMesh;
     namespace HalfEdge { class Mesh; }
 
     // Bounding volumes computation.
     namespace MeshBounds
     {
-        Box box(const BaseMesh * mesh);
         Box box(const HalfEdge::Mesh * mesh);
 
         Sphere sphere(const HalfEdge::Mesh * mesh);
