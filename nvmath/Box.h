@@ -12,7 +12,6 @@ namespace nv
 {
     class Vector;
     class Stream;
-    class Sphere;
 
     // Axis Aligned Bounding Box.
     class Box
@@ -54,9 +53,6 @@ namespace nv
         // Add a box to this box.
         void addBoxToBounds(const Box & b);
 
-        // Add sphere to this box.
-        void addSphereToBounds(const Vector3 & p, float r);
-
         // Translate box.
         void translate(const Vector3 & v);
 
@@ -92,7 +88,6 @@ namespace nv
     };
 
     float distanceSquared(const Box &box, const Vector3 &point);
-    bool overlap(const Box &box, const Sphere &sphere);
 
     // p is ray origin, id is inverse ray direction.
     bool intersect(const Box & box, const Vector3 & p, const Vector3 & id, float * t);

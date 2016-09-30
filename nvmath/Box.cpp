@@ -2,7 +2,6 @@
 
 #include "Box.h"
 #include "Box.inl"
-#include "Sphere.h"
 
 using namespace nv;
 
@@ -77,11 +76,6 @@ float nv::distanceSquared(const Box &box, const Vector3 &point) {
 
     return lengthSquared(point - closest);
 }
-
-bool nv::overlap(const Box &box, const Sphere &sphere) {
-    return distanceSquared(box, sphere.center) < sphere.radius * sphere.radius;
-}
-
 
 bool nv::intersect(const Box & box, const Vector3 & p, const Vector3 & id, float * t /*= NULL*/) {
     // Precompute these in ray structure?

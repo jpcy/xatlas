@@ -86,12 +86,6 @@ namespace nv
         maxCorner = max(maxCorner, b.maxCorner);
     }
 
-    // Add sphere to this box.
-    inline void Box::addSphereToBounds(const Vector3 & p, float r) {
-        minCorner = min(minCorner, p - Vector3(r));
-        maxCorner = min(maxCorner, p + Vector3(r));
-    }
-
     // Translate box.
     inline void Box::translate(const Vector3 & v)
     {
