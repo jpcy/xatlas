@@ -1286,7 +1286,7 @@ void AtlasBuilder::mergeCharts()
     }
 
     // Remove deleted charts.
-    for (int c = 0; c < I32(chartArray.count()); /*do not increment if removed*/)
+    for (int c = 0; c < int32(chartArray.count()); /*do not increment if removed*/)
     {
         if (chartArray[c] == NULL) {
             chartArray.removeAt(c);
@@ -1296,7 +1296,7 @@ void AtlasBuilder::mergeCharts()
             for (uint i = 0; i < faceCount; i++) {
                 nvDebugCheck (faceChartArray[i] != -1);
                 nvDebugCheck (faceChartArray[i] != c);
-                nvDebugCheck (faceChartArray[i] <= I32(chartArray.count()));
+                nvDebugCheck (faceChartArray[i] <= int32(chartArray.count()));
 
                 if (faceChartArray[i] > c) {
                     faceChartArray[i]--;

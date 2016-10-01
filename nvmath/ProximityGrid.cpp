@@ -107,27 +107,27 @@ void ProximityGrid::gather(const Vector3 & position, float radius, Array<uint> &
 
 
 uint32 ProximityGrid::mortonCount() const {
-    uint64 s = U64(max3(sx, sy, sz));
+    uint64 s = uint64(max3(sx, sy, sz));
     s = nextPowerOfTwo(s);
     
     if (s > 1024) {
-        return U32(s * s * min3(sx, sy, sz));
+        return uint32(s * s * min3(sx, sy, sz));
     }
 
-    return U32(s * s * s);
+    return uint32(s * s * s);
 }
 
 int ProximityGrid::mortonIndex(uint32 code) const {
     uint32 x, y, z;
 
-    uint s = U32(max3(sx, sy, sz));
+    uint s = uint32(max3(sx, sy, sz));
     if (s > 1024) {
         // Use layered two-dimensional morton order.
         s = nextPowerOfTwo(s);
         uint layer = code / (s * s);
         code = code % (s * s);
 
-        uint layer_count = U32(min3(sx, sy, sz));
+        uint layer_count = uint32(min3(sx, sy, sz));
         if (sx == layer_count) {
             x = layer;
             y = decodeMorton2X(code);
@@ -150,7 +150,7 @@ int ProximityGrid::mortonIndex(uint32 code) const {
         z = decodeMorton3Z(code);
     }
 
-    if (x >= U32(sx) || y >= U32(sy) || z >= U32(sz)) {
+    if (x >= uint32(sx) || y >= uint32(sy) || z >= uint32(sz)) {
         return -1;
     }
 

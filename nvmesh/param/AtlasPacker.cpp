@@ -666,8 +666,8 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
         if (uint(w) > m_bitmap.width() || uint(h) > m_bitmap.height())
         {
             //nvDebug("Resize bitmap (%d, %d).\n", nextPowerOfTwo(w), nextPowerOfTwo(h));
-            m_bitmap.resize(nextPowerOfTwo(U32(w)), nextPowerOfTwo(U32(h)), false);
-            m_debug_bitmap.resize(nextPowerOfTwo(U32(w)), nextPowerOfTwo(U32(h)));
+            m_bitmap.resize(nextPowerOfTwo(uint32(w)), nextPowerOfTwo(uint32(h)), false);
+            m_debug_bitmap.resize(nextPowerOfTwo(uint32(w)), nextPowerOfTwo(uint32(h)));
         }
 
         //nvDebug("Add chart at (%d, %d).\n", best_x, best_y);
@@ -1227,7 +1227,7 @@ static bool debugDrawCallback(void * param, int x, int y, Vector3::Arg, Vector3:
         c.r = chartColor.r;
         c.g = chartColor.g;
         c.b = chartColor.b;
-        c.a += U8(ftoi_round(0.5f * area * 255));
+        c.a += uint8(ftoi_round(0.5f * area * 255));
         image->pixel(x, y) = c;
     }
 

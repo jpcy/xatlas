@@ -191,7 +191,7 @@ namespace nv
     {
         uint64 value = 0;
         while (i >>= 1) value++;
-        return U32(value);
+        return uint32(value);
     }
 
     inline float lerp(float f0, float f1, float t)

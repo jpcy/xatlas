@@ -972,7 +972,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint
                 x = decodeMorton2X(texelCode);
                 y = decodeMorton2Y(texelCode);
                 texelCode++;
-            } while (x >= U32(vertexMapWidth) || y >= U32(vertexMapHeight));
+            } while (x >= uint32(vertexMapWidth) || y >= uint32(vertexMapHeight));
             
             vertex->tex.x = float(x);
             vertex->tex.y = float(y);
@@ -1076,7 +1076,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint
             x = decodeMorton2X(texelCode);
             y = decodeMorton2Y(texelCode);
             texelCode++;
-        } while (x >= U32(vertexMapWidth) || y >= U32(vertexMapHeight));
+        } while (x >= uint32(vertexMapWidth) || y >= uint32(vertexMapHeight));
 
         texelCodes[i] = texelCode - 1;
     }

@@ -412,7 +412,7 @@ namespace nv
         }
 
         // Force new_size to be a power of two.
-        new_size = nextPowerOfTwo(U32(new_size));
+        new_size = nextPowerOfTwo(uint32(new_size));
 
         HashMap<T, U, H, E> new_hash;
         new_hash.table = (Entry *)malloc(sizeof(Entry) * new_size);
