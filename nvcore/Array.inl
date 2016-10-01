@@ -400,18 +400,4 @@ namespace nv
 
 } // nv namespace
 
-// IC: These functions are for compatibility with the Foreach macro in The Witness.
-template <typename T> inline int item_count(const nv::Array<T> & array) { return array.count(); }
-template <typename T> inline const T & item_at(const nv::Array<T> & array, int i) { return array.at(i); }
-template <typename T> inline T & item_at(nv::Array<T> & array, int i) { return array.at(i); }
-template <typename T> inline int item_advance(const nv::Array<T> & array, int i) { return ++i; }
-template <typename T> inline int item_remove(nv::Array<T> & array, int i) { array.replaceWithLast(i); return i - 1; }
-
-template <typename T> inline int item_count(const nv::Array<T> * array) { return array->count(); }
-template <typename T> inline const T & item_at(const nv::Array<T> * array, int i) { return array->at(i); }
-template <typename T> inline T & item_at(nv::Array<T> * array, int i) { return array->at(i); }
-template <typename T> inline int item_advance(const nv::Array<T> * array, int i) { return ++i; }
-template <typename T> inline int item_remove(nv::Array<T> * array, int i) { array->replaceWithLast(i); return i - 1; }
-
-
 #endif // NV_CORE_ARRAY_INL

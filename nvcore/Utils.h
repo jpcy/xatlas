@@ -67,6 +67,10 @@ namespace nv
         return min(max(x, a), b);
     }
 
+	inline float saturate(float f) {
+        return clamp(f, 0.0f, 1.0f);
+    }
+
     /** Return the next power of two. 
     * @see http://graphics.stanford.edu/~seander/bithacks.html
     * @warning Behaviour for 0 is undefined.
