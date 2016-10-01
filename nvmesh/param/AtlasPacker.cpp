@@ -12,7 +12,6 @@
 #include "nvmath/Color.h"
 #include "nvmath/ftoi.h"
 
-#include "nvcore/StrLib.h" // debug
 #include "nvcore/StdStream.h" // fileOpen
 
 #include <float.h> // FLT_MAX

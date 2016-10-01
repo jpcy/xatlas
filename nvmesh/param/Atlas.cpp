@@ -25,7 +25,6 @@
 #include "nvmath/ProximityGrid.h"
 #include "nvmath/Morton.h"
 
-#include "nvcore/StrLib.h"
 #include "nvcore/Array.inl"
 #include "nvcore/HashMap.inl"
 
