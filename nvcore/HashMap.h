@@ -38,7 +38,6 @@ namespace nv
     template<typename T, typename U, typename H = Hash<T>, typename E = Equal<T> >
     class HashMap
     {
-        NV_FORBID_COPY(HashMap);
     public:
 
         /// Default ctor.

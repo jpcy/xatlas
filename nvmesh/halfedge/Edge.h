@@ -13,7 +13,6 @@ namespace nv
     /// Half edge edge. 
     class HalfEdge::Edge
     {
-        NV_FORBID_COPY(Edge);
     public:
 
         uint id;

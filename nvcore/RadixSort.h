@@ -14,7 +14,6 @@ namespace nv
 
     class RadixSort
     {
-        NV_FORBID_COPY(RadixSort);
     public:
         // Constructor/Destructor
         RadixSort();

@@ -13,7 +13,6 @@ namespace nv
     /// Face of a half-edge mesh.
     class HalfEdge::Face
     {
-        NV_FORBID_COPY(Face);
     public:
 
         uint id;

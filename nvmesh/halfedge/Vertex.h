@@ -13,7 +13,6 @@ namespace nv
     // Half edge vertex.
     class HalfEdge::Vertex
     {
-        NV_FORBID_COPY(Vertex);
     public:
 
         uint id;

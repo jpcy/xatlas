@@ -140,18 +140,6 @@
 #define NV_BIG_ENDIAN       POSH_BIG_ENDIAN
 #define NV_ENDIAN_STRING    POSH_ENDIAN_STRING
 
-
-// Define the right printf prefix for size_t arguments:
-#if POSH_64BIT_POINTER
-#  define NV_SIZET_PRINTF_PREFIX POSH_I64_PRINTF_PREFIX
-#else
-#  define NV_SIZET_PRINTF_PREFIX
-#endif
-
-
-// cmake config
-#include "nvconfig.h"
-
 #if NV_OS_DARWIN
 #include <stdint.h>
 //#include <inttypes.h>
@@ -206,18 +194,6 @@ typedef posh_i64_t  int64;
 // Aliases
 typedef uint32      uint;
 
-// Disable copy constructor and assignment operator. 
-#if NV_CC_CPP11
-#define NV_FORBID_COPY(C) \
-    C( const C & ) = delete; \
-    C &operator=( const C & ) = delete
-#else
-#define NV_FORBID_COPY(C) \
-    private: \
-    C( const C & ); \
-    C &operator=( const C & )
-#endif
-
 // String concatenation macros.
 #define NV_STRING_JOIN2(arg1, arg2) NV_DO_STRING_JOIN2(arg1, arg2)
 #define NV_DO_STRING_JOIN2(arg1, arg2) arg1 ## arg2
@@ -255,11 +231,6 @@ NV_COMPILER_CHECK(sizeof(uint32) == 4);
 // Null index. @@ Move this somewhere else... it's only used by nvmesh.
 //const unsigned int NIL = unsigned int(~0);
 #define NIL uint(~0)
-
-// Null pointer.
-#ifndef NULL
-#define NULL 0
-#endif
 
 // Platform includes
 #if NV_CC_MSVC
