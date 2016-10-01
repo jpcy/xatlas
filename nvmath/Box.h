@@ -5,6 +5,7 @@
 #define NV_MATH_BOX_H
 
 #include "Vector.h"
+#include "Vector.inl"
 
 #include <float.h> // FLT_MAX
 
@@ -21,73 +22,40 @@ namespace nv
         inline Box(const Box & b) : minCorner(b.minCorner), maxCorner(b.maxCorner) {}
         inline Box(const Vector3 & mins, const Vector3 & maxs) : minCorner(mins), maxCorner(maxs) {}
 
-        Box & operator=(const Box & b);
-
         operator const float * () const { return reinterpret_cast<const float *>(this); }
 
         // Clear the bounds.
-        void clearBounds();
-
-        // min < max
-        bool isValid() const;
-
-        // Build a cube centered on center and with edge = 2*dist
-        void cube(const Vector3 & center, float dist);
-
-        // Build a box, given center and extents.
-        void setCenterExtents(const Vector3 & center, const Vector3 & extents);
-
-        // Get box center.
-        Vector3 center() const;
+        void clearBounds()
+		{
+			minCorner.set(FLT_MAX, FLT_MAX, FLT_MAX);
+			maxCorner.set(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+		}
 
         // Return extents of the box.
-        Vector3 extents() const;
-
-        // Return extents of the box.
-        float extents(uint axis) const;
+		Vector3 Box::extents() const
+		{
+			return (maxCorner - minCorner) * 0.5f;
+		}
 
         // Add a point to this box.
-        void addPointToBounds(const Vector3 & p);
-
-        // Add a box to this box.
-        void addBoxToBounds(const Box & b);
-
-        // Translate box.
-        void translate(const Vector3 & v);
-
-        // Scale the box.
-        void scale(float s);
-
-        // Expand the box by a fixed amount.
-        void expand(float r);
-
-        // Get the area of the box.
-        float area() const;
+        void addPointToBounds(const Vector3 & p)
+		{
+			minCorner = min(minCorner, p);
+			maxCorner = max(maxCorner, p);
+		}
  
         // Get the volume of the box.
-        float volume() const;
-
-        // Return true if the box contains the given point.
-        bool contains(const Vector3 & p) const;
-
-        // Split the given box in 8 octants and assign the ith one to this box.
-        void setOctant(const Box & box, const Vector3 & center, int i);
-
-
-        // Clip the given segment against this box.
-        bool clipSegment(const Vector3 & origin, const Vector3 & dir, float * t_near, float * t_far) const;
+        float volume() const
+		{
+			Vector3 d = extents();
+			return 8.0f * (d.x * d.y * d.z);
+		}
 
         const Vector3 & corner(int i) const { return (&minCorner)[i]; }
 
         Vector3 minCorner;
         Vector3 maxCorner;
     };
-
-    float distanceSquared(const Box &box, const Vector3 &point);
-
-    // p is ray origin, id is inverse ray direction.
-    bool intersect(const Box & box, const Vector3 & p, const Vector3 & id, float * t);
-
 } // nv namespace
 
 

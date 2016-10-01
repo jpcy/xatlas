@@ -20,8 +20,8 @@
 #include "nvmesh/geometry/Measurements.h"
 
 #include "nvmath/Vector.inl"
+#include "nvmath/Box.h"
 #include "nvmath/Fitting.h"
-#include "nvmath/Box.inl"
 #include "nvmath/ProximityGrid.h"
 #include "nvmath/Morton.h"
 

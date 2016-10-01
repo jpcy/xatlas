@@ -1,8 +1,6 @@
 #include "ProximityGrid.h"
-
-#include "Box.inl"
 #include "Morton.h"
-
+#include "Box.h"
 
 using namespace nv;
 
