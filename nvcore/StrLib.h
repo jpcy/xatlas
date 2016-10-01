@@ -61,24 +61,6 @@ namespace nv
 
     NVCORE_API bool isNumber(const char * str) NV_PURE;
 
-    /* @@ Implement these two functions and modify StringBuilder to use them?
-    NVCORE_API void strFormat(const char * dst, const char * fmt, ...);
-    NVCORE_API void strFormatList(const char * dst, const char * fmt, va_list arg);
-
-    template <size_t count> void strFormatSafe(char (&buffer)[count], const char *fmt, ...) __attribute__((format (printf, 2, 3)));
-    template <size_t count> void strFormatSafe(char (&buffer)[count], const char *fmt, ...) {
-        va_list args;
-        va_start(args, fmt);
-        strFormatList(buffer, count, fmt, args);
-        va_end(args);
-    }
-    template <size_t count> void strFormatListSafe(char (&buffer)[count], const char *fmt, va_list arg) {
-        va_list tmp;
-        va_copy(tmp, args);
-        strFormatList(buffer, count, fmt, tmp);
-        va_end(tmp);
-    }*/
-
     template <int count> void strCpySafe(char (&buffer)[count], const char *src) {
         strCpy(buffer, count, src);
     }
@@ -86,128 +68,7 @@ namespace nv
     template <int count> void strCatSafe(char (&buffer)[count], const char * src) {
         strCat(buffer, count, src);
     }
-
-
-
-    /// String builder.
-    class NVCORE_CLASS StringBuilder
-    {
-    public:
-
-        StringBuilder();
-        explicit StringBuilder( uint size_hint );
-        StringBuilder(const char * str);
-        StringBuilder(const char * str, uint len);
-        StringBuilder(const StringBuilder & other);
-
-        ~StringBuilder();
-
-        StringBuilder & format( const char * format, ... ) __attribute__((format (printf, 2, 3)));
-        StringBuilder & formatList( const char * format, va_list arg );
-
-        StringBuilder & append(char c);
-        StringBuilder & append(const char * str);
-        StringBuilder & append(const char * str, uint len);
-        StringBuilder & append(const StringBuilder & str);
-        StringBuilder & appendFormat(const char * format, ...) __attribute__((format (printf, 2, 3)));
-        StringBuilder & appendFormatList(const char * format, va_list arg);
-
-        StringBuilder & appendSpace(uint n);
-
-        StringBuilder & number( int i, int base = 10 );
-        StringBuilder & number( uint i, int base = 10 );
-
-        StringBuilder & reserve(uint size_hint);
-        StringBuilder & copy(const char * str);
-        StringBuilder & copy(const char * str, uint len);
-        StringBuilder & copy(const StringBuilder & str);
-
-        StringBuilder & toLower();
-        StringBuilder & toUpper();
-
-        bool endsWith(const char * str) const;
-        bool beginsWith(const char * str) const;
-
-        char * reverseFind(char c);
-
-        void reset();
-        bool isNull() const { return m_size == 0; }
-
-        // const char * accessors
-        //operator const char * () const { return m_str; }
-        //operator char * () { return m_str; }
-        const char * str() const { return m_str; }
-        char * str() { return m_str; }
-
-        char * release();       // Release ownership of string.
-        void acquire(char *);   // Take ownership of string.
-
-        /// Implement value semantics.
-        StringBuilder & operator=( const StringBuilder & s ) {
-            return copy(s);
-        }
-
-        /// Implement value semantics.
-        StringBuilder & operator=( const char * s ) {
-            return copy(s);
-        }
-
-        /// Equal operator.
-        bool operator==( const StringBuilder & s ) const {
-            return strMatch(s.m_str, m_str);
-        }
-
-        /// Return the exact length.
-        uint length() const { return isNull() ? 0 : strLen(m_str); }
-
-        /// Return the size of the string container.
-        uint capacity() const { return m_size; }
-
-        /// Return the hash of the string.
-        uint hash() const { return isNull() ? 0 : strHash(m_str); }
-
-        // Swap strings.
-        friend void swap(StringBuilder & a, StringBuilder & b);
-
-    protected:
-
-        /// Size of the string container.
-        uint m_size;
-
-        /// String.
-        char * m_str;
-
-    };
-
-
-    /// Path string. @@ This should be called PathBuilder.
-    class NVCORE_CLASS Path : public StringBuilder
-    {
-    public:
-        Path() : StringBuilder() {}
-        explicit Path(int size_hint) : StringBuilder(size_hint) {}
-        Path(const char * str) : StringBuilder(str) {}
-        Path(const Path & path) : StringBuilder(path) {}
-
-        const char * fileName() const;
-        const char * extension() const;
-
-        void translatePath(char pathSeparator = NV_PATH_SEPARATOR);
-
-        void appendSeparator(char pathSeparator = NV_PATH_SEPARATOR);
-
-        void stripFileName();
-        void stripExtension();
-
-        // statics
-        NVCORE_API static char separator();
-        NVCORE_API static const char * fileName(const char *);
-        NVCORE_API static const char * extension(const char *);
-
-        NVCORE_API static void translatePath(char * path, char pathSeparator = NV_PATH_SEPARATOR);
-    };
-
-
+	
     /// String class.
     class NVCORE_CLASS String
     {
@@ -238,12 +99,6 @@ namespace nv
             setString(str, length);
         }
 
-        /// Constructs a shared string from a StringBuilder.
-        String(const StringBuilder & str)
-        {
-            setString(str);
-        }
-
         /// Dtor.
         ~String()
         {
@@ -254,14 +109,6 @@ namespace nv
 
         /// Release the current string and allocate a new one.
         const String & operator=( const char * str )
-        {
-            release();
-            setString( str );
-            return *this;
-        }
-
-        /// Release the current string and allocate a new one.
-        const String & operator=( const StringBuilder & str )
         {
             release();
             setString( str );
@@ -353,7 +200,6 @@ namespace nv
 
         void setString(const char * str);
         void setString(const char * str, uint length);
-        void setString(const StringBuilder & str);
 
         // Swap strings.
         friend void swap(String & a, String & b);
