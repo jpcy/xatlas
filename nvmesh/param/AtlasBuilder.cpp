@@ -454,91 +454,7 @@ namespace {
     {
         return fabs(v.x) + fabs(v.y) + fabs(v.z) + fabs(v.w);
     }
-
-    //#pragma message(NV_FILE_LINE "FIXME: Using the c=cos(teta) substitution, the equation system becomes linear and we can avoid the newton solver.")
-
-    struct ConeFitting
-    {
-        ConeFitting(const HalfEdge::Mesh * m, float g, float tf, float tx) : mesh(m), gamma(g), tolf(tf), tolx(tx), F(0), D(0), H(0) {
-        }
-
-        void addTerm(Vector3 N, float A)
-        {
-            const float c = cosf(X.w);
-            const float s = sinf(X.w);
-            const float tmp = dot(X.xyz(), N) - c;
-
-            F += tmp * tmp;
-
-            D.x += 2 * X.x * tmp;
-            D.y += 2 * X.y * tmp;
-            D.z += 2 * X.z * tmp;
-            D.w += 2 * s * tmp;
-
-            H(0,0) = 2 * X.x * N.x + 2 * tmp;
-            H(0,1) = 2 * X.x * N.y;
-            H(0,2) = 2 * X.x * N.z;
-            H(0,3) = 2 * X.x * s;
-
-            H(1,0) = 2 * X.y * N.x;
-            H(1,1) = 2 * X.y * N.y + 2 * tmp;
-            H(1,2) = 2 * X.y * N.z;
-            H(1,3) = 2 * X.y * s;
-
-            H(2,0) = 2 * X.z * N.x;
-            H(2,1) = 2 * X.z * N.y;
-            H(2,2) = 2 * X.z * N.z + 2 * tmp;
-            H(2,3) = 2 * X.z * s;
-
-            H(3,0) = 2 * s * N.x;
-            H(3,1) = 2 * s * N.y;
-            H(3,2) = 2 * s * N.z;
-            H(3,3) = 2 * s * s + 2 * c * tmp;
-        }
-
-        Vector4 solve(ChartBuildData * chart, Vector4 start)
-        {
-            const uint faceCount = chart->faces.count();
-
-            X = start;
-            
-            Vector4 dX;
-
-            do {
-                for (uint i = 0; i < faceCount; i++)
-                {
-                    const HalfEdge::Face * face = mesh->faceAt(chart->faces[i]);
-
-                    addTerm(face->normal(), face->area());
-                }
-
-                Vector4 dX;
-                //solveKramer(H, D, &dX);
-                solveLU(H, D, &dX);
-
-                // @@ Do a full newton step and reduce by half if F doesn't decrease.
-                X -= gamma * dX;
-
-                // Constrain normal to be normalized.
-                X = Vector4(normalize(X.xyz()), X.w);
-                
-            } while(absoluteSum(D) > tolf || absoluteSum(dX) > tolx);
-
-            return X;
-        }
-
-        HalfEdge::Mesh const * const mesh;
-        const float gamma;
-        const float tolf;
-        const float tolx;
-
-        Vector4 X;
-
-        float F;
-        Vector4 D;
-        Matrix H;
-    };
-
+	
     // Unnormalized face normal assuming it's a triangle.
     static Vector3 triangleNormal(const HalfEdge::Face * face)
     {
@@ -591,50 +507,6 @@ void AtlasBuilder::updateProxy(ChartBuildData * chart)
 
     chart->planeNormal = normalizeSafe(chart->normalSum, Vector3(0), 0.0f);
     chart->centroid = chart->centroidSum / float(chart->faces.count());
-
-    //#pragma message(NV_FILE_LINE "TODO: Experiment with conic fitting.")
-
-    // F = (Nc*Nt - cos Oc)^2 = (x*Nt_x + y*Nt_y + z*Nt_z - cos w)^2
-    // dF/dx = 2 * x * (x*Nt_x + y*Nt_y + z*Nt_z - cos w)
-    // dF/dy = 2 * y * (x*Nt_x + y*Nt_y + z*Nt_z - cos w)
-    // dF/dz = 2 * z * (x*Nt_x + y*Nt_y + z*Nt_z - cos w)
-    // dF/dw = 2 * sin w * (x*Nt_x + y*Nt_y + z*Nt_z - cos w)
-
-    // JacobianMatrix({
-    // 2 * x * (x*Nt_x + y*Nt_y + z*Nt_z - Cos(w)),
-    // 2 * y * (x*Nt_x + y*Nt_y + z*Nt_z - Cos(w)),
-    // 2 * z * (x*Nt_x + y*Nt_y + z*Nt_z - Cos(w)),
-    // 2 * Sin(w) * (x*Nt_x + y*Nt_y + z*Nt_z - Cos(w))}, {x,y,z,w})
-
-    // H[0,0] = 2 * x * Nt_x + 2 * (x*Nt_x + y*Nt_y + z*Nt_z - cos(w));
-    // H[0,1] = 2 * x * Nt_y;
-    // H[0,2] = 2 * x * Nt_z;
-    // H[0,3] = 2 * x * sin(w);
-
-    // H[1,0] = 2 * y * Nt_x;
-    // H[1,1] = 2 * y * Nt_y + 2 * (x*Nt_x + y*Nt_y + z*Nt_z - cos(w));
-    // H[1,2] = 2 * y * Nt_z;
-    // H[1,3] = 2 * y * sin(w);
-
-    // H[2,0] = 2 * z * Nt_x;
-    // H[2,1] = 2 * z * Nt_y;
-    // H[2,2] = 2 * z * Nt_z + 2 * (x*Nt_x + y*Nt_y + z*Nt_z - cos(w));
-    // H[2,3] = 2 * z * sin(w);
-
-    // H[3,0] = 2 * sin(w) * Nt_x;
-    // H[3,1] = 2 * sin(w) * Nt_y;
-    // H[3,2] = 2 * sin(w) * Nt_z;
-    // H[3,3] = 2 * sin(w) * sin(w) + 2 * cos(w) * (x*Nt_x + y*Nt_y + z*Nt_z - cos(w));
-
-    // @@ Cone fitting might be quite slow.
-
-    /*ConeFitting coneFitting(mesh, 0.1f, 0.001f, 0.001f);
-
-    Vector4 start = Vector4(chart->coneAxis, chart->coneAngle);
-    Vector4 solution = coneFitting.solve(chart, start);
-
-    chart->coneAxis = solution.xyz();
-    chart->coneAngle = solution.w;*/
 }
 
 
