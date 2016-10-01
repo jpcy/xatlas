@@ -73,16 +73,6 @@
 #   define nvExpect(expr) __builtin_expect((expr) != 0, true)
 #endif
 
-#if NV_CC_CLANG 
-#   if __has_feature(attribute_analyzer_noreturn)
-#       define NV_ANALYZER_NORETURN __attribute__((analyzer_noreturn))
-#   else
-#       define NV_ANALYZER_NORETURN
-#   endif
-#else
-#   define NV_ANALYZER_NORETURN
-#endif
-
 #define nvAssertMacro(exp) \
     NV_MULTI_LINE_MACRO_BEGIN \
     if (!nvExpect(exp)) { \
@@ -91,37 +81,6 @@
         } \
     } \
     NV_MULTI_LINE_MACRO_END
-
-// GCC, LLVM need "##" before the __VA_ARGS__, MSVC doesn't care
-#define nvAssertMacroWithIgnoreAll(exp,...) \
-    NV_MULTI_LINE_MACRO_BEGIN \
-        static bool ignoreAll = false; \
-        if (!ignoreAll && !nvExpect(exp)) { \
-            int _result = nvAbort(#exp, __FILE__, __LINE__, __FUNC__, ##__VA_ARGS__); \
-            if (_result == NV_ABORT_DEBUG) { \
-                nvDebugBreak(); \
-            } else if (_result == NV_ABORT_IGNORE) { \
-                ignoreAll = true; \
-            } \
-        } \
-    NV_MULTI_LINE_MACRO_END
-
-// Interesting assert macro from Insomniac:
-// http://www.gdcvault.com/play/1015319/Developing-Imperfect-Software-How-to
-// Used as follows:
-// if (nvCheck(i < count)) {
-//     normal path
-// } else {
-//     fixup code.
-// }
-// This style of macro could be combined with __builtin_expect to let the compiler know failure is unlikely.
-#define nvCheckMacro(exp) \
-    (\
-        (exp) ? true : ( \
-            (nvAbort(#exp, __FILE__, __LINE__, __FUNC__) == NV_ABORT_DEBUG) ? (nvDebugBreak(), true) : ( false ) \
-        ) \
-    )
-
 
 #define nvAssert(exp)    nvAssertMacro(exp)
 #define nvCheck(exp)     nvAssertMacro(exp)
@@ -135,31 +94,6 @@
 #endif // _DEBUG
 
 #endif // NV_NO_ASSERT
-
-// Use nvAssume for very simple expresions only: nvAssume(0), nvAssume(value == true), etc.
-/*#if !defined(_DEBUG)
-#   if NV_CC_MSVC
-#       define nvAssume(exp)    __assume(exp)
-#   else
-#       define nvAssume(exp)    nvCheck(exp)
-#   endif
-#else
-#   define nvAssume(exp)    nvCheck(exp)
-#endif*/
-
-#if defined(_DEBUG)
-#  if NV_CC_MSVC
-#   define nvUnreachable() nvAssert(0 && "unreachable"); __assume(0)
-#  else
-#   define nvUnreachable() nvAssert(0 && "unreachable"); __builtin_unreachable()
-#  endif
-#else
-#  if NV_CC_MSVC
-#   define nvUnreachable() __assume(0)
-#  else
-#   define nvUnreachable() __builtin_unreachable()
-#  endif
-#endif
 
 #define nvError(x)      nvAbort(x, __FILE__, __LINE__, __FUNC__)
 #define nvWarning(x)    nvDebugPrint("*** Warning %s/%d: %s\n", __FILE__, __LINE__, (x))
@@ -179,29 +113,11 @@
 #endif
 
 
-NVCORE_API int nvAbort(const char *exp, const char *file, int line, const char * func = NULL, const char * msg = NULL, ...) __attribute__((format (printf, 5, 6))) NV_ANALYZER_NORETURN;
+NVCORE_API int nvAbort(const char *exp, const char *file, int line, const char * func = NULL, const char * msg = NULL, ...) __attribute__((format (printf, 5, 6)));
 NVCORE_API void NV_CDECL nvDebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)));
 
 namespace nv
 {
-    inline bool isValidPtr(const void * ptr) {
-    #if NV_OS_DARWIN
-        return true;    // IC: Not sure what ranges are OK on OSX.
-    #endif
-        
-    #if NV_CPU_X86_64
-        if (ptr == NULL) return true;
-        if (reinterpret_cast<uint64>(ptr) < 0x10000ULL) return false;
-        if (reinterpret_cast<uint64>(ptr) >= 0x000007FFFFFEFFFFULL) return false;
-    #else
-	    if (reinterpret_cast<uint32>(ptr) == 0xcccccccc) return false;
-	    if (reinterpret_cast<uint32>(ptr) == 0xcdcdcdcd) return false;
-	    if (reinterpret_cast<uint32>(ptr) == 0xdddddddd) return false;
-	    if (reinterpret_cast<uint32>(ptr) == 0xffffffff) return false;
-    #endif
-        return true;
-    }
-
     // Message handler interface.
     struct MessageHandler {
         virtual void log(const char * str, va_list arg) = 0;

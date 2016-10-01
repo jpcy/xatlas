@@ -68,7 +68,6 @@ namespace nv
         if (axis == 0) return (maxCorner.x - minCorner.x) * 0.5f;
         if (axis == 1) return (maxCorner.y - minCorner.y) * 0.5f;
         if (axis == 2) return (maxCorner.z - minCorner.z) * 0.5f;
-        nvUnreachable();
         return 0.0f;
     }
 

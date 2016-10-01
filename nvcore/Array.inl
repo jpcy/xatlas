@@ -294,8 +294,6 @@ namespace nv
     template <typename T> 
     NV_FORCEINLINE void Array<T>::clear()
     {
-        nvDebugCheck(isValidPtr(m_buffer));
-
         // Destruct old elements
         destroy_range(m_buffer, 0, m_size);
 
