@@ -11,6 +11,6 @@
 #define nvCheck(exp)     if (!(exp)) { nvDebugPrint("%s %s %s\n", #exp, __FILE__, __LINE__); }
 #define nvDebugCheck(exp) assert(exp)
 #define nvDebug(...)    nvDebugPrint(__VA_ARGS__)
-void NV_CDECL nvDebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)));
+void nvDebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)));
 
 #endif // NV_CORE_DEBUG_H

@@ -49,10 +49,10 @@ namespace nv
     };
 
     // Pseudo-BLAS interface.
-    NVMATH_API void saxpy(float a, const FullVector & x, FullVector & y); // y = a * x + y
-    NVMATH_API void copy(const FullVector & x, FullVector & y);
-    NVMATH_API void scal(float a, FullVector & x);
-    NVMATH_API float dot(const FullVector & x, const FullVector & y);
+    void saxpy(float a, const FullVector & x, FullVector & y); // y = a * x + y
+    void copy(const FullVector & x, FullVector & y);
+    void scal(float a, FullVector & x);
+    float dot(const FullVector & x, const FullVector & y);
 
 
     enum Transpose
@@ -124,24 +124,24 @@ namespace nv
 
     };
 
-    NVMATH_API void transpose(const SparseMatrix & A, SparseMatrix & B);
+    void transpose(const SparseMatrix & A, SparseMatrix & B);
 
-    NVMATH_API void mult(const SparseMatrix & M, const FullVector & x, FullVector & y);
-    NVMATH_API void mult(Transpose TM, const SparseMatrix & M, const FullVector & x, FullVector & y);
+    void mult(const SparseMatrix & M, const FullVector & x, FullVector & y);
+    void mult(Transpose TM, const SparseMatrix & M, const FullVector & x, FullVector & y);
 
     // y = alpha*A*x + beta*y
-    NVMATH_API void sgemv(float alpha, const SparseMatrix & A, const FullVector & x, float beta, FullVector & y);
-    NVMATH_API void sgemv(float alpha, Transpose TA, const SparseMatrix & A, const FullVector & x, float beta, FullVector & y);
+    void sgemv(float alpha, const SparseMatrix & A, const FullVector & x, float beta, FullVector & y);
+    void sgemv(float alpha, Transpose TA, const SparseMatrix & A, const FullVector & x, float beta, FullVector & y);
 
-    NVMATH_API void mult(const SparseMatrix & A, const SparseMatrix & B, SparseMatrix & C);
-    NVMATH_API void mult(Transpose TA, const SparseMatrix & A, Transpose TB, const SparseMatrix & B, SparseMatrix & C);
+    void mult(const SparseMatrix & A, const SparseMatrix & B, SparseMatrix & C);
+    void mult(Transpose TA, const SparseMatrix & A, Transpose TB, const SparseMatrix & B, SparseMatrix & C);
 
     // C = alpha*A*B + beta*C
-    NVMATH_API void sgemm(float alpha, const SparseMatrix & A, const SparseMatrix & B, float beta, SparseMatrix & C);
-    NVMATH_API void sgemm(float alpha, Transpose TA, const SparseMatrix & A, Transpose TB, const SparseMatrix & B, float beta, SparseMatrix & C);
+    void sgemm(float alpha, const SparseMatrix & A, const SparseMatrix & B, float beta, SparseMatrix & C);
+    void sgemm(float alpha, Transpose TA, const SparseMatrix & A, Transpose TB, const SparseMatrix & B, float beta, SparseMatrix & C);
 
     // C = At * A
-    NVMATH_API void sqm(const SparseMatrix & A, SparseMatrix & C);
+    void sqm(const SparseMatrix & A, SparseMatrix & C);
 
 } // nv namespace
 

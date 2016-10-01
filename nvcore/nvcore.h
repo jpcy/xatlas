@@ -232,31 +232,14 @@ NV_COMPILER_CHECK(sizeof(uint32) == 4);
 //const unsigned int NIL = unsigned int(~0);
 #define NIL uint(~0)
 
-// Platform includes
-#if NV_CC_MSVC
-#   if NV_OS_WIN32
-#       include "DefsVcWin32.h"
-#   elif NV_OS_XBOX
-#       include "DefsVcXBox.h"
-#   elif NV_OS_DURANGO
-#       include "DefsVcDurango.h"
-#   else
-#       error "MSVC: Platform not supported"
-#   endif
-#elif NV_CC_GNUC
-#   if NV_OS_LINUX
-#       include "DefsGnucLinux.h"
-#   elif NV_OS_DARWIN || NV_OS_FREEBSD || NV_OS_OPENBSD
-#       include "DefsGnucDarwin.h"
-#   elif NV_OS_ORBIS
-#       include "DefsOrbis.h"
-#   elif NV_OS_MINGW
-#       include "DefsGnucWin32.h"
-#   elif NV_OS_CYGWIN
-#       error "GCC: Cygwin not supported"
-#   else
-#       error "GCC: Platform not supported"
-#   endif
+#ifdef _MSC_VER
+// Ignore gcc attributes.
+#define __attribute__(X)
+#define restrict
+#define NV_FORCEINLINE __forceinline
+#else
+#define restrict __restrict__
+#define NV_FORCEINLINE  inline __attribute__((always_inline))
 #endif
 
 #endif // NV_CORE_H

@@ -19,22 +19,6 @@
     #include <xmmintrin.h>
 #endif
 
-
-
-// Function linkage
-#if NVMATH_SHARED
-#ifdef NVMATH_EXPORTS
-#define NVMATH_API DLL_EXPORT
-#define NVMATH_CLASS DLL_EXPORT_CLASS
-#else
-#define NVMATH_API DLL_IMPORT
-#define NVMATH_CLASS DLL_IMPORT
-#endif
-#else // NVMATH_SHARED
-#define NVMATH_API
-#define NVMATH_CLASS
-#endif // NVMATH_SHARED
-
 // Set some reasonable defaults.
 #ifndef NV_USE_ALTIVEC
 #   define NV_USE_ALTIVEC NV_CPU_PPC

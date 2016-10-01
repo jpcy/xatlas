@@ -26,7 +26,7 @@ namespace nv
 
 
         /// A callback to sample the environment. Return false to terminate rasterization.
-        typedef bool (NV_CDECL * SamplingCallback)(void * param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
+        typedef bool (* SamplingCallback)(void * param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
 
         // Process the given triangle. Returns false if rasterization was interrupted by the callback.
         bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void * param);
@@ -34,7 +34,7 @@ namespace nv
         // Process the given quad. Returns false if rasterization was interrupted by the callback.
         bool drawQuad(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[4], SamplingCallback cb, void * param);
 
-        typedef bool (NV_CDECL * LineSamplingCallback)(void * param, int x, int y, float t, float d);    // t is the position along the segment, d is the distance to the line.
+        typedef bool (* LineSamplingCallback)(void * param, int x, int y, float t, float d);    // t is the position along the segment, d is the distance to the line.
 
         // Process the given line.
         void drawLine(bool antialias, Vector2::Arg extents, bool enableScissors, const Vector2 v[2], LineSamplingCallback cb, void * param);

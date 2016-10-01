@@ -15,7 +15,7 @@ namespace nv
     enum identity_t { identity };
 
     // 3x3 matrix.
-    class NVMATH_CLASS Matrix3
+    class Matrix3
     {
     public:
         Matrix3();
@@ -54,7 +54,7 @@ namespace nv
 
 
     // 4x4 matrix.
-    class NVMATH_CLASS Matrix
+    class Matrix
     {
     public:
         typedef Matrix const & Arg;

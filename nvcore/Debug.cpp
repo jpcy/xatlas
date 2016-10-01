@@ -3,7 +3,7 @@
 #include "Debug.h"
 
 /// Shows a message through the message handler.
-void NV_CDECL nvDebugPrint(const char *msg, ...)
+void nvDebugPrint(const char *msg, ...)
 {
     va_list arg;
     va_start(arg,msg);

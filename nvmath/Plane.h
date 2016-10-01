@@ -11,7 +11,7 @@ namespace nv
 {
     class Matrix;
 
-    class NVMATH_CLASS Plane
+    class Plane
     {
     public:
         Plane();

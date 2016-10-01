@@ -13,10 +13,10 @@ namespace nv
 
 
     // Linear solvers.
-    NVMATH_API bool LeastSquaresSolver(const SparseMatrix & A, const FullVector & b, FullVector & x, float epsilon = 1e-5f);
-    NVMATH_API bool LeastSquaresSolver(const SparseMatrix & A, const FullVector & b, FullVector & x, const uint * lockedParameters, uint lockedCount, float epsilon = 1e-5f);
-    NVMATH_API bool SymmetricSolver(const SparseMatrix & A, const FullVector & b, FullVector & x, float epsilon = 1e-5f);
-    //NVMATH_API void NonSymmetricSolver(const SparseMatrix & A, const FullVector & b, FullVector & x, float epsilon = 1e-5f);
+    bool LeastSquaresSolver(const SparseMatrix & A, const FullVector & b, FullVector & x, float epsilon = 1e-5f);
+    bool LeastSquaresSolver(const SparseMatrix & A, const FullVector & b, FullVector & x, const uint * lockedParameters, uint lockedCount, float epsilon = 1e-5f);
+    bool SymmetricSolver(const SparseMatrix & A, const FullVector & b, FullVector & x, float epsilon = 1e-5f);
+    //void NonSymmetricSolver(const SparseMatrix & A, const FullVector & b, FullVector & x, float epsilon = 1e-5f);
 
 } // nv namespace
 

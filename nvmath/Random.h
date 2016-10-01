@@ -136,7 +136,7 @@ namespace nv
         }
 
         /// Constructor that uses the given seeds.
-        NVMATH_API MTRand( const uint * seed_array, uint length );
+        MTRand( const uint * seed_array, uint length );
 
 
         /// Provide a new seed.
@@ -167,8 +167,8 @@ namespace nv
 
     private:
 
-        NVMATH_API void initialize( uint32 seed );
-        NVMATH_API void reload();
+        void initialize( uint32 seed );
+        void reload();
 
         uint hiBit( uint u ) const { return u & 0x80000000U; }
         uint loBit( uint u ) const { return u & 0x00000001U; }
@@ -363,7 +363,7 @@ namespace nv
 
 
     private:	
-        NVMATH_API static const uint16 a0, a1, a2, c0;
+        static const uint16 a0, a1, a2, c0;
 
         struct rand48_state_t { 
             uint16 x0, x1, x2; 

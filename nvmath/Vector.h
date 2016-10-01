@@ -8,7 +8,7 @@
 
 namespace nv
 {
-    class NVMATH_CLASS Vector2
+    class Vector2
     {
     public:
         typedef Vector2 const & Arg;
@@ -44,7 +44,7 @@ namespace nv
         };
     };
 
-    class NVMATH_CLASS Vector3
+    class Vector3
     {
     public:
         typedef Vector3 const & Arg;
@@ -86,7 +86,7 @@ namespace nv
         };
     };
 
-    class NVMATH_CLASS Vector4
+    class Vector4
     {
     public:
         typedef Vector4 const & Arg;

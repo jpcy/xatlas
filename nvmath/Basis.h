@@ -29,10 +29,10 @@ namespace nv
             build(n, t, sign);
         }
 
-        NVMATH_API void normalize(float epsilon = NV_EPSILON);
-        NVMATH_API void orthonormalize(float epsilon = NV_EPSILON);
-        NVMATH_API void robustOrthonormalize(float epsilon = NV_EPSILON);
-        NVMATH_API void buildFrameForDirection(Vector3::Arg d, float angle = 0);
+        void normalize(float epsilon = NV_EPSILON);
+        void orthonormalize(float epsilon = NV_EPSILON);
+        void robustOrthonormalize(float epsilon = NV_EPSILON);
+        void buildFrameForDirection(Vector3::Arg d, float angle = 0);
 
         /// Calculate the determinant [ F G N ] to obtain the handness of the basis. 
         float handness() const
@@ -60,16 +60,16 @@ namespace nv
         bool isValid() const;
 
         // Get transform matrix for this basis.
-        NVMATH_API Matrix matrix() const;
+        Matrix matrix() const;
 
         // Transform by this basis. (From this basis to object space).
-        NVMATH_API Vector3 transform(Vector3::Arg v) const;
+        Vector3 transform(Vector3::Arg v) const;
 
         // Transform by the transpose. (From object space to this basis).
-        NVMATH_API Vector3 transformT(Vector3::Arg v);
+        Vector3 transformT(Vector3::Arg v);
 
         // Transform by the inverse. (From object space to this basis).
-        NVMATH_API Vector3 transformI(Vector3::Arg v) const;
+        Vector3 transformI(Vector3::Arg v) const;
 
 
         Vector3 tangent;
