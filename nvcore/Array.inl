@@ -321,23 +321,11 @@ namespace nv
     template <typename T>
     NV_FORCEINLINE void Array<T>::copy(const T * data, uint count)
     {
-#if 1   // More simple, but maybe not be as efficient?
         destroy_range(m_buffer, 0, m_size);
 
         setArraySize(count);
 
         construct_range(m_buffer, count, 0, data);
-#else
-        const uint old_size = m_size;
-
-        destroy_range(m_buffer, count, old_size);
-
-        setArraySize(count);
-
-        copy_range(m_buffer, data, old_size);
-
-        construct_range(m_buffer, count, old_size, data);
-#endif
     }
 
     // Assignment operator.

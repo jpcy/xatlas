@@ -13,24 +13,8 @@
 #undef min
 #undef max
 
-#define NV_INT8_MIN    (-128)
-#define NV_INT8_MAX    127
-#define NV_UINT8_MAX    255
-#define NV_INT16_MIN    (-32767-1)
-#define NV_INT16_MAX    32767
-#define NV_UINT16_MAX   0xffff
-#define NV_INT32_MIN    (-2147483647-1)
-#define NV_INT32_MAX    2147483647
 #define NV_UINT32_MAX   0xffffffff
-#define NV_INT64_MAX    POSH_I64(9223372036854775807)
-#define NV_INT64_MIN    (-POSH_I64(9223372036854775807)-1)
-#define NV_UINT64_MAX   POSH_U64(0xffffffffffffffff)
-
-#define NV_HALF_MAX     65504.0F
 #define NV_FLOAT_MAX    3.402823466e+38F
-
-#define NV_INTEGER_TO_FLOAT_MAX  16777217     // Largest integer such that it and all smaller integers can be stored in a 32bit float.
-
 
 namespace nv
 {
@@ -50,14 +34,6 @@ namespace nv
     {
         return (b < a) ? a : b;
     }
-
-	/// Return the maximum of the four arguments.
-	template <typename T> 
-	//inline const T & max4(const T & a, const T & b, const T & c)
-	inline T max4(const T & a, const T & b, const T & c, const T & d)
-	{
-		return max(max(a, b), max(c, d));
-	}
 
     /// Return the maximum of the three arguments.
     template <typename T> 
@@ -127,14 +103,6 @@ namespace nv
         return p;
     }
 
-    // @@ Should I just use a macro instead?
-    template <typename T>
-    inline bool isPowerOfTwo(T n)
-    {
-        return (n & (n-1)) == 0;
-    }
-
-
     // @@ Move this to utils?
     /// Delete all the elements of a container.
     template <typename T>
@@ -145,8 +113,6 @@ namespace nv
             delete container[i];
         }
     }
-
-
 
     // @@ Specialize these methods for numeric, pointer, and pod types.
 
@@ -175,20 +141,6 @@ namespace nv
     void destroy_range(T * restrict ptr, uint new_size, uint old_size) {
         for (uint i = new_size; i < old_size; i++) {
             (ptr+i)->~T(); // Explicit call to the destructor
-        }
-    }
-
-    template <typename T>
-    void fill(T * restrict dst, uint count, const T & value) {
-        for (uint i = 0; i < count; i++) {
-            dst[i] = value;
-        }
-    }
-
-    template <typename T>
-    void copy_range(T * restrict dst, const T * restrict src, uint count) {
-        for (uint i = 0; i < count; i++) {
-            dst[i] = src[i];
         }
     }
 
