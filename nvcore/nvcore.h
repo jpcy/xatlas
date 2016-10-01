@@ -19,8 +19,6 @@
 // NV_OS_ORBIS
 // NV_OS_IOS
 
-#define NV_OS_STRING POSH_OS_STRING
-
 #if defined POSH_OS_LINUX
 #   define NV_OS_LINUX 1
 #   define NV_OS_UNIX 1
@@ -60,28 +58,6 @@
 #   error "Unsupported OS"
 #endif
 
-
-// Is this a console OS? (i.e. connected to a TV)
-#if NV_OS_ORBIS || NV_OS_XBOX || NV_OS_DURANGO
-#   define NV_OS_CONSOLE 1
-#endif 
-
-
-// Threading:
-// some platforms don't implement __thread or similar for thread-local-storage
-#if NV_OS_UNIX || NV_OS_ORBIS || NV_OS_IOS //ACStodoIOS darwin instead of ios?
-#   define NV_OS_USE_PTHREAD 1
-#   if NV_OS_IOS
-#       define NV_OS_HAS_TLS_QUALIFIER 0
-#   else
-#       define NV_OS_HAS_TLS_QUALIFIER 1
-#   endif
-#else
-#   define NV_OS_USE_PTHREAD 0
-#   define NV_OS_HAS_TLS_QUALIFIER 1
-#endif
-
-
 // CPUs:
 // NV_CPU_X86
 // NV_CPU_X86_64
@@ -112,33 +88,17 @@
 #if defined POSH_COMPILER_CLANG
 #   define NV_CC_CLANG  1
 #   define NV_CC_GNUC   1    // Clang is compatible with GCC.
-#   define NV_CC_STRING "clang"
 #elif defined POSH_COMPILER_GCC
 #   define NV_CC_GNUC   1
-#   define NV_CC_STRING "gcc"
 #elif defined POSH_COMPILER_MSVC
 #   define NV_CC_MSVC   1
-#   define NV_CC_STRING "msvc"
 #else
 #   error "Unsupported compiler"
-#endif
-
-#if NV_CC_MSVC
-#define NV_CC_CPP11 (__cplusplus > 199711L || _MSC_VER >= 1800) // Visual Studio 2013 has all the features we use, but doesn't advertise full C++11 support yet.
-#else
-// @@ IC: This works in CLANG, about GCC?
-// @@ ES: Doesn't work in gcc. These 3 features are available in GCC >= 4.4.
-#ifdef __clang__
-#define NV_CC_CPP11 (__has_feature(cxx_deleted_functions) && __has_feature(cxx_rvalue_references) && __has_feature(cxx_static_assert))
-#elif defined __GNUC__ 
-#define NV_CC_CPP11 ( __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 4))
-#endif
 #endif
 
 // Endiannes:
 #define NV_LITTLE_ENDIAN    POSH_LITTLE_ENDIAN
 #define NV_BIG_ENDIAN       POSH_BIG_ENDIAN
-#define NV_ENDIAN_STRING    POSH_ENDIAN_STRING
 
 #if NV_OS_DARWIN
 #include <stdint.h>
@@ -185,48 +145,10 @@ typedef posh_i32_t  int32;
 typedef posh_u64_t  uint64;
 typedef posh_i64_t  int64;
 //#endif
-#if NV_OS_DARWIN
-// To avoid duplicate definitions.
-#define _UINT64
-#endif
 #endif
 
 // Aliases
 typedef uint32      uint;
-
-// String concatenation macros.
-#define NV_STRING_JOIN2(arg1, arg2) NV_DO_STRING_JOIN2(arg1, arg2)
-#define NV_DO_STRING_JOIN2(arg1, arg2) arg1 ## arg2
-#define NV_STRING_JOIN3(arg1, arg2, arg3) NV_DO_STRING_JOIN3(arg1, arg2, arg3)
-#define NV_DO_STRING_JOIN3(arg1, arg2, arg3) arg1 ## arg2 ## arg3
-#define NV_STRING2(x) #x
-#define NV_STRING(x) NV_STRING2(x)
-
-#if NV_CC_CPP11
-#define nvStaticCheck(x) static_assert((x), "Static assert "#x" failed")
-#else
-#define nvStaticCheck(x) typedef char NV_STRING_JOIN2(__static_assert_,__LINE__)[(x)]
-#endif
-#define NV_COMPILER_CHECK(x) nvStaticCheck(x)   // I like this name best.
-
-// Make sure type definitions are fine.
-NV_COMPILER_CHECK(sizeof(int8) == 1);
-NV_COMPILER_CHECK(sizeof(uint8) == 1);
-NV_COMPILER_CHECK(sizeof(int16) == 2);
-NV_COMPILER_CHECK(sizeof(uint16) == 2);
-NV_COMPILER_CHECK(sizeof(int32) == 4);
-NV_COMPILER_CHECK(sizeof(uint32) == 4);
-NV_COMPILER_CHECK(sizeof(int32) == 4);
-NV_COMPILER_CHECK(sizeof(uint32) == 4);
-
-#include <stddef.h> // for size_t
-
-// Indicate the compiler that the parameter is not used to suppress compier warnings.
-#if NV_CC_MSVC
-#define NV_UNUSED(a) ((a)=(a))
-#else
-#define NV_UNUSED(a) _Pragma(NV_STRING(unused(a)))
-#endif
 
 // Null index. @@ Move this somewhere else... it's only used by nvmesh.
 //const unsigned int NIL = unsigned int(~0);

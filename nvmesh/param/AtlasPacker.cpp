@@ -53,7 +53,6 @@ namespace
         FILE * fp = fileOpen(fileName, "wb");
         if (fp == NULL) return;
         
-        nvStaticCheck(sizeof(TgaHeader) == TgaHeader::Size);
 	    TgaHeader tga;
 	    tga.id_length = 0;
 	    tga.colormap_type = 0;
@@ -87,7 +86,6 @@ namespace
         FILE * fp = fileOpen(fileName, "wb");
         if (fp == NULL) return;
         
-        nvStaticCheck(sizeof(TgaHeader) == TgaHeader::Size);
 	    TgaHeader tga;
 	    tga.id_length = 0;
 	    tga.colormap_type = 0;
