@@ -72,7 +72,7 @@ void Mesh::clear()
     deleteAll(m_vertexArray); 
     m_vertexArray.clear();
 
-    foreach(i, m_edgeMap)
+	for (int i = m_edgeMap.start(); !m_edgeMap.isDone(i); m_edgeMap.advance(i))
     {
         delete m_edgeMap[i].value;
     }
@@ -163,7 +163,7 @@ void Mesh::linkColocalsWithCanonicalMap(const Array<uint> & canonicalMap)
     nvDebug("--- Linking colocals:\n");
 
     uint vertexMapSize = 0;
-    foreach(i, canonicalMap) {
+	for (uint i = 0; i < canonicalMap.count(); i++) {
         vertexMapSize = max(vertexMapSize, canonicalMap[i] + 1);
     }
     
@@ -551,7 +551,7 @@ bool Mesh::splitBoundaryEdges() {
     
     Array<Vertex *> boundaryVertices;
 
-    foreach(i, m_vertexArray) {
+	for (uint i = 0; i < m_vertexArray.count(); i++) {
         Vertex * v = m_vertexArray[i];
         if (v->isBoundary()) {
             boundaryVertices.append(v);
@@ -562,14 +562,13 @@ bool Mesh::splitBoundaryEdges() {
 
     int splitCount = 0;
 
-    foreach(v, boundaryVertices) {
+	for (uint v = 0; v < boundaryVertices.count(); v++) {
         Vertex * vertex = boundaryVertices[v];
 
         Vector3 x0 = vertex->pos;
 
         // Find edges that this vertex overlaps with.
-        foreach(e, m_edgeArray) {
-        //for (uint e = 0; e < m_edgeArray.count(); e++) {
+		for (uint e = 0; e < m_edgeArray.count(); e++) {
             Edge * edge = m_edgeArray[e];
             if (edge != NULL && edge->isBoundary()) {
 

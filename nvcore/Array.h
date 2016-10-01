@@ -16,8 +16,6 @@ container. This is forbidden to prevent an extra copy.
 
 #include "Memory.h"
 #include "Debug.h"
-#include "ForEach.h" // PseudoIndex
-
 
 namespace nv 
 {

@@ -45,7 +45,7 @@ Atlas::~Atlas()
 uint Atlas::chartCount() const
 {
     uint count = 0;
-    foreach(c, m_meshChartsArray) {
+	for (uint c = 0; c < m_meshChartsArray.count(); c++) {
         count += m_meshChartsArray[c]->chartCount();
     }
     return count;
@@ -53,7 +53,7 @@ uint Atlas::chartCount() const
 
 const Chart * Atlas::chartAt(uint i) const
 {
-    foreach(c, m_meshChartsArray) {
+    for (uint c = 0; c < m_meshChartsArray.count(); c++) {
         uint count = m_meshChartsArray[c]->chartCount();
 
         if (i < count) {
@@ -68,7 +68,7 @@ const Chart * Atlas::chartAt(uint i) const
 
 Chart * Atlas::chartAt(uint i) 
 {
-    foreach(c, m_meshChartsArray) {
+    for (uint c = 0; c < m_meshChartsArray.count(); c++) {
         uint count = m_meshChartsArray[c]->chartCount();
 
         if (i < count) {
@@ -221,7 +221,7 @@ bool Atlas::computeSeamlessTextureAtlas(bool groupFaces/*= true*/, bool scaleTil
 
 void Atlas::parameterizeCharts()
 {
-    foreach(i, m_meshChartsArray) {
+    for (uint i = 0; i < m_meshChartsArray.count(); i++) {
         m_meshChartsArray[i]->parameterizeCharts();
     }
 }
@@ -1007,7 +1007,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint
 
         const Array<uint> & indexArray = grid.cellArray[cell].indexArray;
 
-        foreach(i, indexArray) {
+		for (uint i = 0; i < indexArray.count(); i++) {
             uint idx = indexArray[i];
             HalfEdge::Vertex * vertex = m_chartMesh->vertexAt(idx);
 
@@ -1017,7 +1017,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint
             grid.gather(vertex->pos, positionThreshold, /*ref*/neighbors);
 
             // Compare against all nearby vertices, cluster greedily.
-            foreach(j, neighbors) {
+			for (uint j = 0; j < neighbors.count(); j++) {
                 uint otherIdx = neighbors[j];
 
                 if (vertexIndexArray[otherIdx] != -1) {
