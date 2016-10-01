@@ -21,8 +21,6 @@ container. This is forbidden to prevent an extra copy.
 
 namespace nv 
 {
-    class Stream;
-
     /**
     * Replacement for std::vector that is easier to debug and provides
     * some nice foreach enumerators. 
@@ -158,9 +156,6 @@ namespace nv
 #endif
 
         // Friends.
-        template <typename Typ> 
-        friend Stream & operator<< ( Stream & s, Array<Typ> & p );
-
         template <typename Typ>
         friend void swap(Array<Typ> & a, Array<Typ> & b);
 

@@ -6,7 +6,6 @@
 
 #include "HashMap.h"
 
-#include "Stream.h"
 #include "Utils.h" // swap
 
 #include <new> // for placement new
@@ -304,86 +303,6 @@ namespace nv
         if (new_raw_size < size()) { return; }
 
         setRawCapacity(new_raw_size);
-    }
-
-
-    // By default we serialize the key-value pairs compactly.
-    template<typename _T, typename _U, typename _H, typename _E>
-    Stream & operator<< (Stream & s, HashMap<_T, _U, _H, _E> & map)
-    {
-        typedef typename HashMap<_T, _U, _H, _E>::Entry HashMapEntry;
-
-        int entry_count = map.entry_count;
-        s << entry_count;
-
-        if (s.isLoading()) {
-            map.clear();
-            if(entry_count == 0) {
-                return s;
-            }
-            map.entry_count = entry_count;
-            map.size_mask = nextPowerOfTwo(U32(entry_count)) - 1;
-            map.table = malloc<HashMapEntry>(map.size_mask + 1);
-
-            for (int i = 0; i <= map.size_mask; i++) {
-                map.table[i].next_in_chain = -2;	// mark empty
-            }
-
-            _T key;
-            _U value;
-            for (int i = 0; i < entry_count; i++) {
-                s << key << value;
-                map.add(key, value);
-            }
-        }
-        else {
-            int i = 0;
-            map.findNext(i);
-            while (i != map.size_mask+1) {
-                HashMapEntry & e = map.entry(i);
-                
-                s << e.key << e.value;
-                
-                i++;
-                map.findNext(i);
-            }
-            //for(HashMap<_T, _U, _H, _E>::PseudoIndex i((map).start()); !(map).isDone(i); (map).advance(i)) {
-            //foreach(i, map) {
-            //    s << map[i].key << map[i].value;
-            //}
-        }
-
-        return s;
-    }
-
-    // This requires more storage, but saves us from rehashing the elements.
-    template<typename _T, typename _U, typename _H, typename _E>
-    Stream & rawSerialize(Stream & s, HashMap<_T, _U, _H, _E> & map)
-    {
-        typedef typename HashMap<_T, _U, _H, _E>::Entry HashMapEntry;
-
-        if (s.isLoading()) {
-            map.clear();
-        }
-
-        s << map.size_mask;
-
-        if (map.size_mask != -1) {
-            s << map.entry_count;
-
-            if (s.isLoading()) {  
-                map.table = new HashMapEntry[map.size_mask+1];
-            }
-
-            for (int i = 0; i <= map.size_mask; i++) {
-                HashMapEntry & e = map.table[i];
-                s << e.next_in_chain << e.hash_value;
-                s << e.key;
-                s << e.value;
-            }
-        }
-
-        return s;
     }
 
     // Swap the members of this vector and the given vector.

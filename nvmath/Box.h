@@ -11,7 +11,6 @@
 namespace nv
 {
     class Vector;
-    class Stream;
 
     // Axis Aligned Bounding Box.
     class Box
@@ -77,9 +76,6 @@ namespace nv
 
         // Clip the given segment against this box.
         bool clipSegment(const Vector3 & origin, const Vector3 & dir, float * t_near, float * t_far) const;
-
-
-        friend Stream & operator<< (Stream & s, Box & box);
 
         const Vector3 & corner(int i) const { return (&minCorner)[i]; }
 

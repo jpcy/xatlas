@@ -22,8 +22,6 @@ HashMap is not used in NVTT, so it could be removed from the repository.
 
 namespace nv 
 {
-    class Stream;
-
     /** Thatcher Ulrich's hash table.
     *
     * Hash table, linear probing, internal chaining.  One
@@ -128,15 +126,6 @@ namespace nv
             return e;
         }
 #endif
-
-
-        // By default we serialize the key-value pairs compactl	y.
-        template<typename _T, typename _U, typename _H, typename _E>
-        friend Stream & operator<< (Stream & s, HashMap<_T, _U, _H, _E> & map);
-
-        // This requires more storage, but saves us from rehashing the elements.
-        template<typename _T, typename _U, typename _H, typename _E>
-        friend Stream & rawSerialize(Stream & s, HashMap<_T, _U, _H, _E> & map);
 
         /// Swap the members of this vector and the given vector.
         template<typename _T, typename _U, typename _H, typename _E>

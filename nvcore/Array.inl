@@ -6,7 +6,6 @@
 
 #include "Array.h"
 
-#include "Stream.h"
 #include "Utils.h" // swap
 
 #include <string.h>	// memmove
@@ -399,26 +398,6 @@ namespace nv
         }
 
         m_capacity = new_capacity;
-    }
-
-    // Array serialization.
-    template <typename Typ> 
-    inline Stream & operator<< ( Stream & s, Array<Typ> & p )
-    {
-        if (s.isLoading()) {
-            uint size;
-            s << size;
-            p.resize( size );
-        }
-        else {
-            s << p.m_size;
-        }
-
-        for (uint i = 0; i < p.m_size; i++) {
-            s << p.m_buffer[i];
-        }
-
-        return s;
     }
 
     // Swap the members of the two given vectors.
