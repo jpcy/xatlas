@@ -26,7 +26,7 @@ namespace nv
     * some nice foreach enumerators. 
     */
     template<typename T>
-    class NVCORE_CLASS Array {
+    class Array {
     public:
         typedef uint size_type;
 

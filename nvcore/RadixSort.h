@@ -12,7 +12,7 @@
 namespace nv
 {
 
-    class NVCORE_CLASS RadixSort
+    class RadixSort
     {
         NV_FORBID_COPY(RadixSort);
     public:

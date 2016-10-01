@@ -31,10 +31,10 @@
 
 // Custom memory allocator
 extern "C" {
-    NVCORE_API void * malloc(size_t size);
-    NVCORE_API void * debug_malloc(size_t size, const char * file, int line);
-    NVCORE_API void free(void * ptr);
-    NVCORE_API void * realloc(void * ptr, size_t size);
+    void * malloc(size_t size);
+    void * debug_malloc(size_t size, const char * file, int line);
+    void free(void * ptr);
+    void * realloc(void * ptr, size_t size);
 }
 
 /*
@@ -47,8 +47,8 @@ extern "C" {
 #endif
 
 namespace nv {
-    NVCORE_API void * aligned_malloc(size_t size, size_t alignment);
-    NVCORE_API void aligned_free(void * );
+    void * aligned_malloc(size_t size, size_t alignment);
+    void aligned_free(void * );
 
     // C++ helpers.
     template <typename T> NV_FORCEINLINE T * malloc(size_t count) {

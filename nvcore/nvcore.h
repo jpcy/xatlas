@@ -4,21 +4,6 @@
 #ifndef NV_CORE_H
 #define NV_CORE_H
 
-// Function linkage
-#if NVCORE_SHARED
-#ifdef NVCORE_EXPORTS
-#define NVCORE_API DLL_EXPORT
-#define NVCORE_CLASS DLL_EXPORT_CLASS
-#else
-#define NVCORE_API DLL_IMPORT
-#define NVCORE_CLASS DLL_IMPORT
-#endif
-#else // NVCORE_SHARED
-#define NVCORE_API
-#define NVCORE_CLASS
-#endif // NVCORE_SHARED
-
-
 // Platform definitions
 #include <posh.h>
 
@@ -221,13 +206,6 @@ typedef posh_i64_t  int64;
 // Aliases
 typedef uint32      uint;
 
-
-// Version string:
-#define NV_VERSION_STRING \
-    NV_OS_STRING "/" NV_CC_STRING "/" NV_CPU_STRING"/" \
-    NV_ENDIAN_STRING"-endian - " __DATE__ "-" __TIME__
-
-
 // Disable copy constructor and assignment operator. 
 #if NV_CC_CPP11
 #define NV_FORBID_COPY(C) \
@@ -240,15 +218,6 @@ typedef uint32      uint;
     C &operator=( const C & )
 #endif
 
-// Disable dynamic allocation on the heap. 
-// See Prohibiting Heap-Based Objects in More Effective C++.
-#define NV_FORBID_HEAPALLOC() \
-    private: \
-    void *operator new(size_t size); \
-    void *operator new[](size_t size)
-    //static void *operator new(size_t size); \
-    //static void *operator new[](size_t size);
-
 // String concatenation macros.
 #define NV_STRING_JOIN2(arg1, arg2) NV_DO_STRING_JOIN2(arg1, arg2)
 #define NV_DO_STRING_JOIN2(arg1, arg2) arg1 ## arg2
@@ -256,18 +225,6 @@ typedef uint32      uint;
 #define NV_DO_STRING_JOIN3(arg1, arg2, arg3) arg1 ## arg2 ## arg3
 #define NV_STRING2(x) #x
 #define NV_STRING(x) NV_STRING2(x)
-
-#if NV_CC_MSVC
-#define NV_MULTI_LINE_MACRO_BEGIN do {  
-#define NV_MULTI_LINE_MACRO_END \
-    __pragma(warning(push)) \
-    __pragma(warning(disable:4127)) \
-    } while(false) \
-    __pragma(warning(pop))  
-#else
-#define NV_MULTI_LINE_MACRO_BEGIN do {
-#define NV_MULTI_LINE_MACRO_END } while(false)
-#endif
 
 #if NV_CC_CPP11
 #define nvStaticCheck(x) static_assert((x), "Static assert "#x" failed")
@@ -287,29 +244,6 @@ NV_COMPILER_CHECK(sizeof(int32) == 4);
 NV_COMPILER_CHECK(sizeof(uint32) == 4);
 
 #include <stddef.h> // for size_t
-template <typename T, size_t N> char (&ArraySizeHelper(T (&array)[N]))[N];
-#define NV_ARRAY_SIZE(x) sizeof(ArraySizeHelper(x))
-//#define NV_ARRAY_SIZE(x) (sizeof(x)/sizeof((x)[0]))
-
-#if 0 // Disabled in The Witness.
-#if NV_CC_MSVC
-#define NV_MESSAGE(x) message(__FILE__ "(" NV_STRING(__LINE__) ") : " x)
-#else
-#define NV_MESSAGE(x) message(x)
-#endif
-#else
-#define NV_MESSAGE(x) 
-#endif
-
-
-// Startup initialization macro.
-#define NV_AT_STARTUP(some_code) \
-    namespace { \
-        static struct NV_STRING_JOIN2(AtStartup_, __LINE__) { \
-            NV_STRING_JOIN2(AtStartup_, __LINE__)() { some_code; } \
-        } \
-        NV_STRING_JOIN3(AtStartup_, __LINE__, Instance); \
-    }
 
 // Indicate the compiler that the parameter is not used to suppress compier warnings.
 #if NV_CC_MSVC

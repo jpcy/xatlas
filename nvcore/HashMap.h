@@ -36,7 +36,7 @@ namespace nv
     * table will be, default it to that size when you create it.
     */
     template<typename T, typename U, typename H = Hash<T>, typename E = Equal<T> >
-    class NVCORE_CLASS HashMap
+    class HashMap
     {
         NV_FORBID_COPY(HashMap);
     public:
