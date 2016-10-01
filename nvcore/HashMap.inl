@@ -415,7 +415,7 @@ namespace nv
         new_size = nextPowerOfTwo(U32(new_size));
 
         HashMap<T, U, H, E> new_hash;
-        new_hash.table = malloc<Entry>(new_size);
+        new_hash.table = (Entry *)malloc(sizeof(Entry) * new_size);
         nvDebugCheck(new_hash.table != NULL);
 
         new_hash.entry_count = 0;

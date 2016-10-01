@@ -388,13 +388,13 @@ namespace nv
         if (new_capacity == 0) {
             // free the buffer.
             if (m_buffer != NULL) {
-                free<T>(m_buffer);
+                free(m_buffer);
                 m_buffer = NULL;
             }
         }
         else {
             // realloc the buffer
-            m_buffer = realloc<T>(m_buffer, new_capacity);
+            m_buffer = (T *)realloc(m_buffer, sizeof(T) * new_capacity);
         }
 
         m_capacity = new_capacity;

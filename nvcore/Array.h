@@ -14,7 +14,6 @@ container. This is forbidden to prevent an extra copy.
 */
 
 
-#include "Memory.h"
 #include "Debug.h"
 
 namespace nv 
@@ -49,7 +48,7 @@ namespace nv
         // Destructor.
         NV_FORCEINLINE ~Array() {
             clear();
-            free<T>(m_buffer);
+            free(m_buffer);
         }
 
 

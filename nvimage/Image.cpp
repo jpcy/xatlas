@@ -7,7 +7,6 @@
 
 #include "nvcore/Debug.h"
 #include "nvcore/Utils.h" // swap
-#include "nvcore/Memory.h" // realloc, free
 
 #include <string.h> // memcpy
 
@@ -44,7 +43,7 @@ void Image::allocate(uint w, uint h, uint d/*= 1*/)
     m_width = w;
     m_height = h;
 	m_depth = d;
-    m_data = realloc<Color32>(m_data, w * h * d);
+    m_data = (Color32 *)realloc(m_data, sizeof(Color32) * w * h * d);
 }
 
 void Image::acquire(Color32 * data, uint w, uint h, uint d/*= 1*/)

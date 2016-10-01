@@ -99,8 +99,8 @@ RadixSort::~RadixSort()
 
 void RadixSort::resize(uint count)
 {
-    m_ranks2 = realloc<uint>(m_ranks2, count);
-    m_ranks = realloc<uint>(m_ranks, count);
+    m_ranks2 = (uint *)realloc(m_ranks2, sizeof(uint) * count);
+    m_ranks = (uint *)realloc(m_ranks, sizeof(uint) * count);
 }
 
 inline void RadixSort::checkResize(uint count)

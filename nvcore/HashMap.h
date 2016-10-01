@@ -15,7 +15,6 @@ HashMap is not used in NVTT, so it could be removed from the repository.
 */
 
 
-#include "Memory.h"
 #include "Debug.h"
 #include "Hash.h"
 
