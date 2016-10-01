@@ -1,12 +1,8 @@
 // This code is in the public domain -- Ignacio Castaño <castanyo@yahoo.es>
 
 #include "Sparse.h"
-#include "KahanSum.h"
 
 #include "nvcore/Array.inl"
-
-#define USE_KAHAN_SUM 0
-
 
 using namespace nv;
 
@@ -137,21 +133,12 @@ float nv::dot(const FullVector & x, const FullVector & y)
 
     const uint dim = x.dimension();
 
-#if USE_KAHAN_SUM
-    KahanSum kahan;
-    for (uint i = 0; i < dim; i++)
-    {
-        kahan.add(x[i] * y[i]);
-    }
-    return kahan.sum();
-#else
     float sum = 0;
     for (uint i = 0; i < dim; i++)
     {
         sum += x[i] * y[i];
     }
     return sum;
-#endif
 }
 
 /// Ctor. Init the size of the sparse matrix.
@@ -269,22 +256,12 @@ float SparseMatrix::sumRow(uint y) const
     nvDebugCheck( y < height() );
 
     const uint count = m_array[y].count();
-
-#if USE_KAHAN_SUM
-    KahanSum kahan;
-    for (uint i = 0; i < count; i++)
-    {
-        kahan.add(m_array[y][i].v);
-    }
-    return kahan.sum();
-#else
     float sum = 0;
     for (uint i = 0; i < count; i++)
     {
         sum += m_array[y][i].v;
     }
     return sum;
-#endif
 }
 
 float SparseMatrix::dotRow(uint y, const FullVector & v) const
@@ -292,22 +269,12 @@ float SparseMatrix::dotRow(uint y, const FullVector & v) const
     nvDebugCheck( y < height() );
 
     const uint count = m_array[y].count();
-
-#if USE_KAHAN_SUM
-    KahanSum kahan;
-    for (uint i = 0; i < count; i++)
-    {
-        kahan.add(m_array[y][i].v * v[m_array[y][i].x]);
-    }
-    return kahan.sum();
-#else
     float sum = 0;
     for (uint i = 0; i < count; i++)
     {
         sum += m_array[y][i].v * v[m_array[y][i].x];
     }
     return sum;
-#endif
 }
 
 void SparseMatrix::madRow(uint y, float alpha, FullVector & v) const
@@ -496,16 +463,6 @@ static float dotRowColumn(int y, const SparseMatrix & A, int x, const SparseMatr
     const Array<SparseMatrix::Coefficient> & row = A.getRow(y);
 
     const uint count = row.count();
-
-#if USE_KAHAN_SUM
-    KahanSum kahan;
-    for (uint i = 0; i < count; i++)
-    {
-        const SparseMatrix::Coefficient & c = row[i];
-        kahan.add(c.v * B.getCoefficient(x, c.x));
-    }
-    return kahan.sum();
-#else
     float sum = 0.0f;
     for (uint i = 0; i < count; i++)
     {
@@ -513,7 +470,6 @@ static float dotRowColumn(int y, const SparseMatrix & A, int x, const SparseMatr
         sum += c.v * B.getCoefficient(x, c.x);
     }
     return sum;
-#endif
 }
 
 // dot y-row of A by x-row of B
@@ -522,16 +478,6 @@ static float dotRowRow(int y, const SparseMatrix & A, int x, const SparseMatrix 
     const Array<SparseMatrix::Coefficient> & row = A.getRow(y);
 
     const uint count = row.count();
-
-#if USE_KAHAN_SUM
-    KahanSum kahan;
-    for (uint i = 0; i < count; i++)
-    {
-        const SparseMatrix::Coefficient & c = row[i];
-        kahan.add(c.v * B.getCoefficient(c.x, x));
-    }
-    return kahan.sum();
-#else
     float sum = 0.0f;
     for (uint i = 0; i < count; i++)
     {
@@ -539,7 +485,6 @@ static float dotRowRow(int y, const SparseMatrix & A, int x, const SparseMatrix 
         sum += c.v * B.getCoefficient(c.x, x);
     }
     return sum;
-#endif
 }
 
 // dot y-column of A by x-column of B
@@ -548,22 +493,12 @@ static float dotColumnColumn(int y, const SparseMatrix & A, int x, const SparseM
     nvDebugCheck(A.height() == B.height());
 
     const uint h = A.height();
-
-#if USE_KAHAN_SUM
-    KahanSum kahan;
-    for (uint i = 0; i < h; i++)
-    {
-        kahan.add(A.getCoefficient(y, i) * B.getCoefficient(x, i));
-    }
-    return kahan.sum();
-#else
     float sum = 0.0f;
     for (uint i = 0; i < h; i++)
     {
         sum += A.getCoefficient(y, i) * B.getCoefficient(x, i);
     }
     return sum;
-#endif
 }
 
 
