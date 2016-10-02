@@ -6,7 +6,6 @@
 
 #include "nvmath/Fitting.h"
 #include "nvmath/Vector.inl"
-#include "nvmath/Plane.inl"
 
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Vertex.h"

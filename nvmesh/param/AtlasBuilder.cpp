@@ -7,7 +7,6 @@
 #include "nvmesh/halfedge/Face.h"
 #include "nvmesh/halfedge/Vertex.h"
 
-#include "nvmath/Matrix.inl"
 #include "nvmath/Vector.inl"
 
 //#include "nvcore/IntroSort.h"

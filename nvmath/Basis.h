@@ -6,7 +6,6 @@
 
 #include "nvmath.h"
 #include "Vector.inl"
-#include "Matrix.h"
 
 namespace nv
 {

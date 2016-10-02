@@ -2,7 +2,6 @@
 
 #include "Fitting.h"
 #include "Vector.inl"
-#include "Plane.inl"
 
 #include "nvcore/Array.inl"
 #include "nvcore/Utils.h" // max, swap

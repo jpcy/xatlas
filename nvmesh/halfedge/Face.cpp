@@ -3,7 +3,6 @@
 #include "Face.h"
 #include "Vertex.h"
 
-#include "nvmath/Plane.h"
 #include "nvmath/Vector.inl"
 
 #include "nvcore/Array.h"
