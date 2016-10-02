@@ -103,18 +103,3 @@ void MeshTopology::buildTopologyInfo(const HalfEdge::Mesh * mesh)
         nvDebug("---   Genus: %d.\n", m_genus);
     }
 }
-
-
-/*static*/ bool MeshTopology::isQuadOnly(const HalfEdge::Mesh * mesh)
-{
-    const uint faceCount = mesh->faceCount();
-    for(uint f = 0; f < faceCount; f++)
-    {
-        const HalfEdge::Face * face = mesh->faceAt(f);
-        if (face->edgeCount() != 4) {
-            return false;
-        }
-    }
-
-    return true;
-}

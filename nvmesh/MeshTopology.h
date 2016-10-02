@@ -7,7 +7,6 @@
 namespace nv
 {
     namespace HalfEdge { class Mesh; }
-    class MeshAdjacency;
 
     /// Mesh topology information.
     class MeshTopology
@@ -23,22 +22,6 @@ namespace nv
 
         /// Return true if the mesh has the topology of a disk.
         bool isDisk() const { return isConnected() && m_boundaryCount == 1/* && m_eulerNumber == 1*/; }
-
-        /// Return the number of connected components.
-        int connectedCount() const { return m_connectedCount; }
-
-        /// Return the number of open holes.
-        int holeCount() const { return m_boundaryCount; }
-
-        /// Return the genus of the mesh.
-        int genus() const { return m_genus; }
-
-        /// Return the euler number of the mesh.
-        int euler() const { return m_eulerNumber; }
-
-
-        static bool isQuadOnly(const HalfEdge::Mesh * mesh);
-
 
     private:
 
