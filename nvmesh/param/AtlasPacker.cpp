@@ -618,7 +618,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
             bh = 1;
         }
 
-        //BitMap chart_bitmap(iceil(chartExtents[c].x) + 1 + m_padding_x * 2, iceil(chartExtents[c].y) + 1 + m_padding_y * 2);
+        //BitMap chart_bitmap(	iceil(chartExtents[c].x) + 1 + m_padding_x * 2, iceil(chartExtents[c].y) + 1 + m_padding_y * 2);
         //BitMap chart_bitmap(ftoi_ceil(chartExtents[c].x/2)*2, ftoi_ceil(chartExtents[c].y/2)*2);
         BitMap chart_bitmap(bw, bh);
         chart_bitmap.clearAll();

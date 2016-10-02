@@ -582,7 +582,7 @@ void nv::Raster::drawLine(bool antialias, Vector2::Arg extents, bool enableSciss
         dpdy.y = 1;
     }
     else {
-        n = iround(fabs(dy));
+        n = iround(fabsf(dy));
         dp.x = dx / fabsf(dy);
         dp.y = dy / fabsf(dy);
         nvDebugCheck(fabsf(dp.x) <= 1.0f);
