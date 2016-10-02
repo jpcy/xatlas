@@ -2,10 +2,10 @@
 
 #include "ConvexHull.h"
 
-#include "Vector.inl"
+#include "Vector.h"
 
 #include "nvcore/RadixSort.h"
-#include "nvcore/Array.inl"
+#include "nvcore/Array.h"
 
 using namespace nv;
 

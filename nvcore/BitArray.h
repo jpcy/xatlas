@@ -5,7 +5,7 @@
 #define NV_CORE_BITARRAY_H
 
 #include "nvcore.h"
-#include "Array.inl"
+#include "Array.h"
 
 namespace nv
 {

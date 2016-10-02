@@ -7,7 +7,7 @@
 #include "nvmesh/param/Util.h"
 #include "nvmesh/raster/Raster.h"
 
-#include "nvmath/Vector.inl"
+#include "nvmath/Vector.h"
 #include "nvmath/ConvexHull.h"
 #include "nvmath/ftoi.h"
 

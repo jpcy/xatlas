@@ -2,10 +2,10 @@
 
 #include "OrthogonalProjectionMap.h"
 
-#include "nvcore/Array.inl"
+#include "nvcore/Array.h"
 
 #include "nvmath/Fitting.h"
-#include "nvmath/Vector.inl"
+#include "nvmath/Vector.h"
 
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Vertex.h"

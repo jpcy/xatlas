@@ -7,9 +7,9 @@
 
 //#include "nvmesh/MeshBuilder.h"
 
-#include "nvmath/Vector.inl"
-#include "nvcore/Array.inl"
-#include "nvcore/HashMap.inl"
+#include "nvmath/Vector.h"
+#include "nvcore/Array.h"
+#include "nvcore/HashMap.h"
 
 
 using namespace nv;

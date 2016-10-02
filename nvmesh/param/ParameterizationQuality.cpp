@@ -7,7 +7,7 @@
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Edge.h"
 
-#include "nvmath/Vector.inl"
+#include "nvmath/Vector.h"
 
 #include "nvcore/Debug.h"
 

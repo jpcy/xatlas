@@ -6,7 +6,7 @@
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Face.h"
 
-#include "nvmath/Vector.inl"
+#include "nvmath/Vector.h"
 
 using namespace nv;
 

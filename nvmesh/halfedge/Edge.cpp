@@ -3,7 +3,7 @@
 #include "Edge.h"
 #include "Vertex.h"
 
-#include "nvmath/Vector.inl"
+#include "nvmath/Vector.h"
 
 using namespace nv;
 using namespace HalfEdge;

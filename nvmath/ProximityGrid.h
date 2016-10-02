@@ -5,7 +5,7 @@
 #include "Vector.h"
 #include "ftoi.h"
 
-#include "nvcore/Array.inl"
+#include "nvcore/Array.h"
 
 
 // A simple, dynamic proximity grid based on Jon's code.

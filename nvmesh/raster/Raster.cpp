@@ -10,7 +10,7 @@
 
 #include "nvcore/Utils.h" // min, max
 
-#include "nvmath/Vector.inl"
+#include "nvmath/Vector.h"
 #include "nvmath/ftoi.h"
 
 

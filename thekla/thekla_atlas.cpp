@@ -10,10 +10,10 @@
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/param/Atlas.h"
 
-#include "nvmath/Vector.inl"
+#include "nvmath/Vector.h"
 #include "nvmath/ftoi.h"
 
-#include "nvcore/Array.inl"
+#include "nvcore/Array.h"
 
 
 using namespace Thekla;

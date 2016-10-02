@@ -10,9 +10,9 @@
 
 #include "nvmath/Sparse.h"
 #include "nvmath/Solver.h"
-#include "nvmath/Vector.inl"
+#include "nvmath/Vector.h"
 
-#include "nvcore/Array.inl"
+#include "nvcore/Array.h"
 
 
 using namespace nv;

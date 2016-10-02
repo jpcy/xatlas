@@ -5,7 +5,7 @@
 #define NV_MATH_BASIS_H
 
 #include "nvmath.h"
-#include "Vector.inl"
+#include "Vector.h"
 
 namespace nv
 {

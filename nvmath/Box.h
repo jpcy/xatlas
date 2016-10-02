@@ -5,7 +5,7 @@
 #define NV_MATH_BOX_H
 
 #include "Vector.h"
-#include "Vector.inl"
+#include "Vector.h"
 
 #include <float.h> // FLT_MAX
 

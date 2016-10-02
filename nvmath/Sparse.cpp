@@ -2,7 +2,7 @@
 
 #include "Sparse.h"
 
-#include "nvcore/Array.inl"
+#include "nvcore/Array.h"
 
 using namespace nv;
 
