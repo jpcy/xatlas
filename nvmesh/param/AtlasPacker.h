@@ -33,10 +33,7 @@ namespace nv
         void drawChartBitmap(const Chart * chart, BitMap * bitmap, const Vector2 & scale, const Vector2 & offset);
         
         bool canAddChart(const BitMap * bitmap, int w, int h, int x, int y, int r);
-        void addChart(const BitMap * bitmap, int w, int h, int x, int y, int r, Image * debugOutput);
-        //void checkCanAddChart(const Chart * chart, int w, int h, int x, int y, int r);
-        void addChart(const Chart * chart, int w, int h, int x, int y, int r, Image * debugOutput);
-        
+        void addChart(const BitMap * bitmap, int w, int h, int x, int y, int r);
 
         static bool checkBitsCallback(void * param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
         static bool setBitsCallback(void * param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
@@ -45,7 +42,6 @@ namespace nv
 
         Atlas * m_atlas;
         BitMap m_bitmap;
-        Image m_debug_bitmap;
         RadixSort m_radix;
 
         uint m_width;

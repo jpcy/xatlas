@@ -17,108 +17,6 @@
 
 using namespace nv;
 
-#define DEBUG_OUTPUT 0
-
-#if DEBUG_OUTPUT
-
-#include "nvimage/ImageIO.h"
-
-namespace
-{
-    const uint TGA_TYPE_GREY = 3;
-    const uint TGA_TYPE_RGB = 2;
-    const uint TGA_ORIGIN_UPPER = 0x20;
-
-#pragma pack(push, 1)
-    struct TgaHeader {
-	    uint8	id_length;
-	    uint8	colormap_type;
-	    uint8	image_type;
-	    uint16	colormap_index;
-	    uint16	colormap_length;
-	    uint8	colormap_size;
-	    uint16	x_origin;
-	    uint16	y_origin;
-	    uint16	width;
-	    uint16	height;
-	    uint8	pixel_size;
-	    uint8	flags;
-
-	    enum { Size = 18 };		//const static int SIZE = 18;
-    };
-#pragma pack(pop)
-
-    static void outputDebugBitmap(const char * fileName, const BitMap & bitmap, int w, int h)
-    {
-        FILE * fp = fileOpen(fileName, "wb");
-        if (fp == NULL) return;
-        
-	    TgaHeader tga;
-	    tga.id_length = 0;
-	    tga.colormap_type = 0;
-	    tga.image_type = TGA_TYPE_GREY;
-
-	    tga.colormap_index = 0;
-	    tga.colormap_length = 0;
-	    tga.colormap_size = 0;
-
-	    tga.x_origin = 0;
-	    tga.y_origin = 0;
-        tga.width = w;
-        tga.height = h;
-	    tga.pixel_size = 8;
-	    tga.flags = TGA_ORIGIN_UPPER;
-
-        fwrite(&tga, sizeof(TgaHeader), 1, fp);
-
-		for (int j = 0; j < h; j++) {
-            for (int i = 0; i < w; i++) {
-                uint8 color = bitmap.bitAt(i, j) ? 0xFF : 0x0;
-                fwrite(&color, 1, 1, fp);
-            }
-		}
-
-        fclose(fp);
-    }
-
-    static void outputDebugImage(const char * fileName, const Image & bitmap, int w, int h)
-    {
-        FILE * fp = fileOpen(fileName, "wb");
-        if (fp == NULL) return;
-        
-	    TgaHeader tga;
-	    tga.id_length = 0;
-	    tga.colormap_type = 0;
-        tga.image_type = TGA_TYPE_RGB;
-
-	    tga.colormap_index = 0;
-	    tga.colormap_length = 0;
-	    tga.colormap_size = 0;
-
-	    tga.x_origin = 0;
-	    tga.y_origin = 0;
-        tga.width = w;
-        tga.height = h;
-	    tga.pixel_size = 24;
-	    tga.flags = TGA_ORIGIN_UPPER;
-
-        fwrite(&tga, sizeof(TgaHeader), 1, fp);
-
-		for (int j = 0; j < h; j++) {
-            for (int i = 0; i < w; i++) {
-                Color32 color = bitmap.pixel(i, j);
-                fwrite(&color.r, 1, 1, fp);
-                fwrite(&color.g, 1, 1, fp);
-                fwrite(&color.b, 1, 1, fp);
-            }
-		}
-
-        fclose(fp);
-    }
-}
-
-#endif // DEBUG_OUTPUT
-
 inline int align(int x, int a) {
     //return a * ((x + a - 1) / a);
     //return (x + a - 1) & -a;
@@ -135,9 +33,6 @@ AtlasPacker::AtlasPacker(Atlas * atlas) : m_atlas(atlas), m_bitmap(256, 256)
 {
     m_width = 0;
     m_height = 0;
-    
-    m_debug_bitmap.allocate(256, 256);
-    m_debug_bitmap.fill(Color32(0,0,0,0));
 }
 
 AtlasPacker::~AtlasPacker()
@@ -582,8 +477,6 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
     m_bitmap.clearAll();
     if (approximateExtent > m_bitmap.width()) {
         m_bitmap.resize(approximateExtent, approximateExtent, false);
-        m_debug_bitmap.resize(approximateExtent, approximateExtent);
-        m_debug_bitmap.fill(Color32(0,0,0,0));
     }
 
     
@@ -665,22 +558,13 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
         {
             //nvDebug("Resize bitmap (%d, %d).\n", nextPowerOfTwo(w), nextPowerOfTwo(h));
             m_bitmap.resize(nextPowerOfTwo(uint32(w)), nextPowerOfTwo(uint32(h)), false);
-            m_debug_bitmap.resize(nextPowerOfTwo(uint32(w)), nextPowerOfTwo(uint32(h)));
         }
 
         //nvDebug("Add chart at (%d, %d).\n", best_x, best_y);
 
-        addChart(&chart_bitmap, w, h, best_x, best_y, best_r, /*debugOutput=*/NULL);
+        addChart(&chart_bitmap, w, h, best_x, best_y, best_r);
 
-        // IC: Output chart again to debug bitmap.
-        if (chart->isVertexMapped()) {
-            addChart(&chart_bitmap, w, h, best_x, best_y, best_r, &m_debug_bitmap);
-        }
-        else {
-            addChart(chart, w, h, best_x, best_y, best_r, &m_debug_bitmap);
-        }
-
-        //float best_angle = 2 * PI * best_r;
+		//float best_angle = 2 * PI * best_r;
 
         // Translate and rotate chart texture coordinates.
         HalfEdge::Mesh * mesh = chart->chartMesh();
@@ -700,13 +584,6 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
             nvCheck(vertex->tex.x >= 0 && vertex->tex.y >= 0);
 			nvCheck(isFinite(vertex->tex.x) && isFinite(vertex->tex.y));
         }
-
-#if DEBUG_OUTPUT && 0
-        StringBuilder fileName;
-        fileName.format("debug_packer_%d.tga", i);
-        //outputDebugBitmap(fileName.str(), m_bitmap, w, h);
-        outputDebugImage(fileName.str(), m_debug_bitmap, w, h);
-#endif
     }
 
 #else // 0
@@ -807,13 +684,6 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 
             nvCheck(vertex->tex.x >= 0 && vertex->tex.y >= 0);
         }
-
-#if DEBUG_OUTPUT && 0
-        StringBuilder fileName;
-        fileName.format("debug_packer_%d.tga", i);
-        //outputDebugBitmap(fileName.str(), m_bitmap, w, h);
-        outputDebugImage(fileName.str(), m_debug_bitmap, w, h);
-#endif
     }
 
 #endif // 0
@@ -826,15 +696,6 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 
     nvCheck(isAligned(m_width, 4));
     nvCheck(isAligned(m_height, 4));
-
-    m_debug_bitmap.resize(m_width, m_height);
-    m_debug_bitmap.setFormat(Image::Format_ARGB);
-
-#if DEBUG_OUTPUT
-    //outputDebugBitmap("debug_packer_final.tga", m_bitmap, w, h);
-    //outputDebugImage("debug_packer_final.tga", m_debug_bitmap, w, h);
-    ImageIO::save("debug_packer_final.tga", &m_debug_bitmap);
-#endif
 }
 
 
@@ -1232,49 +1093,7 @@ static bool debugDrawCallback(void * param, int x, int y, Vector3::Arg, Vector3:
     return true;
 }
 
-void AtlasPacker::addChart(const Chart * chart, int w, int h, int x, int y, int r, Image * debugOutput)
-{
-    nvDebugCheck(r == 0 || r == 1);
-
-    nvDebugCheck(debugOutput != NULL);
-    selectRandomColor(m_rand);
-
-    Vector2 extents = Vector2(float(w), float(h));
-    Vector2 offset = Vector2(float(x), float(y)) + Vector2(0.5);
-
-    // Rasterize chart faces, set bits.
-    const uint faceCount = chart->faceCount();
-    for (uint f = 0; f < faceCount; f++)
-    {
-        const HalfEdge::Face * face = chart->chartMesh()->faceAt(f);
-        
-        Vector2 vertices[4];
-
-        uint edgeCount = 0;
-        for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance())
-        {
-            if (edgeCount < 4)
-            {
-                Vector2 t = it.vertex()->tex;
-                if (r == 1) swap(t.x, t.y);
-                vertices[edgeCount] = t + offset;
-            }
-            edgeCount++;
-        }
-
-        if (edgeCount == 3)
-        {
-            Raster::drawTriangle(Raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, debugDrawCallback, debugOutput);
-        }
-        else
-        {
-            Raster::drawQuad(Raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, debugDrawCallback, debugOutput);
-        }
-    }
-}
-
-
-void AtlasPacker::addChart(const BitMap * bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r, Image * debugOutput)
+void AtlasPacker::addChart(const BitMap * bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 {
     nvDebugCheck(r == 0 || r == 1);
 
@@ -1282,10 +1101,6 @@ void AtlasPacker::addChart(const BitMap * bitmap, int atlas_w, int atlas_h, int 
 
     const int w = bitmap->width();
     const int h = bitmap->height();
-
-    if (debugOutput != NULL) {
-        selectRandomColor(m_rand);
-    }
 
     if (r == 0) {
         for (int y = 0; y < h; y++) {
@@ -1296,11 +1111,8 @@ void AtlasPacker::addChart(const BitMap * bitmap, int atlas_w, int atlas_h, int 
                     if (xx >= 0) {
                         if (bitmap->bitAt(x, y)) {
                             if (xx < atlas_w && yy < atlas_h) {
-                                if (debugOutput) debugOutput->pixel(xx, yy) = chartColor;
-                                else {
-                                    nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
-                                    m_bitmap.setBitAt(xx, yy);
-                                }
+								nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
+                                m_bitmap.setBitAt(xx, yy);
                             }
                         }
                     }
@@ -1317,11 +1129,8 @@ void AtlasPacker::addChart(const BitMap * bitmap, int atlas_w, int atlas_h, int 
                     if (yy >= 0) {
                         if (bitmap->bitAt(x, y)) {
                             if (xx < atlas_w && yy < atlas_h) {
-                                if (debugOutput) debugOutput->pixel(xx, yy) = chartColor;
-                                else {
-                                    nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
-                                    m_bitmap.setBitAt(xx, yy);
-                                }
+                                nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
+                                m_bitmap.setBitAt(xx, yy);
                             }
                         }
                     }
