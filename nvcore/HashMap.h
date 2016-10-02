@@ -47,20 +47,11 @@ namespace nv
         /// Dtor.
         ~HashMap() { clear(); }
 
-
-        void set(const T& key, const U& value);
         void add(const T& key, const U& value);
         bool remove(const T& key);
         void clear();
-        bool isEmpty() const;
         bool get(const T& key, U* value = NULL, T* other_key = NULL) const;
-        bool contains(const T & key) const;
-        int	size() const;
         int	count() const;
-        int	capacity() const;
-        void checkExpand();
-        void resize(int n);
-
         void setCapacity(int new_size);
 
         // Behaves much like std::pair.

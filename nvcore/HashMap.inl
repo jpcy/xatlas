@@ -13,30 +13,21 @@
 
 namespace nv 
 {
-
-    // Set a new or existing value under the key, to the value.
-    template<typename T, typename U, typename H, typename E>
-    void HashMap<T, U, H, E>::set(const T& key, const U& value)
-    {
-        int	index = findIndex(key);
-        if (index >= 0)
-        {
-            entry(index).value = value;
-            return;
-        }
-
-        // Entry under key doesn't exist.
-        add(key, value);
-    }
-
-
     // Add a new value to the hash table, under the specified key.
     template<typename T, typename U, typename H, typename E>
     void HashMap<T, U, H, E>::add(const T& key, const U& value)
     {
         nvCheck(findIndex(key) == -1);
 
-        checkExpand();
+        if (table == NULL) {
+            // Initial creation of table.  Make a minimum-sized table.
+            setRawCapacity(16);
+        } 
+        else if (entry_count * 3 > (size_mask + 1) * 2) {
+            // Table is more than 2/3rds full.  Expand.
+            setRawCapacity(entry_count * 2);
+        }
+
         nvCheck(table != NULL);
         entry_count++;
 
@@ -207,15 +198,6 @@ namespace nv
         }
     }
 
-
-    // Returns true if the hash is empty.
-    template<typename T, typename U, typename H, typename E>
-    bool HashMap<T, U, H, E>::isEmpty() const
-    {
-        return table == NULL || entry_count == 0;
-    }
-
-
     // Retrieve the value under the given key.
     // - If there's no value under the key, then return false and leave *value alone.
     // - If there is a value, return true, and set *value to the entry's value.
@@ -237,62 +219,12 @@ namespace nv
         return false;
     }
 
-    // Determine if the given key is contained in the hash.
-    template<typename T, typename U, typename H, typename E>
-    bool HashMap<T, U, H, E>::contains(const T & key) const
-    {
-        return get(key);
-    }
-
-    // Number of entries in the hash.
-    template<typename T, typename U, typename H, typename E>
-    int	HashMap<T, U, H, E>::size() const
-    {
-        return entry_count;
-    }
-
     // Number of entries in the hash.
     template<typename T, typename U, typename H, typename E>
     int	HashMap<T, U, H, E>::count() const
     {
-        return size();
+        return entry_count;
     }
-
-    template<typename T, typename U, typename H, typename E>
-    int	HashMap<T, U, H, E>::capacity() const
-    {
-        return size_mask+1;
-    }
-
-
-    // Resize the hash table to fit one more entry.  Often this doesn't involve any action.
-    template<typename T, typename U, typename H, typename E>
-    void HashMap<T, U, H, E>::checkExpand()
-    {
-        if (table == NULL) {
-            // Initial creation of table.  Make a minimum-sized table.
-            setRawCapacity(16);
-        } 
-        else if (entry_count * 3 > (size_mask + 1) * 2) {
-            // Table is more than 2/3rds full.  Expand.
-            setRawCapacity(entry_count * 2);
-        }
-    }
-
-
-    // Hint the bucket count to >= n.
-    template<typename T, typename U, typename H, typename E>
-    void HashMap<T, U, H, E>::resize(int n)
-    {
-        // Not really sure what this means in relation to
-        // STLport's hash_map... they say they "increase the
-        // bucket count to at least n" -- but does that mean
-        // their real capacity after resize(n) is more like
-        // n*2 (since they do linked-list chaining within
-        // buckets?).
-        setCapacity(n);
-    }
-
 
     // Size the hash so that it can comfortably contain the given number of elements.  If the hash already contains more
     // elements than new_size, then this may be a no-op.
@@ -300,7 +232,7 @@ namespace nv
     void HashMap<T, U, H, E>::setCapacity(int new_size)
     {
         int	new_raw_size = (new_size * 3) / 2;
-        if (new_raw_size < size()) { return; }
+        if (new_raw_size < count()) { return; }
 
         setRawCapacity(new_raw_size);
     }
