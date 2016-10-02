@@ -322,9 +322,8 @@ const AtlasBuilder::Candidate & AtlasBuilder::getBestCandidate() const
 // Returns true if any of the charts can grow more.
 bool AtlasBuilder::growCharts(float threshold, uint faceCount)
 {
-#if 1 // Using one global list.
-
-    faceCount = min(faceCount, facesLeft);
+	// Using one global list.
+	faceCount = min(faceCount, facesLeft);
 
     for (uint i = 0; i < faceCount; i++)
     {
@@ -338,21 +337,6 @@ bool AtlasBuilder::growCharts(float threshold, uint faceCount)
     }
 
     return facesLeft != 0; // Can continue growing.
-
-#else // Using one list per chart.
-    bool canGrowMore = false;
-
-    const uint chartCount = chartArray.count();
-    for (uint i = 0; i < chartCount; i++)
-    {
-        if (growChart(chartArray[i], threshold, faceCount))
-        {
-            canGrowMore = true;
-        }
-    }
-
-    return canGrowMore;
-#endif
 }
 
 bool AtlasBuilder::growChart(ChartBuildData * chart, float threshold, uint faceCount)
@@ -549,9 +533,6 @@ bool AtlasBuilder::relocateSeed(ChartBuildData * chart)
 
         float distance = length(centroid - faceCentroid);
 
-        /*#pragma message(NV_FILE_LINE "TODO: Implement evaluateDistanceToBoundary.")
-        float distance = evaluateDistanceToBoundary(chart, bestTriangles.pairs[i].face);*/
-        
         if (distance > maxDistance)
         {
             maxDistance = distance;
@@ -669,12 +650,6 @@ float AtlasBuilder::evaluatePriority(ChartBuildData * chart, uint face)
         settings.normalSeamMetricWeight * N +
         settings.textureSeamMetricWeight * T);
 
-    /*cost = settings.proxyFitMetricWeight * powf(F, settings.proxyFitMetricExponent);
-    cost = max(cost, settings.roundnessMetricWeight * powf(C, settings.roundnessMetricExponent));
-    cost = max(cost, settings.straightnessMetricWeight * pow(P, settings.straightnessMetricExponent));
-    cost = max(cost, settings.normalSeamMetricWeight * N);
-    cost = max(cost, settings.textureSeamMetricWeight * T);*/
-
     // Enforce limits strictly:
     if (newChartArea > settings.maxChartArea) cost = FLT_MAX;
     if (newBoundaryLength > settings.maxBoundaryLength) cost = FLT_MAX;
@@ -692,36 +667,9 @@ float AtlasBuilder::evaluateProxyFitMetric(ChartBuildData * chart, uint f)
 {
     const HalfEdge::Face * face = mesh->faceAt(f);
     Vector3 faceNormal = triangleNormal(face);
-    //return square(dot(chart->coneAxis, faceNormal) - cosf(chart->coneAngle));
 
     // Use plane fitting metric for now:
-    //return square(1 - dot(faceNormal, chart->planeNormal)); // @@ normal deviations should be weighted by face area
     return 1 - dot(faceNormal, chart->planeNormal); // @@ normal deviations should be weighted by face area
-
-    // Find distance to chart.
-    /*Vector3 faceCentroid = face->centroid();
-
-    float dist = 0;
-    int count = 0;
-
-    for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance())
-    {
-        const HalfEdge::Edge * edge = it.current();
-
-        if (!edge->isBoundary()) {
-            const HalfEdge::Face * neighborFace = edge->pair()->face();
-            if (faceChartArray[neighborFace->id()] == chart->id) {
-                dist += length(neighborFace->centroid() - faceCentroid);
-                count++;
-            }
-        }
-    }
-
-    dist /= (count * count);
-
-    return (1 - dot(faceNormal, chart->planeNormal)) * dist;*/
-
-    //return (1 - dot(faceNormal, chart->planeNormal));
 }
 
 float AtlasBuilder::evaluateDistanceToBoundary(ChartBuildData * chart, uint face)
@@ -736,10 +684,6 @@ float AtlasBuilder::evaluateDistanceToBoundary(ChartBuildData * chart, uint face
 
 float AtlasBuilder::evaluateDistanceToSeed(ChartBuildData * chart, uint f)
 {
-    //const uint seed = chart->seeds.back();
-    //const uint faceCount = mesh->faceCount();
-    //return shortestPaths[seed * faceCount + f];
-
     const HalfEdge::Face * seed = mesh->faceAt(chart->seeds.back());
     const HalfEdge::Face * face = mesh->faceAt(f);
     return length(triangleCenter(seed) - triangleCenter(face));
@@ -748,16 +692,6 @@ float AtlasBuilder::evaluateDistanceToSeed(ChartBuildData * chart, uint f)
 
 float AtlasBuilder::evaluateRoundnessMetric(ChartBuildData * chart, uint face, float newBoundaryLength, float newChartArea)
 {
-    // @@ D-charts use distance to seed.
-    // C(c,t) = pi * D(S_c,t)^2 / A_c
-    //return PI * square(evaluateDistanceToSeed(chart, face)) / chart->area;
-    //return PI * square(evaluateDistanceToSeed(chart, face)) / chart->area;
-    //return 2 * PI * evaluateDistanceToSeed(chart, face) / chart->boundaryLength;
-
-    // Garland's Hierarchical Face Clustering paper uses ratio between boundary and area, which is easier to compute and might work as well:
-    // roundness = D^2/4*pi*A -> circle = 1, non circle greater than 1
-
-    //return square(newBoundaryLength) / (newChartArea * 4 * PI);
     float roundness = square(chart->boundaryLength) / chart->area;
     float newRoundness = square(newBoundaryLength) / newChartArea;
     if (newRoundness > roundness) {
@@ -767,17 +701,6 @@ float AtlasBuilder::evaluateRoundnessMetric(ChartBuildData * chart, uint face, f
         // Offer no impedance to faces that improve roundness.
         return 0;
     }
-
-    //return square(newBoundaryLength) / (4 * PI * newChartArea);
-    //return clamp(1 - (4 * PI * newChartArea) / square(newBoundaryLength), 0.0f, 1.0f);
-
-    // Use the ratio between the new roundness vs. the previous roundness.
-    // - If we use the absolute metric, when the initial face is very long, then it's hard to make any progress.
-    //return (square(newBoundaryLength) * chart->area) / (square(chart->boundaryLength) * newChartArea);
-    //return (4 * PI * newChartArea) / square(newBoundaryLength) - (4 * PI * chart->area) / square(chart->boundaryLength);
-
-    //if (square(newBoundaryLength) * chart->area) / (square(chart->boundaryLength) * newChartArea);
-
 }
 
 float AtlasBuilder::evaluateStraightnessMetric(ChartBuildData * chart, uint f)
@@ -789,8 +712,6 @@ float AtlasBuilder::evaluateStraightnessMetric(ChartBuildData * chart, uint f)
     for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance())
     {
         const HalfEdge::Edge * edge = it.current();
-
-        //float l = edge->length();
         float l = edgeLengths[edge->id/2];
 
         if (edge->isBoundary())
@@ -810,11 +731,8 @@ float AtlasBuilder::evaluateStraightnessMetric(ChartBuildData * chart, uint f)
     }
     nvDebugCheck(l_in != 0.0f); // Candidate face must be adjacent to chart. @@ This is not true if the input mesh has zero-length edges.
 
-    //return l_out / l_in;
     float ratio = (l_out - l_in) / (l_out + l_in);
-    //if (ratio < 0) ratio *= 10; // Encourage closing gaps.
     return min(ratio, 0.0f); // Only use the straightness metric to close gaps.
-    //return ratio;
 }
 
 
@@ -851,10 +769,6 @@ float AtlasBuilder::evaluateNormalSeamMetric(ChartBuildData * chart, uint f)
         {
             float d0 = clamp(dot(edge->vertex->nor, edge->pair->next->vertex->nor), 0.0f, 1.0f);
             float d1 = clamp(dot(edge->next->vertex->nor, edge->pair->vertex->nor), 0.0f, 1.0f);
-            //float a0 = clamp(acosf(d0) / (PI/2), 0.0f, 1.0f);
-            //float a1 = clamp(acosf(d1) / (PI/2), 0.0f, 1.0f);
-            //l *= (a0 + a1) * 0.5f;
-
             l *= 1 - (d0 + d1) * 0.5f;
 
             seamFactor += l;
@@ -869,33 +783,12 @@ float AtlasBuilder::evaluateNormalSeamMetric(ChartBuildData * chart, uint f)
 float AtlasBuilder::evaluateTextureSeamMetric(ChartBuildData * chart, uint f)
 {
     float seamLength = 0.0f;
-    //float newSeamLength = 0.0f;
-    //float oldSeamLength = 0.0f;
     float totalLength = 0.0f;
     
     const HalfEdge::Face * face = mesh->faceAt(f);
     for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance())
     {
         const HalfEdge::Edge * edge = it.current();
-
-        /*float l = edge->length();
-        totalLength += l;
-
-        if (edge->isBoundary() || !edge->isSeam()) {
-            continue;
-        }
-
-        // Make sure it's a texture seam.
-        if (isTextureSeam(edge))
-        {
-            uint neighborFaceId = edge->pair()->face()->id();
-            if (faceChartArray[neighborFaceId] != chart->id) {
-                newSeamLength += l;
-            }
-            else {
-                oldSeamLength += l;
-            }
-        }*/
 
         if (edge->isBoundary()) {
             continue;
@@ -1003,7 +896,6 @@ float AtlasBuilder::evaluateBoundaryLength(ChartBuildData * chart, uint f)
             }
         }
     }
-    //nvDebugCheck(boundaryLength >= 0);
 
     return max(0.0f, boundaryLength);  // @@ Hack!
 }
@@ -1175,8 +1067,6 @@ void AtlasBuilder::mergeCharts()
         }
     }
 }
-
-
 
 const Array<uint> & AtlasBuilder::chartFaces(uint i) const
 {

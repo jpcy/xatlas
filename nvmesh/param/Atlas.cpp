@@ -9,8 +9,6 @@
 #include "LeastSquaresConformalMap.h"
 #include "ParameterizationQuality.h"
 
-//#include "nvmesh/export/MeshExportOBJ.h"
-
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Face.h"
 #include "nvmesh/halfedge/Vertex.h"
@@ -100,124 +98,6 @@ void Atlas::computeCharts(const HalfEdge::Mesh * mesh, const SegmentationSetting
     meshCharts->computeCharts(settings, unchartedMaterialArray);
     addMeshCharts(meshCharts);
 }
-
-
-
-
-#if 0
-
-/// Compute a seamless texture atlas.
-bool Atlas::computeSeamlessTextureAtlas(bool groupFaces/*= true*/, bool scaleTiles/*= false*/, uint w/*= 1024*/, uint h/* = 1024*/)
-{
-    // Implement seamless texture atlas similar to what ZBrush does. See also:
-    // "Meshed Atlases for Real-Time Procedural Solid Texturing"
-    // http://graphics.cs.uiuc.edu/~jch/papers/rtpst.pdf
-
-    // Other methods that we should experiment with:
-    // 
-    // Seamless Texture Atlases:
-    // http://www.cs.jhu.edu/~bpurnomo/STA/index.html
-    // 
-    // Rectangular Multi-Chart Geometry Images:
-    // http://graphics.cs.uiuc.edu/~jch/papers/rmcgi.pdf
-    // 
-    // Discrete differential geometry also provide a way of constructing  
-    // seamless quadrangulations as shown in:
-    // http://www.geometry.caltech.edu/pubs/TACD06.pdf
-    // 
-
-#pragma message(NV_FILE_LINE "TODO: Implement seamless texture atlas.")
-
-    if (groupFaces)
-    {
-        // @@ TODO.
-    }
-    else
-    {
-        // @@ Create one atlas per face.
-    }
-
-    if (scaleTiles)
-    {
-        // @@ TODO
-    }
-
-    /*
-    if (!isQuadMesh(m_mesh)) {
-        // Only handle quads for now.
-        return false;
-    }
-
-    // Each face is a chart.
-    const uint faceCount = m_mesh->faceCount();
-    m_chartArray.resize(faceCount);
-
-    for(uint f = 0; f < faceCount; f++) {
-        m_chartArray[f].faceArray.clear();
-        m_chartArray[f].faceArray.append(f);
-    }
-
-    // Map each face to a separate square.
-
-    // Determine face layout according to width and height.
-    float aspect = float(m_width) / float(m_height);
-
-    uint i = 2;
-    uint total = (m_width / (i+1)) * (m_height / (i+1));
-    while(total > faceCount) {
-        i *= 2;
-        total = (m_width / (i+1)) * (m_height / (i+1));
-    }
-
-    uint tileSize = i / 2;
-
-    int x = 0;
-    int y = 0;
-
-    m_result = new HalfEdge::Mesh();
-
-    // Once you have that it's just matter of traversing the faces.
-    for(uint f = 0; f < faceCount; f++) {
-        // Compute texture coordinates.
-        Vector2 tex[4];
-        tex[0] = Vector2(float(x), float(y));
-        tex[1] = Vector2(float(x+tileSize), float(y));
-        tex[2] = Vector2(float(x+tileSize), float(y+tileSize));
-        tex[3] = Vector2(float(x), float(y+tileSize));
-
-        Array<uint> indexArray(4);
-
-        const HalfEdge::Face * face = m_mesh->faceAt(f);
-
-        int i = 0;
-        for(HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance(), i++) {
-            const HalfEdge::Edge * edge = it.current();
-            const HalfEdge::Vertex * vertex = edge->from();
-
-            HalfEdge::Vertex * newVertex = m_result->addVertex(vertex->id(), vertex->pos());
-
-            newVertex->setTex(Vector3(tex[i], 0));
-            newVertex->setNor(vertex->nor());
-
-            indexArray.append(m_result->vertexCount() + 1);
-        }
-
-        m_result->addFace(indexArray);
-
-        // Move to the next tile.
-        x += tileSize + 1;
-        if (x + tileSize > m_width) {
-            x = 0;
-            y += tileSize + 1;
-        }
-    }
-    */
-
-    return false;
-}
-
-#endif
-
 
 void Atlas::parameterizeCharts()
 {
@@ -588,27 +468,8 @@ void MeshCharts::parameterizeCharts()
                 computeLeastSquaresConformalMap(chart->unifiedMesh());
                 ParameterizationQuality lscmQuality(chart->unifiedMesh());
                 
-                // If the orthogonal projection produces better results, just use that.
-                // @@ It may be dangerous to do this, because isValid() does not detect self-overlaps.
-                // @@ Another problem is that with very thin patches with nearly zero parametric area, the results of our metric are not accurate.
-                /*if (orthogonalQuality.isValid() && orthogonalQuality.rmsStretchMetric() < lscmQuality.rmsStretchMetric()) {
-                    computeOrthogonalProjectionMap(chart->unifiedMesh());
-                    chartParameterizationQuality = orthogonalQuality;
-                }
-                else*/ {
-                    chartParameterizationQuality = lscmQuality;
-                }
-
-                // If conformal map failed, 
-
-                // @@ Experiment with other parameterization methods.
-                //computeCircularBoundaryMap(chart->unifiedMesh());
-                //computeConformalMap(chart->unifiedMesh());
-                //computeNaturalConformalMap(chart->unifiedMesh());
-                //computeGuidanceGradientMap(chart->unifiedMesh());
+                chartParameterizationQuality = lscmQuality;
             }
-
-            //ParameterizationQuality chartParameterizationQuality(chart->unifiedMesh());
 
             isValid = chartParameterizationQuality.isValid();
 
@@ -630,13 +491,6 @@ void MeshCharts::parameterizeCharts()
             // @@ Detect boundary self-intersections.
 
             globalParameterizationQuality += chartParameterizationQuality;
-        }
-
-        if (!isValid)
-        {
-            //nvDebugBreak();
-            // @@ Run the builder again, but only on this chart.
-            //AtlasBuilder builder(chart->chartMesh());
         }
 
         // Transfer parameterization from unified mesh to chart mesh.
@@ -787,30 +641,6 @@ void Chart::build(const HalfEdge::Mesh * originalMesh, const Array<uint> & faceA
     // Analyze chart topology.
     MeshTopology topology(m_unifiedMesh.get());
     m_isDisk = topology.isDisk();
-
-    // This is sometimes failing, when triangulate fails to add a triangle, it generates a hole in the mesh.
-    //nvDebugCheck(m_isDisk);
-
-    /*if (!m_isDisk) {
-        static int pieceCount = 0;
-        StringBuilder fileName;
-        fileName.format("debug_hole_%d.obj", pieceCount++);
-        exportMesh(m_unifiedMesh.ptr(), fileName.str());
-    }*/
-
-
-#if 0
-    if (!m_isDisk) {
-        nvDebugBreak();
-
-        static int pieceCount = 0;
-        
-        StringBuilder fileName;
-        fileName.format("debug_nodisk_%d.obj", pieceCount++);
-        exportMesh(m_chartMesh.ptr(), fileName.str()); 
-    }
-#endif
-
 }
 
 
@@ -917,75 +747,6 @@ void Chart::buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint
         grid.add(vertex->pos, i);
     }
 
-
-#if 0
-    // Arrange vertices in a rectangle.
-    vertexMapWidth = ftoi_ceil(sqrtf(float(chartVertexCount)));
-    vertexMapHeight = (chartVertexCount + vertexMapWidth - 1) / vertexMapWidth;
-    nvDebugCheck(vertexMapWidth >= vertexMapHeight);
-
-    int x = 0, y = 0;
-    for (uint i = 0; i < chartVertexCount; i++) {
-        HalfEdge::Vertex * vertex = m_chartMesh->vertexAt(i);
-
-        vertex->tex.x = float(x);
-        vertex->tex.y = float(y);
-
-        x++;
-        if (x == vertexMapWidth) {
-            x = 0;
-            y++;
-            nvCheck(y < vertexMapHeight);
-        }
-    }
-
-#elif 0
-    // Arrange vertices in a rectangle, traversing grid in 3D morton order and laying them down in 2D morton order.
-    vertexMapWidth = ftoi_ceil(sqrtf(float(chartVertexCount)));
-    vertexMapHeight = (chartVertexCount + vertexMapWidth - 1) / vertexMapWidth;
-    nvDebugCheck(vertexMapWidth >= vertexMapHeight);
-
-    int n = 0;
-    uint32 texelCode = 0;
-
-    uint cellsVisited = 0;
-
-    const uint32 cellCodeCount = grid.mortonCount();
-    for (uint32 cellCode = 0; cellCode < cellCodeCount; cellCode++) {
-        int cell = grid.mortonIndex(cellCode);
-        if (cell < 0) continue;
-
-        cellsVisited++;
-
-        const Array<uint> & indexArray = grid.cellArray[cell].indexArray;
-
-        foreach(i, indexArray) {
-            uint idx = indexArray[i];
-            HalfEdge::Vertex * vertex = m_chartMesh->vertexAt(idx);
-
-            //vertex->tex.x = float(n % rectangleWidth) + 0.5f;
-            //vertex->tex.y = float(n / rectangleWidth) + 0.5f;
-
-            // Lay down the points in z order too.
-            uint x, y;
-            do {
-                x = decodeMorton2X(texelCode);
-                y = decodeMorton2Y(texelCode);
-                texelCode++;
-            } while (x >= uint32(vertexMapWidth) || y >= uint32(vertexMapHeight));
-            
-            vertex->tex.x = float(x);
-            vertex->tex.y = float(y);
-
-            n++;
-        }
-    }
-
-    nvDebugCheck(cellsVisited == grid.cellArray.count());
-    nvDebugCheck(n == chartVertexCount);
-
-#else
-
     uint texelCount = 0;
 
     const float positionThreshold = 0.01f;
@@ -1052,17 +813,6 @@ void Chart::buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint
 
     nvDebug("Reduced vertex count from %d to %d.\n", chartVertexCount, texelCount);
 
-#if 0
-    // This lays down the clustered vertices linearly.
-    for (uint i = 0; i < chartVertexCount; i++) {
-        HalfEdge::Vertex * vertex = m_chartMesh->vertexAt(i);
-
-        int idx = vertexIndexArray[i];
-
-        vertex->tex.x = float(idx % vertexMapWidth);
-        vertex->tex.y = float(idx / vertexMapWidth);
-    }
-#else
     // Lay down the clustered vertices in morton order.
 
     Array<uint> texelCodes;
@@ -1094,11 +844,6 @@ void Chart::buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint
             vertex->tex.y = float(y);
         }
     }
-
-#endif
-   
-#endif
-
 }
 
 
@@ -1257,29 +1002,6 @@ bool Chart::closeHoles()
         }
     }
 
-
-    // Sew holes.
-    /*for (uint i = 0; i < boundaryCount; i++)
-    {
-        if (diskBoundary == i)
-        {
-            // Skip disk boundary.
-            continue;
-        }
-
-        HalfEdge::Edge * startEdge = boundaryEdges[i];
-        nvCheck(startEdge->face() == NULL);
-
-        boundaryEdges[i] = m_unifiedMesh->sewBoundary(startEdge);
-    }
-
-    exportMesh(m_unifiedMesh.ptr(), "debug_sewn.obj");*/
-
-    //bool hasNewHoles = false;
-
-    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    // @@ Close loop is wrong, after closing a loop, we do not only have to add the face, but make sure that every edge in he loop is pointing to the right place.
-
     // Close holes.
     for (uint i = 0; i < boundaryCount; i++)
     {
@@ -1293,7 +1015,6 @@ bool Chart::closeHoles()
         nvDebugCheck(startEdge != NULL);
         nvDebugCheck(startEdge->face == NULL);
 
-#if 1
         Array<HalfEdge::Vertex *> vertexLoop;
         Array<HalfEdge::Edge *> edgeLoop;
 
@@ -1340,130 +1061,12 @@ bool Chart::closeHoles()
         } while(edge != startEdge);
 
         closeLoop(0, edgeLoop);
-#endif
-
-        /*
-
-        // Add face and connect boundary edges.
-        HalfEdge::Face * face = m_unifiedMesh->addFace();
-        face->setEdge(startEdge);
-
-        HalfEdge::Edge * edge = startEdge;
-        do {
-            edge->setFace(face);
-
-            edge = edge->next();
-        } while(edge != startEdge);
-
-        */
-
-
-        /*
-        uint edgeCount = 0;
-        HalfEdge::Edge * edge = startEdge;
-        do {
-            edgeCount++;
-            edge = edge->next();
-        } while(edge != startEdge);
-
-
-
-        // Count edges in this boundary.
-        uint edgeCount = 0;
-        HalfEdge::Edge * edge = startEdge;
-        do {
-            edgeCount++;
-            edge = edge->next();
-        } while(edge != startEdge);
-
-        // Trivial hole, fill with one triangle. This actually works for all convex boundaries with non colinear vertices.
-        if (edgeCount == 3) {
-            // Add face and connect boundary edges.
-            HalfEdge::Face * face = m_unifiedMesh->addFace();
-            face->setEdge(startEdge);
-
-            edge = startEdge;
-            do {
-                edge->setFace(face);
-
-                edge = edge->next();
-            } while(edge != startEdge);
-
-            // @@ Implement the above using addFace, it should now work with existing edges, as long as their face pointers is zero.
-
-        }
-        else {
-            // Ideally we should:
-            // - compute best fit plane of boundary vertices.
-            // - project boundary polygon onto plane.
-            // - triangulate boundary polygon.
-            // - add faces of the resulting triangulation.
-
-            // I don't have a good triangulator available. A more simple solution that works in more (but not all) cases:
-            // - compute boundary centroid.
-            // - add vertex centroid.
-            // - connect centroid vertex with boundary vertices.
-            // - connect radial edges with boundary edges.
-
-            // This should work for non-convex boundaries with colinear vertices as long as the kernel of the polygon is not empty.
-
-            // Compute boundary centroid:
-            Vector3 centroid_pos(0);
-            Vector2 centroid_tex(0);
-
-            HalfEdge::Edge * edge = startEdge;
-            do {
-                centroid_pos += edge->vertex()->pos;
-                centroid_tex += edge->vertex()->tex;
-                edge = edge->next();
-            } while(edge != startEdge);
-
-            centroid_pos *= (1.0f / edgeCount);
-            centroid_tex *= (1.0f / edgeCount);
-
-            HalfEdge::Vertex * centroid = m_unifiedMesh->addVertex(centroid_pos);
-            centroid->tex = centroid_tex;
-
-            // Add one pair of edges for each boundary vertex.
-            edge = startEdge;
-            do {
-                HalfEdge::Edge * next = edge->next();
-
-                nvCheck(edge->face() == NULL);
-                HalfEdge::Face * face = m_unifiedMesh->addFace(centroid->id(), edge->from()->id(), edge->to()->id());
-                
-                if (face != NULL) {
-                    nvCheck(edge->face() == face);
-                }
-                else {
-                    hasNewHoles = true;
-                }
-
-                edge = next;
-            } while(edge != startEdge);
-        }
-        */
     }
-
-    /*nvDebugCheck(!hasNewHoles);
-
-    if (hasNewHoles) {
-        // Link boundary again, in case closeHoles created new holes!
-        m_unifiedMesh->linkBoundary();
-    }*/
-
-    // Because some algorithms do not expect sparse edge buffers.
-    //m_unifiedMesh->compactEdges();
-
-    // In case we messed up:
-    //m_unifiedMesh->linkBoundary();
 
     getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
 
     boundaryCount = boundaryEdges.count();
     nvDebugCheck(boundaryCount == 1);
-
-    //exportMesh(m_unifiedMesh.ptr(), "debug_hole_filled.obj");
 
     return boundaryCount == 1;
 }
