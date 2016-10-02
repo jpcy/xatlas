@@ -1,5 +1,6 @@
 // This code is in the public domain -- castanyo@yahoo.es
 
+#include <cmath>
 #include "Mesh.h"
 #include "Edge.h"
 #include "Vertex.h"

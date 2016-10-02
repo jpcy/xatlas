@@ -4,6 +4,11 @@
 #ifndef NV_MATH_FTOI_H
 #define NV_MATH_FTOI_H
 
+#if NV_CPU_X86 || NV_CPU_X86_64
+    //#include <intrin.h>
+    #include <xmmintrin.h>
+#endif
+
 #include "nvmath/nvmath.h"
 
 #include <math.h>

@@ -314,7 +314,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
             {
                 scale = 0;
             }
-            nvCheck(isFinite(scale));
+            nvCheck(std::isfinite(scale));
 
             // Compute bounding box of chart.
             Vector2 majorAxis, minorAxis, origin, end;
@@ -350,7 +350,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 
                 vertex->tex = tmp;
 
-				nvCheck(isFinite(vertex->tex.x) && isFinite(vertex->tex.y));
+				nvCheck(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
 
                 extents = max(extents, tmp);
             }
@@ -427,7 +427,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
                 vertex->tex.x *= scale_x;
                 vertex->tex.y *= scale_y;
 
-				nvCheck(isFinite(vertex->tex.x) && isFinite(vertex->tex.y));
+				nvCheck(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
             }
         }
 
@@ -581,7 +581,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
             vertex->tex.y = best_y + t.y + 0.5f;
 
             nvCheck(vertex->tex.x >= 0 && vertex->tex.y >= 0);
-			nvCheck(isFinite(vertex->tex.x) && isFinite(vertex->tex.y));
+			nvCheck(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
         }
     }
 

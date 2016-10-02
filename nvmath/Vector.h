@@ -4,6 +4,7 @@
 #ifndef NV_MATH_VECTOR_H
 #define NV_MATH_VECTOR_H
 
+#include <cmath>
 #include "nvmath.h"
 #include "nvcore/Utils.h" // min, max
 #include "nvcore/Hash.h" // hash
@@ -384,7 +385,7 @@ namespace nv
 
     inline bool isFinite(Vector2::Arg v)
     {
-        return isFinite(v.x) && isFinite(v.y);
+        return std::isfinite(v.x) && std::isfinite(v.y);
     }
 
     inline Vector2 validate(Vector2::Arg v, Vector2::Arg fallback = Vector2(0.0f))
@@ -606,7 +607,7 @@ namespace nv
 
     inline bool isFinite(Vector3::Arg v)
     {
-        return isFinite(v.x) && isFinite(v.y) && isFinite(v.z);
+        return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
     }
 
     inline Vector3 validate(Vector3::Arg v, Vector3::Arg fallback = Vector3(0.0f))

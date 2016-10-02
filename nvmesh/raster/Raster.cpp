@@ -260,7 +260,7 @@ namespace
         Vector3 de1 = t2 - t1;
 
         float denom = 1.0f / (e0.y * e1.x - e1.y * e0.x);
-        if (!isFinite(denom)) {
+        if (!std::isfinite(denom)) {
             return false;
         }
 

@@ -682,7 +682,7 @@ float AtlasBuilder::evaluatePriority(ChartBuildData * chart, uint face)
     // Make sure normal seams are fully respected:
     if (settings.normalSeamMetricWeight >= 1000 && N != 0) cost = FLT_MAX;
 
-    nvCheck(isFinite(cost));
+    nvCheck(std::isfinite(cost));
     return cost;
 }
 

@@ -195,12 +195,12 @@ ParameterizationQuality::ParameterizationQuality(const HalfEdge::Mesh * mesh)
         m_flippedTriangleCount = 0;
     }
 
-    nvDebugCheck(isFinite(m_parametricArea) && m_parametricArea >= 0);
-    nvDebugCheck(isFinite(m_geometricArea) && m_geometricArea >= 0);
-    nvDebugCheck(isFinite(m_stretchMetric));
-    nvDebugCheck(isFinite(m_maxStretchMetric));
-    nvDebugCheck(isFinite(m_conformalMetric));
-    nvDebugCheck(isFinite(m_authalicMetric));
+    nvDebugCheck(std::isfinite(m_parametricArea) && m_parametricArea >= 0);
+    nvDebugCheck(std::isfinite(m_geometricArea) && m_geometricArea >= 0);
+    nvDebugCheck(std::isfinite(m_stretchMetric));
+    nvDebugCheck(std::isfinite(m_maxStretchMetric));
+    nvDebugCheck(std::isfinite(m_conformalMetric));
+    nvDebugCheck(std::isfinite(m_authalicMetric));
 }
 
 bool ParameterizationQuality::isValid() const

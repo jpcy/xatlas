@@ -28,11 +28,7 @@ void createHistograms(const T * buffer, uint count, uint * histogram)
     // Init bucket pointers.
     uint * h[bucketCount];
     for (uint i = 0; i < bucketCount; i++) {
-#if NV_BIG_ENDIAN
-        h[sizeof(T)-1-i] = histogram + 256 * i;
-#else
         h[i] = histogram + 256 * i;
-#endif
     }
 
     // Clear histograms.
@@ -119,12 +115,7 @@ template <typename T> inline void RadixSort::radixSort(const T * input, uint cou
         const uint * h = &histogram[j * 256];
 
         const uint8 * inputBytes = (const uint8*)input; // @@ Is this aliasing legal?
-
-#if NV_BIG_ENDIAN
-        inputBytes += P - 1 - j;
-#else
         inputBytes += j;
-#endif
 
         if (h[inputBytes[0]] == count) {
             // Skip this pass, all values are the same.

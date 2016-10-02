@@ -22,7 +22,7 @@ namespace nv
     inline uint sdbmFloatHash(const float * f, uint count, uint h = 5381)
     {
         for (uint i = 0; i < count; i++) {
-            //nvDebugCheck(nv::isFinite(*f));
+            //nvDebugCheck(nv::std::isfinite(*f));
             union { float f; uint32 i; } x = { f[i] };
             if (x.i == 0x80000000) x.i = 0;
             h = sdbmHash(&x, 4, h);

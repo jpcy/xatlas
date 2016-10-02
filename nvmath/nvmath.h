@@ -9,15 +9,7 @@
 #include "nvcore/Utils.h"   // max, clamp
 
 #include <math.h>
-
-#if NV_OS_WIN32 || NV_OS_XBOX || NV_OS_DURANGO
 #include <float.h>  // finite, isnan
-#endif
-
-#if NV_CPU_X86 || NV_CPU_X86_64
-    //#include <intrin.h>
-    #include <xmmintrin.h>
-#endif
 
 #ifndef PI
 #define PI                  float(3.1415926535897932384626433833)
@@ -41,21 +33,6 @@ namespace nv
         return fabs(f) <= epsilon;
     }
 
-    inline bool isFinite(const float f)
-    {
-#if NV_OS_WIN32 || NV_OS_XBOX || NV_OS_DURANGO
-        return _finite(f) != 0;
-#elif NV_OS_DARWIN || NV_OS_FREEBSD || NV_OS_OPENBSD || NV_OS_ORBIS
-        return isfinite(f);
-#elif NV_OS_LINUX
-        return finitef(f);
-#else
-#   error "isFinite not supported"
-#endif
-        //return std::isfinite (f);
-        //return finite (f);
-    }
-
     inline float lerp(float f0, float f1, float t)
     {
         const float s = 1.0f - t;
@@ -69,7 +46,7 @@ namespace nv
     inline void floatCleanup(float * fp, int n)
     {
         for (int i = 0; i < n; i++) {
-            //nvDebugCheck(isFinite(fp[i]));
+            //nvDebugCheck(std::isfinite(fp[i]));
             union { float f; uint32 i; } x = { fp[i] };
             if (x.i == 0x80000000) fp[i] = 0.0f;
         }
