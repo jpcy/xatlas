@@ -1,44 +1,14 @@
 // This code is in the public domain -- castano@gmail.com
 
 #include "Util.h"
-
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Face.h"
 #include "nvmesh/halfedge/Vertex.h"
-
+#include "nvmath/Basis.h"
 #include "nvmath/Vector.h"
-
 #include "nvcore/Array.h"
 
-
 using namespace nv;
-
-// Determine if the given mesh is a	quad mesh.
-bool nv::isQuadMesh(const HalfEdge::Mesh * mesh)
-{
-    nvDebugCheck(mesh != NULL);
-
-    const uint faceCount = mesh->faceCount();
-    for(uint i = 0; i < faceCount; i++) {
-        const HalfEdge::Face * face = mesh->faceAt(i);
-        if (face->edgeCount() != 4) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-bool nv::isTriangularMesh(const HalfEdge::Mesh * mesh)
-{
-    for (HalfEdge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance())
-    {
-        const HalfEdge::Face * face = it.current();
-        if (face->edgeCount() != 3) return false;
-    }
-    return true;
-}
-
 
 uint nv::countMeshTriangles(const HalfEdge::Mesh * mesh)
 {
@@ -58,20 +28,6 @@ uint nv::countMeshTriangles(const HalfEdge::Mesh * mesh)
 
     return triangleCount;
 }
-
-const HalfEdge::Vertex * nv::findBoundaryVertex(const HalfEdge::Mesh * mesh)
-{
-    const uint vertexCount = mesh->vertexCount();
-
-    for (uint v = 0; v < vertexCount; v++)
-    {
-        const HalfEdge::Vertex * vertex = mesh->vertexAt(v);
-        if (vertex->isBoundary()) return vertex;
-    }
-
-    return NULL;
-}
-
 
 HalfEdge::Mesh * nv::unifyVertices(const HalfEdge::Mesh * inputMesh)
 {
@@ -110,8 +66,6 @@ HalfEdge::Mesh * nv::unifyVertices(const HalfEdge::Mesh * inputMesh)
 
     return mesh;
 }
-
-#include "nvmath/Basis.h"
 
 static bool pointInTriangle(const Vector2 & p, const Vector2 & a, const Vector2 & b, const Vector2 & c)
 {
@@ -258,62 +212,6 @@ HalfEdge::Mesh * nv::triangulate(const HalfEdge::Mesh * inputMesh)
                 polygonAngles.removeAt(i1);
             }
         }
-
-#if 0
-
-        uint i = 0;
-        while (polygonVertices.size() > 2 && i < polygonVertices.size()) {
-            uint size = polygonVertices.size();
-            uint i0 = (i+0) % size;
-            uint i1 = (i+1) % size;
-            uint i2 = (i+2) % size;
-
-            const HalfEdge::Vertex * v0 = polygonVertices[i0];
-            const HalfEdge::Vertex * v1 = polygonVertices[i1];
-            const HalfEdge::Vertex * v2 = polygonVertices[i2];
-
-            const Vector3 p0 = v0->pos;
-            const Vector3 p1 = v1->pos;
-            const Vector3 p2 = v2->pos;
-
-            const Vector3 e0 = p2 - p1;
-            const Vector3 e1 = p0 - p1;
-
-            // If this ear forms a valid triangle, setup relations, remove v1 and repeat.
-            Vector3 n = cross(e0, e1);
-            float len = dot(fn, n); // = sin(angle)
-            
-            float angle = asin(len);
-
-
-            if (len > 0.0f) {
-                mesh->addFace(v0->id(), v1->id(), v2->id());
-                polygonVertices.removeAt(i1);
-                polygonAngles.removeAt(i1);
-                if (i2 > i1) i2--;
-                // @@ Update angles at i0 and i2
-            }
-            else {
-                i++;
-            }
-        }
-
-        // @@ Create a few degenerate triangles to avoid introducing holes.
-        i = 0;
-        const uint size = polygonVertices.size();
-        while (i < size - 2) {
-            uint i0 = (i+0) % size;
-            uint i1 = (i+1) % size;
-            uint i2 = (i+2) % size;
-
-            const HalfEdge::Vertex * v0 = polygonVertices[i0];
-            const HalfEdge::Vertex * v1 = polygonVertices[i1];
-            const HalfEdge::Vertex * v2 = polygonVertices[i2];
-
-            mesh->addFace(v0->id(), v1->id(), v2->id());
-            i++;
-        }
-#endif
     }
 
     mesh->linkBoundary();
