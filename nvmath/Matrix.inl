@@ -297,7 +297,7 @@ namespace nv
     // Get perspective matrix.
     inline Matrix perspective(float fovy, float aspect, float zNear, float zFar)
     {
-        float xmax = zNear * tan(fovy / 2);
+        float xmax = zNear * (float)tan(fovy / 2);
         float xmin = -xmax;
 
         float ymax = xmax / aspect;
@@ -309,7 +309,7 @@ namespace nv
     // Get inverse perspective matrix.
     inline Matrix perspectiveInverse(float fovy, float aspect, float zNear, float zFar)
     {
-        float xmax = zNear * tan(fovy / 2);
+        float xmax = zNear * (float)tan(fovy / 2);
         float xmin = -xmax;
 
         float ymax = xmax / aspect;
@@ -321,7 +321,7 @@ namespace nv
     // Get infinite perspective matrix.
     inline Matrix perspective(float fovy, float aspect, float zNear)
     {
-        float x = zNear * tan(fovy / 2);
+        float x = zNear * (float)tan(fovy / 2);
         float y = x / aspect;
         return frustum( -x, x, -y, y, zNear );	
     }

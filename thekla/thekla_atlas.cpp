@@ -242,8 +242,8 @@ Atlas_Output_Mesh * Thekla::atlas_generate(const Atlas_Input_Mesh * input, const
     if (options->packer == Atlas_Packer_Witness) {
         int packing_quality = options->packer_options.witness.packing_quality;
         float texel_area = options->packer_options.witness.texel_area;
-        int block_align = options->packer_options.witness.block_align;
-        int conservative = options->packer_options.witness.conservative;
+        bool block_align = options->packer_options.witness.block_align;
+        bool conservative = options->packer_options.witness.conservative;
 
         /*float utilization =*/ atlas.packCharts(packing_quality, texel_area, block_align, conservative);
     }

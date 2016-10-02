@@ -89,7 +89,7 @@ int main(int argc, char * argv[]) {
 		color[0] = rand() % 255;
 		color[1] = rand() % 255;
 		color[2] = rand() % 255;
-		nv::Raster::drawTriangle(nv::Raster::Mode_Nearest, nv::Vector2(output_mesh->atlas_width, output_mesh->atlas_height), true, verts, RasterCallback, color);
+		nv::Raster::drawTriangle(nv::Raster::Mode_Nearest, nv::Vector2((float)output_mesh->atlas_width, (float)output_mesh->atlas_height), true, verts, RasterCallback, color);
 	}
 
 	stbi_write_tga("debug_packer_final.tga", output_mesh->atlas_width, output_mesh->atlas_height, 4, output_image);
