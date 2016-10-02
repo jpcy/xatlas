@@ -122,51 +122,6 @@ namespace nv
         ConstEdgeIterator edges() const { return ConstEdgeIterator(edge); }
         ConstEdgeIterator edges(const Edge * e) const { return ConstEdgeIterator(e); }
 
-
-        // Iterator that visits the edges around this vertex in counterclockwise order.
-        class ReverseEdgeIterator //: public Iterator<Edge *>
-        {
-        public:
-            ReverseEdgeIterator(Edge * e) : m_end(NULL), m_current(e) { }
-
-            virtual void advance()
-            {
-                if (m_end == NULL) m_end = m_current;
-                m_current = m_current->prev->pair;
-            }
-
-            virtual bool isDone() const { return m_end == m_current; }
-            virtual Edge * current() const { return m_current; }
-            Vertex * vertex() const { return m_current->vertex; }
-
-        private:
-            Edge * m_end;
-            Edge * m_current;
-        };
-
-        // Iterator that visits the edges around this vertex in counterclockwise order.
-        class ReverseConstEdgeIterator //: public Iterator<Edge *>
-        {
-        public:
-            ReverseConstEdgeIterator(const Edge * e) : m_end(NULL), m_current(e) { }
-
-            virtual void advance()
-            {
-                if (m_end == NULL) m_end = m_current;
-                m_current = m_current->prev->pair;
-            }
-
-            virtual bool isDone() const { return m_end == m_current; }
-            virtual const Edge * current() const { return m_current; }
-            const Vertex * vertex() const { return m_current->to(); }
-
-        private:
-            const Edge * m_end;
-            const Edge * m_current;
-        };
-
-
-
         // Iterator that visits all the colocal vertices.
         class VertexIterator //: public Iterator<Edge *>
         {

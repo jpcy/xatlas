@@ -51,7 +51,6 @@ namespace nv
 
             void linkColocals();
             void linkColocalsWithCanonicalMap(const Array<uint> & canonicalMap);
-            void resetColocalLinks();
 
             Face * addFace();
             Face * addFace(uint v0, uint v1, uint v2);
@@ -62,9 +61,6 @@ namespace nv
 
             // These functions disconnect the given element from the mesh and delete it.
             void disconnect(Edge * edge);
-            void disconnectPair(Edge * edge);
-            void disconnect(Vertex * vertex);
-            void disconnect(Face * face);
 
             void remove(Edge * edge);
             void remove(Vertex * vertex);
