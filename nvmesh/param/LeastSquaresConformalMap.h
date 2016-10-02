@@ -6,9 +6,12 @@
 
 namespace nv
 {
-    namespace HalfEdge { class Mesh; }
+namespace HalfEdge
+{
+class Mesh;
+}
 
-    bool computeLeastSquaresConformalMap(HalfEdge::Mesh * mesh);
+bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh);
 
 } // nv namespace
 

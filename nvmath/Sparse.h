@@ -12,136 +12,153 @@
 
 namespace nv
 {
-    class FullVector;
-    class SparseMatrix;
+class FullVector;
+class SparseMatrix;
 
 
-    /// Fixed size vector class.
-    class FullVector
-    {
-    public:
+/// Fixed size vector class.
+class FullVector
+{
+public:
 
-        FullVector(uint dim);
-        FullVector(const FullVector & v);
+	FullVector(uint dim);
+	FullVector(const FullVector &v);
 
-        const FullVector & operator=(const FullVector & v);
+	const FullVector &operator=(const FullVector &v);
 
-        uint dimension() const { return m_array.count(); }
+	uint dimension() const
+	{
+		return m_array.count();
+	}
 
-        const float & operator[]( uint index ) const { return m_array[index]; }
-        float & operator[] ( uint index ) { return m_array[index]; }
+	const float &operator[]( uint index ) const
+	{
+		return m_array[index];
+	}
+	float &operator[] ( uint index )
+	{
+		return m_array[index];
+	}
 
-        void fill(float f);
+	void fill(float f);
 
-        void operator+= (const FullVector & v);
-        void operator-= (const FullVector & v);
-        void operator*= (const FullVector & v);
+	void operator+= (const FullVector &v);
+	void operator-= (const FullVector &v);
+	void operator*= (const FullVector &v);
 
-        void operator+= (float f);
-        void operator-= (float f);
-        void operator*= (float f);
-
-
-    private:
-
-        Array<float> m_array;
-
-    };
-
-    // Pseudo-BLAS interface.
-    void saxpy(float a, const FullVector & x, FullVector & y); // y = a * x + y
-    void copy(const FullVector & x, FullVector & y);
-    void scal(float a, FullVector & x);
-    float dot(const FullVector & x, const FullVector & y);
+	void operator+= (float f);
+	void operator-= (float f);
+	void operator*= (float f);
 
 
-    enum Transpose
-    {
-        NoTransposed = 0,
-        Transposed = 1
-    };
+private:
 
-    /**
-    * Sparse matrix class. The matrix is assumed to be sparse and to have
-    * very few non-zero elements, for this reason it's stored in indexed 
-    * format. To multiply column vectors efficiently, the matrix stores 
-    * the elements in indexed-column order, there is a list of indexed 
-    * elements for each row of the matrix. As with the FullVector the 
-    * dimension of the matrix is constant.
-    **/
-    class SparseMatrix
-    {
-    public:
+	Array<float> m_array;
 
-        // An element of the sparse array.
-        struct Coefficient {
-            uint x;  // column
-            float v; // value
-        };
+};
+
+// Pseudo-BLAS interface.
+void saxpy(float a, const FullVector &x, FullVector &y);   // y = a * x + y
+void copy(const FullVector &x, FullVector &y);
+void scal(float a, FullVector &x);
+float dot(const FullVector &x, const FullVector &y);
 
 
-    public:
+enum Transpose {
+	NoTransposed = 0,
+	Transposed = 1
+};
 
-        SparseMatrix(uint d);
-        SparseMatrix(uint w, uint h);
-        SparseMatrix(const SparseMatrix & m);
+/**
+* Sparse matrix class. The matrix is assumed to be sparse and to have
+* very few non-zero elements, for this reason it's stored in indexed
+* format. To multiply column vectors efficiently, the matrix stores
+* the elements in indexed-column order, there is a list of indexed
+* elements for each row of the matrix. As with the FullVector the
+* dimension of the matrix is constant.
+**/
+class SparseMatrix
+{
+public:
 
-        const SparseMatrix & operator=(const SparseMatrix & m);
+	// An element of the sparse array.
+	struct Coefficient {
+		uint x;  // column
+		float v; // value
+	};
 
 
-        uint width() const { return m_width; }
-        uint height() const { return m_array.count(); }
-        bool isSquare() const { return width() == height(); }
+public:
 
-        float getCoefficient(uint x, uint y) const; // x is column, y is row
+	SparseMatrix(uint d);
+	SparseMatrix(uint w, uint h);
+	SparseMatrix(const SparseMatrix &m);
 
-        void setCoefficient(uint x, uint y, float f);
-        void addCoefficient(uint x, uint y, float f);
-        void mulCoefficient(uint x, uint y, float f);
+	const SparseMatrix &operator=(const SparseMatrix &m);
 
-        float sumRow(uint y) const;
-        float dotRow(uint y, const FullVector & v) const;
-        void madRow(uint y, float alpha, FullVector & v) const;
 
-        void clearRow(uint y);
-        void scaleRow(uint y, float f);
-        void normalizeRow(uint y);
+	uint width() const
+	{
+		return m_width;
+	}
+	uint height() const
+	{
+		return m_array.count();
+	}
+	bool isSquare() const
+	{
+		return width() == height();
+	}
 
-        void clearColumn(uint x);
-        void scaleColumn(uint x, float f);
+	float getCoefficient(uint x, uint y) const; // x is column, y is row
 
-        const Array<Coefficient> & getRow(uint y) const;
+	void setCoefficient(uint x, uint y, float f);
+	void addCoefficient(uint x, uint y, float f);
+	void mulCoefficient(uint x, uint y, float f);
 
-        bool isSymmetric() const;
+	float sumRow(uint y) const;
+	float dotRow(uint y, const FullVector &v) const;
+	void madRow(uint y, float alpha, FullVector &v) const;
 
-    private:
+	void clearRow(uint y);
+	void scaleRow(uint y, float f);
+	void normalizeRow(uint y);
 
-        /// Number of columns.
-        const uint m_width;
+	void clearColumn(uint x);
+	void scaleColumn(uint x, float f);
 
-        /// Array of matrix elements.
-        Array< Array<Coefficient> > m_array;
+	const Array<Coefficient> &getRow(uint y) const;
 
-    };
+	bool isSymmetric() const;
 
-    void transpose(const SparseMatrix & A, SparseMatrix & B);
+private:
 
-    void mult(const SparseMatrix & M, const FullVector & x, FullVector & y);
-    void mult(Transpose TM, const SparseMatrix & M, const FullVector & x, FullVector & y);
+	/// Number of columns.
+	const uint m_width;
 
-    // y = alpha*A*x + beta*y
-    void sgemv(float alpha, const SparseMatrix & A, const FullVector & x, float beta, FullVector & y);
-    void sgemv(float alpha, Transpose TA, const SparseMatrix & A, const FullVector & x, float beta, FullVector & y);
+	/// Array of matrix elements.
+	Array< Array<Coefficient> > m_array;
 
-    void mult(const SparseMatrix & A, const SparseMatrix & B, SparseMatrix & C);
-    void mult(Transpose TA, const SparseMatrix & A, Transpose TB, const SparseMatrix & B, SparseMatrix & C);
+};
 
-    // C = alpha*A*B + beta*C
-    void sgemm(float alpha, const SparseMatrix & A, const SparseMatrix & B, float beta, SparseMatrix & C);
-    void sgemm(float alpha, Transpose TA, const SparseMatrix & A, Transpose TB, const SparseMatrix & B, float beta, SparseMatrix & C);
+void transpose(const SparseMatrix &A, SparseMatrix &B);
 
-    // C = At * A
-    void sqm(const SparseMatrix & A, SparseMatrix & C);
+void mult(const SparseMatrix &M, const FullVector &x, FullVector &y);
+void mult(Transpose TM, const SparseMatrix &M, const FullVector &x, FullVector &y);
+
+// y = alpha*A*x + beta*y
+void sgemv(float alpha, const SparseMatrix &A, const FullVector &x, float beta, FullVector &y);
+void sgemv(float alpha, Transpose TA, const SparseMatrix &A, const FullVector &x, float beta, FullVector &y);
+
+void mult(const SparseMatrix &A, const SparseMatrix &B, SparseMatrix &C);
+void mult(Transpose TA, const SparseMatrix &A, Transpose TB, const SparseMatrix &B, SparseMatrix &C);
+
+// C = alpha*A*B + beta*C
+void sgemm(float alpha, const SparseMatrix &A, const SparseMatrix &B, float beta, SparseMatrix &C);
+void sgemm(float alpha, Transpose TA, const SparseMatrix &A, Transpose TB, const SparseMatrix &B, float beta, SparseMatrix &C);
+
+// C = At * A
+void sqm(const SparseMatrix &A, SparseMatrix &C);
 
 } // nv namespace
 

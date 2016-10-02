@@ -6,12 +6,12 @@
 
 namespace nv
 {
-    namespace HalfEdge
-    {
-        class Mesh;
-    }
+namespace HalfEdge
+{
+class Mesh;
+}
 
-    void computeSingleFaceMap(HalfEdge::Mesh * mesh);
+void computeSingleFaceMap(HalfEdge::Mesh *mesh);
 
 } // nv namespace
 

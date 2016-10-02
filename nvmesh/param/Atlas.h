@@ -12,170 +12,241 @@
 
 namespace nv
 {
-    namespace HalfEdge { class Mesh; }
+namespace HalfEdge
+{
+class Mesh;
+}
 
-    class Chart;
-    class MeshCharts;
-    class VertexMap;
+class Chart;
+class MeshCharts;
+class VertexMap;
 
-    struct SegmentationSettings
-    {
-        SegmentationSettings();
+struct SegmentationSettings {
+	SegmentationSettings();
 
-        float maxChartArea;
-        float maxBoundaryLength;
+	float maxChartArea;
+	float maxBoundaryLength;
 
-        float proxyFitMetricWeight;
-        float roundnessMetricWeight;
-        float straightnessMetricWeight;
-        float normalSeamMetricWeight;
-        float textureSeamMetricWeight;
-    };
-
-
-    /// An atlas is a set of charts.
-    class Atlas
-    {
-    public:
-
-        Atlas();
-        ~Atlas();
-
-        uint meshCount() const { return m_meshChartsArray.count(); }
-        const MeshCharts * meshAt(uint i) const { return m_meshChartsArray[i]; }
-        MeshCharts * meshAt(uint i) { return m_meshChartsArray[i]; }
-
-        uint chartCount() const;
-        const Chart * chartAt(uint i) const;
-        Chart * chartAt(uint i);
-
-        // Add mesh charts and takes ownership.
-        void addMeshCharts(MeshCharts * meshCharts);
-
-        void extractCharts(const HalfEdge::Mesh * mesh);
-        void computeCharts(const HalfEdge::Mesh * mesh, const SegmentationSettings & settings, const Array<uint> & unchartedMaterialArray);
+	float proxyFitMetricWeight;
+	float roundnessMetricWeight;
+	float straightnessMetricWeight;
+	float normalSeamMetricWeight;
+	float textureSeamMetricWeight;
+};
 
 
-        // Compute a trivial seamless texture similar to ZBrush.
-        //bool computeSeamlessTextureAtlas(bool groupFaces = true, bool scaleTiles = false, uint w = 1024, uint h = 1024);
+/// An atlas is a set of charts.
+class Atlas
+{
+public:
 
-        void parameterizeCharts();
+	Atlas();
+	~Atlas();
 
-        // Pack charts in the smallest possible rectangle.
-        float packCharts(int quality, float texelArea, bool blockAlign, bool conservative);
+	uint meshCount() const
+	{
+		return m_meshChartsArray.count();
+	}
+	const MeshCharts *meshAt(uint i) const
+	{
+		return m_meshChartsArray[i];
+	}
+	MeshCharts *meshAt(uint i)
+	{
+		return m_meshChartsArray[i];
+	}
 
-    private:
+	uint chartCount() const;
+	const Chart *chartAt(uint i) const;
+	Chart *chartAt(uint i);
 
-        Array<MeshCharts *> m_meshChartsArray;
+	// Add mesh charts and takes ownership.
+	void addMeshCharts(MeshCharts *meshCharts);
 
-    };
-
-
-    // Set of charts corresponding to a single mesh.
-    class MeshCharts
-    {
-    public:
-        MeshCharts(const HalfEdge::Mesh * mesh);
-        ~MeshCharts();
-
-        uint chartCount() const { return m_chartArray.count(); }
-        uint vertexCount () const { return m_totalVertexCount; }
-
-        const Chart * chartAt(uint i) const { return m_chartArray[i]; }
-        Chart * chartAt(uint i) { return m_chartArray[i]; }
-
-        void computeVertexMap(const Array<uint> & unchartedMaterialArray);
-
-        // Extract the charts of the input mesh.
-        void extractCharts();
-
-        // Compute charts using a simple segmentation algorithm.
-        void computeCharts(const SegmentationSettings & settings, const Array<uint> & unchartedMaterialArray);
-
-        void parameterizeCharts();
-
-        uint faceChartAt(uint i) const { return m_faceChart[i]; }
-        uint faceIndexWithinChartAt(uint i) const { return m_faceIndex[i]; }
-
-        uint vertexCountBeforeChartAt(uint i) const { return m_chartVertexCountPrefixSum[i]; }
-
-    private:
-
-        const HalfEdge::Mesh * m_mesh;
-
-        Array<Chart *> m_chartArray;
-        
-        Array<uint> m_chartVertexCountPrefixSum;
-        uint m_totalVertexCount;
-
-        Array<uint> m_faceChart; // the chart of every face of the input mesh.
-        Array<uint> m_faceIndex; // the index within the chart for every face of the input mesh.
-    };
+	void extractCharts(const HalfEdge::Mesh *mesh);
+	void computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const Array<uint> &unchartedMaterialArray);
 
 
-    /// A chart is a connected set of faces with a certain topology (usually a disk).
-    class Chart
-    {
-    public:
+	// Compute a trivial seamless texture similar to ZBrush.
+	//bool computeSeamlessTextureAtlas(bool groupFaces = true, bool scaleTiles = false, uint w = 1024, uint h = 1024);
 
-        Chart();
+	void parameterizeCharts();
 
-        void build(const HalfEdge::Mesh * originalMesh, const Array<uint> & faceArray);
-        void buildVertexMap(const HalfEdge::Mesh * originalMesh, const Array<uint> & unchartedMaterialArray);
+	// Pack charts in the smallest possible rectangle.
+	float packCharts(int quality, float texelArea, bool blockAlign, bool conservative);
 
-        bool closeHoles();
+private:
 
-        bool isDisk() const { return m_isDisk; }
-        bool isVertexMapped() const { return m_isVertexMapped; }
+	Array<MeshCharts *> m_meshChartsArray;
 
-        uint vertexCount() const { return m_chartMesh->vertexCount(); }
-        uint colocalVertexCount() const { return m_unifiedMesh->vertexCount(); }
-
-        uint faceCount() const { return m_faceArray.count(); }
-        uint faceAt(uint i) const { return m_faceArray[i]; }
-
-        const HalfEdge::Mesh * chartMesh() const { return m_chartMesh.get(); }
-        HalfEdge::Mesh * chartMesh() { return m_chartMesh.get(); }
-        const HalfEdge::Mesh * unifiedMesh() const { return m_unifiedMesh.get(); }
-        HalfEdge::Mesh * unifiedMesh() { return m_unifiedMesh.get(); }
-
-        //uint vertexIndex(uint i) const { return m_vertexIndexArray[i]; }
-
-        uint mapChartVertexToOriginalVertex(uint i) const { return m_chartToOriginalMap[i]; }
-        uint mapChartVertexToUnifiedVertex(uint i) const { return m_chartToUnifiedMap[i]; }
-
-        const Array<uint> & faceArray() const { return m_faceArray; }
-
-        void transferParameterization();
-
-        float computeSurfaceArea() const;
-        float computeParametricArea() const;
-        Vector2 computeParametricBounds() const;
+};
 
 
-        float scale = 1.0f;
-        uint vertexMapWidth;
-        uint vertexMapHeight;
+// Set of charts corresponding to a single mesh.
+class MeshCharts
+{
+public:
+	MeshCharts(const HalfEdge::Mesh *mesh);
+	~MeshCharts();
 
-    private:
+	uint chartCount() const
+	{
+		return m_chartArray.count();
+	}
+	uint vertexCount () const
+	{
+		return m_totalVertexCount;
+	}
 
-        bool closeLoop(uint start, const Array<HalfEdge::Edge *> & loop);
+	const Chart *chartAt(uint i) const
+	{
+		return m_chartArray[i];
+	}
+	Chart *chartAt(uint i)
+	{
+		return m_chartArray[i];
+	}
 
-        // Chart mesh.
-        std::auto_ptr<HalfEdge::Mesh> m_chartMesh;
-        std::auto_ptr<HalfEdge::Mesh> m_unifiedMesh;
+	void computeVertexMap(const Array<uint> &unchartedMaterialArray);
 
-        bool m_isDisk;
-        bool m_isVertexMapped;
+	// Extract the charts of the input mesh.
+	void extractCharts();
 
-        // List of faces of the original mesh that belong to this chart.
-        Array<uint> m_faceArray;
+	// Compute charts using a simple segmentation algorithm.
+	void computeCharts(const SegmentationSettings &settings, const Array<uint> &unchartedMaterialArray);
 
-        // Map vertices of the chart mesh to vertices of the original mesh.
-        Array<uint> m_chartToOriginalMap;
+	void parameterizeCharts();
 
-        Array<uint> m_chartToUnifiedMap;
-    };
+	uint faceChartAt(uint i) const
+	{
+		return m_faceChart[i];
+	}
+	uint faceIndexWithinChartAt(uint i) const
+	{
+		return m_faceIndex[i];
+	}
+
+	uint vertexCountBeforeChartAt(uint i) const
+	{
+		return m_chartVertexCountPrefixSum[i];
+	}
+
+private:
+
+	const HalfEdge::Mesh *m_mesh;
+
+	Array<Chart *> m_chartArray;
+
+	Array<uint> m_chartVertexCountPrefixSum;
+	uint m_totalVertexCount;
+
+	Array<uint> m_faceChart; // the chart of every face of the input mesh.
+	Array<uint> m_faceIndex; // the index within the chart for every face of the input mesh.
+};
+
+
+/// A chart is a connected set of faces with a certain topology (usually a disk).
+class Chart
+{
+public:
+
+	Chart();
+
+	void build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArray);
+	void buildVertexMap(const HalfEdge::Mesh *originalMesh, const Array<uint> &unchartedMaterialArray);
+
+	bool closeHoles();
+
+	bool isDisk() const
+	{
+		return m_isDisk;
+	}
+	bool isVertexMapped() const
+	{
+		return m_isVertexMapped;
+	}
+
+	uint vertexCount() const
+	{
+		return m_chartMesh->vertexCount();
+	}
+	uint colocalVertexCount() const
+	{
+		return m_unifiedMesh->vertexCount();
+	}
+
+	uint faceCount() const
+	{
+		return m_faceArray.count();
+	}
+	uint faceAt(uint i) const
+	{
+		return m_faceArray[i];
+	}
+
+	const HalfEdge::Mesh *chartMesh() const
+	{
+		return m_chartMesh.get();
+	}
+	HalfEdge::Mesh *chartMesh()
+	{
+		return m_chartMesh.get();
+	}
+	const HalfEdge::Mesh *unifiedMesh() const
+	{
+		return m_unifiedMesh.get();
+	}
+	HalfEdge::Mesh *unifiedMesh()
+	{
+		return m_unifiedMesh.get();
+	}
+
+	//uint vertexIndex(uint i) const { return m_vertexIndexArray[i]; }
+
+	uint mapChartVertexToOriginalVertex(uint i) const
+	{
+		return m_chartToOriginalMap[i];
+	}
+	uint mapChartVertexToUnifiedVertex(uint i) const
+	{
+		return m_chartToUnifiedMap[i];
+	}
+
+	const Array<uint> &faceArray() const
+	{
+		return m_faceArray;
+	}
+
+	void transferParameterization();
+
+	float computeSurfaceArea() const;
+	float computeParametricArea() const;
+	Vector2 computeParametricBounds() const;
+
+
+	float scale = 1.0f;
+	uint vertexMapWidth;
+	uint vertexMapHeight;
+
+private:
+
+	bool closeLoop(uint start, const Array<HalfEdge::Edge *> &loop);
+
+	// Chart mesh.
+	std::auto_ptr<HalfEdge::Mesh> m_chartMesh;
+	std::auto_ptr<HalfEdge::Mesh> m_unifiedMesh;
+
+	bool m_isDisk;
+	bool m_isVertexMapped;
+
+	// List of faces of the original mesh that belong to this chart.
+	Array<uint> m_faceArray;
+
+	// Map vertices of the chart mesh to vertices of the original mesh.
+	Array<uint> m_chartToOriginalMap;
+
+	Array<uint> m_chartToUnifiedMap;
+};
 
 } // nv namespace
 

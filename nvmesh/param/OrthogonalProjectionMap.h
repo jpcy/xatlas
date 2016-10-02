@@ -6,9 +6,12 @@
 
 namespace nv
 {
-    namespace HalfEdge { class Mesh; }
+namespace HalfEdge
+{
+class Mesh;
+}
 
-    bool computeOrthogonalProjectionMap(HalfEdge::Mesh * mesh);
+bool computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh);
 
 } // nv namespace
 

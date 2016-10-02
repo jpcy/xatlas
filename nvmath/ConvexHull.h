@@ -7,10 +7,11 @@
 #include "nvmath.h"
 #include "nvcore/Array.h"
 
-namespace nv {
-    class Vector2;
- 
-    void convexHull(const Array<Vector2> & input, Array<Vector2> & output, float epsilon = 0);
+namespace nv
+{
+class Vector2;
+
+void convexHull(const Array<Vector2> &input, Array<Vector2> &output, float epsilon = 0);
 
 } // namespace nv
 

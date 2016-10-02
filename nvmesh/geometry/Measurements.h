@@ -6,10 +6,13 @@
 
 namespace nv
 {
-    namespace HalfEdge { class Mesh; }
+namespace HalfEdge
+{
+class Mesh;
+}
 
-	float computeSurfaceArea(const HalfEdge::Mesh * mesh);
-	float computeParametricArea(const HalfEdge::Mesh * mesh);
+float computeSurfaceArea(const HalfEdge::Mesh *mesh);
+float computeParametricArea(const HalfEdge::Mesh *mesh);
 
 } // nv namespace
 

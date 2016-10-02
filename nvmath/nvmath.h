@@ -20,37 +20,46 @@
 
 namespace nv
 {
-    // Robust floating point comparisons:
-    // http://realtimecollisiondetection.net/blog/?p=89
-    inline bool equal(const float f0, const float f1, const float epsilon = NV_EPSILON)
-    {
-        //return fabs(f0-f1) <= epsilon;
-        return fabs(f0-f1) <= epsilon * max3(1.0f, fabsf(f0), fabsf(f1));
-    }
+// Robust floating point comparisons:
+// http://realtimecollisiondetection.net/blog/?p=89
+inline bool equal(const float f0, const float f1, const float epsilon = NV_EPSILON)
+{
+	//return fabs(f0-f1) <= epsilon;
+	return fabs(f0 - f1) <= epsilon * max3(1.0f, fabsf(f0), fabsf(f1));
+}
 
-    inline bool isZero(const float f, const float epsilon = NV_EPSILON)
-    {
-        return fabs(f) <= epsilon;
-    }
+inline bool isZero(const float f, const float epsilon = NV_EPSILON)
+{
+	return fabs(f) <= epsilon;
+}
 
-    inline float lerp(float f0, float f1, float t)
-    {
-        const float s = 1.0f - t;
-        return f0 * s + f1 * t;
-    }
+inline float lerp(float f0, float f1, float t)
+{
+	const float s = 1.0f - t;
+	return f0 * s + f1 * t;
+}
 
-    inline float square(float f) { return f * f; }
-    inline int square(int i) { return i * i; }
+inline float square(float f)
+{
+	return f * f;
+}
+inline int square(int i)
+{
+	return i * i;
+}
 
-    // Eliminates negative zeros from a float array.
-    inline void floatCleanup(float * fp, int n)
-    {
-        for (int i = 0; i < n; i++) {
-            //nvDebugCheck(std::isfinite(fp[i]));
-            union { float f; uint32 i; } x = { fp[i] };
-            if (x.i == 0x80000000) fp[i] = 0.0f;
-        }
-    }
+// Eliminates negative zeros from a float array.
+inline void floatCleanup(float *fp, int n)
+{
+	for (int i = 0; i < n; i++) {
+		//nvDebugCheck(std::isfinite(fp[i]));
+		union {
+			float f;
+			uint32 i;
+		} x = { fp[i] };
+		if (x.i == 0x80000000) fp[i] = 0.0f;
+	}
+}
 } // nv
 
 #endif // NV_MATH_H

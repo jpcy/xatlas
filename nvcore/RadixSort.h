@@ -12,32 +12,41 @@
 namespace nv
 {
 
-    class RadixSort
-    {
-    public:
-        // Constructor/Destructor
-        RadixSort();
-        ~RadixSort();
+class RadixSort
+{
+public:
+	// Constructor/Destructor
+	RadixSort();
+	~RadixSort();
 
-        RadixSort & sort(const float * input, uint count);
-        inline RadixSort & sort(const Array<float> & input) {
-			return sort(input.buffer(), input.count());
-		}
+	RadixSort &sort(const float *input, uint count);
+	inline RadixSort &sort(const Array<float> &input)
+	{
+		return sort(input.buffer(), input.count());
+	}
 
-        // Access to results. m_ranks is a list of indices in sorted order, i.e. in the order you may further process your data
-        inline const uint * ranks() const { nvDebugCheck(m_validRanks); return m_ranks; }
-        inline uint * ranks() { nvDebugCheck(m_validRanks); return m_ranks; }
+	// Access to results. m_ranks is a list of indices in sorted order, i.e. in the order you may further process your data
+	inline const uint *ranks() const
+	{
+		nvDebugCheck(m_validRanks);
+		return m_ranks;
+	}
+	inline uint *ranks()
+	{
+		nvDebugCheck(m_validRanks);
+		return m_ranks;
+	}
 
-    private:
-        uint m_size;
-        uint * m_ranks;
-        uint * m_ranks2;
-        bool m_validRanks;
+private:
+	uint m_size;
+	uint *m_ranks;
+	uint *m_ranks2;
+	bool m_validRanks;
 
-        // Internal methods
-        template <typename T> void insertionSort(const T * input, uint count);
-        template <typename T> void radixSort(const T * input, uint count);
-    };
+	// Internal methods
+	template <typename T> void insertionSort(const T *input, uint count);
+	template <typename T> void radixSort(const T *input, uint count);
+};
 
 } // nv namespace
 

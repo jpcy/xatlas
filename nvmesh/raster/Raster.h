@@ -15,23 +15,23 @@
 
 namespace nv
 {
-    namespace Raster 
-    {
-        enum Mode {
-            Mode_Nearest,
-            Mode_Antialiased,
-            //Mode_Conservative
-        };
+namespace Raster
+{
+enum Mode {
+	Mode_Nearest,
+	Mode_Antialiased,
+	//Mode_Conservative
+};
 
-        /// A callback to sample the environment. Return false to terminate rasterization.
-        typedef bool (* SamplingCallback)(void * param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
+/// A callback to sample the environment. Return false to terminate rasterization.
+typedef bool (* SamplingCallback)(void *param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
 
-        // Process the given triangle. Returns false if rasterization was interrupted by the callback.
-        bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void * param);
+// Process the given triangle. Returns false if rasterization was interrupted by the callback.
+bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void *param);
 
-        // Process the given quad. Returns false if rasterization was interrupted by the callback.
-        bool drawQuad(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[4], SamplingCallback cb, void * param);
-    }
+// Process the given quad. Returns false if rasterization was interrupted by the callback.
+bool drawQuad(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[4], SamplingCallback cb, void *param);
+}
 }
 
 

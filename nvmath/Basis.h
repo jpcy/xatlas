@@ -10,21 +10,21 @@
 namespace nv
 {
 
-    /// Basis class to compute tangent space basis, ortogonalizations and to
-    /// transform vectors from one space to another.
-    class Basis
-    {
-    public:
+/// Basis class to compute tangent space basis, ortogonalizations and to
+/// transform vectors from one space to another.
+class Basis
+{
+public:
 
-        /// Create a null basis.
-        Basis() : tangent(0, 0, 0), bitangent(0, 0, 0), normal(0, 0, 0) {}
+	/// Create a null basis.
+	Basis() : tangent(0, 0, 0), bitangent(0, 0, 0), normal(0, 0, 0) {}
 
-        void buildFrameForDirection(Vector3::Arg d, float angle = 0);
+	void buildFrameForDirection(Vector3::Arg d, float angle = 0);
 
-        Vector3 tangent;
-        Vector3 bitangent;
-        Vector3 normal;
-    };
+	Vector3 tangent;
+	Vector3 bitangent;
+	Vector3 normal;
+};
 
 } // nv namespace
 

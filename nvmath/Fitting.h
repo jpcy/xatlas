@@ -8,16 +8,16 @@
 
 namespace nv
 {
-    namespace Fit
-    {
-        Vector3 computeCentroid(int n, const Vector3 * points);
+namespace Fit
+{
+Vector3 computeCentroid(int n, const Vector3 *points);
 
-        Vector3 computeCovariance(int n, const Vector3 * points, float * covariance);
+Vector3 computeCovariance(int n, const Vector3 *points, float *covariance);
 
-        bool isPlanar(int n, const Vector3 * points, float epsilon = NV_EPSILON);
+bool isPlanar(int n, const Vector3 *points, float epsilon = NV_EPSILON);
 
-        bool eigenSolveSymmetric3(const float matrix[6], float eigenValues[3], Vector3 eigenVectors[3]);
-    }
+bool eigenSolveSymmetric3(const float matrix[6], float eigenValues[3], Vector3 eigenVectors[3]);
+}
 
 } // nv namespace
 

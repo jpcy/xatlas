@@ -11,44 +11,43 @@
 
 namespace nv
 {
-    class Atlas;
-    class Chart;
+class Atlas;
+class Chart;
 
-    struct AtlasPacker
-    {
-        AtlasPacker(Atlas * atlas);
-        ~AtlasPacker();
+struct AtlasPacker {
+	AtlasPacker(Atlas *atlas);
+	~AtlasPacker();
 
-        void packCharts(int quality, float texelArea, bool blockAligned, bool conservative);
-        float computeAtlasUtilization() const;
+	void packCharts(int quality, float texelArea, bool blockAligned, bool conservative);
+	float computeAtlasUtilization() const;
 
-    private:
+private:
 
-        void findChartLocation(int quality, const BitMap * bitmap, Vector2::Arg extents, int w, int h, int * best_x, int * best_y, int * best_w, int * best_h, int * best_r);
-        void findChartLocation_bruteForce(const BitMap * bitmap, Vector2::Arg extents, int w, int h, int * best_x, int * best_y, int * best_w, int * best_h, int * best_r);
-        void findChartLocation_random(const BitMap * bitmap, Vector2::Arg extents, int w, int h, int * best_x, int * best_y, int * best_w, int * best_h, int * best_r, int minTrialCount);
+	void findChartLocation(int quality, const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r);
+	void findChartLocation_bruteForce(const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r);
+	void findChartLocation_random(const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount);
 
-        void drawChartBitmapDilate(const Chart * chart, BitMap * bitmap, int padding);
-        void drawChartBitmap(const Chart * chart, BitMap * bitmap, const Vector2 & scale, const Vector2 & offset);
-        
-        bool canAddChart(const BitMap * bitmap, int w, int h, int x, int y, int r);
-        void addChart(const BitMap * bitmap, int w, int h, int x, int y, int r);
+	void drawChartBitmapDilate(const Chart *chart, BitMap *bitmap, int padding);
+	void drawChartBitmap(const Chart *chart, BitMap *bitmap, const Vector2 &scale, const Vector2 &offset);
 
-        static bool checkBitsCallback(void * param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
-        static bool setBitsCallback(void * param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
+	bool canAddChart(const BitMap *bitmap, int w, int h, int x, int y, int r);
+	void addChart(const BitMap *bitmap, int w, int h, int x, int y, int r);
 
-    private:
+	static bool checkBitsCallback(void *param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
+	static bool setBitsCallback(void *param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
 
-        Atlas * m_atlas;
-        BitMap m_bitmap;
-        RadixSort m_radix;
+private:
 
-        uint m_width;
-        uint m_height;
-        
-        MTRand m_rand;
-       
-    };
+	Atlas *m_atlas;
+	BitMap m_bitmap;
+	RadixSort m_radix;
+
+	uint m_width;
+	uint m_height;
+
+	MTRand m_rand;
+
+};
 
 } // nv namespace
 
