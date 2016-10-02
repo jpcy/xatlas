@@ -9,7 +9,6 @@
 
 #include "nvmath/Vector.inl"
 #include "nvmath/ConvexHull.h"
-#include "nvmath/Color.h"
 #include "nvmath/ftoi.h"
 
 #include <float.h> // FLT_MAX
@@ -1067,31 +1066,6 @@ void AtlasPacker::checkCanAddChart(const Chart * chart, int w, int h, int x, int
     }
 }
 #endif // 0
-
-
-static Color32 chartColor = Color32(0);
-static void selectRandomColor(MTRand & rand) {
-    // Pick random color for this chart. @@ Select random hue, but fixed saturation/luminance?
-    chartColor.r = 128 + rand.getRange(127);
-    chartColor.g = 128 + rand.getRange(127);
-    chartColor.b = 128 + rand.getRange(127);
-    chartColor.a = 255;
-}
-static bool debugDrawCallback(void * param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float area)
-{
-    Image * image = (Image *)param;
-
-    if (area > 0.0) {
-        Color32 c = image->pixel(x, y);
-        c.r = chartColor.r;
-        c.g = chartColor.g;
-        c.b = chartColor.b;
-        c.a += uint8(ftoi_round(0.5f * area * 255));
-        image->pixel(x, y) = c;
-    }
-
-    return true;
-}
 
 void AtlasPacker::addChart(const BitMap * bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 {

@@ -8,7 +8,6 @@
 #include "nvmath/Vector.h"
 #include "nvmath/Random.h"
 #include "nvimage/BitMap.h"
-#include "nvimage/Image.h"
 
 namespace nv
 {
