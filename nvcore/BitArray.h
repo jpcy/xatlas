@@ -4,6 +4,7 @@
 #ifndef NV_CORE_BITARRAY_H
 #define NV_CORE_BITARRAY_H
 
+#include <vector>
 #include "nvcore.h"
 #include "Array.h"
 
@@ -67,13 +68,13 @@ public:
 	// Clear all the bits.
 	void clearAll()
 	{
-		memset(m_wordArray.buffer(), 0, m_wordArray.size() * sizeof(uint));
+		memset(m_wordArray.data(), 0, m_wordArray.size() * sizeof(uint));
 	}
 
 	// Set all the bits.
 	void setAll()
 	{
-		memset(m_wordArray.buffer(), 0xFF, m_wordArray.size() * sizeof(uint));
+		memset(m_wordArray.data(), 0xFF, m_wordArray.size() * sizeof(uint));
 	}
 
 private:
@@ -87,7 +88,7 @@ private:
 	uint m_size;
 
 	// Array of bits.
-	Array<uint> m_wordArray;
+	std::vector<uint> m_wordArray;
 
 };
 

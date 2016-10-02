@@ -1,5 +1,6 @@
 // This code is in the public domain -- castano@gmail.com
 
+#include <vector>
 #include "Util.h"
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Face.h"
@@ -70,9 +71,9 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 		const HalfEdge::Vertex *vertex = inputMesh->vertexAt(v);
 		mesh->addVertex(vertex->pos);
 	}
-	Array<int> polygonVertices;
-	Array<float> polygonAngles;
-	Array<Vector2> polygonPoints;
+	std::vector<int> polygonVertices;
+	std::vector<float> polygonAngles;
+	std::vector<Vector2> polygonPoints;
 	const uint faceCount = inputMesh->faceCount();
 	for (uint f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = inputMesh->faceAt(f);
@@ -86,7 +87,7 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				const HalfEdge::Edge *edge = it.current();
 				const HalfEdge::Vertex *vertex = edge->vertex;
-				polygonVertices.append(vertex->id);
+				polygonVertices.push_back(vertex->id);
 			}
 			int v0 = polygonVertices[0];
 			int v1 = polygonVertices[1];
@@ -106,11 +107,11 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				const HalfEdge::Edge *edge = it.current();
 				const HalfEdge::Vertex *vertex = edge->vertex;
-				polygonVertices.append(vertex->id);
+				polygonVertices.push_back(vertex->id);
 				Vector2 p;
 				p.x = dot(basis.tangent, vertex->pos);
 				p.y = dot(basis.bitangent, vertex->pos);
-				polygonPoints.append(p);
+				polygonPoints.push_back(p);
 			}
 			polygonAngles.resize(edgeCount);
 			while (polygonVertices.size() > 2) {
@@ -158,9 +159,9 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 				int v1 = polygonVertices[i1];
 				int v2 = polygonVertices[i2];
 				mesh->addFace(v0, v1, v2);
-				polygonVertices.removeAt(i1);
-				polygonPoints.removeAt(i1);
-				polygonAngles.removeAt(i1);
+				polygonVertices.erase(polygonVertices.begin() + i1);
+				polygonPoints.erase(polygonPoints.begin() + i1);
+				polygonAngles.erase(polygonAngles.begin() + i1);
 			}
 		}
 	}

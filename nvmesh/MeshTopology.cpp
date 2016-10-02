@@ -1,5 +1,5 @@
 // This code is in the public domain -- castanyo@yahoo.es
-
+#include <vector>
 #include "nvcore/Array.h"
 #include "nvcore/BitArray.h"
 
@@ -16,7 +16,7 @@ void MeshTopology::buildTopologyInfo(const HalfEdge::Mesh *mesh)
 	const uint faceCount = mesh->faceCount();
 	const uint edgeCount = mesh->edgeCount();
 	nvDebug( "--- Building mesh topology:\n" );
-	Array<uint> stack(faceCount);
+	std::vector<uint> stack(faceCount);
 	BitArray bitFlags(faceCount);
 	bitFlags.clearAll();
 	// Compute connectivity.
@@ -25,11 +25,11 @@ void MeshTopology::buildTopologyInfo(const HalfEdge::Mesh *mesh)
 	for (uint f = 0; f < faceCount; f++ ) {
 		if ( bitFlags.bitAt(f) == false ) {
 			m_connectedCount++;
-			stack.pushBack( f );
-			while ( !stack.isEmpty() ) {
+			stack.push_back( f );
+			while ( !stack.empty() ) {
 				const uint top = stack.back();
 				nvCheck(top != NIL);
-				stack.popBack();
+				stack.pop_back();
 				if ( bitFlags.bitAt(top) == false ) {
 					bitFlags.setBitAt(top);
 					const HalfEdge::Face *face = mesh->faceAt(top);
@@ -38,7 +38,7 @@ void MeshTopology::buildTopologyInfo(const HalfEdge::Mesh *mesh)
 					do {
 						const HalfEdge::Face *neighborFace = edge->pair->face;
 						if (neighborFace != NULL) {
-							stack.pushBack(neighborFace->id);
+							stack.push_back(neighborFace->id);
 						}
 						edge = edge->next;
 					} while (edge != firstEdge);
@@ -46,7 +46,7 @@ void MeshTopology::buildTopologyInfo(const HalfEdge::Mesh *mesh)
 			}
 		}
 	}
-	nvCheck(stack.isEmpty());
+	nvCheck(stack.empty());
 	nvDebug( "---   %d connected components.\n", m_connectedCount );
 	// Count boundary loops.
 	nvDebug( "---   Counting boundary loops.\n" );
