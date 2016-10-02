@@ -3,24 +3,19 @@
 #include "LeastSquaresConformalMap.h"
 #include "ParameterizationQuality.h"
 #include "Util.h"
-
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Face.h"
-
 #include "nvmath/Sparse.h"
 #include "nvmath/Solver.h"
 #include "nvmath/Vector.h"
-
 #include "nvcore/Array.h"
-
 
 using namespace nv;
 using namespace HalfEdge;
 
 namespace
 {
-
     // Test all pairs of vertices in the boundary and check distance.
     static void findDiameterVertices(HalfEdge::Mesh * mesh, HalfEdge::Vertex ** a, HalfEdge::Vertex ** b)
     {
@@ -261,7 +256,6 @@ namespace
         Vector3 p1 = v1->pos;
         Vector3 p2 = v2->pos;
 
-#if 1
         // @@ IC: Wouldn't it be more accurate to return cos and compute 1-cos^2?
         // It does indeed seem to be a little bit more robust.
         // @@ Need to revisit this more carefully!
@@ -272,21 +266,6 @@ namespace
         float s0 = sinf(a0);
         float s1 = sinf(a1);
         float s2 = sinf(a2);
-
-        /*// Hack for degenerate triangles.
-        if (equal(s0, 0) && equal(s1, 0) && equal(s2, 0)) {
-            if (equal(a0, 0)) a0 += 0.001f;
-            if (equal(a1, 0)) a1 += 0.001f;
-            if (equal(a2, 0)) a2 += 0.001f;
-
-            if (equal(a0, PI)) a0 = PI - a1 - a2;
-            if (equal(a1, PI)) a1 = PI - a0 - a2;
-            if (equal(a2, PI)) a2 = PI - a0 - a1;
-
-            s0 = sinf(a0);
-            s1 = sinf(a1);
-            s2 = sinf(a2);
-        }*/
 
         if (s1 > s0 && s1 > s2)
         {
@@ -312,40 +291,6 @@ namespace
         }
 
         float c0 = cosf(a0);
-#else
-        float c0, c1, c2;
-        triangle_cosines(p0, p1, p2, &c0, &c1, &c2);
-
-        float s0 = 1 - c0*c0;
-        float s1 = 1 - c1*c1;
-        float s2 = 1 - c2*c2;
-
-        nvDebugCheck(s0 != 0 || s1 != 0 || s2 != 0);
-
-        if (s1 > s0 && s1 > s2)
-        {
-            swap(s1, s2);
-            swap(s0, s1);
-
-            swap(c1, c2);
-            swap(c0, c1);
-
-            swap(id1, id2);
-            swap(id0, id1);
-        }
-        else if (s0 > s1 && s0 > s2)
-        {
-            swap(s0, s2);
-            swap(s0, s1);
-
-            swap(c0, c2);
-            swap(c0, c1);
-
-            swap(id0, id2);
-            swap(id0, id1);
-        }
-#endif
-
         float ratio = (s2 == 0.0f) ? 1.0f: s1/s2;
         float cosine = c0 * ratio;
         float sine = s0 * ratio;

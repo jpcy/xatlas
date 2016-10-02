@@ -1,128 +1,15 @@
 // Copyright NVIDIA Corporation 2008 -- Ignacio Castano <icastano@nvidia.com>
 
 #include "ParameterizationQuality.h"
-
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Face.h"
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Edge.h"
-
 #include "nvmath/Vector.h"
-
 #include "nvcore/Debug.h"
-
 #include <float.h>
 
-
 using namespace nv;
-
-#if 0
-/*
-float triangleConformalEnergy(Vector3 q[3], Vector2 p[3])
-{
-const Vector3 v1 = q[0];
-const Vector3 v2 = q[1];
-const Vector3 v3 = q[2];
-
-const Vector2 w1 = p[0];
-const Vector2 w2 = p[1];
-const Vector2 w3 = p[2];
-
-float x1 = v2.x() - v1.x();
-float x2 = v3.x() - v1.x();
-float y1 = v2.y() - v1.y();
-float y2 = v3.y() - v1.y();
-float z1 = v2.z() - v1.z();
-float z2 = v3.z() - v1.z();
-
-float s1 = w2.x() - w1.x();
-float s2 = w3.x() - w1.x();
-float t1 = w2.y() - w1.y();
-float t2 = w3.y() - w1.y();
-
-float r = 1.0f / (s1 * t2 - s2 * t1);
-Vector3 sdir((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
-Vector3 tdir((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r);
-
-Vector3 N = cross(v3-v1, v2-v1);
-
-// Rotate 90 around N.
-}
-*/
-
-static float triangleConformalEnergy(Vector3 q[3], Vector2 p[3])
-{
-    // Using Denis formulas:
-    Vector3 c0 = q[1] - q[2];
-    Vector3 c1 = q[2] - q[0];
-    Vector3 c2 = q[0] - q[1];
-
-    Vector3 N = cross(-c0, c1);
-    float T = length(N);	// 2T
-    N = normalize(N, 0);
-
-    float cot_alpha0 = dot(-c1, c2) / length(cross(-c1, c2));
-    float cot_alpha1 = dot(-c2, c0) / length(cross(-c2, c0));
-    float cot_alpha2 = dot(-c0, c1) / length(cross(-c0, c1));
-
-    Vector3 t0 = -cot_alpha1 * c1 + cot_alpha2 * c2;
-    Vector3 t1 = -cot_alpha2 * c2 + cot_alpha0 * c0;
-    Vector3 t2 = -cot_alpha0 * c0 + cot_alpha1 * c1;
-
-    nvCheck(equal(length(t0), length(c0)));
-    nvCheck(equal(length(t1), length(c1)));
-    nvCheck(equal(length(t2), length(c2)));
-    nvCheck(equal(dot(t0, c0), 0));
-    nvCheck(equal(dot(t1, c1), 0));
-    nvCheck(equal(dot(t2, c2), 0));
-
-    // Gradients
-    Vector3 grad_u = 1.0f / T * (p[0].x * t0 + p[1].x * t1 + p[2].x * t2);
-    Vector3 grad_v = 1.0f / T * (p[0].y * t0 + p[1].y * t1 + p[2].y * t2);
-
-    // Rotated gradients
-    Vector3 Jgrad_u = 1.0f / T * (p[0].x * c0 + p[1].x * c1 + p[2].x * c2);
-    Vector3 Jgrad_v = 1.0f / T * (p[0].y * c0 + p[1].y * c1 + p[2].y * c2);
-
-    // Using Lengyel's formulas:
-    { 
-        const Vector3 v1 = q[0];
-        const Vector3 v2 = q[1];
-        const Vector3 v3 = q[2];
-
-        const Vector2 w1 = p[0];
-        const Vector2 w2 = p[1];
-        const Vector2 w3 = p[2];
-
-        float x1 = v2.x - v1.x;
-        float x2 = v3.x - v1.x;
-        float y1 = v2.y - v1.y;
-        float y2 = v3.y - v1.y;
-        float z1 = v2.z - v1.z;
-        float z2 = v3.z - v1.z;
-
-        float s1 = w2.x - w1.x;
-        float s2 = w3.x - w1.x;
-        float t1 = w2.y - w1.y;
-        float t2 = w3.y - w1.y;
-
-        float r = 1.0f / (s1 * t2 - s2 * t1);
-        Vector3 sdir((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
-        Vector3 tdir((s1 * x2 - s2 * x1) * r, (s1 * y2 - s2 * y1) * r, (s1 * z2 - s2 * z1) * r);
-
-        Vector3 Jsdir = cross(N, sdir);
-        Vector3 Jtdir = cross(N, tdir);
-
-        float x = 3;
-    }
-
-    // check: sdir == grad_u
-    // check: tdir == grad_v
-
-    return length(grad_u - Jgrad_v);
-}
-#endif // 0
-
 
 ParameterizationQuality::ParameterizationQuality()
 {
