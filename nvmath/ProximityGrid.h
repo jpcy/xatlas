@@ -22,21 +22,17 @@ namespace nv {
     struct ProximityGrid {
         ProximityGrid();
 
-        void reset();
-        void init(const Array<Vector3> & pointArray);
         void init(const Box & box, uint count);
 
         int index_x(float x) const;
         int index_y(float y) const;
         int index_z(float z) const;
         int index(int x, int y, int z) const;
-        int index(const Vector3 & pos) const;
         
         uint32 mortonCount() const;
         int mortonIndex(uint32 code) const;
 
         void add(const Vector3 & pos, uint key);
-        bool remove(const Vector3 & pos, uint key);
 
         void gather(const Vector3 & pos, float radius, Array<uint> & indices);
 
@@ -46,14 +42,6 @@ namespace nv {
         Vector3 invCellSize;
         int sx, sy, sz;
     };
-
-    // For morton traversal, do:
-    // for (int code = 0; code < mortonCount(); code++) {
-    //   int idx = mortonIndex(code);
-    //   if (idx < 0) continue;
-    // }
-
-
 
     inline int ProximityGrid::index_x(float x) const {
         return clamp(ftoi_floor((x - corner.x) * invCellSize.x),  0, sx-1);
@@ -76,22 +64,12 @@ namespace nv {
         return idx;
     }
 
-    inline int ProximityGrid::index(const Vector3 & pos) const {
-        int x = index_x(pos.x);
+    inline void ProximityGrid::add(const Vector3 & pos, uint key) {
+		int x = index_x(pos.x);
         int y = index_y(pos.y);
         int z = index_z(pos.z);
-        return index(x, y, z);
-    }
-
-
-    inline void ProximityGrid::add(const Vector3 & pos, uint key) {
-        uint idx = index(pos);
+        uint idx = index(x, y, z);
         cellArray[idx].indexArray.append(key);
-    }
-
-    inline bool ProximityGrid::remove(const Vector3 & pos, uint key) {
-        uint idx = index(pos);
-        return cellArray[idx].indexArray.remove(key);
     }
 
 } // nv namespace

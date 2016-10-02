@@ -7,33 +7,8 @@ using namespace nv;
 ProximityGrid::ProximityGrid() {
 }
 
-void ProximityGrid::reset() {
-    cellArray.clear();
-}
-
-void ProximityGrid::init(const Array<Vector3> & pointArray) {
-
-	// Compute bounding box.
-    Box box;
-	box.clearBounds();
-	
-    const uint count = pointArray.count();
-
-    for (uint i = 0; i < count; i++) {
-		box.addPointToBounds(pointArray[i]);
-	}
-
-    init(box, count);
-
-	// Insert all points.
-	for (uint i = 0; i < count; i++) {
-        add(pointArray[i], i);
-    }
-}
-
-
 void ProximityGrid::init(const Box & box, uint count) {
-    reset();
+    cellArray.clear();
  
     // Determine grid size.
     float cellWidth;
