@@ -947,7 +947,6 @@ Vertex * Mesh::splitBoundaryEdge(Edge * edge, float t, const Vector3 & pos) {
     Vertex * vertex = addVertex(pos);
     vertex->nor = lerp(edge->from()->nor, edge->to()->nor, t);
     vertex->tex = lerp(edge->from()->tex, edge->to()->tex, t);
-    vertex->col = lerp(edge->from()->col, edge->to()->col, t);
 
     disconnect(edge);
     disconnect(pair);

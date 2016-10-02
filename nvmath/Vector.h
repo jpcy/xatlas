@@ -86,51 +86,6 @@ namespace nv
         };
     };
 
-    class Vector4
-    {
-    public:
-        typedef Vector4 const & Arg;
-
-        Vector4();
-        explicit Vector4(float x);
-        Vector4(float x, float y, float z, float w);
-        Vector4(Vector2::Arg v, float z, float w);
-        Vector4(Vector2::Arg v, Vector2::Arg u);
-        Vector4(Vector3::Arg v, float w);
-        Vector4(Vector4::Arg v);
-
-        //template <typename T> explicit Vector4(const T & v) : x(v.x), y(v.y), z(v.z), w(v.w) {}
-        //template <typename T> operator T() const { return T(x, y, z, w); }
-
-        const Vector4 & operator=(Vector4::Arg v);
-
-        Vector2 xy() const;
-        Vector2 zw() const;
-        Vector3 xyz() const;
-
-        const float * ptr() const;
-
-        void set(float x, float y, float z, float w);
-
-        Vector4 operator-() const;
-        void operator+=(Vector4::Arg v);
-        void operator-=(Vector4::Arg v);
-        void operator*=(float s);
-        void operator/=(float s);
-        void operator*=(Vector4::Arg v);
-        void operator/=(Vector4::Arg v);
-
-        friend bool operator==(Vector4::Arg a, Vector4::Arg b);
-        friend bool operator!=(Vector4::Arg a, Vector4::Arg b);
-
-        union {
-            struct {
-                float x, y, z, w;
-            };
-            float component[4];
-        };
-    };
-
 } // nv namespace
 
 #endif // NV_MATH_VECTOR_H

@@ -449,11 +449,6 @@ void AtlasBuilder::updateProxies()
 
 namespace {
 
-    float absoluteSum(Vector4::Arg v)
-    {
-        return fabs(v.x) + fabs(v.y) + fabs(v.z) + fabs(v.w);
-    }
-	
     // Unnormalized face normal assuming it's a triangle.
     static Vector3 triangleNormal(const HalfEdge::Face * face)
     {

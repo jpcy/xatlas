@@ -24,10 +24,8 @@ namespace nv
         Vector3 pos;
         Vector3 nor;
         Vector2 tex;
-        Vector4 col;
 
-
-        Vertex(uint id) : id(id), edge(NULL), pos(0.0f), nor(0.0f), tex(0.0f), col(0.0f) {
+        Vertex(uint id) : id(id), edge(NULL), pos(0.0f), nor(0.0f), tex(0.0f) {
             next = this;
             prev = this;
         }
