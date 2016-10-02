@@ -20,7 +20,6 @@ static inline void IFloatFlip(uint32 & f) {
     f ^= mask;
 }
 
-
 template<typename T> 
 void createHistograms(const T * buffer, uint count, uint * histogram)
 {
@@ -51,42 +50,8 @@ void createHistograms(const T * buffer, uint count, uint * histogram)
     }
 }
 
-/*
-template <>
-void createHistograms<float>(const float * buffer, uint count, uint * histogram)
-{
-    // Init bucket pointers.
-    uint32 * h[4];
-    for (uint i = 0; i < 4; i++) {
-#if NV_BIG_ENDIAN
-        h[3-i] = histogram + 256 * i;
-#else
-        h[i] = histogram + 256 * i;
-#endif
-    }
-
-    // Clear histograms.
-    memset(histogram, 0, 256 * 4 * sizeof(uint32));
-
-    // Build histograms.
-    for (uint i = 0; i < count; i++) {
-        uint32 fi = FloatFlip(buffer[i]);
-
-        h[0][fi & 0xFF]++;
-        h[1][(fi >> 8) & 0xFF]++;
-        h[2][(fi >> 16) & 0xFF]++;
-        h[3][fi >> 24]++;
-    }
-}
-*/
-
 RadixSort::RadixSort() : m_size(0), m_ranks(NULL), m_ranks2(NULL), m_validRanks(false)
 {
-}
-
-RadixSort::RadixSort(uint reserve_count) : m_size(0), m_ranks(NULL), m_ranks2(NULL), m_validRanks(false)
-{
-    checkResize(reserve_count);
 }
 
 RadixSort::~RadixSort()
@@ -96,30 +61,9 @@ RadixSort::~RadixSort()
     free(m_ranks);
 }
 
-
-void RadixSort::resize(uint count)
-{
-    m_ranks2 = (uint *)realloc(m_ranks2, sizeof(uint) * count);
-    m_ranks = (uint *)realloc(m_ranks, sizeof(uint) * count);
-}
-
-inline void RadixSort::checkResize(uint count)
-{
-    if (count != m_size)
-    {
-        if (count > m_size) resize(count);
-        m_size = count;
-        m_validRanks = false;
-    }
-}
-
 template <typename T> inline void RadixSort::insertionSort(const T * input, uint count)
 {
     if (!m_validRanks) {
-        /*for (uint i = 0; i < count; i++) {
-            m_ranks[i] = i;
-        }*/
-
         m_ranks[0] = 0;
         for (uint i = 1; i != count; ++i)
         {
@@ -224,46 +168,20 @@ template <typename T> inline void RadixSort::radixSort(const T * input, uint cou
     }
 }
 
-
-RadixSort & RadixSort::sort(const uint32 * input, uint count)
-{
-    if (input == NULL || count == 0) return *this;
-
-    // Resize lists if needed
-    checkResize(count);
-
-    if (count < 32) {
-        insertionSort(input, count);
-    }
-    else {
-        radixSort<uint32>(input, count);
-    }
-    return *this;
-}
-
-
-RadixSort & RadixSort::sort(const uint64 * input, uint count)
-{
-    if (input == NULL || count == 0) return *this;
-
-    // Resize lists if needed
-    checkResize(count);
-
-    if (count < 64) {
-        insertionSort(input, count);
-    }
-    else {
-        radixSort(input, count);
-    }
-    return *this;
-}
-
 RadixSort& RadixSort::sort(const float * input, uint count)
 {
     if (input == NULL || count == 0) return *this;
 
     // Resize lists if needed
-    checkResize(count);
+    if (count != m_size)
+    {
+        if (count > m_size) {
+			m_ranks2 = (uint *)realloc(m_ranks2, sizeof(uint) * count);
+			m_ranks = (uint *)realloc(m_ranks, sizeof(uint) * count);
+		}
+        m_size = count;
+        m_validRanks = false;
+    }
 
     if (count < 32) {
         insertionSort(input, count);
