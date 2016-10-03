@@ -4,18 +4,17 @@
 #ifndef NV_CORE_H
 #define NV_CORE_H
 
-// Platform definitions
-#include <posh.h>
+#include <stdint.h>
 
 // Type definitions:
-typedef posh_u8_t   uint8;
-typedef posh_i8_t   int8;
+typedef uint8_t   uint8;
+typedef int8_t   int8;
 
-typedef posh_u16_t  uint16;
-typedef posh_i16_t  int16;
+typedef uint16_t  uint16;
+typedef int16_t  int16;
 
-typedef posh_u32_t  uint32;
-typedef posh_i32_t  int32;
+typedef uint32_t  uint32;
+typedef int32_t  int32;
 
 //#if NV_OS_DARWIN
 // OSX-64 is supposed to be LP64 (longs and pointers are 64 bits), thus uint64 is defined as
@@ -26,8 +25,8 @@ typedef posh_i32_t  int32;
 //typedef posh_u64_t  uint64_t;
 //typedef posh_i64_t  int64_t;
 //#else
-typedef posh_u64_t  uint64;
-typedef posh_i64_t  int64;
+typedef uint64_t  uint64;
+typedef int64_t  int64;
 //#endif
 
 // Aliases
