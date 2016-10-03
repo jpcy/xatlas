@@ -86,7 +86,7 @@ void Atlas::extractCharts(const HalfEdge::Mesh *mesh)
 	addMeshCharts(meshCharts);
 }
 
-void Atlas::computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const Array<uint> &unchartedMaterialArray)
+void Atlas::computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint> &unchartedMaterialArray)
 {
 	MeshCharts *meshCharts = new MeshCharts(mesh);
 	meshCharts->computeCharts(settings, unchartedMaterialArray);
@@ -243,10 +243,10 @@ SegmentationSettings::SegmentationSettings()
 
 
 
-void MeshCharts::computeCharts(const SegmentationSettings &settings, const Array<uint> &unchartedMaterialArray)
+void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::vector<uint> &unchartedMaterialArray)
 {
 	Chart *vertexMap = NULL;
-	if (unchartedMaterialArray.count() != 0) {
+	if (unchartedMaterialArray.size() != 0) {
 		vertexMap = new Chart();
 		vertexMap->buildVertexMap(m_mesh, unchartedMaterialArray);
 		if (vertexMap->faceCount() == 0) {
@@ -509,7 +509,7 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArr
 }
 
 
-void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const Array<uint> &unchartedMaterialArray)
+void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &unchartedMaterialArray)
 {
 	nvCheck(m_chartMesh.get() == NULL && m_unifiedMesh.get() == NULL);
 	m_isVertexMapped = true;
@@ -518,7 +518,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const Array<uint>
 	const uint meshFaceCount = originalMesh->faceCount();
 	for (uint f = 0; f < meshFaceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(f);
-		if (unchartedMaterialArray.contains(face->material)) {
+		if (std::find(unchartedMaterialArray.begin(), unchartedMaterialArray.end(), face->material) != unchartedMaterialArray.end()) {
 			m_faceArray.append(f);
 		}
 	}

@@ -64,7 +64,7 @@ public:
 	void addMeshCharts(MeshCharts *meshCharts);
 
 	void extractCharts(const HalfEdge::Mesh *mesh);
-	void computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const Array<uint> &unchartedMaterialArray);
+	void computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint> &unchartedMaterialArray);
 
 
 	// Compute a trivial seamless texture similar to ZBrush.
@@ -113,7 +113,7 @@ public:
 	void extractCharts();
 
 	// Compute charts using a simple segmentation algorithm.
-	void computeCharts(const SegmentationSettings &settings, const Array<uint> &unchartedMaterialArray);
+	void computeCharts(const SegmentationSettings &settings, const std::vector<uint> &unchartedMaterialArray);
 
 	void parameterizeCharts();
 
@@ -153,7 +153,7 @@ public:
 	Chart();
 
 	void build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArray);
-	void buildVertexMap(const HalfEdge::Mesh *originalMesh, const Array<uint> &unchartedMaterialArray);
+	void buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &unchartedMaterialArray);
 
 	bool closeHoles();
 

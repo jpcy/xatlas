@@ -229,7 +229,7 @@ Atlas_Output_Mesh * Thekla::atlas_generate(const Atlas_Input_Mesh * input, const
         segmentation_settings.maxChartArea = options->charter_options.witness.max_chart_area;
         segmentation_settings.maxBoundaryLength = options->charter_options.witness.max_boundary_length;
 
-        Array<uint> uncharted_materials;
+        std::vector<uint> uncharted_materials;
         atlas.computeCharts(mesh.get(), segmentation_settings, uncharted_materials);
     }
 
