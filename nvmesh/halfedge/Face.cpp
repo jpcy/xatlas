@@ -77,7 +77,7 @@ Vector3 Face::normal() const
 Vector3 Face::centroid() const
 {
 	Vector3 sum(0.0f);
-	uint count = 0;
+	uint32_t count = 0;
 	for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
 		const Edge *edge = it.current();
 		sum += edge->from()->pos;
@@ -89,7 +89,7 @@ Vector3 Face::centroid() const
 
 bool Face::isValid() const
 {
-	uint count = 0;
+	uint32_t count = 0;
 	for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
 		const Edge *edge = it.current();
 		if (edge->face != this) return false;
@@ -112,17 +112,17 @@ bool Face::contains(const Edge *e) const
 }
 
 // Returns index in this face of the given edge.
-uint Face::edgeIndex(const Edge *e) const
+uint32_t Face::edgeIndex(const Edge *e) const
 {
 	int i = 0;
 	for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance(), i++) {
 		if (it.current() == e) return i;
 	}
-	return uint(~0);
+	return uint32_t(~0);
 }
 
 
-Edge *Face::edgeAt(uint idx)
+Edge *Face::edgeAt(uint32_t idx)
 {
 	int i = 0;
 	for (EdgeIterator it(edges()); !it.isDone(); it.advance(), i++) {
@@ -130,7 +130,7 @@ Edge *Face::edgeAt(uint idx)
 	}
 	return NULL;
 }
-const Edge *Face::edgeAt(uint idx) const
+const Edge *Face::edgeAt(uint32_t idx) const
 {
 	int i = 0;
 	for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance(), i++) {
@@ -141,9 +141,9 @@ const Edge *Face::edgeAt(uint idx) const
 
 
 // Count the number of edges in this face.
-uint Face::edgeCount() const
+uint32_t Face::edgeCount() const
 {
-	uint count = 0;
+	uint32_t count = 0;
 	for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
 		++count;
 	}
@@ -164,9 +164,9 @@ bool Face::isBoundary() const
 }
 
 // Count the number of boundary edges in the face.
-uint Face::boundaryCount() const
+uint32_t Face::boundaryCount() const
 {
-	uint count = 0;
+	uint32_t count = 0;
 	for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
 		const Edge *edge = it.current();
 		nvDebugCheck(edge->pair != NULL);

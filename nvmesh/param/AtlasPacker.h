@@ -42,8 +42,8 @@ private:
 	BitMap m_bitmap;
 	RadixSort m_radix;
 
-	uint m_width;
-	uint m_height;
+	uint32_t m_width;
+	uint32_t m_height;
 
 	MTRand m_rand;
 

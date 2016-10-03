@@ -11,7 +11,7 @@ class Mesh;
 class Vertex;
 }
 
-uint countMeshTriangles(const HalfEdge::Mesh *mesh);
+uint32_t countMeshTriangles(const HalfEdge::Mesh *mesh);
 
 HalfEdge::Mesh *unifyVertices(const HalfEdge::Mesh *inputMesh);
 HalfEdge::Mesh *triangulate(const HalfEdge::Mesh *inputMesh);

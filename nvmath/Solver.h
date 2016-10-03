@@ -13,7 +13,7 @@ class FullVector;
 
 // Linear solvers.
 bool LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon = 1e-5f);
-bool LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, const uint *lockedParameters, uint lockedCount, float epsilon = 1e-5f);
+bool LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon = 1e-5f);
 bool SymmetricSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon = 1e-5f);
 
 } // nv namespace

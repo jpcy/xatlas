@@ -20,7 +20,7 @@ class HalfEdge::Edge
 {
 public:
 
-	uint id;
+	uint32_t id;
 
 	Edge *next;
 	Edge *prev;	// This is not strictly half-edge, but makes algorithms easier and faster.
@@ -30,7 +30,7 @@ public:
 
 
 	// Default constructor.
-	Edge(uint id) : id(id), next(NULL), prev(NULL), pair(NULL), vertex(NULL), face(NULL)
+	Edge(uint32_t id) : id(id), next(NULL), prev(NULL), pair(NULL), vertex(NULL), face(NULL)
 	{
 	}
 

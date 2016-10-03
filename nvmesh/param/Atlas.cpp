@@ -38,19 +38,19 @@ Atlas::~Atlas()
 		delete m_meshChartsArray[i];
 }
 
-uint Atlas::chartCount() const
+uint32_t Atlas::chartCount() const
 {
-	uint count = 0;
-	for (uint c = 0; c < m_meshChartsArray.size(); c++) {
+	uint32_t count = 0;
+	for (uint32_t c = 0; c < m_meshChartsArray.size(); c++) {
 		count += m_meshChartsArray[c]->chartCount();
 	}
 	return count;
 }
 
-const Chart *Atlas::chartAt(uint i) const
+const Chart *Atlas::chartAt(uint32_t i) const
 {
-	for (uint c = 0; c < m_meshChartsArray.size(); c++) {
-		uint count = m_meshChartsArray[c]->chartCount();
+	for (uint32_t c = 0; c < m_meshChartsArray.size(); c++) {
+		uint32_t count = m_meshChartsArray[c]->chartCount();
 		if (i < count) {
 			return m_meshChartsArray[c]->chartAt(i);
 		}
@@ -59,10 +59,10 @@ const Chart *Atlas::chartAt(uint i) const
 	return NULL;
 }
 
-Chart *Atlas::chartAt(uint i)
+Chart *Atlas::chartAt(uint32_t i)
 {
-	for (uint c = 0; c < m_meshChartsArray.size(); c++) {
-		uint count = m_meshChartsArray[c]->chartCount();
+	for (uint32_t c = 0; c < m_meshChartsArray.size(); c++) {
+		uint32_t count = m_meshChartsArray[c]->chartCount();
 		if (i < count) {
 			return m_meshChartsArray[c]->chartAt(i);
 		}
@@ -84,7 +84,7 @@ void Atlas::extractCharts(const HalfEdge::Mesh *mesh)
 	addMeshCharts(meshCharts);
 }
 
-void Atlas::computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint> &unchartedMaterialArray)
+void Atlas::computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
 {
 	MeshCharts *meshCharts = new MeshCharts(mesh);
 	meshCharts->computeCharts(settings, unchartedMaterialArray);
@@ -93,7 +93,7 @@ void Atlas::computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings
 
 void Atlas::parameterizeCharts()
 {
-	for (uint i = 0; i < m_meshChartsArray.size(); i++) {
+	for (uint32_t i = 0; i < m_meshChartsArray.size(); i++) {
 		m_meshChartsArray[i]->parameterizeCharts();
 	}
 }
@@ -123,13 +123,13 @@ MeshCharts::~MeshCharts()
 
 void MeshCharts::extractCharts()
 {
-	const uint faceCount = m_mesh->faceCount();
+	const uint32_t faceCount = m_mesh->faceCount();
 	int first = 0;
-	std::vector<uint> queue;
+	std::vector<uint32_t> queue;
 	queue.reserve(faceCount);
 	BitArray bitFlags(faceCount);
 	bitFlags.clearAll();
-	for (uint f = 0; f < faceCount; f++) {
+	for (uint32_t f = 0; f < faceCount; f++) {
 		if (bitFlags.bitAt(f) == false) {
 			// Start new patch. Reset queue.
 			first = 0;
@@ -242,7 +242,7 @@ SegmentationSettings::SegmentationSettings()
 
 
 
-void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::vector<uint> &unchartedMaterialArray)
+void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
 {
 	Chart *vertexMap = NULL;
 	if (unchartedMaterialArray.size() != 0) {
@@ -262,14 +262,14 @@ void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::
 	if (builder.facesLeft != 0) {
 		// Tweak these values:
 		const float maxThreshold = 2;
-		const uint growFaceCount = 32;
-		const uint maxIterations = 4;
+		const uint32_t growFaceCount = 32;
+		const uint32_t maxIterations = 4;
 		builder.settings = settings;
 		//builder.settings.proxyFitMetricWeight *= 0.75; // relax proxy fit weight during initial seed placement.
 		//builder.settings.roundnessMetricWeight = 0;
 		//builder.settings.straightnessMetricWeight = 0;
 		// This seems a reasonable estimate.
-		uint maxSeedCount = max(6U, builder.facesLeft);
+		uint32_t maxSeedCount = max(6U, builder.facesLeft);
 		// Create initial charts greedely.
 		nvDebug("### Placing seeds\n");
 		builder.placeSeeds(maxThreshold, maxSeedCount);
@@ -287,7 +287,7 @@ void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::
 		builder.settings = settings;
 		nvDebug("### Growing charts\n");
 		// Restart process growing charts in parallel.
-		uint iteration = 0;
+		uint32_t iteration = 0;
 		while (true) {
 			if (!builder.growCharts(maxThreshold, growFaceCount)) {
 				nvDebug("### Can't grow anymore\n");
@@ -321,22 +321,22 @@ void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::
 #endif
 		// Make sure no holes are left!
 		nvDebugCheck(builder.facesLeft == 0);
-		const uint chartCount = builder.chartArray.size();
-		for (uint i = 0; i < chartCount; i++) {
+		const uint32_t chartCount = builder.chartArray.size();
+		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = new Chart();
 			m_chartArray.push_back(chart);
 			chart->build(m_mesh, builder.chartFaces(i));
 		}
 	}
-	const uint chartCount = m_chartArray.size();
+	const uint32_t chartCount = m_chartArray.size();
 	// Build face indices.
 	m_faceChart.resize(m_mesh->faceCount());
 	m_faceIndex.resize(m_mesh->faceCount());
-	for (uint i = 0; i < chartCount; i++) {
+	for (uint32_t i = 0; i < chartCount; i++) {
 		const Chart *chart = m_chartArray[i];
-		const uint faceCount = chart->faceCount();
-		for (uint f = 0; f < faceCount; f++) {
-			uint idx = chart->faceAt(f);
+		const uint32_t faceCount = chart->faceCount();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			uint32_t idx = chart->faceAt(f);
 			m_faceChart[idx] = i;
 			m_faceIndex[idx] = f;
 		}
@@ -345,7 +345,7 @@ void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::
 	m_chartVertexCountPrefixSum.resize(chartCount);
 	if (chartCount > 0) {
 		m_chartVertexCountPrefixSum[0] = 0;
-		for (uint i = 1; i < chartCount; i++) {
+		for (uint32_t i = 1; i < chartCount; i++) {
 			const Chart *chart = m_chartArray[i - 1];
 			m_chartVertexCountPrefixSum[i] = m_chartVertexCountPrefixSum[i - 1] + chart->vertexCount();
 		}
@@ -360,9 +360,9 @@ void MeshCharts::parameterizeCharts()
 {
 	ParameterizationQuality globalParameterizationQuality;
 	// Parameterize the charts.
-	uint diskCount = 0;
-	const uint chartCount = m_chartArray.size();
-	for (uint i = 0; i < chartCount; i++)
+	uint32_t diskCount = 0;
+	const uint32_t chartCount = m_chartArray.size();
+	for (uint32_t i = 0; i < chartCount; i++)
 	{
 		Chart *chart = m_chartArray[i];
 
@@ -420,18 +420,18 @@ Chart::Chart() : m_isDisk(false), m_isVertexMapped(false)
 {
 }
 
-void Chart::build(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &faceArray)
+void Chart::build(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t> &faceArray)
 {
 	// Copy face indices.
 	m_faceArray = faceArray;
-	const uint meshVertexCount = originalMesh->vertexCount();
+	const uint32_t meshVertexCount = originalMesh->vertexCount();
 	m_chartMesh.reset(new HalfEdge::Mesh());
 	m_unifiedMesh.reset(new HalfEdge::Mesh());
-	std::vector<uint> chartMeshIndices(meshVertexCount, ~0);
-	std::vector<uint> unifiedMeshIndices(meshVertexCount, ~0);
+	std::vector<uint32_t> chartMeshIndices(meshVertexCount, ~0);
+	std::vector<uint32_t> unifiedMeshIndices(meshVertexCount, ~0);
 	// Add vertices.
-	const uint faceCount = faceArray.size();
-	for (uint f = 0; f < faceCount; f++) {
+	const uint32_t faceCount = faceArray.size();
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(faceArray[f]);
 		nvDebugCheck(face != NULL);
 		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
@@ -461,10 +461,10 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &f
 	// is not guaranteed to return the same vertex for two colocal vertices.
 	//nvCheck(m_chartMesh->colocalVertexCount() == m_unifiedMesh->vertexCount());
 	// Is that OK? What happens in meshes were that happens? Does anything break? Apparently not...
-	std::vector<uint> faceIndices;
+	std::vector<uint32_t> faceIndices;
 	faceIndices.reserve(7);
 	// Add faces.
-	for (uint f = 0; f < faceCount; f++) {
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(faceArray[f]);
 		nvDebugCheck(face != NULL);
 		faceIndices.clear();
@@ -509,29 +509,29 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &f
 }
 
 
-void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &unchartedMaterialArray)
+void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t> &unchartedMaterialArray)
 {
 	nvCheck(m_chartMesh.get() == NULL && m_unifiedMesh.get() == NULL);
 	m_isVertexMapped = true;
 	// Build face indices.
 	m_faceArray.clear();
-	const uint meshFaceCount = originalMesh->faceCount();
-	for (uint f = 0; f < meshFaceCount; f++) {
+	const uint32_t meshFaceCount = originalMesh->faceCount();
+	for (uint32_t f = 0; f < meshFaceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(f);
 		if (std::find(unchartedMaterialArray.begin(), unchartedMaterialArray.end(), face->material) != unchartedMaterialArray.end()) {
 			m_faceArray.push_back(f);
 		}
 	}
-	const uint faceCount = m_faceArray.size();
+	const uint32_t faceCount = m_faceArray.size();
 	if (faceCount == 0) {
 		return;
 	}
 	// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
-	const uint meshVertexCount = originalMesh->vertexCount();
+	const uint32_t meshVertexCount = originalMesh->vertexCount();
 	m_chartMesh.reset(new HalfEdge::Mesh());
-	std::vector<uint> chartMeshIndices(meshVertexCount, ~0);
+	std::vector<uint32_t> chartMeshIndices(meshVertexCount, ~0);
 	// Vertex map mesh only has disconnected vertices.
-	for (uint f = 0; f < faceCount; f++) {
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(m_faceArray[f]);
 		nvDebugCheck(face != NULL);
 		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
@@ -547,10 +547,10 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 	}
 	// @@ Link colocals using the original mesh canonical map? Build canonical map on the fly? Do we need to link colocals at all for this?
 	//m_chartMesh->linkColocals();
-	std::vector<uint> faceIndices;
+	std::vector<uint32_t> faceIndices;
 	faceIndices.reserve(7);
 	// Add faces.
-	for (uint f = 0; f < faceCount; f++) {
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(m_faceArray[f]);
 		nvDebugCheck(face != NULL);
 		faceIndices.clear();
@@ -564,41 +564,41 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 		nvDebugCheck(new_face != NULL);
 	}
 	m_chartMesh->linkBoundary();
-	const uint chartVertexCount = m_chartMesh->vertexCount();
+	const uint32_t chartVertexCount = m_chartMesh->vertexCount();
 	Box bounds;
 	bounds.clearBounds();
-	for (uint i = 0; i < chartVertexCount; i++) {
+	for (uint32_t i = 0; i < chartVertexCount; i++) {
 		HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(i);
 		bounds.addPointToBounds(vertex->pos);
 	}
 	ProximityGrid grid;
 	grid.init(bounds, chartVertexCount);
-	for (uint i = 0; i < chartVertexCount; i++) {
+	for (uint32_t i = 0; i < chartVertexCount; i++) {
 		HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(i);
 		grid.add(vertex->pos, i);
 	}
-	uint texelCount = 0;
+	uint32_t texelCount = 0;
 	const float positionThreshold = 0.01f;
 	const float normalThreshold = 0.01f;
-	uint verticesVisited = 0;
-	uint cellsVisited = 0;
+	uint32_t verticesVisited = 0;
+	uint32_t cellsVisited = 0;
 	std::vector<int> vertexIndexArray(chartVertexCount, -1); // Init all indices to -1.
 	// Traverse vertices in morton order. @@ It may be more interesting to sort them based on orientation.
-	const uint cellCodeCount = grid.mortonCount();
-	for (uint cellCode = 0; cellCode < cellCodeCount; cellCode++) {
+	const uint32_t cellCodeCount = grid.mortonCount();
+	for (uint32_t cellCode = 0; cellCode < cellCodeCount; cellCode++) {
 		int cell = grid.mortonIndex(cellCode);
 		if (cell < 0) continue;
 		cellsVisited++;
-		const std::vector<uint> &indexArray = grid.cellArray[cell].indexArray;
-		for (uint i = 0; i < indexArray.size(); i++) {
-			uint idx = indexArray[i];
+		const std::vector<uint32_t> &indexArray = grid.cellArray[cell].indexArray;
+		for (uint32_t i = 0; i < indexArray.size(); i++) {
+			uint32_t idx = indexArray[i];
 			HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(idx);
 			nvDebugCheck(vertexIndexArray[idx] == -1);
-			std::vector<uint> neighbors;
+			std::vector<uint32_t> neighbors;
 			grid.gather(vertex->pos, positionThreshold, /*ref*/neighbors);
 			// Compare against all nearby vertices, cluster greedily.
-			for (uint j = 0; j < neighbors.size(); j++) {
-				uint otherIdx = neighbors[j];
+			for (uint32_t j = 0; j < neighbors.size(); j++) {
+				uint32_t otherIdx = neighbors[j];
 				if (vertexIndexArray[otherIdx] != -1) {
 					HalfEdge::Vertex *otherVertex = m_chartMesh->vertexAt(otherIdx);
 					if (distance(vertex->pos, otherVertex->pos) < positionThreshold &&
@@ -624,11 +624,11 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 	nvDebugCheck(vertexMapWidth >= vertexMapHeight);
 	nvDebug("Reduced vertex count from %d to %d.\n", chartVertexCount, texelCount);
 	// Lay down the clustered vertices in morton order.
-	std::vector<uint> texelCodes(texelCount);
+	std::vector<uint32_t> texelCodes(texelCount);
 	// For each texel, assign one morton code.
-	uint texelCode = 0;
-	for (uint i = 0; i < texelCount; i++) {
-		uint x, y;
+	uint32_t texelCode = 0;
+	for (uint32_t i = 0; i < texelCount; i++) {
+		uint32_t x, y;
 		do {
 			x = decodeMorton2X(texelCode);
 			y = decodeMorton2Y(texelCode);
@@ -636,13 +636,13 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 		} while (x >= uint32_t(vertexMapWidth) || y >= uint32_t(vertexMapHeight));
 		texelCodes[i] = texelCode - 1;
 	}
-	for (uint i = 0; i < chartVertexCount; i++) {
+	for (uint32_t i = 0; i < chartVertexCount; i++) {
 		HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(i);
 		int idx = vertexIndexArray[i];
 		if (idx != -1) {
-			uint texelCode = texelCodes[idx];
-			uint x = decodeMorton2X(texelCode);
-			uint y = decodeMorton2Y(texelCode);
+			uint32_t texelCode = texelCodes[idx];
+			uint32_t x = decodeMorton2X(texelCode);
+			uint32_t y = decodeMorton2Y(texelCode);
 			vertex->tex.x = float(x);
 			vertex->tex.y = float(y);
 		}
@@ -654,12 +654,12 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 static void getBoundaryEdges(HalfEdge::Mesh *mesh, std::vector<HalfEdge::Edge *> &boundaryEdges)
 {
 	nvDebugCheck(mesh != NULL);
-	const uint edgeCount = mesh->edgeCount();
+	const uint32_t edgeCount = mesh->edgeCount();
 	BitArray bitFlags(edgeCount);
 	bitFlags.clearAll();
 	boundaryEdges.clear();
 	// Search for boundary edges. Mark all the edges that belong to the same boundary.
-	for (uint e = 0; e < edgeCount; e++) {
+	for (uint32_t e = 0; e < edgeCount; e++) {
 		HalfEdge::Edge *startEdge = mesh->edgeAt(e);
 		if (startEdge != NULL && startEdge->isBoundary() && bitFlags.bitAt(e) == false) {
 			nvDebugCheck(startEdge->face != NULL);
@@ -678,9 +678,9 @@ static void getBoundaryEdges(HalfEdge::Mesh *mesh, std::vector<HalfEdge::Edge *>
 }
 
 
-bool Chart::closeLoop(uint start, const std::vector<HalfEdge::Edge *> &loop)
+bool Chart::closeLoop(uint32_t start, const std::vector<HalfEdge::Edge *> &loop)
 {
-	const uint vertexCount = loop.size() - start;
+	const uint32_t vertexCount = loop.size() - start;
 	nvDebugCheck(vertexCount >= 3);
 	if (vertexCount < 3) return false;
 	nvDebugCheck(loop[start]->vertex->isColocal(loop[start + vertexCount - 1]->to()));
@@ -688,14 +688,14 @@ bool Chart::closeLoop(uint start, const std::vector<HalfEdge::Edge *> &loop)
 	// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
 	// This is still a bit of a hack. There surely are better hole filling algorithms out there.
 	std::vector<Vector3> points(vertexCount);
-	for (uint i = 0; i < vertexCount; i++) {
+	for (uint32_t i = 0; i < vertexCount; i++) {
 		points[i] = loop[start + i]->vertex->pos;
 	}
 	bool isPlanar = Fit::isPlanar(vertexCount, points.data());
 	if (isPlanar) {
 		// Add face and connect edges.
 		HalfEdge::Face *face = m_unifiedMesh->addFace();
-		for (uint i = 0; i < vertexCount; i++) {
+		for (uint32_t i = 0; i < vertexCount; i++) {
 			HalfEdge::Edge *edge = loop[start + i];
 			edge->face = face;
 			edge->setNext(loop[start + (i + 1) % vertexCount]);
@@ -706,13 +706,13 @@ bool Chart::closeLoop(uint start, const std::vector<HalfEdge::Edge *> &loop)
 		// If the polygon is not planar, we just cross our fingers, and hope this will work:
 		// Compute boundary centroid:
 		Vector3 centroidPos(0);
-		for (uint i = 0; i < vertexCount; i++) {
+		for (uint32_t i = 0; i < vertexCount; i++) {
 			centroidPos += points[i];
 		}
 		centroidPos *= (1.0f / vertexCount);
 		HalfEdge::Vertex *centroid = m_unifiedMesh->addVertex(centroidPos);
 		// Add one pair of edges for each boundary vertex.
-		for (uint j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
+		for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
 			HalfEdge::Face *face = m_unifiedMesh->addFace(centroid->id, loop[start + j]->vertex->id, loop[start + i]->vertex->id);
 			nvDebugCheck(face != NULL);
 		}
@@ -726,14 +726,14 @@ bool Chart::closeHoles()
 	nvDebugCheck(!m_isVertexMapped);
 	std::vector<HalfEdge::Edge *> boundaryEdges;
 	getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
-	uint boundaryCount = boundaryEdges.size();
+	uint32_t boundaryCount = boundaryEdges.size();
 	if (boundaryCount <= 1) {
 		// Nothing to close.
 		return true;
 	}
 	// Compute lengths and areas.
 	std::vector<float> boundaryLengths;
-	for (uint i = 0; i < boundaryCount; i++) {
+	for (uint32_t i = 0; i < boundaryCount; i++) {
 		const HalfEdge::Edge *startEdge = boundaryEdges[i];
 		nvCheck(startEdge->face == NULL);
 		//float boundaryEdgeCount = 0;
@@ -752,16 +752,16 @@ bool Chart::closeHoles()
 		//boundaryCentroids.append(boundaryCentroid / boundaryEdgeCount);
 	}
 	// Find disk boundary.
-	uint diskBoundary = 0;
+	uint32_t diskBoundary = 0;
 	float maxLength = boundaryLengths[0];
-	for (uint i = 1; i < boundaryCount; i++) {
+	for (uint32_t i = 1; i < boundaryCount; i++) {
 		if (boundaryLengths[i] > maxLength) {
 			maxLength = boundaryLengths[i];
 			diskBoundary = i;
 		}
 	}
 	// Close holes.
-	for (uint i = 0; i < boundaryCount; i++) {
+	for (uint32_t i = 0; i < boundaryCount; i++) {
 		if (diskBoundary == i) {
 			// Skip disk boundary.
 			continue;
@@ -774,7 +774,7 @@ bool Chart::closeHoles()
 		HalfEdge::Edge *edge = startEdge;
 		do {
 			HalfEdge::Vertex *vertex = edge->next->vertex;  // edge->to()
-			uint i;
+			uint32_t i;
 			for (i = 0; i < vertexLoop.size(); i++) {
 				if (vertex->isColocal(vertexLoop[i])) {
 					break;
@@ -814,8 +814,8 @@ bool Chart::closeHoles()
 void Chart::transferParameterization()
 {
 	nvDebugCheck(!m_isVertexMapped);
-	uint vertexCount = m_chartMesh->vertexCount();
-	for (uint v = 0; v < vertexCount; v++) {
+	uint32_t vertexCount = m_chartMesh->vertexCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(v);
 		HalfEdge::Vertex *unifiedVertex = m_unifiedMesh->vertexAt(mapChartVertexToUnifiedVertex(v));
 		vertex->tex = unifiedVertex->tex;
@@ -842,8 +842,8 @@ Vector2 Chart::computeParametricBounds() const
 	nvDebugCheck(!m_isVertexMapped);
 	Box bounds;
 	bounds.clearBounds();
-	uint vertexCount = m_chartMesh->vertexCount();
-	for (uint v = 0; v < vertexCount; v++) {
+	uint32_t vertexCount = m_chartMesh->vertexCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(v);
 		bounds.addPointToBounds(Vector3(vertex->tex, 0));
 	}

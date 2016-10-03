@@ -42,32 +42,32 @@ public:
 	Atlas();
 	~Atlas();
 
-	uint meshCount() const
+	uint32_t meshCount() const
 	{
 		return m_meshChartsArray.size();
 	}
-	const MeshCharts *meshAt(uint i) const
+	const MeshCharts *meshAt(uint32_t i) const
 	{
 		return m_meshChartsArray[i];
 	}
-	MeshCharts *meshAt(uint i)
+	MeshCharts *meshAt(uint32_t i)
 	{
 		return m_meshChartsArray[i];
 	}
 
-	uint chartCount() const;
-	const Chart *chartAt(uint i) const;
-	Chart *chartAt(uint i);
+	uint32_t chartCount() const;
+	const Chart *chartAt(uint32_t i) const;
+	Chart *chartAt(uint32_t i);
 
 	// Add mesh charts and takes ownership.
 	void addMeshCharts(MeshCharts *meshCharts);
 
 	void extractCharts(const HalfEdge::Mesh *mesh);
-	void computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint> &unchartedMaterialArray);
+	void computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
 
 
 	// Compute a trivial seamless texture similar to ZBrush.
-	//bool computeSeamlessTextureAtlas(bool groupFaces = true, bool scaleTiles = false, uint w = 1024, uint h = 1024);
+	//bool computeSeamlessTextureAtlas(bool groupFaces = true, bool scaleTiles = false, uint32_t w = 1024, uint32_t h = 1024);
 
 	void parameterizeCharts();
 
@@ -88,44 +88,44 @@ public:
 	MeshCharts(const HalfEdge::Mesh *mesh);
 	~MeshCharts();
 
-	uint chartCount() const
+	uint32_t chartCount() const
 	{
 		return m_chartArray.size();
 	}
-	uint vertexCount () const
+	uint32_t vertexCount () const
 	{
 		return m_totalVertexCount;
 	}
 
-	const Chart *chartAt(uint i) const
+	const Chart *chartAt(uint32_t i) const
 	{
 		return m_chartArray[i];
 	}
-	Chart *chartAt(uint i)
+	Chart *chartAt(uint32_t i)
 	{
 		return m_chartArray[i];
 	}
 
-	void computeVertexMap(const std::vector<uint> &unchartedMaterialArray);
+	void computeVertexMap(const std::vector<uint32_t> &unchartedMaterialArray);
 
 	// Extract the charts of the input mesh.
 	void extractCharts();
 
 	// Compute charts using a simple segmentation algorithm.
-	void computeCharts(const SegmentationSettings &settings, const std::vector<uint> &unchartedMaterialArray);
+	void computeCharts(const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
 
 	void parameterizeCharts();
 
-	uint faceChartAt(uint i) const
+	uint32_t faceChartAt(uint32_t i) const
 	{
 		return m_faceChart[i];
 	}
-	uint faceIndexWithinChartAt(uint i) const
+	uint32_t faceIndexWithinChartAt(uint32_t i) const
 	{
 		return m_faceIndex[i];
 	}
 
-	uint vertexCountBeforeChartAt(uint i) const
+	uint32_t vertexCountBeforeChartAt(uint32_t i) const
 	{
 		return m_chartVertexCountPrefixSum[i];
 	}
@@ -136,11 +136,11 @@ private:
 
 	std::vector<Chart *> m_chartArray;
 
-	std::vector<uint> m_chartVertexCountPrefixSum;
-	uint m_totalVertexCount;
+	std::vector<uint32_t> m_chartVertexCountPrefixSum;
+	uint32_t m_totalVertexCount;
 
-	std::vector<uint> m_faceChart; // the chart of every face of the input mesh.
-	std::vector<uint> m_faceIndex; // the index within the chart for every face of the input mesh.
+	std::vector<uint32_t> m_faceChart; // the chart of every face of the input mesh.
+	std::vector<uint32_t> m_faceIndex; // the index within the chart for every face of the input mesh.
 };
 
 
@@ -151,8 +151,8 @@ public:
 
 	Chart();
 
-	void build(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &faceArray);
-	void buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &unchartedMaterialArray);
+	void build(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t> &faceArray);
+	void buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t> &unchartedMaterialArray);
 
 	bool closeHoles();
 
@@ -165,20 +165,20 @@ public:
 		return m_isVertexMapped;
 	}
 
-	uint vertexCount() const
+	uint32_t vertexCount() const
 	{
 		return m_chartMesh->vertexCount();
 	}
-	uint colocalVertexCount() const
+	uint32_t colocalVertexCount() const
 	{
 		return m_unifiedMesh->vertexCount();
 	}
 
-	uint faceCount() const
+	uint32_t faceCount() const
 	{
 		return m_faceArray.size();
 	}
-	uint faceAt(uint i) const
+	uint32_t faceAt(uint32_t i) const
 	{
 		return m_faceArray[i];
 	}
@@ -200,18 +200,18 @@ public:
 		return m_unifiedMesh.get();
 	}
 
-	//uint vertexIndex(uint i) const { return m_vertexIndexArray[i]; }
+	//uint32_t vertexIndex(uint32_t i) const { return m_vertexIndexArray[i]; }
 
-	uint mapChartVertexToOriginalVertex(uint i) const
+	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const
 	{
 		return m_chartToOriginalMap[i];
 	}
-	uint mapChartVertexToUnifiedVertex(uint i) const
+	uint32_t mapChartVertexToUnifiedVertex(uint32_t i) const
 	{
 		return m_chartToUnifiedMap[i];
 	}
 
-	const std::vector<uint> &faceArray() const
+	const std::vector<uint32_t> &faceArray() const
 	{
 		return m_faceArray;
 	}
@@ -224,12 +224,12 @@ public:
 
 
 	float scale = 1.0f;
-	uint vertexMapWidth;
-	uint vertexMapHeight;
+	uint32_t vertexMapWidth;
+	uint32_t vertexMapHeight;
 
 private:
 
-	bool closeLoop(uint start, const std::vector<HalfEdge::Edge *> &loop);
+	bool closeLoop(uint32_t start, const std::vector<HalfEdge::Edge *> &loop);
 
 	// Chart mesh.
 	std::auto_ptr<HalfEdge::Mesh> m_chartMesh;
@@ -239,12 +239,12 @@ private:
 	bool m_isVertexMapped;
 
 	// List of faces of the original mesh that belong to this chart.
-	std::vector<uint> m_faceArray;
+	std::vector<uint32_t> m_faceArray;
 
 	// Map vertices of the chart mesh to vertices of the original mesh.
-	std::vector<uint> m_chartToOriginalMap;
+	std::vector<uint32_t> m_chartToOriginalMap;
 
-	std::vector<uint> m_chartToUnifiedMap;
+	std::vector<uint32_t> m_chartToUnifiedMap;
 };
 
 } // nv namespace

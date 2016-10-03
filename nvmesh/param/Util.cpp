@@ -10,13 +10,13 @@
 
 using namespace nv;
 
-uint nv::countMeshTriangles(const HalfEdge::Mesh *mesh)
+uint32_t nv::countMeshTriangles(const HalfEdge::Mesh *mesh)
 {
-	const uint faceCount = mesh->faceCount();
-	uint triangleCount = 0;
-	for (uint f = 0; f < faceCount; f++) {
+	const uint32_t faceCount = mesh->faceCount();
+	uint32_t triangleCount = 0;
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = mesh->faceAt(f);
-		uint edgeCount = face->edgeCount();
+		uint32_t edgeCount = face->edgeCount();
 		nvDebugCheck(edgeCount > 2);
 		triangleCount += edgeCount - 2;
 	}
@@ -27,17 +27,17 @@ HalfEdge::Mesh *nv::unifyVertices(const HalfEdge::Mesh *inputMesh)
 {
 	HalfEdge::Mesh *mesh = new HalfEdge::Mesh;
 	// Only add the first colocal.
-	const uint vertexCount = inputMesh->vertexCount();
-	for (uint v = 0; v < vertexCount; v++) {
+	const uint32_t vertexCount = inputMesh->vertexCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		const HalfEdge::Vertex *vertex = inputMesh->vertexAt(v);
 		if (vertex->isFirstColocal()) {
 			mesh->addVertex(vertex->pos);
 		}
 	}
-	std::vector<uint> indexArray;
+	std::vector<uint32_t> indexArray;
 	// Add new faces pointing to first colocals.
-	uint faceCount = inputMesh->faceCount();
-	for (uint f = 0; f < faceCount; f++) {
+	uint32_t faceCount = inputMesh->faceCount();
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = inputMesh->faceAt(f);
 		indexArray.clear();
 		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
@@ -65,19 +65,19 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 {
 	HalfEdge::Mesh *mesh = new HalfEdge::Mesh;
 	// Add all vertices.
-	const uint vertexCount = inputMesh->vertexCount();
-	for (uint v = 0; v < vertexCount; v++) {
+	const uint32_t vertexCount = inputMesh->vertexCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		const HalfEdge::Vertex *vertex = inputMesh->vertexAt(v);
 		mesh->addVertex(vertex->pos);
 	}
 	std::vector<int> polygonVertices;
 	std::vector<float> polygonAngles;
 	std::vector<Vector2> polygonPoints;
-	const uint faceCount = inputMesh->faceCount();
-	for (uint f = 0; f < faceCount; f++) {
+	const uint32_t faceCount = inputMesh->faceCount();
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = inputMesh->faceAt(f);
 		nvDebugCheck(face != NULL);
-		const uint edgeCount = face->edgeCount();
+		const uint32_t edgeCount = face->edgeCount();
 		nvDebugCheck(edgeCount >= 3);
 		polygonVertices.clear();
 		polygonVertices.reserve(edgeCount);
@@ -114,15 +114,15 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 			}
 			polygonAngles.resize(edgeCount);
 			while (polygonVertices.size() > 2) {
-				uint size = polygonVertices.size();
+				uint32_t size = polygonVertices.size();
 				// Update polygon angles. @@ Update only those that have changed.
 				float minAngle = 2 * PI;
-				uint bestEar = 0; // Use first one if none of them is valid.
+				uint32_t bestEar = 0; // Use first one if none of them is valid.
 				bool bestIsValid = false;
-				for (uint i = 0; i < size; i++) {
-					uint i0 = i;
-					uint i1 = (i + 1) % size; // Use Sean's polygon interation trick.
-					uint i2 = (i + 2) % size;
+				for (uint32_t i = 0; i < size; i++) {
+					uint32_t i0 = i;
+					uint32_t i1 = (i + 1) % size; // Use Sean's polygon interation trick.
+					uint32_t i2 = (i + 2) % size;
 					Vector2 p0 = polygonPoints[i0];
 					Vector2 p1 = polygonPoints[i1];
 					Vector2 p2 = polygonPoints[i2];
@@ -134,7 +134,7 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 					if (angle < minAngle || !bestIsValid) {
 						// Make sure this is a valid ear, if not, skip this point.
 						bool valid = true;
-						for (uint j = 0; j < size; j++) {
+						for (uint32_t j = 0; j < size; j++) {
 							if (j == i0 || j == i1 || j == i2) continue;
 							Vector2 p = polygonPoints[j];
 							if (pointInTriangle(p, p0, p1, p2)) {
@@ -151,9 +151,9 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 				}
 				nvDebugCheck(minAngle <= 2 * PI);
 				// Clip best ear:
-				uint i0 = (bestEar + size - 1) % size;
-				uint i1 = (bestEar + 0) % size;
-				uint i2 = (bestEar + 1) % size;
+				uint32_t i0 = (bestEar + size - 1) % size;
+				uint32_t i1 = (bestEar + 0) % size;
+				uint32_t i2 = (bestEar + 1) % size;
 				int v0 = polygonVertices[i0];
 				int v1 = polygonVertices[i1];
 				int v2 = polygonVertices[i2];

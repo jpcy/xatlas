@@ -18,14 +18,14 @@ inline static float triangleArea(Vector2::Arg v1, Vector2::Arg v2, Vector2::Arg 
 // Compute the convex hull using Graham Scan.
 void nv::convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &output, float epsilon/*=0*/)
 {
-	const uint inputCount = input.size();
+	const uint32_t inputCount = input.size();
 	std::vector<float> coords(inputCount);
-	for (uint i = 0; i < inputCount; i++) {
+	for (uint32_t i = 0; i < inputCount; i++) {
 		coords[i] = input[i].x;
 	}
 	RadixSort radix;
 	radix.sort(coords);
-	const uint *ranks = radix.ranks();
+	const uint32_t *ranks = radix.ranks();
 	std::vector<Vector2> top;
 	top.reserve(inputCount);
 	std::vector<Vector2> bottom;
@@ -34,11 +34,11 @@ void nv::convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &out
 	Vector2 Q = input[ranks[inputCount - 1]];
 	float topy = max(P.y, Q.y);
 	float boty = min(P.y, Q.y);
-	for (uint i = 0; i < inputCount; i++) {
+	for (uint32_t i = 0; i < inputCount; i++) {
 		Vector2 p = input[ranks[i]];
 		if (p.y >= boty) top.push_back(p);
 	}
-	for (uint i = 0; i < inputCount; i++) {
+	for (uint32_t i = 0; i < inputCount; i++) {
 		Vector2 p = input[ranks[inputCount - 1 - i]];
 		if (p.y <= topy) bottom.push_back(p);
 	}
@@ -46,7 +46,7 @@ void nv::convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &out
 	output.clear();
 	output.push_back(top[0]);
 	output.push_back(top[1]);
-	for (uint i = 2; i < top.size(); ) {
+	for (uint32_t i = 2; i < top.size(); ) {
 		Vector2 a = output[output.size() - 2];
 		Vector2 b = output[output.size() - 1];
 		Vector2 c = top[i];
@@ -59,10 +59,10 @@ void nv::convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &out
 			i++;
 		}
 	}
-	uint top_count = output.size();
+	uint32_t top_count = output.size();
 	output.push_back(bottom[1]);
 	// Filter bottom list.
-	for (uint i = 2; i < bottom.size(); ) {
+	for (uint32_t i = 2; i < bottom.size(); ) {
 		Vector2 a = output[output.size() - 2];
 		Vector2 b = output[output.size() - 1];
 		Vector2 c = bottom[i];

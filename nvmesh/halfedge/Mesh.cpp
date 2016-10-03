@@ -25,9 +25,9 @@ Mesh::Mesh(const Mesh *mesh)
 {
 	errorCount = 0;
 	// Copy mesh vertices.
-	const uint vertexCount = mesh->vertexCount();
+	const uint32_t vertexCount = mesh->vertexCount();
 	m_vertexArray.resize(vertexCount);
-	for (uint v = 0; v < vertexCount; v++) {
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		const Vertex *vertex = mesh->vertexAt(v);
 		nvDebugCheck(vertex->id == v);
 		m_vertexArray[v] = new Vertex(v);
@@ -37,10 +37,10 @@ Mesh::Mesh(const Mesh *mesh)
 	}
 	m_colocalVertexCount = vertexCount;
 	// Copy mesh faces.
-	const uint faceCount = mesh->faceCount();
-	std::vector<uint> indexArray;
+	const uint32_t faceCount = mesh->faceCount();
+	std::vector<uint32_t> indexArray;
 	indexArray.reserve(3);
-	for (uint f = 0; f < faceCount; f++) {
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const Face *face = mesh->faceAt(f);
 		for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const Vertex *vertex = it.current()->from();
@@ -85,10 +85,10 @@ Vertex *Mesh::addVertex(const Vector3 &pos)
 void Mesh::linkColocals()
 {
 	nvDebug("--- Linking colocals:\n");
-	const uint vertexCount = this->vertexCount();
+	const uint32_t vertexCount = this->vertexCount();
 	std::unordered_map<Vector3, Vertex *, Hash<Vector3>, Equal<Vector3> > vertexMap;
 	vertexMap.reserve(vertexCount);
-	for (uint v = 0; v < vertexCount; v++) {
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		Vertex *vertex = vertexAt(v);
 		Vertex *colocal = vertexMap[vertex->pos];
 		if (colocal) {
@@ -102,18 +102,18 @@ void Mesh::linkColocals()
 	// @@ Remove duplicated vertices? or just leave them as colocals?
 }
 
-void Mesh::linkColocalsWithCanonicalMap(const std::vector<uint> &canonicalMap)
+void Mesh::linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMap)
 {
 	nvDebug("--- Linking colocals:\n");
-	uint vertexMapSize = 0;
-	for (uint i = 0; i < canonicalMap.size(); i++) {
+	uint32_t vertexMapSize = 0;
+	for (uint32_t i = 0; i < canonicalMap.size(); i++) {
 		vertexMapSize = max(vertexMapSize, canonicalMap[i] + 1);
 	}
 	std::vector<Vertex *> vertexMap;
 	vertexMap.resize(vertexMapSize, NULL);
 	m_colocalVertexCount = 0;
-	const uint vertexCount = this->vertexCount();
-	for (uint v = 0; v < vertexCount; v++) {
+	const uint32_t vertexCount = this->vertexCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		Vertex *vertex = vertexAt(v);
 		Vertex *colocal = vertexMap[canonicalMap[v]];
 		if (colocal != NULL) {
@@ -135,18 +135,18 @@ Face *Mesh::addFace()
 	return f;
 }
 
-Face *Mesh::addFace(uint v0, uint v1, uint v2)
+Face *Mesh::addFace(uint32_t v0, uint32_t v1, uint32_t v2)
 {
-	std::vector<uint> indexArray(3);
+	std::vector<uint32_t> indexArray(3);
 	indexArray[0] = v0;
 	indexArray[1] = v1;
 	indexArray[2] = v2;
 	return addFace(indexArray, 0, 3);
 }
 
-Face *Mesh::addFace(uint v0, uint v1, uint v2, uint v3)
+Face *Mesh::addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3)
 {
-	std::vector<uint> indexArray(4);
+	std::vector<uint32_t> indexArray(4);
 	indexArray[0] = v0;
 	indexArray[1] = v1;
 	indexArray[2] = v2;
@@ -154,13 +154,13 @@ Face *Mesh::addFace(uint v0, uint v1, uint v2, uint v3)
 	return addFace(indexArray, 0, 4);
 }
 
-Face *Mesh::addFace(const std::vector<uint> &indexArray)
+Face *Mesh::addFace(const std::vector<uint32_t> &indexArray)
 {
 	return addFace(indexArray, 0, indexArray.size());
 }
 
 
-Face *Mesh::addFace(const std::vector<uint> &indexArray, uint first, uint num)
+Face *Mesh::addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num)
 {
 	nvDebugCheck(first < indexArray.size());
 	nvDebugCheck(num <= indexArray.size() - first);
@@ -173,7 +173,7 @@ Face *Mesh::addFace(const std::vector<uint> &indexArray, uint first, uint num)
 	Edge *firstEdge = NULL;
 	Edge *last = NULL;
 	Edge *current = NULL;
-	for (uint i = 0; i < num - 1; i++) {
+	for (uint32_t i = 0; i < num - 1; i++) {
 		current = addEdge(indexArray[first + i], indexArray[first + i + 1]);
 		nvCheck(current != NULL && current->face == NULL);
 		current->face = f;
@@ -202,9 +202,9 @@ Array indexArray;
 
 
 // Return true if the face can be added to the manifold mesh.
-bool Mesh::canAddFace(const std::vector<uint> &indexArray, uint first, uint num) const
+bool Mesh::canAddFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num) const
 {
-	for (uint j = num - 1, i = 0; i < num; j = i++) {
+	for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
 		if (!canAddEdge(indexArray[first + j], indexArray[first + i])) {
 			errorIndex0 = indexArray[first + j];
 			errorIndex1 = indexArray[first + i];
@@ -212,10 +212,10 @@ bool Mesh::canAddFace(const std::vector<uint> &indexArray, uint first, uint num)
 		}
 	}
 	// We also have to make sure the face does not have any duplicate edge!
-	for (uint i = 0; i < num; i++) {
+	for (uint32_t i = 0; i < num; i++) {
 		int i0 = indexArray[first + i + 0];
 		int i1 = indexArray[first + (i + 1) % num];
-		for (uint j = i + 1; j < num; j++) {
+		for (uint32_t j = i + 1; j < num; j++) {
 			int j0 = indexArray[first + j + 0];
 			int j1 = indexArray[first + (j + 1) % num];
 			if (i0 == j0 && i1 == j1) {
@@ -227,7 +227,7 @@ bool Mesh::canAddFace(const std::vector<uint> &indexArray, uint first, uint num)
 }
 
 // Return true if the edge doesn't exist or doesn't have any adjacent face.
-bool Mesh::canAddEdge(uint i, uint j) const
+bool Mesh::canAddEdge(uint32_t i, uint32_t j) const
 {
 	if (i == j) {
 		// Skip degenerate edges.
@@ -247,7 +247,7 @@ bool Mesh::canAddEdge(uint i, uint j) const
 	return edge == NULL || edge->face == NULL; // We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
 }
 
-Edge *Mesh::addEdge(uint i, uint j)
+Edge *Mesh::addEdge(uint32_t i, uint32_t j)
 {
 	nvCheck(i != j);
 	Edge *edge = findEdge(i, j);
@@ -282,7 +282,7 @@ Edge *Mesh::addEdge(uint i, uint j)
 
 
 /// Find edge, test all colocals.
-Edge *Mesh::findEdge(uint i, uint j) const
+Edge *Mesh::findEdge(uint32_t i, uint32_t j) const
 {
 	Edge *edge = NULL;
 	const Vertex *v0 = vertexAt(i);
@@ -313,13 +313,13 @@ void Mesh::linkBoundary()
 	nvDebug("--- Linking boundaries:\n");
 	int num = 0;
 	// Create boundary edges.
-	uint edgeCount = this->edgeCount();
-	for (uint e = 0; e < edgeCount; e++) {
+	uint32_t edgeCount = this->edgeCount();
+	for (uint32_t e = 0; e < edgeCount; e++) {
 		Edge *edge = edgeAt(e);
 		if (edge != NULL && edge->pair == NULL) {
 			Edge *pair = new Edge(edge->id + 1);
-			uint i = edge->from()->id;
-			uint j = edge->next->from()->id;
+			uint32_t i = edge->from()->id;
+			uint32_t j = edge->next->from()->id;
 			Key key(j, i);
 			nvCheck(m_edgeMap.find(key) == m_edgeMap.end());
 			pair->vertex = m_vertexArray[j];
@@ -330,7 +330,7 @@ void Mesh::linkBoundary()
 		}
 	}
 	// Link boundary edges.
-	for (uint e = 0; e < edgeCount; e++) {
+	for (uint32_t e = 0; e < edgeCount; e++) {
 		Edge *edge = edgeAt(e);
 		if (edge != NULL && edge->pair->face == NULL) {
 			linkBoundaryEdge(edge->pair);
@@ -367,8 +367,8 @@ void Mesh::linkBoundaryEdge(Edge *edge)
 void Mesh::triangulate()
 {
 	bool all_triangles = true;
-	const uint faceCount = m_faceArray.size();
-	for (uint f = 0; f < faceCount; f++) {
+	const uint32_t faceCount = m_faceArray.size();
+	for (uint32_t f = 0; f < faceCount; f++) {
 		Face *face = m_faceArray[f];
 		if (face->edgeCount() != 3) {
 			all_triangles = false;
@@ -384,11 +384,11 @@ void Mesh::triangulate()
 	std::swap(edgeArray, m_edgeArray);
 	std::swap(faceArray, m_faceArray);
 	m_edgeMap.clear();
-	for (uint f = 0; f < faceCount; f++) {
+	for (uint32_t f = 0; f < faceCount; f++) {
 		Face *face = faceArray[f];
 		// Trivial fan-like triangulation.
-		const uint v0 = face->edge->vertex->id;
-		uint v2, v1 = -1;
+		const uint32_t v0 = face->edge->vertex->id;
+		uint32_t v2, v1 = -1;
 		for (Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			Edge *edge = it.current();
 			v2 = edge->to()->id;
@@ -421,7 +421,7 @@ Fixing T-junctions.
 bool Mesh::splitBoundaryEdges()
 {
 	std::vector<Vertex *> boundaryVertices;
-	for (uint i = 0; i < m_vertexArray.size(); i++) {
+	for (uint32_t i = 0; i < m_vertexArray.size(); i++) {
 		Vertex *v = m_vertexArray[i];
 		if (v->isBoundary()) {
 			boundaryVertices.push_back(v);
@@ -429,11 +429,11 @@ bool Mesh::splitBoundaryEdges()
 	}
 	nvDebug("Fixing T-junctions:\n");
 	int splitCount = 0;
-	for (uint v = 0; v < boundaryVertices.size(); v++) {
+	for (uint32_t v = 0; v < boundaryVertices.size(); v++) {
 		Vertex *vertex = boundaryVertices[v];
 		Vector3 x0 = vertex->pos;
 		// Find edges that this vertex overlaps with.
-		for (uint e = 0; e < m_edgeArray.size(); e++) {
+		for (uint32_t e = 0; e < m_edgeArray.size(); e++) {
 			Edge *edge = m_edgeArray[e];
 			if (edge != NULL && edge->isBoundary()) {
 				if (edge->from() == vertex || edge->to() == vertex) {
@@ -661,9 +661,9 @@ void Mesh::remove(Face *face)
 
 void Mesh::compactEdges()
 {
-	const uint edgeCount = m_edgeArray.size();
-	uint c = 0;
-	for (uint i = 0; i < edgeCount; i++) {
+	const uint32_t edgeCount = m_edgeArray.size();
+	uint32_t c = 0;
+	for (uint32_t i = 0; i < edgeCount; i++) {
 		if (m_edgeArray[i] != NULL) {
 			if (i != c) {
 				m_edgeArray[c] = m_edgeArray[i];
@@ -681,9 +681,9 @@ void Mesh::compactEdges()
 
 void Mesh::compactVertices()
 {
-	const uint vertexCount = m_vertexArray.size();
-	uint c = 0;
-	for (uint i = 0; i < vertexCount; i++) {
+	const uint32_t vertexCount = m_vertexArray.size();
+	uint32_t c = 0;
+	for (uint32_t i = 0; i < vertexCount; i++) {
 		if (m_vertexArray[i] != NULL) {
 			if (i != c) {
 				m_vertexArray[c] = m_vertexArray[i];
@@ -699,9 +699,9 @@ void Mesh::compactVertices()
 
 void Mesh::compactFaces()
 {
-	const uint faceCount = m_faceArray.size();
-	uint c = 0;
-	for (uint i = 0; i < faceCount; i++) {
+	const uint32_t faceCount = m_faceArray.size();
+	uint32_t c = 0;
+	for (uint32_t i = 0; i < faceCount; i++) {
 		if (m_faceArray[i] != NULL) {
 			if (i != c) {
 				m_faceArray[c] = m_faceArray[i];
@@ -900,8 +900,8 @@ void Mesh::splitBoundaryEdge(Edge *edge, Vertex *vertex)
 bool Mesh::isValid() const
 {
 	// Make sure all edges are valid.
-	const uint edgeCount = m_edgeArray.size();
-	for (uint e = 0; e < edgeCount; e++) {
+	const uint32_t edgeCount = m_edgeArray.size();
+	for (uint32_t e = 0; e < edgeCount; e++) {
 		Edge *edge = m_edgeArray[e];
 		if (edge != NULL) {
 			if (edge->id != 2 * e) {

@@ -16,7 +16,7 @@ public:
 	JacobiPreconditioner(const SparseMatrix &M, bool symmetric) : m_inverseDiagonal(M.width())
 	{
 		nvCheck(M.isSquare());
-		for (uint x = 0; x < M.width(); x++) {
+		for (uint32_t x = 0; x < M.width(); x++) {
 			float elem = M.getCoefficient(x, x);
 			//nvDebugCheck( elem != 0.0f ); // This can be zero in the presence of zero area triangles.
 			if (symmetric) {
@@ -32,8 +32,8 @@ public:
 		nvDebugCheck(x.dimension() == m_inverseDiagonal.dimension());
 		nvDebugCheck(y.dimension() == m_inverseDiagonal.dimension());
 		// @@ Wrap vector component-wise product into a separate function.
-		const uint D = x.dimension();
-		for (uint i = 0; i < D; i++) {
+		const uint32_t D = x.dimension();
+		for (uint32_t i = 0; i < D; i++) {
 			y[i] = m_inverseDiagonal[i] * x[i];
 		}
 	}
@@ -57,7 +57,7 @@ bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVect
 	nvDebugCheck(A.width() == x.dimension());
 	nvDebugCheck(A.height() == b.dimension());
 	nvDebugCheck(A.height() >= A.width()); // @@ If height == width we could solve it directly...
-	const uint D = A.width();
+	const uint32_t D = A.width();
 	SparseMatrix At(A.height(), A.width());
 	transpose(A, At);
 	FullVector Atb(D);
@@ -71,22 +71,22 @@ bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVect
 
 
 // See section 10.4.3 in: Mesh Parameterization: Theory and Practice, Siggraph Course Notes, August 2007
-bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, const uint *lockedParameters, uint lockedCount, float epsilon/*= 1e-5f*/)
+bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon/*= 1e-5f*/)
 {
 	nvDebugCheck(A.width() == x.dimension());
 	nvDebugCheck(A.height() == b.dimension());
 	nvDebugCheck(A.height() >= A.width() - lockedCount);
 	// @@ This is not the most efficient way of building a system with reduced degrees of freedom. It would be faster to do it on the fly.
-	const uint D = A.width() - lockedCount;
+	const uint32_t D = A.width() - lockedCount;
 	nvDebugCheck(D > 0);
 	// Compute: b - Al * xl
 	FullVector b_Alxl(b);
-	for (uint y = 0; y < A.height(); y++) {
-		const uint count = A.getRow(y).size();
-		for (uint e = 0; e < count; e++) {
-			uint column = A.getRow(y)[e].x;
+	for (uint32_t y = 0; y < A.height(); y++) {
+		const uint32_t count = A.getRow(y).size();
+		for (uint32_t e = 0; e < count; e++) {
+			uint32_t column = A.getRow(y)[e].x;
 			bool isFree = true;
-			for (uint i = 0; i < lockedCount; i++) {
+			for (uint32_t i = 0; i < lockedCount; i++) {
 				isFree &= (lockedParameters[i] != column);
 			}
 			if (!isFree) {
@@ -96,13 +96,13 @@ bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVect
 	}
 	// Remove locked columns from A.
 	SparseMatrix Af(D, A.height());
-	for (uint y = 0; y < A.height(); y++) {
-		const uint count = A.getRow(y).size();
-		for (uint e = 0; e < count; e++) {
-			uint column = A.getRow(y)[e].x;
-			uint ix = column;
+	for (uint32_t y = 0; y < A.height(); y++) {
+		const uint32_t count = A.getRow(y).size();
+		for (uint32_t e = 0; e < count; e++) {
+			uint32_t column = A.getRow(y)[e].x;
+			uint32_t ix = column;
 			bool isFree = true;
-			for (uint i = 0; i < lockedCount; i++) {
+			for (uint32_t i = 0; i < lockedCount; i++) {
 				isFree &= (lockedParameters[i] != column);
 				if (column > lockedParameters[i]) ix--; // shift columns
 			}
@@ -113,9 +113,9 @@ bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVect
 	}
 	// Remove elements from x
 	FullVector xf(D);
-	for (uint i = 0, j = 0; i < A.width(); i++) {
+	for (uint32_t i = 0, j = 0; i < A.width(); i++) {
 		bool isFree = true;
-		for (uint l = 0; l < lockedCount; l++) {
+		for (uint32_t l = 0; l < lockedCount; l++) {
 			isFree &= (lockedParameters[l] != i);
 		}
 		if (isFree) {
@@ -125,9 +125,9 @@ bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVect
 	// Solve reduced system.
 	bool result = LeastSquaresSolver(Af, b_Alxl, xf, epsilon);
 	// Copy results back to x.
-	for (uint i = 0, j = 0; i < A.width(); i++) {
+	for (uint32_t i = 0, j = 0; i < A.width(); i++) {
 		bool isFree = true;
-		for (uint l = 0; l < lockedCount; l++) {
+		for (uint32_t l = 0; l < lockedCount; l++) {
 			isFree &= (lockedParameters[l] != i);
 		}
 		if (isFree) {

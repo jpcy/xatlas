@@ -21,21 +21,21 @@ class FullVector
 {
 public:
 
-	FullVector(uint dim);
+	FullVector(uint32_t dim);
 	FullVector(const FullVector &v);
 
 	const FullVector &operator=(const FullVector &v);
 
-	uint dimension() const
+	uint32_t dimension() const
 	{
 		return m_array.size();
 	}
 
-	const float &operator[]( uint index ) const
+	const float &operator[]( uint32_t index ) const
 	{
 		return m_array[index];
 	}
-	float &operator[] ( uint index )
+	float &operator[] ( uint32_t index )
 	{
 		return m_array[index];
 	}
@@ -83,25 +83,25 @@ public:
 
 	// An element of the sparse array.
 	struct Coefficient {
-		uint x;  // column
+		uint32_t x;  // column
 		float v; // value
 	};
 
 
 public:
 
-	SparseMatrix(uint d);
-	SparseMatrix(uint w, uint h);
+	SparseMatrix(uint32_t d);
+	SparseMatrix(uint32_t w, uint32_t h);
 	SparseMatrix(const SparseMatrix &m);
 
 	const SparseMatrix &operator=(const SparseMatrix &m);
 
 
-	uint width() const
+	uint32_t width() const
 	{
 		return m_width;
 	}
-	uint height() const
+	uint32_t height() const
 	{
 		return m_array.size();
 	}
@@ -110,31 +110,31 @@ public:
 		return width() == height();
 	}
 
-	float getCoefficient(uint x, uint y) const; // x is column, y is row
+	float getCoefficient(uint32_t x, uint32_t y) const; // x is column, y is row
 
-	void setCoefficient(uint x, uint y, float f);
-	void addCoefficient(uint x, uint y, float f);
-	void mulCoefficient(uint x, uint y, float f);
+	void setCoefficient(uint32_t x, uint32_t y, float f);
+	void addCoefficient(uint32_t x, uint32_t y, float f);
+	void mulCoefficient(uint32_t x, uint32_t y, float f);
 
-	float sumRow(uint y) const;
-	float dotRow(uint y, const FullVector &v) const;
-	void madRow(uint y, float alpha, FullVector &v) const;
+	float sumRow(uint32_t y) const;
+	float dotRow(uint32_t y, const FullVector &v) const;
+	void madRow(uint32_t y, float alpha, FullVector &v) const;
 
-	void clearRow(uint y);
-	void scaleRow(uint y, float f);
-	void normalizeRow(uint y);
+	void clearRow(uint32_t y);
+	void scaleRow(uint32_t y, float f);
+	void normalizeRow(uint32_t y);
 
-	void clearColumn(uint x);
-	void scaleColumn(uint x, float f);
+	void clearColumn(uint32_t x);
+	void scaleColumn(uint32_t x, float f);
 
-	const std::vector<Coefficient> &getRow(uint y) const;
+	const std::vector<Coefficient> &getRow(uint32_t y) const;
 
 	bool isSymmetric() const;
 
 private:
 
 	/// Number of columns.
-	const uint m_width;
+	const uint32_t m_width;
 
 	/// Array of matrix elements.
 	std::vector< std::vector<Coefficient> > m_array;

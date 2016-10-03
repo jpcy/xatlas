@@ -29,7 +29,7 @@ inline Atlas_Output_Mesh * set_error(Atlas_Error * error, Atlas_Error code) {
 
 static void input_to_mesh(const Atlas_Input_Mesh * input, HalfEdge::Mesh * mesh, Atlas_Error * error) {
 
-    std::vector<uint> canonicalMap;
+    std::vector<uint32_t> canonicalMap;
     canonicalMap.reserve(input->vertex_count);
 
     for (int i = 0; i < input->vertex_count; i++) {
@@ -92,13 +92,13 @@ static Atlas_Output_Mesh * mesh_atlas_to_output(const HalfEdge::Mesh * mesh, con
     const int chart_count = charts->chartCount();
     for (int i = 0; i < chart_count; i++) {
         const Chart * chart = charts->chartAt(i);
-        uint vertexOffset = charts->vertexCountBeforeChartAt(i);
+        uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
 
-        const uint chart_vertex_count = chart->vertexCount();
-        for (uint v = 0; v < chart_vertex_count; v++) {
+        const uint32_t chart_vertex_count = chart->vertexCount();
+        for (uint32_t v = 0; v < chart_vertex_count; v++) {
             Atlas_Output_Vertex & output_vertex = output->vertex_array[vertexOffset + v]; 
 
-            uint original_vertex = chart->mapChartVertexToOriginalVertex(v);
+            uint32_t original_vertex = chart->mapChartVertexToOriginalVertex(v);
             output_vertex.xref = original_vertex;
 
             Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
@@ -115,9 +115,9 @@ static Atlas_Output_Mesh * mesh_atlas_to_output(const HalfEdge::Mesh * mesh, con
 
     // Set face indices.
     for (int f = 0; f < face_count; f++) {
-        uint c = charts->faceChartAt(f);
-        uint i = charts->faceIndexWithinChartAt(f);
-        uint vertexOffset = charts->vertexCountBeforeChartAt(c);
+        uint32_t c = charts->faceChartAt(f);
+        uint32_t i = charts->faceIndexWithinChartAt(f);
+        uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
 
         const Chart * chart = charts->chartAt(c);
         nvDebugCheck(chart->faceAt(i) == f);
@@ -228,7 +228,7 @@ Atlas_Output_Mesh * Thekla::atlas_generate(const Atlas_Input_Mesh * input, const
         segmentation_settings.maxChartArea = options->charter_options.witness.max_chart_area;
         segmentation_settings.maxBoundaryLength = options->charter_options.witness.max_boundary_length;
 
-        std::vector<uint> uncharted_materials;
+        std::vector<uint32_t> uncharted_materials;
         atlas.computeCharts(mesh.get(), segmentation_settings, uncharted_materials);
     }
 

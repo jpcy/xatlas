@@ -21,13 +21,13 @@ static void findDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vertex **a, Hal
 	nvDebugCheck(mesh != NULL);
 	nvDebugCheck(a != NULL);
 	nvDebugCheck(b != NULL);
-	const uint vertexCount = mesh->vertexCount();
+	const uint32_t vertexCount = mesh->vertexCount();
 	float maxLength = 0.0f;
-	for (uint v0 = 1; v0 < vertexCount; v0++) {
+	for (uint32_t v0 = 1; v0 < vertexCount; v0++) {
 		HalfEdge::Vertex *vertex0 = mesh->vertexAt(v0);
 		nvDebugCheck(vertex0 != NULL);
 		if (!vertex0->isBoundary()) continue;
-		for (uint v1 = 0; v1 < v0; v1++) {
+		for (uint32_t v1 = 0; v1 < v0; v1++) {
 			HalfEdge::Vertex *vertex1 = mesh->vertexAt(v1);
 			nvDebugCheck(vertex1 != NULL);
 			if (!vertex1->isBoundary()) continue;
@@ -48,12 +48,12 @@ static bool findApproximateDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vert
 	nvDebugCheck(mesh != NULL);
 	nvDebugCheck(a != NULL);
 	nvDebugCheck(b != NULL);
-	const uint vertexCount = mesh->vertexCount();
+	const uint32_t vertexCount = mesh->vertexCount();
 	HalfEdge::Vertex *minVertex[3];
 	HalfEdge::Vertex *maxVertex[3];
 	minVertex[0] = minVertex[1] = minVertex[2] = NULL;
 	maxVertex[0] = maxVertex[1] = maxVertex[2] = NULL;
-	for (uint v = 1; v < vertexCount; v++) {
+	for (uint32_t v = 1; v < vertexCount; v++) {
 		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
 		nvDebugCheck(vertex != NULL);
 		if (vertex->isBoundary()) {
@@ -66,7 +66,7 @@ static bool findApproximateDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vert
 		// Input mesh has not boundaries.
 		return false;
 	}
-	for (uint v = 1; v < vertexCount; v++) {
+	for (uint32_t v = 1; v < vertexCount; v++) {
 		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
 		nvDebugCheck(vertex != NULL);
 		if (!vertex->isBoundary()) {
@@ -262,9 +262,9 @@ bool nv::computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 	nvDebugCheck(mesh != NULL);
 	// For this to work properly, mesh should not have colocals that have the same
 	// attributes, unless you want the vertices to actually have different texcoords.
-	const uint vertexCount = mesh->vertexCount();
-	const uint D = 2 * vertexCount;
-	const uint N = 2 * countMeshTriangles(mesh);
+	const uint32_t vertexCount = mesh->vertexCount();
+	const uint32_t D = 2 * vertexCount;
+	const uint32_t N = 2 * countMeshTriangles(mesh);
 	// N is the number of equations (one per triangle)
 	// D is the number of variables (one per vertex; there are 2 pinned vertices).
 	if (N < D - 4) {
@@ -286,7 +286,7 @@ bool nv::computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 		// LSCM expects an existing parameterization.
 		return false;
 	}
-	for (uint v = 0; v < vertexCount; v++) {
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
 		nvDebugCheck(vertex != NULL);
 		// Initial solution.
@@ -294,8 +294,8 @@ bool nv::computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 		x[2 * v + 1] = vertex->tex.y;
 	}
 	// Fill A:
-	const uint faceCount = mesh->faceCount();
-	for (uint f = 0, t = 0; f < faceCount; f++) {
+	const uint32_t faceCount = mesh->faceCount();
+	for (uint32_t f = 0, t = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = mesh->faceAt(f);
 		nvDebugCheck(face != NULL);
 		nvDebugCheck(face->edgeCount() == 3);
@@ -314,7 +314,7 @@ bool nv::computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 			}
 		}
 	}
-	const uint lockedParameters[] = {
+	const uint32_t lockedParameters[] = {
 		2 * v0->id + 0,
 		2 * v0->id + 1,
 		2 * v1->id + 0,
@@ -323,7 +323,7 @@ bool nv::computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 	// Solve
 	LeastSquaresSolver(A, b, x, lockedParameters, 4, 0.000001f);
 	// Map x back to texcoords:
-	for (uint v = 0; v < vertexCount; v++) {
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
 		nvDebugCheck(vertex != NULL);
 		vertex->tex = Vector2(x[2 * v + 0], x[2 * v + 1]);

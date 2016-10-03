@@ -13,26 +13,26 @@ class BitMap
 {
 public:
 	BitMap() : m_width(0), m_height(0) {}
-	BitMap(uint w, uint h) : m_width(w), m_height(h), m_bitArray(w * h) {}
+	BitMap(uint32_t w, uint32_t h) : m_width(w), m_height(h), m_bitArray(w * h) {}
 
-	uint width() const
+	uint32_t width() const
 	{
 		return m_width;
 	}
-	uint height() const
+	uint32_t height() const
 	{
 		return m_height;
 	}
 
-	void resize(uint w, uint h, bool initValue);
+	void resize(uint32_t w, uint32_t h, bool initValue);
 
-	bool bitAt(uint x, uint y) const
+	bool bitAt(uint32_t x, uint32_t y) const
 	{
 		nvDebugCheck(x < m_width && y < m_height);
 		return m_bitArray.bitAt(y * m_width + x);
 	}
 
-	void setBitAt(uint x, uint y)
+	void setBitAt(uint32_t x, uint32_t y)
 	{
 		nvDebugCheck(x < m_width && y < m_height);
 		m_bitArray.setBitAt(y * m_width + x);
@@ -45,8 +45,8 @@ public:
 
 private:
 
-	uint m_width;
-	uint m_height;
+	uint32_t m_width;
+	uint32_t m_height;
 	BitArray m_bitArray;
 
 };

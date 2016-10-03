@@ -23,16 +23,16 @@ static inline void IFloatFlip(uint32_t &f)
 }
 
 template<typename T>
-void createHistograms(const T *buffer, uint count, uint *histogram)
+void createHistograms(const T *buffer, uint32_t count, uint32_t *histogram)
 {
-	const uint bucketCount = sizeof(T); // (8 * sizeof(T)) / log2(radix)
+	const uint32_t bucketCount = sizeof(T); // (8 * sizeof(T)) / log2(radix)
 	// Init bucket pointers.
-	uint *h[bucketCount];
-	for (uint i = 0; i < bucketCount; i++) {
+	uint32_t *h[bucketCount];
+	for (uint32_t i = 0; i < bucketCount; i++) {
 		h[i] = histogram + 256 * i;
 	}
 	// Clear histograms.
-	memset(histogram, 0, 256 * bucketCount * sizeof(uint));
+	memset(histogram, 0, 256 * bucketCount * sizeof(uint32_t ));
 	// @@ Add support for signed integers.
 	// Build histograms.
 	const uint8_t *p = (const uint8_t *)buffer;  // @@ Does this break aliasing rules?
@@ -54,13 +54,13 @@ RadixSort::~RadixSort()
 	free(m_ranks);
 }
 
-template <typename T> inline void RadixSort::insertionSort(const T *input, uint count)
+template <typename T> inline void RadixSort::insertionSort(const T *input, uint32_t count)
 {
 	if (!m_validRanks) {
 		m_ranks[0] = 0;
-		for (uint i = 1; i != count; ++i) {
+		for (uint32_t i = 1; i != count; ++i) {
 			int rank = m_ranks[i] = i;
-			uint j = i;
+			uint32_t j = i;
 			while (j != 0 && input[rank] < input[m_ranks[j - 1]]) {
 				m_ranks[j] = m_ranks[j - 1];
 				--j;
@@ -71,9 +71,9 @@ template <typename T> inline void RadixSort::insertionSort(const T *input, uint 
 		}
 		m_validRanks = true;
 	} else {
-		for (uint i = 1; i != count; ++i) {
+		for (uint32_t i = 1; i != count; ++i) {
 			int rank = m_ranks[i];
-			uint j = i;
+			uint32_t j = i;
 			while (j != 0 && input[rank] < input[m_ranks[j - 1]]) {
 				m_ranks[j] = m_ranks[j - 1];
 				--j;
@@ -85,17 +85,17 @@ template <typename T> inline void RadixSort::insertionSort(const T *input, uint 
 	}
 }
 
-template <typename T> inline void RadixSort::radixSort(const T *input, uint count)
+template <typename T> inline void RadixSort::radixSort(const T *input, uint32_t count)
 {
-	const uint P = sizeof(T); // pass count
+	const uint32_t P = sizeof(T); // pass count
 	// Allocate histograms & offsets on the stack
-	uint histogram[256 * P];
-	uint *link[256];
+	uint32_t histogram[256 * P];
+	uint32_t *link[256];
 	createHistograms(input, count, histogram);
 	// Radix sort, j is the pass number (0=LSB, P=MSB)
-	for (uint j = 0; j < P; j++) {
+	for (uint32_t j = 0; j < P; j++) {
 		// Pointer to this bucket.
-		const uint *h = &histogram[j * 256];
+		const uint32_t *h = &histogram[j * 256];
 		const uint8_t *inputBytes = (const uint8_t *)input; // @@ Is this aliasing legal?
 		inputBytes += j;
 		if (h[inputBytes[0]] == count) {
@@ -104,16 +104,16 @@ template <typename T> inline void RadixSort::radixSort(const T *input, uint coun
 		}
 		// Create offsets
 		link[0] = m_ranks2;
-		for (uint i = 1; i < 256; i++) link[i] = link[i - 1] + h[i - 1];
+		for (uint32_t i = 1; i < 256; i++) link[i] = link[i - 1] + h[i - 1];
 		// Perform Radix Sort
 		if (!m_validRanks) {
-			for (uint i = 0; i < count; i++) {
+			for (uint32_t i = 0; i < count; i++) {
 				*link[inputBytes[i * P]]++ = i;
 			}
 			m_validRanks = true;
 		} else {
-			for (uint i = 0; i < count; i++) {
-				const uint idx = m_ranks[i];
+			for (uint32_t i = 0; i < count; i++) {
+				const uint32_t idx = m_ranks[i];
 				*link[inputBytes[idx * P]]++ = idx;
 			}
 		}
@@ -122,21 +122,21 @@ template <typename T> inline void RadixSort::radixSort(const T *input, uint coun
 	}
 	// All values were equal, generate linear ranks.
 	if (!m_validRanks) {
-		for (uint i = 0; i < count; i++) {
+		for (uint32_t i = 0; i < count; i++) {
 			m_ranks[i] = i;
 		}
 		m_validRanks = true;
 	}
 }
 
-RadixSort &RadixSort::sort(const float *input, uint count)
+RadixSort &RadixSort::sort(const float *input, uint32_t count)
 {
 	if (input == NULL || count == 0) return *this;
 	// Resize lists if needed
 	if (count != m_size) {
 		if (count > m_size) {
-			m_ranks2 = (uint *)realloc(m_ranks2, sizeof(uint) * count);
-			m_ranks = (uint *)realloc(m_ranks, sizeof(uint) * count);
+			m_ranks2 = (uint32_t *)realloc(m_ranks2, sizeof(uint32_t ) * count);
+			m_ranks = (uint32_t *)realloc(m_ranks, sizeof(uint32_t ) * count);
 		}
 		m_size = count;
 		m_validRanks = false;
@@ -145,11 +145,11 @@ RadixSort &RadixSort::sort(const float *input, uint count)
 		insertionSort(input, count);
 	} else {
 		// @@ Avoid touching the input multiple times.
-		for (uint i = 0; i < count; i++) {
+		for (uint32_t i = 0; i < count; i++) {
 			FloatFlip((uint32_t &)input[i]);
 		}
 		radixSort<uint32_t>((const uint32_t *)input, count);
-		for (uint i = 0; i < count; i++) {
+		for (uint32_t i = 0; i < count; i++) {
 			IFloatFlip((uint32_t &)input[i]);
 		}
 	}

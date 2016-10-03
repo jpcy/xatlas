@@ -34,7 +34,7 @@ public:
 		m_vertexBuffers[1] = m_verticesB;
 	}
 
-	uint vertexCount()
+	uint32_t vertexCount()
 	{
 		return m_numVertices;
 	}
@@ -52,8 +52,8 @@ public:
 		v[m_numVertices] = v[0];
 		float dy2,   dy1 = offset - v[0].y;
 		int   dy2in, dy1in = clipdirection * dy1 >= 0;
-		uint  p = 0;
-		for (uint k = 0; k < m_numVertices; k++) {
+		uint32_t  p = 0;
+		for (uint32_t k = 0; k < m_numVertices; k++) {
 			dy2   = offset - v[k + 1].y;
 			dy2in = clipdirection * dy2 >= 0;
 			if (dy1in) v2[p++] = v[k];
@@ -66,7 +66,7 @@ public:
 			dy1in = dy2in;
 		}
 		m_numVertices = p;
-		//for (uint k=0; k<m_numVertices; k++) printf("(%f, %f)\n", v2[k].x, v2[k].y); printf("\n");
+		//for (uint32_t k=0; k<m_numVertices; k++) printf("(%f, %f)\n", v2[k].x, v2[k].y); printf("\n");
 	}
 
 	inline void clipVerticalPlane(float offset, float clipdirection )
@@ -77,8 +77,8 @@ public:
 		v[m_numVertices] = v[0];
 		float dx2,   dx1   = offset - v[0].x;
 		int   dx2in, dx1in = clipdirection * dx1 >= 0;
-		uint  p = 0;
-		for (uint k = 0; k < m_numVertices; k++) {
+		uint32_t  p = 0;
+		for (uint32_t k = 0; k < m_numVertices; k++) {
 			dx2 = offset - v[k + 1].x;
 			dx2in = clipdirection * dx2 >= 0;
 			if (dx1in) v2[p++] = v[k];
@@ -91,7 +91,7 @@ public:
 			dx1in = dx2in;
 		}
 		m_numVertices = p;
-		//for (uint k=0; k<m_numVertices; k++) printf("(%f, %f)\n", v2[k].x, v2[k].y); printf("\n");
+		//for (uint32_t k=0; k<m_numVertices; k++) printf("(%f, %f)\n", v2[k].x, v2[k].y); printf("\n");
 	}
 
 	void computeAreaCentroid()
@@ -100,7 +100,7 @@ public:
 		v[m_numVertices] = v[0];
 		m_area = 0;
 		float centroidx = 0, centroidy = 0;
-		for (uint k = 0; k < m_numVertices; k++) {
+		for (uint32_t k = 0; k < m_numVertices; k++) {
 			// http://local.wasp.uwa.edu.au/~pbourke/geometry/polyarea/
 			float f = v[k].x * v[k + 1].y - v[k + 1].x * v[k].y;
 			m_area += f;
@@ -138,8 +138,8 @@ private:
 	Vector2 m_verticesA[7 + 1];
 	Vector2 m_verticesB[7 + 1];
 	Vector2 *m_vertexBuffers[2];
-	uint    m_numVertices;
-	uint    m_activeVertexBuffer;
+	uint32_t    m_numVertices;
+	uint32_t    m_activeVertexBuffer;
 	float   m_area;
 	Vector2 m_centroid;
 };

@@ -23,7 +23,7 @@ void nv::computeSingleFaceMap(HalfEdge::Mesh *mesh)
 	Vector3 X = normalizeSafe(p1 - p0, Vector3(0.0f), 0.0f);
 	Vector3 Z = face->normal();
 	Vector3 Y = normalizeSafe(cross(Z, X), Vector3(0.0f), 0.0f);
-	uint i = 0;
+	uint32_t i = 0;
 	for (HalfEdge::Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance(), i++) {
 		HalfEdge::Vertex *vertex = it.vertex();
 		nvCheck(vertex != NULL);

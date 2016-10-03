@@ -20,7 +20,7 @@ class HalfEdge::Vertex
 {
 public:
 
-	uint id;
+	uint32_t id;
 
 	Edge *edge;
 	Vertex *next;
@@ -30,7 +30,7 @@ public:
 	Vector3 nor;
 	Vector2 tex;
 
-	Vertex(uint id) : id(id), edge(NULL), pos(0.0f), nor(0.0f), tex(0.0f)
+	Vertex(uint32_t id) : id(id), edge(NULL), pos(0.0f), nor(0.0f), tex(0.0f)
 	{
 		next = this;
 		prev = this;
@@ -40,8 +40,8 @@ public:
 	void setEdge(Edge *e);
 	void setPos(const Vector3 &p);
 
-	uint colocalCount() const;
-	uint valence() const;
+	uint32_t colocalCount() const;
+	uint32_t valence() const;
 	bool isFirstColocal() const;
 	const Vertex *firstColocal() const;
 	Vertex *firstColocal();

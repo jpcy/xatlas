@@ -36,8 +36,8 @@ ParameterizationQuality::ParameterizationQuality(const HalfEdge::Mesh *mesh)
 	m_maxStretchMetric = 0.0f;
 	m_conformalMetric = 0.0f;
 	m_authalicMetric = 0.0f;
-	const uint faceCount = mesh->faceCount();
-	for (uint f = 0; f < faceCount; f++) {
+	const uint32_t faceCount = mesh->faceCount();
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = mesh->faceAt(f);
 		const HalfEdge::Vertex *vertex0 = NULL;
 		Vector3 p[3];

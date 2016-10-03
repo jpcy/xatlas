@@ -39,9 +39,9 @@ private:
 
 private:
 
-	uint m_totalTriangleCount;
-	uint m_flippedTriangleCount;
-	uint m_zeroAreaTriangleCount;
+	uint32_t m_totalTriangleCount;
+	uint32_t m_flippedTriangleCount;
+	uint32_t m_zeroAreaTriangleCount;
 
 	float m_parametricArea;
 	float m_geometricArea;

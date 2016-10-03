@@ -26,21 +26,21 @@ struct AtlasBuilder {
 	AtlasBuilder(const HalfEdge::Mesh *m);
 	~AtlasBuilder();
 
-	void markUnchartedFaces(const std::vector<uint> &unchartedFaces);
+	void markUnchartedFaces(const std::vector<uint32_t> &unchartedFaces);
 
 	void computeShortestPaths();
 
-	void placeSeeds(float threshold, uint maxSeedCount);
+	void placeSeeds(float threshold, uint32_t maxSeedCount);
 	void createRandomChart(float threshold);
 
-	void addFaceToChart(ChartBuildData *chart, uint f, bool recomputeProxy = false);
+	void addFaceToChart(ChartBuildData *chart, uint32_t f, bool recomputeProxy = false);
 
-	bool growCharts(float threshold, uint faceCount);
-	bool growChart(ChartBuildData *chart, float threshold, uint faceCount);
+	bool growCharts(float threshold, uint32_t faceCount);
+	bool growChart(ChartBuildData *chart, float threshold, uint32_t faceCount);
 
 	void resetCharts();
 
-	void updateCandidates(ChartBuildData *chart, uint face);
+	void updateCandidates(ChartBuildData *chart, uint32_t face);
 
 	void updateProxies();
 	void updateProxy(ChartBuildData *chart);
@@ -50,21 +50,21 @@ struct AtlasBuilder {
 
 	void updatePriorities(ChartBuildData *chart);
 
-	float evaluatePriority(ChartBuildData *chart, uint face);
-	float evaluateProxyFitMetric(ChartBuildData *chart, uint face);
-	float evaluateDistanceToBoundary(ChartBuildData *chart, uint face);
-	float evaluateDistanceToSeed(ChartBuildData *chart, uint face);
-	float evaluateRoundnessMetric(ChartBuildData *chart, uint face, float newBoundaryLength, float newChartArea);
-	float evaluateStraightnessMetric(ChartBuildData *chart, uint face);
+	float evaluatePriority(ChartBuildData *chart, uint32_t face);
+	float evaluateProxyFitMetric(ChartBuildData *chart, uint32_t face);
+	float evaluateDistanceToBoundary(ChartBuildData *chart, uint32_t face);
+	float evaluateDistanceToSeed(ChartBuildData *chart, uint32_t face);
+	float evaluateRoundnessMetric(ChartBuildData *chart, uint32_t face, float newBoundaryLength, float newChartArea);
+	float evaluateStraightnessMetric(ChartBuildData *chart, uint32_t face);
 
-	float evaluateNormalSeamMetric(ChartBuildData *chart, uint f);
-	float evaluateTextureSeamMetric(ChartBuildData *chart, uint f);
-	float evaluateSeamMetric(ChartBuildData *chart, uint f);
+	float evaluateNormalSeamMetric(ChartBuildData *chart, uint32_t f);
+	float evaluateTextureSeamMetric(ChartBuildData *chart, uint32_t f);
+	float evaluateSeamMetric(ChartBuildData *chart, uint32_t f);
 
-	float evaluateChartArea(ChartBuildData *chart, uint f);
-	float evaluateBoundaryLength(ChartBuildData *chart, uint f);
-	Vector3 evaluateChartNormalSum(ChartBuildData *chart, uint f);
-	Vector3 evaluateChartCentroidSum(ChartBuildData *chart, uint f);
+	float evaluateChartArea(ChartBuildData *chart, uint32_t f);
+	float evaluateBoundaryLength(ChartBuildData *chart, uint32_t f);
+	Vector3 evaluateChartNormalSum(ChartBuildData *chart, uint32_t f);
+	Vector3 evaluateChartCentroidSum(ChartBuildData *chart, uint32_t f);
 
 	Vector3 computeChartCentroid(const ChartBuildData *chart);
 
@@ -74,26 +74,26 @@ struct AtlasBuilder {
 
 	// @@ Cleanup.
 	struct Candidate {
-		uint face;
+		uint32_t face;
 		ChartBuildData *chart;
 		float metric;
 	};
 
 	const Candidate &getBestCandidate() const;
-	void removeCandidate(uint f);
-	void updateCandidate(ChartBuildData *chart, uint f, float metric);
+	void removeCandidate(uint32_t f);
+	void updateCandidate(ChartBuildData *chart, uint32_t f, float metric);
 
 	void mergeChart(ChartBuildData *owner, ChartBuildData *chart, float sharedBoundaryLength);
 
 
-	uint chartCount() const
+	uint32_t chartCount() const
 	{
 		return chartArray.size();
 	}
-	const std::vector<uint> &chartFaces(uint i) const;
+	const std::vector<uint32_t> &chartFaces(uint32_t i) const;
 
 	const HalfEdge::Mesh *mesh;
-	uint facesLeft;
+	uint32_t facesLeft;
 	std::vector<int> faceChartArray;
 	std::vector<ChartBuildData *> chartArray;
 	std::vector<float> shortestPaths;
@@ -102,7 +102,7 @@ struct AtlasBuilder {
 	std::vector<float> faceAreas;
 
 	std::vector<Candidate> candidateArray; //
-	std::vector<uint> faceCandidateArray; // Map face index to candidate index.
+	std::vector<uint32_t> faceCandidateArray; // Map face index to candidate index.
 
 	MTRand rand;
 

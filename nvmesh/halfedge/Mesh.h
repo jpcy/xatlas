@@ -52,17 +52,17 @@ public:
 	void clear();
 
 	Vertex *addVertex(const Vector3 &pos);
-	//Vertex * addVertex(uint id, const Vector3 & pos);
+	//Vertex * addVertex(uint32_t id, const Vector3 & pos);
 	//void addVertices(const Mesh * mesh);
 
 	void linkColocals();
-	void linkColocalsWithCanonicalMap(const std::vector<uint> &canonicalMap);
+	void linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMap);
 
 	Face *addFace();
-	Face *addFace(uint v0, uint v1, uint v2);
-	Face *addFace(uint v0, uint v1, uint v2, uint v3);
-	Face *addFace(const std::vector<uint> &indexArray);
-	Face *addFace(const std::vector<uint> &indexArray, uint first, uint num);
+	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2);
+	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3);
+	Face *addFace(const std::vector<uint32_t> &indexArray);
+	Face *addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num);
 	//void addFaces(const Mesh * mesh);
 
 	// These functions disconnect the given element from the mesh and delete it.
@@ -88,7 +88,7 @@ public:
 
 
 	// Vertices
-	uint vertexCount() const
+	uint32_t vertexCount() const
 	{
 		return m_vertexArray.size();
 	}
@@ -101,13 +101,13 @@ public:
 		return m_vertexArray[i];
 	}
 
-	uint colocalVertexCount() const
+	uint32_t colocalVertexCount() const
 	{
 		return m_colocalVertexCount;
 	}
 
 	// Faces
-	uint faceCount() const
+	uint32_t faceCount() const
 	{
 		return m_faceArray.size();
 	}
@@ -121,7 +121,7 @@ public:
 	}
 
 	// Edges
-	uint edgeCount() const
+	uint32_t edgeCount() const
 	{
 		return m_edgeArray.size();
 	}
@@ -157,7 +157,7 @@ public:
 
 	private:
 		HalfEdge::Mesh *m_mesh;
-		uint m_current;
+		uint32_t m_current;
 	};
 	VertexIterator vertices()
 	{
@@ -185,7 +185,7 @@ public:
 
 	private:
 		const HalfEdge::Mesh *m_mesh;
-		uint m_current;
+		uint32_t m_current;
 	};
 	ConstVertexIterator vertices() const
 	{
@@ -215,7 +215,7 @@ public:
 
 	private:
 		HalfEdge::Mesh *m_mesh;
-		uint m_current;
+		uint32_t m_current;
 	};
 	FaceIterator faces()
 	{
@@ -243,7 +243,7 @@ public:
 
 	private:
 		const HalfEdge::Mesh *m_mesh;
-		uint m_current;
+		uint32_t m_current;
 	};
 	ConstFaceIterator faces() const
 	{
@@ -273,7 +273,7 @@ public:
 
 	private:
 		HalfEdge::Mesh *m_mesh;
-		uint m_current;
+		uint32_t m_current;
 	};
 	EdgeIterator edges()
 	{
@@ -301,7 +301,7 @@ public:
 
 	private:
 		const HalfEdge::Mesh *m_mesh;
-		uint m_current;
+		uint32_t m_current;
 	};
 	ConstEdgeIterator edges() const
 	{
@@ -315,17 +315,17 @@ public:
 public:
 
 	// Error status:
-	mutable uint errorCount;
-	mutable uint errorIndex0;
-	mutable uint errorIndex1;
+	mutable uint32_t errorCount;
+	mutable uint32_t errorIndex0;
+	mutable uint32_t errorIndex1;
 
 private:
 
-	bool canAddFace(const std::vector<uint> &indexArray, uint first, uint num) const;
-	bool canAddEdge(uint i, uint j) const;
-	Edge *addEdge(uint i, uint j);
+	bool canAddFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num) const;
+	bool canAddEdge(uint32_t i, uint32_t j) const;
+	Edge *addEdge(uint32_t i, uint32_t j);
 
-	Edge *findEdge(uint i, uint j) const;
+	Edge *findEdge(uint32_t i, uint32_t j) const;
 
 	void linkBoundaryEdge(Edge *edge);
 	Vertex *splitBoundaryEdge(Edge *edge, float t, const Vector3 &pos);
@@ -340,7 +340,7 @@ private:
 	struct Key {
 		Key() {}
 		Key(const Key &k) : p0(k.p0), p1(k.p1) {}
-		Key(uint v0, uint v1) : p0(v0), p1(v1) {}
+		Key(uint32_t v0, uint32_t v1) : p0(v0), p1(v1) {}
 		void operator=(const Key &k)
 		{
 			p0 = k.p0;
@@ -351,21 +351,21 @@ private:
 			return p0 == k.p0 && p1 == k.p1;
 		}
 
-		uint p0;
-		uint p1;
+		uint32_t p0;
+		uint32_t p1;
 	};
 	friend struct Hash<Mesh::Key>;
 
 	std::unordered_map<Key, Edge *, Hash<Key>, Equal<Key> > m_edgeMap;
 
-	uint m_colocalVertexCount;
+	uint32_t m_colocalVertexCount;
 
 };
 /*
 // This is a much better hash than the default and greatly improves performance!
 template <> struct hash<Mesh::Key>
 {
-uint operator()(const Mesh::Key & k) const { return k.p0 + k.p1; }
+uint32_t operator()(const Mesh::Key & k) const { return k.p0 + k.p1; }
 };
 */
 

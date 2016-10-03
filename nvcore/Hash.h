@@ -8,20 +8,20 @@
 
 namespace nv
 {
-inline uint sdbmHash(const void *data_in, uint size, uint h = 5381)
+inline uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
 {
 	const uint8_t *data = (const uint8_t *) data_in;
-	uint i = 0;
+	uint32_t i = 0;
 	while (i < size) {
-		h = (h << 16) + (h << 6) - h + (uint) data[i++];
+		h = (h << 16) + (h << 6) - h + (uint32_t ) data[i++];
 	}
 	return h;
 }
 
 // Note that this hash does not handle NaN properly.
-inline uint sdbmFloatHash(const float *f, uint count, uint h = 5381)
+inline uint32_t sdbmFloatHash(const float *f, uint32_t count, uint32_t h = 5381)
 {
-	for (uint i = 0; i < count; i++) {
+	for (uint32_t i = 0; i < count; i++) {
 		//nvDebugCheck(nv::std::isfinite(*f));
 		union {
 			float f;
@@ -35,13 +35,13 @@ inline uint sdbmFloatHash(const float *f, uint count, uint h = 5381)
 
 
 template <typename T>
-inline uint hash(const T &t, uint h = 5381)
+inline uint32_t hash(const T &t, uint32_t h = 5381)
 {
 	return sdbmHash(&t, sizeof(T), h);
 }
 
 template <>
-inline uint hash(const float &f, uint h)
+inline uint32_t hash(const float &f, uint32_t h)
 {
 	return sdbmFloatHash(&f, 1, h);
 }
@@ -49,7 +49,7 @@ inline uint hash(const float &f, uint h)
 
 // Functors for hash table:
 template <typename Key> struct Hash {
-	uint operator()(const Key &k) const
+	uint32_t operator()(const Key &k) const
 	{
 		return hash(k);
 	}

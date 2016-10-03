@@ -13,10 +13,10 @@ using namespace nv;
 bool nv::computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh)
 {
 	Vector3 axis[2];
-	uint vertexCount = mesh->vertexCount();
+	uint32_t vertexCount = mesh->vertexCount();
 	std::vector<Vector3> points(vertexCount);
 	points.resize(vertexCount);
-	for (uint i = 0; i < vertexCount; i++) {
+	for (uint32_t i = 0; i < vertexCount; i++) {
 		points[i] = mesh->vertexAt(i)->pos;
 	}
 	// Avoid redundant computations.

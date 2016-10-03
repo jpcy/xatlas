@@ -23,24 +23,24 @@ public:
 	/// Constructor that uses the current time as the seed.
 	MTRand( time_e )
 	{
-		seed((uint)time(NULL));
+		seed((uint32_t )time(NULL));
 	}
 
 	/// Constructor that uses the given seed.
-	MTRand( uint s = 0 )
+	MTRand( uint32_t s = 0 )
 	{
 		seed(s);
 	}
 
 	/// Provide a new seed.
-	void seed( uint s )
+	void seed( uint32_t s )
 	{
 		initialize(s);
 		reload();
 	}
 
 	/// Get a random number between 0 - 65536.
-	uint get()
+	uint32_t get()
 	{
 		// Pull a 32-bit integer from the generator state
 		// Every other access function simply transforms the numbers extracted here
@@ -48,7 +48,7 @@ public:
 			reload();
 		}
 		left--;
-		uint s1;
+		uint32_t s1;
 		s1 = *next++;
 		s1 ^= (s1 >> 11);
 		s1 ^= (s1 <<  7) & 0x9d2c5680U;
@@ -57,13 +57,13 @@ public:
 	};
 
 	/// Get a random number on [0, max] interval.
-	uint getRange( uint max )
+	uint32_t getRange( uint32_t max )
 	{
 		if (max == 0) return 0;
 		if (max == NV_UINT32_MAX) return get();
-		const uint np2 = nextPowerOfTwo( max + 1 ); // @@ This fails if max == NV_UINT32_MAX
-		const uint mask = np2 - 1;
-		uint n;
+		const uint32_t np2 = nextPowerOfTwo( max + 1 ); // @@ This fails if max == NV_UINT32_MAX
+		const uint32_t mask = np2 - 1;
+		uint32_t n;
 		do {
 			n = get() & mask;
 		} while ( n > max );
@@ -103,31 +103,31 @@ private:
 		left = N, next = state;
 	}
 
-	uint hiBit( uint u ) const
+	uint32_t hiBit( uint32_t u ) const
 	{
 		return u & 0x80000000U;
 	}
-	uint loBit( uint u ) const
+	uint32_t loBit( uint32_t u ) const
 	{
 		return u & 0x00000001U;
 	}
-	uint loBits( uint u ) const
+	uint32_t loBits( uint32_t u ) const
 	{
 		return u & 0x7fffffffU;
 	}
-	uint mixBits( uint u, uint v ) const
+	uint32_t mixBits( uint32_t u, uint32_t v ) const
 	{
 		return hiBit(u) | loBits(v);
 	}
-	uint twist( uint m, uint s0, uint s1 ) const
+	uint32_t twist( uint32_t m, uint32_t s0, uint32_t s1 ) const
 	{
 		return m ^ (mixBits(s0, s1) >> 1) ^ ((~loBit(s1) + 1) & 0x9908b0dfU);
 	}
 
 private:
 
-	uint state[N];	// internal state
-	uint *next;	// next value to get from state
+	uint32_t state[N];	// internal state
+	uint32_t *next;	// next value to get from state
 	int left;		// number of values left before reload needed
 
 };

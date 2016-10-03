@@ -20,13 +20,13 @@ class HalfEdge::Face
 {
 public:
 
-	uint id;
+	uint32_t id;
 	uint16_t group;
 	uint16_t material;
 	Edge *edge;
 
 
-	Face(uint id) : id(id), group(~0), material(~0), edge(NULL) {}
+	Face(uint32_t id) : id(id), group(~0), material(~0), edge(NULL) {}
 
 	float area() const;
 	float parametricArea() const;
@@ -37,14 +37,14 @@ public:
 	bool isValid() const;
 
 	bool contains(const Edge *e) const;
-	uint edgeIndex(const Edge *e) const;
+	uint32_t edgeIndex(const Edge *e) const;
 
-	Edge *edgeAt(uint idx);
-	const Edge *edgeAt(uint idx) const;
+	Edge *edgeAt(uint32_t idx);
+	const Edge *edgeAt(uint32_t idx) const;
 
-	uint edgeCount() const;
+	uint32_t edgeCount() const;
 	bool isBoundary() const;
-	uint boundaryCount() const;
+	uint32_t boundaryCount() const;
 
 
 	// The iterator that visits the edges of this face in clockwise order.

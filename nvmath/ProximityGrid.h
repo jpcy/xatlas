@@ -16,13 +16,13 @@ namespace nv
 class Box;
 
 struct Cell {
-	std::vector<uint> indexArray;
+	std::vector<uint32_t> indexArray;
 };
 
 struct ProximityGrid {
 	ProximityGrid();
 
-	void init(const Box &box, uint count);
+	void init(const Box &box, uint32_t count);
 
 	int index_x(float x) const;
 	int index_y(float y) const;
@@ -32,9 +32,9 @@ struct ProximityGrid {
 	uint32_t mortonCount() const;
 	int mortonIndex(uint32_t code) const;
 
-	void add(const Vector3 &pos, uint key);
+	void add(const Vector3 &pos, uint32_t key);
 
-	void gather(const Vector3 &pos, float radius, std::vector<uint> &indices);
+	void gather(const Vector3 &pos, float radius, std::vector<uint32_t> &indices);
 
 	std::vector<Cell> cellArray;
 
@@ -64,16 +64,16 @@ inline int ProximityGrid::index(int x, int y, int z) const
 	nvDebugCheck(y >= 0 && y < sy);
 	nvDebugCheck(z >= 0 && z < sz);
 	int idx = (z * sy + y) * sx + x;
-	nvDebugCheck(idx >= 0 && uint(idx) < cellArray.size());
+	nvDebugCheck(idx >= 0 && uint32_t(idx) < cellArray.size());
 	return idx;
 }
 
-inline void ProximityGrid::add(const Vector3 &pos, uint key)
+inline void ProximityGrid::add(const Vector3 &pos, uint32_t key)
 {
 	int x = index_x(pos.x);
 	int y = index_y(pos.y);
 	int z = index_z(pos.z);
-	uint idx = index(x, y, z);
+	uint32_t idx = index(x, y, z);
 	cellArray[idx].indexArray.push_back(key);
 }
 

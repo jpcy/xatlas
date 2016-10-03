@@ -28,12 +28,12 @@ namespace
 // @@ Number of elements in the queue is usually small, and we'd have to rebalance often. I'm not sure it's worth implementing a heap.
 // @@ Searcing at removal would remove the need for sorting when priorities change.
 struct PriorityQueue {
-	PriorityQueue(uint size = UINT_MAX) : maxSize(size) {}
+	PriorityQueue(uint32_t size = UINT_MAX) : maxSize(size) {}
 
-	void push(float priority, uint face)
+	void push(float priority, uint32_t face)
 	{
-		uint i = 0;
-		const uint count = pairs.size();
+		uint32_t i = 0;
+		const uint32_t count = pairs.size();
 		for (; i < count; i++) {
 			if (pairs[i].priority > priority) break;
 		}
@@ -45,15 +45,15 @@ struct PriorityQueue {
 	}
 
 	// push face out of order, to be sorted later.
-	void push(uint face)
+	void push(uint32_t face)
 	{
 		Pair p = { 0.0f, face };
 		pairs.push_back(p);
 	}
 
-	uint pop()
+	uint32_t pop()
 	{
-		uint f = pairs.back().face;
+		uint32_t f = pairs.back().face;
 		pairs.pop_back();
 		return f;
 	}
@@ -69,7 +69,7 @@ struct PriorityQueue {
 		pairs.clear();
 	}
 
-	uint count() const
+	uint32_t count() const
 	{
 		return pairs.size();
 	}
@@ -80,7 +80,7 @@ struct PriorityQueue {
 	}
 
 
-	const uint maxSize;
+	const uint32_t maxSize;
 
 	struct Pair {
 		bool operator <(const Pair &p) const
@@ -88,7 +88,7 @@ struct PriorityQueue {
 			return priority > p.priority;    // !! Sort in inverse priority order!
 		}
 		float priority;
-		uint face;
+		uint32_t face;
 	};
 
 
@@ -134,8 +134,8 @@ struct nv::ChartBuildData {
 	Vector3 normalSum;
 	Vector3 centroidSum;
 
-	std::vector<uint> seeds;  // @@ These could be a pointers to the HalfEdge faces directly.
-	std::vector<uint> faces;
+	std::vector<uint32_t> seeds;  // @@ These could be a pointers to the HalfEdge faces directly.
+	std::vector<uint32_t> faces;
 	PriorityQueue candidates;
 };
 
@@ -143,39 +143,39 @@ struct nv::ChartBuildData {
 
 AtlasBuilder::AtlasBuilder(const HalfEdge::Mesh *m) : mesh(m), facesLeft(m->faceCount())
 {
-	const uint faceCount = m->faceCount();
+	const uint32_t faceCount = m->faceCount();
 	faceChartArray.resize(faceCount, -1);
 	faceCandidateArray.resize(faceCount, -1);
 	// @@ Floyd for the whole mesh is too slow. We could compute floyd progressively per patch as the patch grows. We need a better solution to compute most central faces.
 	//computeShortestPaths();
 	// Precompute edge lengths and face areas.
-	uint edgeCount = m->edgeCount();
+	uint32_t edgeCount = m->edgeCount();
 	edgeLengths.resize(edgeCount);
-	for (uint i = 0; i < edgeCount; i++) {
-		uint id = m->edgeAt(i)->id;
+	for (uint32_t i = 0; i < edgeCount; i++) {
+		uint32_t id = m->edgeAt(i)->id;
 		nvDebugCheck(id / 2 == i);
 		edgeLengths[i] = m->edgeAt(i)->length();
 	}
 	faceAreas.resize(faceCount);
-	for (uint i = 0; i < faceCount; i++) {
+	for (uint32_t i = 0; i < faceCount; i++) {
 		faceAreas[i] = m->faceAt(i)->area();
 	}
 }
 
 AtlasBuilder::~AtlasBuilder()
 {
-	const uint chartCount = chartArray.size();
-	for (uint i = 0; i < chartCount; i++) {
+	const uint32_t chartCount = chartArray.size();
+	for (uint32_t i = 0; i < chartCount; i++) {
 		delete chartArray[i];
 	}
 }
 
 
-void AtlasBuilder::markUnchartedFaces(const std::vector<uint> &unchartedFaces)
+void AtlasBuilder::markUnchartedFaces(const std::vector<uint32_t> &unchartedFaces)
 {
-	const uint unchartedFaceCount = unchartedFaces.size();
-	for (uint i = 0; i < unchartedFaceCount; i++) {
-		uint f = unchartedFaces[i];
+	const uint32_t unchartedFaceCount = unchartedFaces.size();
+	for (uint32_t i = 0; i < unchartedFaceCount; i++) {
+		uint32_t f = unchartedFaces[i];
 		faceChartArray[f] = -2;
 		//faceCandidateArray[f] = -2; // @@ ?
 		removeCandidate(f);
@@ -187,10 +187,10 @@ void AtlasBuilder::markUnchartedFaces(const std::vector<uint> &unchartedFaces)
 
 void AtlasBuilder::computeShortestPaths()
 {
-	const uint faceCount = mesh->faceCount();
+	const uint32_t faceCount = mesh->faceCount();
 	shortestPaths.resize(faceCount * faceCount, FLT_MAX);
 	// Fill edges:
-	for (uint i = 0; i < faceCount; i++) {
+	for (uint32_t i = 0; i < faceCount; i++) {
 		shortestPaths[i * faceCount + i] = 0.0f;
 		const HalfEdge::Face *face_i = mesh->faceAt(i);
 		Vector3 centroid_i = face_i->centroid();
@@ -198,16 +198,16 @@ void AtlasBuilder::computeShortestPaths()
 			const HalfEdge::Edge *edge = it.current();
 			if (!edge->isBoundary()) {
 				const HalfEdge::Face *face_j = edge->pair->face;
-				uint j = face_j->id;
+				uint32_t j = face_j->id;
 				Vector3 centroid_j = face_j->centroid();
 				shortestPaths[i * faceCount + j] = shortestPaths[j * faceCount + i] = length(centroid_i - centroid_j);
 			}
 		}
 	}
 	// Use Floyd-Warshall algorithm to compute all paths:
-	for (uint k = 0; k < faceCount; k++) {
-		for (uint i = 0; i < faceCount; i++) {
-			for (uint j = 0; j < faceCount; j++) {
+	for (uint32_t k = 0; k < faceCount; k++) {
+		for (uint32_t i = 0; i < faceCount; i++) {
+			for (uint32_t j = 0; j < faceCount; j++) {
 				shortestPaths[i * faceCount + j] = min(shortestPaths[i * faceCount + j], shortestPaths[i * faceCount + k] + shortestPaths[k * faceCount + j]);
 			}
 		}
@@ -215,7 +215,7 @@ void AtlasBuilder::computeShortestPaths()
 }
 
 
-void AtlasBuilder::placeSeeds(float threshold, uint maxSeedCount)
+void AtlasBuilder::placeSeeds(float threshold, uint32_t maxSeedCount)
 {
 	// Instead of using a predefiened number of seeds:
 	// - Add seeds one by one, growing chart until a certain treshold.
@@ -223,7 +223,7 @@ void AtlasBuilder::placeSeeds(float threshold, uint maxSeedCount)
 	// @@ How can we give preference to faces far from sharp features as in the LSCM paper?
 	//   - those points can be found using a simple flood filling algorithm.
 	//   - how do we weight the probabilities?
-	for (uint i = 0; i < maxSeedCount; i++) {
+	for (uint32_t i = 0; i < maxSeedCount; i++) {
 		if (facesLeft == 0) {
 			// No faces left, stop creating seeds.
 			break;
@@ -238,9 +238,9 @@ void AtlasBuilder::createRandomChart(float threshold)
 	ChartBuildData *chart = new ChartBuildData(chartArray.size());
 	chartArray.push_back(chart);
 	// Pick random face that is not used by any chart yet.
-	uint randomFaceIdx = rand.getRange(facesLeft - 1);
-	uint i = 0;
-	for (uint f = 0; f != randomFaceIdx; f++, i++) {
+	uint32_t randomFaceIdx = rand.getRange(facesLeft - 1);
+	uint32_t i = 0;
+	for (uint32_t f = 0; f != randomFaceIdx; f++, i++) {
 		while (faceChartArray[i] != -1) i++;
 	}
 	while (faceChartArray[i] != -1) i++;
@@ -251,7 +251,7 @@ void AtlasBuilder::createRandomChart(float threshold)
 	//growCharts(threshold - threshold * 0.75f / chartCount(), facesLeft);
 }
 
-void AtlasBuilder::addFaceToChart(ChartBuildData *chart, uint f, bool recomputeProxy)
+void AtlasBuilder::addFaceToChart(ChartBuildData *chart, uint32_t f, bool recomputeProxy)
 {
 	// Add face to chart.
 	chart->faces.push_back(f);
@@ -276,11 +276,11 @@ void AtlasBuilder::addFaceToChart(ChartBuildData *chart, uint f, bool recomputeP
 // @@ Get N best candidates in one pass.
 const AtlasBuilder::Candidate &AtlasBuilder::getBestCandidate() const
 {
-	uint best = 0;
+	uint32_t best = 0;
 	float bestCandidateMetric = FLT_MAX;
-	const uint candidateCount = candidateArray.size();
+	const uint32_t candidateCount = candidateArray.size();
 	nvCheck(candidateCount > 0);
-	for (uint i = 0; i < candidateCount; i++) {
+	for (uint32_t i = 0; i < candidateCount; i++) {
 		const Candidate &candidate = candidateArray[i];
 		if (candidate.metric < bestCandidateMetric) {
 			bestCandidateMetric = candidate.metric;
@@ -292,11 +292,11 @@ const AtlasBuilder::Candidate &AtlasBuilder::getBestCandidate() const
 
 
 // Returns true if any of the charts can grow more.
-bool AtlasBuilder::growCharts(float threshold, uint faceCount)
+bool AtlasBuilder::growCharts(float threshold, uint32_t faceCount)
 {
 	// Using one global list.
 	faceCount = min(faceCount, facesLeft);
-	for (uint i = 0; i < faceCount; i++) {
+	for (uint32_t i = 0; i < faceCount; i++) {
 		const Candidate &candidate = getBestCandidate();
 		if (candidate.metric > threshold) {
 			return false; // Can't grow more.
@@ -306,14 +306,14 @@ bool AtlasBuilder::growCharts(float threshold, uint faceCount)
 	return facesLeft != 0; // Can continue growing.
 }
 
-bool AtlasBuilder::growChart(ChartBuildData *chart, float threshold, uint faceCount)
+bool AtlasBuilder::growChart(ChartBuildData *chart, float threshold, uint32_t faceCount)
 {
 	// Try to add faceCount faces within threshold to chart.
-	for (uint i = 0; i < faceCount; ) {
+	for (uint32_t i = 0; i < faceCount; ) {
 		if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold) {
 			return false;
 		}
-		uint f = chart->candidates.pop();
+		uint32_t f = chart->candidates.pop();
 		if (faceChartArray[f] == -1) {
 			addFaceToChart(chart, f);
 			i++;
@@ -328,17 +328,17 @@ bool AtlasBuilder::growChart(ChartBuildData *chart, float threshold, uint faceCo
 
 void AtlasBuilder::resetCharts()
 {
-	const uint faceCount = mesh->faceCount();
-	for (uint i = 0; i < faceCount; i++) {
+	const uint32_t faceCount = mesh->faceCount();
+	for (uint32_t i = 0; i < faceCount; i++) {
 		faceChartArray[i] = -1;
 		faceCandidateArray[i] = -1;
 	}
 	facesLeft = faceCount;
 	candidateArray.clear();
-	const uint chartCount = chartArray.size();
-	for (uint i = 0; i < chartCount; i++) {
+	const uint32_t chartCount = chartArray.size();
+	for (uint32_t i = 0; i < chartCount; i++) {
 		ChartBuildData *chart = chartArray[i];
-		const uint seed = chart->seeds.back();
+		const uint32_t seed = chart->seeds.back();
 		chart->area = 0.0f;
 		chart->boundaryLength = 0.0f;
 		chart->normalSum = Vector3(0);
@@ -350,14 +350,14 @@ void AtlasBuilder::resetCharts()
 }
 
 
-void AtlasBuilder::updateCandidates(ChartBuildData *chart, uint f)
+void AtlasBuilder::updateCandidates(ChartBuildData *chart, uint32_t f)
 {
 	const HalfEdge::Face *face = mesh->faceAt(f);
 	// Traverse neighboring faces, add the ones that do not belong to any chart yet.
 	for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 		const HalfEdge::Edge *edge = it.current()->pair;
 		if (!edge->isBoundary()) {
-			uint f = edge->face->id;
+			uint32_t f = edge->face->id;
 			if (faceChartArray[f] == -1) {
 				chart->candidates.push(f);
 			}
@@ -368,8 +368,8 @@ void AtlasBuilder::updateCandidates(ChartBuildData *chart, uint f)
 
 void AtlasBuilder::updateProxies()
 {
-	const uint chartCount = chartArray.size();
-	for (uint i = 0; i < chartCount; i++) {
+	const uint32_t chartCount = chartArray.size();
+	for (uint32_t i = 0; i < chartCount; i++) {
 		updateProxy(chartArray[i]);
 	}
 }
@@ -429,8 +429,8 @@ void AtlasBuilder::updateProxy(ChartBuildData *chart)
 bool AtlasBuilder::relocateSeeds()
 {
 	bool anySeedChanged = false;
-	const uint chartCount = chartArray.size();
-	for (uint i = 0; i < chartCount; i++) {
+	const uint32_t chartCount = chartArray.size();
+	for (uint32_t i = 0; i < chartCount; i++) {
 		if (relocateSeed(chartArray[i])) {
 			anySeedChanged = true;
 		}
@@ -442,19 +442,19 @@ bool AtlasBuilder::relocateSeeds()
 bool AtlasBuilder::relocateSeed(ChartBuildData *chart)
 {
 	Vector3 centroid = computeChartCentroid(chart);
-	const uint N = 10;  // @@ Hardcoded to 10?
+	const uint32_t N = 10;  // @@ Hardcoded to 10?
 	PriorityQueue bestTriangles(N);
 	// Find the first N triangles that fit the proxy best.
-	const uint faceCount = chart->faces.size();
-	for (uint i = 0; i < faceCount; i++) {
+	const uint32_t faceCount = chart->faces.size();
+	for (uint32_t i = 0; i < faceCount; i++) {
 		float priority = evaluateProxyFitMetric(chart, chart->faces[i]);
 		bestTriangles.push(priority, chart->faces[i]);
 	}
 	// Of those, choose the most central triangle.
-	uint mostCentral;
+	uint32_t mostCentral;
 	float maxDistance = -1;
-	const uint bestCount = bestTriangles.count();
-	for (uint i = 0; i < bestCount; i++) {
+	const uint32_t bestCount = bestTriangles.count();
+	for (uint32_t i = 0; i < bestCount; i++) {
 		const HalfEdge::Face *face = mesh->faceAt(bestTriangles.pairs[i].face);
 		Vector3 faceCentroid = triangleCenter(face);
 		float distance = length(centroid - faceCentroid);
@@ -465,10 +465,10 @@ bool AtlasBuilder::relocateSeed(ChartBuildData *chart)
 	}
 	nvDebugCheck(maxDistance >= 0);
 	// In order to prevent k-means cyles we record all the previously chosen seeds.
-	uint index = std::find(chart->seeds.begin(), chart->seeds.end(), mostCentral) - chart->seeds.begin();
+	uint32_t index = std::find(chart->seeds.begin(), chart->seeds.end(), mostCentral) - chart->seeds.begin();
 	if (index < chart->seeds.size()) {
 		// Move new seed to the end of the seed array.
-		uint last = chart->seeds.size() - 1;
+		uint32_t last = chart->seeds.size() - 1;
 		swap(chart->seeds[index], chart->seeds[last]);
 		return false;
 	} else {
@@ -478,7 +478,7 @@ bool AtlasBuilder::relocateSeed(ChartBuildData *chart)
 	}
 }
 
-void AtlasBuilder::removeCandidate(uint f)
+void AtlasBuilder::removeCandidate(uint32_t f)
 {
 	int c = faceCandidateArray[f];
 	if (c != -1) {
@@ -494,10 +494,10 @@ void AtlasBuilder::removeCandidate(uint f)
 	}
 }
 
-void AtlasBuilder::updateCandidate(ChartBuildData *chart, uint f, float metric)
+void AtlasBuilder::updateCandidate(ChartBuildData *chart, uint32_t f, float metric)
 {
 	if (faceCandidateArray[f] == -1) {
-		const uint index = candidateArray.size();
+		const uint32_t index = candidateArray.size();
 		faceCandidateArray[f] = index;
 		candidateArray.resize(index + 1);
 		candidateArray[index].face = f;
@@ -519,8 +519,8 @@ void AtlasBuilder::updateCandidate(ChartBuildData *chart, uint f, float metric)
 void AtlasBuilder::updatePriorities(ChartBuildData *chart)
 {
 	// Re-evaluate candidate priorities.
-	uint candidateCount = chart->candidates.count();
-	for (uint i = 0; i < candidateCount; i++) {
+	uint32_t candidateCount = chart->candidates.count();
+	for (uint32_t i = 0; i < candidateCount; i++) {
 		chart->candidates.pairs[i].priority = evaluatePriority(chart, chart->candidates.pairs[i].face);
 		if (faceChartArray[chart->candidates.pairs[i].face] == -1) {
 			updateCandidate(chart, chart->candidates.pairs[i].face, chart->candidates.pairs[i].priority);
@@ -532,7 +532,7 @@ void AtlasBuilder::updatePriorities(ChartBuildData *chart)
 
 
 // Evaluate combined metric.
-float AtlasBuilder::evaluatePriority(ChartBuildData *chart, uint face)
+float AtlasBuilder::evaluatePriority(ChartBuildData *chart, uint32_t face)
 {
 	// Estimate boundary length and area:
 	float newBoundaryLength = evaluateBoundaryLength(chart, face);
@@ -566,7 +566,7 @@ float AtlasBuilder::evaluatePriority(ChartBuildData *chart, uint face)
 
 
 // Returns a value in [0-1].
-float AtlasBuilder::evaluateProxyFitMetric(ChartBuildData *chart, uint f)
+float AtlasBuilder::evaluateProxyFitMetric(ChartBuildData *chart, uint32_t f)
 {
 	const HalfEdge::Face *face = mesh->faceAt(f);
 	Vector3 faceNormal = triangleNormal(face);
@@ -574,7 +574,7 @@ float AtlasBuilder::evaluateProxyFitMetric(ChartBuildData *chart, uint f)
 	return 1 - dot(faceNormal, chart->planeNormal); // @@ normal deviations should be weighted by face area
 }
 
-float AtlasBuilder::evaluateDistanceToBoundary(ChartBuildData *chart, uint face)
+float AtlasBuilder::evaluateDistanceToBoundary(ChartBuildData *chart, uint32_t face)
 {
 //#pragma message(NV_FILE_LINE "TODO: Evaluate distance to boundary metric.")
 	// @@ This is needed for the seed relocation code.
@@ -582,7 +582,7 @@ float AtlasBuilder::evaluateDistanceToBoundary(ChartBuildData *chart, uint face)
 	return 0.0f;
 }
 
-float AtlasBuilder::evaluateDistanceToSeed(ChartBuildData *chart, uint f)
+float AtlasBuilder::evaluateDistanceToSeed(ChartBuildData *chart, uint32_t f)
 {
 	const HalfEdge::Face *seed = mesh->faceAt(chart->seeds.back());
 	const HalfEdge::Face *face = mesh->faceAt(f);
@@ -590,7 +590,7 @@ float AtlasBuilder::evaluateDistanceToSeed(ChartBuildData *chart, uint f)
 }
 
 
-float AtlasBuilder::evaluateRoundnessMetric(ChartBuildData *chart, uint face, float newBoundaryLength, float newChartArea)
+float AtlasBuilder::evaluateRoundnessMetric(ChartBuildData *chart, uint32_t face, float newBoundaryLength, float newChartArea)
 {
 	float roundness = square(chart->boundaryLength) / chart->area;
 	float newRoundness = square(newBoundaryLength) / newChartArea;
@@ -602,7 +602,7 @@ float AtlasBuilder::evaluateRoundnessMetric(ChartBuildData *chart, uint face, fl
 	}
 }
 
-float AtlasBuilder::evaluateStraightnessMetric(ChartBuildData *chart, uint f)
+float AtlasBuilder::evaluateStraightnessMetric(ChartBuildData *chart, uint32_t f)
 {
 	float l_out = 0.0f;
 	float l_in = 0.0f;
@@ -613,7 +613,7 @@ float AtlasBuilder::evaluateStraightnessMetric(ChartBuildData *chart, uint f)
 		if (edge->isBoundary()) {
 			l_out += l;
 		} else {
-			uint neighborFaceId = edge->pair->face->id;
+			uint32_t neighborFaceId = edge->pair->face->id;
 			if (faceChartArray[neighborFaceId] != chart->id) {
 				l_out += l;
 			} else {
@@ -627,7 +627,7 @@ float AtlasBuilder::evaluateStraightnessMetric(ChartBuildData *chart, uint f)
 }
 
 
-float AtlasBuilder::evaluateNormalSeamMetric(ChartBuildData *chart, uint f)
+float AtlasBuilder::evaluateNormalSeamMetric(ChartBuildData *chart, uint32_t f)
 {
 	float seamFactor = 0.0f;
 	float totalLength = 0.0f;
@@ -637,7 +637,7 @@ float AtlasBuilder::evaluateNormalSeamMetric(ChartBuildData *chart, uint f)
 		if (edge->isBoundary()) {
 			continue;
 		}
-		const uint neighborFaceId = edge->pair->face->id;
+		const uint32_t neighborFaceId = edge->pair->face->id;
 		if (faceChartArray[neighborFaceId] != chart->id) {
 			continue;
 		}
@@ -660,7 +660,7 @@ float AtlasBuilder::evaluateNormalSeamMetric(ChartBuildData *chart, uint f)
 }
 
 
-float AtlasBuilder::evaluateTextureSeamMetric(ChartBuildData *chart, uint f)
+float AtlasBuilder::evaluateTextureSeamMetric(ChartBuildData *chart, uint32_t f)
 {
 	float seamLength = 0.0f;
 	float totalLength = 0.0f;
@@ -670,7 +670,7 @@ float AtlasBuilder::evaluateTextureSeamMetric(ChartBuildData *chart, uint f)
 		if (edge->isBoundary()) {
 			continue;
 		}
-		const uint neighborFaceId = edge->pair->face->id;
+		const uint32_t neighborFaceId = edge->pair->face->id;
 		if (faceChartArray[neighborFaceId] != chart->id) {
 			continue;
 		}
@@ -692,7 +692,7 @@ float AtlasBuilder::evaluateTextureSeamMetric(ChartBuildData *chart, uint f)
 }
 
 
-float AtlasBuilder::evaluateSeamMetric(ChartBuildData *chart, uint f)
+float AtlasBuilder::evaluateSeamMetric(ChartBuildData *chart, uint32_t f)
 {
 	float newSeamLength = 0.0f;
 	float oldSeamLength = 0.0f;
@@ -706,7 +706,7 @@ float AtlasBuilder::evaluateSeamMetric(ChartBuildData *chart, uint f)
 			newSeamLength += l;
 		} else {
 			if (edge->isSeam()) {
-				uint neighborFaceId = edge->pair->face->id;
+				uint32_t neighborFaceId = edge->pair->face->id;
 				if (faceChartArray[neighborFaceId] != chart->id) {
 					newSeamLength += l;
 				} else {
@@ -720,7 +720,7 @@ float AtlasBuilder::evaluateSeamMetric(ChartBuildData *chart, uint f)
 }
 
 
-float AtlasBuilder::evaluateChartArea(ChartBuildData *chart, uint f)
+float AtlasBuilder::evaluateChartArea(ChartBuildData *chart, uint32_t f)
 {
 	const HalfEdge::Face *face = mesh->faceAt(f);
 	//return chart->area + face->area();
@@ -728,7 +728,7 @@ float AtlasBuilder::evaluateChartArea(ChartBuildData *chart, uint f)
 }
 
 
-float AtlasBuilder::evaluateBoundaryLength(ChartBuildData *chart, uint f)
+float AtlasBuilder::evaluateBoundaryLength(ChartBuildData *chart, uint32_t f)
 {
 	float boundaryLength = chart->boundaryLength;
 	// Add new edges, subtract edges shared with the chart.
@@ -740,7 +740,7 @@ float AtlasBuilder::evaluateBoundaryLength(ChartBuildData *chart, uint f)
 		if (edge->isBoundary()) {
 			boundaryLength += edgeLength;
 		} else {
-			uint neighborFaceId = edge->pair->face->id;
+			uint32_t neighborFaceId = edge->pair->face->id;
 			if (faceChartArray[neighborFaceId] != chart->id) {
 				boundaryLength += edgeLength;
 			} else {
@@ -751,13 +751,13 @@ float AtlasBuilder::evaluateBoundaryLength(ChartBuildData *chart, uint f)
 	return max(0.0f, boundaryLength);  // @@ Hack!
 }
 
-Vector3 AtlasBuilder::evaluateChartNormalSum(ChartBuildData *chart, uint f)
+Vector3 AtlasBuilder::evaluateChartNormalSum(ChartBuildData *chart, uint32_t f)
 {
 	const HalfEdge::Face *face = mesh->faceAt(f);
 	return chart->normalSum + triangleNormalAreaScaled(face);
 }
 
-Vector3 AtlasBuilder::evaluateChartCentroidSum(ChartBuildData *chart, uint f)
+Vector3 AtlasBuilder::evaluateChartCentroidSum(ChartBuildData *chart, uint32_t f)
 {
 	const HalfEdge::Face *face = mesh->faceAt(f);
 	return chart->centroidSum + face->centroid();
@@ -767,8 +767,8 @@ Vector3 AtlasBuilder::evaluateChartCentroidSum(ChartBuildData *chart, uint f)
 Vector3 AtlasBuilder::computeChartCentroid(const ChartBuildData *chart)
 {
 	Vector3 centroid(0);
-	const uint faceCount = chart->faces.size();
-	for (uint i = 0; i < faceCount; i++) {
+	const uint32_t faceCount = chart->faces.size();
+	for (uint32_t i = 0; i < faceCount; i++) {
 		const HalfEdge::Face *face = mesh->faceAt(chart->faces[i]);
 		centroid += triangleCenter(face);
 	}
@@ -786,9 +786,9 @@ void AtlasBuilder::fillHoles(float threshold)
 
 void AtlasBuilder::mergeChart(ChartBuildData *owner, ChartBuildData *chart, float sharedBoundaryLength)
 {
-	const uint faceCount = chart->faces.size();
-	for (uint i = 0; i < faceCount; i++) {
-		uint f = chart->faces[i];
+	const uint32_t faceCount = chart->faces.size();
+	for (uint32_t i = 0; i < faceCount; i++) {
+		uint32_t f = chart->faces[i];
 		nvDebugCheck(faceChartArray[f] == chart->id);
 		faceChartArray[f] = owner->id;
 		owner->faces.push_back(f);
@@ -804,15 +804,15 @@ void AtlasBuilder::mergeChart(ChartBuildData *owner, ChartBuildData *chart, floa
 void AtlasBuilder::mergeCharts()
 {
 	std::vector<float> sharedBoundaryLengths;
-	const uint chartCount = chartArray.size();
+	const uint32_t chartCount = chartArray.size();
 	for (int c = chartCount - 1; c >= 0; c--) {
 		sharedBoundaryLengths.clear();
 		sharedBoundaryLengths.resize(chartCount, 0.0f);
 		ChartBuildData *chart = chartArray[c];
 		float externalBoundary = 0.0f;
-		const uint faceCount = chart->faces.size();
-		for (uint i = 0; i < faceCount; i++) {
-			uint f = chart->faces[i];
+		const uint32_t faceCount = chart->faces.size();
+		for (uint32_t i = 0; i < faceCount; i++) {
+			uint32_t f = chart->faces[i];
 			const HalfEdge::Face *face = mesh->faceAt(f);
 			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				const HalfEdge::Edge *edge = it.current();
@@ -821,8 +821,8 @@ void AtlasBuilder::mergeCharts()
 				if (edge->isBoundary()) {
 					externalBoundary += l;
 				} else {
-					uint neighborFace = edge->pair->face->id;
-					uint neighborChart = faceChartArray[neighborFace];
+					uint32_t neighborFace = edge->pair->face->id;
+					uint32_t neighborChart = faceChartArray[neighborFace];
 					if (neighborChart != c) {
 						if ((edge->isSeam() && (isNormalSeam(edge) || isTextureSeam(edge))) || neighborChart == -2) {
 							externalBoundary += l;
@@ -866,8 +866,8 @@ void AtlasBuilder::mergeCharts()
 		if (chartArray[c] == NULL) {
 			chartArray.erase(chartArray.begin() + c);
 			// Update faceChartArray.
-			const uint faceCount = faceChartArray.size();
-			for (uint i = 0; i < faceCount; i++) {
+			const uint32_t faceCount = faceChartArray.size();
+			for (uint32_t i = 0; i < faceCount; i++) {
 				nvDebugCheck (faceChartArray[i] != -1);
 				nvDebugCheck (faceChartArray[i] != c);
 				nvDebugCheck (faceChartArray[i] <= int32_t(chartArray.size()));
@@ -882,7 +882,7 @@ void AtlasBuilder::mergeCharts()
 	}
 }
 
-const std::vector<uint> &AtlasBuilder::chartFaces(uint i) const
+const std::vector<uint32_t> &AtlasBuilder::chartFaces(uint32_t i) const
 {
 	return chartArray[i]->faces;
 }

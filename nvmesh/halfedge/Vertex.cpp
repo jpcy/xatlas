@@ -25,18 +25,18 @@ void Vertex::setPos(const Vector3 &p)
 }
 
 
-uint HalfEdge::Vertex::colocalCount() const
+uint32_t HalfEdge::Vertex::colocalCount() const
 {
-	uint count = 0;
+	uint32_t count = 0;
 	for (ConstVertexIterator it(colocals()); !it.isDone(); it.advance()) {
 		++count;
 	}
 	return count;
 }
 
-uint HalfEdge::Vertex::valence() const
+uint32_t HalfEdge::Vertex::valence() const
 {
-	uint count = 0;
+	uint32_t count = 0;
 	for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
 		++count;
 	}
@@ -45,7 +45,7 @@ uint HalfEdge::Vertex::valence() const
 
 const HalfEdge::Vertex *HalfEdge::Vertex::firstColocal() const
 {
-	uint firstId = id;
+	uint32_t firstId = id;
 	const Vertex *vertex = this;
 	for (ConstVertexIterator it(colocals()); !it.isDone(); it.advance()) {
 		if (it.current()->id < firstId) {
@@ -59,7 +59,7 @@ const HalfEdge::Vertex *HalfEdge::Vertex::firstColocal() const
 HalfEdge::Vertex *HalfEdge::Vertex::firstColocal()
 {
 	Vertex *vertex = this;
-	uint firstId = id;
+	uint32_t firstId = id;
 	for (VertexIterator it(colocals()); !it.isDone(); it.advance()) {
 		if (it.current()->id < firstId) {
 			firstId = vertex->id;

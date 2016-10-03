@@ -46,8 +46,8 @@ static void computeBoundingBox(Chart *chart, Vector2 *majorAxis, Vector2 *minorA
 	std::vector<Vector2> points;
 	points.reserve(16);
 	HalfEdge::Mesh *mesh = chart->chartMesh();
-	const uint vertexCount = mesh->vertexCount();
-	for (uint i = 0; i < vertexCount; i++) {
+	const uint32_t vertexCount = mesh->vertexCount();
+	for (uint32_t i = 0; i < vertexCount; i++) {
 		HalfEdge::Vertex *vertex = mesh->vertexAt(i);
 		if (vertex->isBoundary()) {
 			points.push_back(vertex->tex);
@@ -60,8 +60,8 @@ static void computeBoundingBox(Chart *chart, Vector2 *majorAxis, Vector2 *minorA
 	Vector2 best_min;
 	Vector2 best_max;
 	Vector2 best_axis;
-	const uint hullCount = hull.size();
-	for (uint i = 0, j = hullCount - 1; i < hullCount; j = i, i++) {
+	const uint32_t hullCount = hull.size();
+	for (uint32_t i = 0, j = hullCount - 1; i < hullCount; j = i, i++) {
 		if (equal(hull[i], hull[j])) {
 			continue;
 		}
@@ -70,7 +70,7 @@ static void computeBoundingBox(Chart *chart, Vector2 *majorAxis, Vector2 *minorA
 		// Compute bounding box.
 		Vector2 box_min(FLT_MAX, FLT_MAX);
 		Vector2 box_max(-FLT_MAX, -FLT_MAX);
-		for (uint v = 0; v < hullCount; v++) {
+		for (uint32_t v = 0; v < hullCount; v++) {
 			Vector2 point = hull[v];
 			float x = dot(axis, point);
 			if (x < box_min.x) box_min.x = x;
@@ -89,7 +89,7 @@ static void computeBoundingBox(Chart *chart, Vector2 *majorAxis, Vector2 *minorA
 		}
 	}
 	// Consider all points, not only boundary points, in case the input chart is malformed.
-	for (uint i = 0; i < vertexCount; i++) {
+	for (uint32_t i = 0; i < vertexCount; i++) {
 		HalfEdge::Vertex *vertex = mesh->vertexAt(i);
 		Vector2 point = vertex->tex;
 		float x = dot(best_axis, point);
@@ -108,12 +108,12 @@ static void computeBoundingBox(Chart *chart, Vector2 *majorAxis, Vector2 *minorA
 
 void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned, bool conservative)
 {
-	const uint chartCount = m_atlas->chartCount();
+	const uint32_t chartCount = m_atlas->chartCount();
 	if (chartCount == 0) return;
 	std::vector<float> chartOrderArray(chartCount);
 	std::vector<Vector2> chartExtents(chartCount);
 	float meshArea = 0;
-	for (uint c = 0; c < chartCount; c++) {
+	for (uint32_t c = 0; c < chartCount; c++) {
 		Chart *chart = m_atlas->chartAt(c);
 		if (!chart->isVertexMapped() && !chart->isDisk()) {
 			chartOrderArray[c] = 0;
@@ -150,8 +150,8 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 			//chartOrderArray[c] = ((end.x - origin.x) + (end.y - origin.y)) * scale;
 			// Translate, rotate and scale vertices. Compute extents.
 			HalfEdge::Mesh *mesh = chart->chartMesh();
-			const uint vertexCount = mesh->vertexCount();
-			for (uint i = 0; i < vertexCount; i++) {
+			const uint32_t vertexCount = mesh->vertexCount();
+			for (uint32_t i = 0; i < vertexCount; i++) {
 				HalfEdge::Vertex *vertex = mesh->vertexAt(i);
 				//Vector2 t = vertex->tex - origin;
 				Vector2 tmp;
@@ -177,7 +177,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 			if (extents.x > 1024 || extents.y > 1024) {
 				float limit = max(extents.x, extents.y);
 				scale = 1024 / (limit + 1);
-				for (uint i = 0; i < vertexCount; i++) {
+				for (uint32_t i = 0; i < vertexCount; i++) {
 					HalfEdge::Vertex *vertex = mesh->vertexAt(i);
 					vertex->tex *= scale;
 				}
@@ -218,7 +218,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 				divide_y = extents.y;
 				extents.y = float(ch);
 			}
-			for (uint v = 0; v < vertexCount; v++) {
+			for (uint32_t v = 0; v < vertexCount; v++) {
 				HalfEdge::Vertex *vertex = mesh->vertexAt(v);
 				vertex->tex.x /= divide_x;
 				vertex->tex.y /= divide_y;
@@ -241,7 +241,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 	// Estimate size of the map based on the mesh surface area and given texel scale.
 	float texelCount = meshArea * square(texelsPerUnit) / 0.75f; // Assume 75% utilization.
 	if (texelCount < 1) texelCount = 1;
-	uint approximateExtent = nextPowerOfTwo(uint(sqrtf(texelCount)));
+	uint32_t approximateExtent = nextPowerOfTwo(uint32_t(sqrtf(texelCount)));
 	// Init bit map.
 	m_bitmap.clearAll();
 	if (approximateExtent > m_bitmap.width()) {
@@ -250,8 +250,8 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 	int w = 0;
 	int h = 0;
 	// Add sorted charts to bitmap.
-	for (uint i = 0; i < chartCount; i++) {
-		uint c = ranks[chartCount - i - 1]; // largest chart first
+	for (uint32_t i = 0; i < chartCount; i++) {
+		uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 		Chart *chart = m_atlas->chartAt(c);
 		if (!chart->isVertexMapped() && !chart->isDisk()) continue;
 		//float scale_x = 1;
@@ -300,7 +300,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 		w = align(w, 4);
 		h = align(h, 4);
 		// Resize bitmap if necessary.
-		if (uint(w) > m_bitmap.width() || uint(h) > m_bitmap.height()) {
+		if (uint32_t(w) > m_bitmap.width() || uint32_t(h) > m_bitmap.height()) {
 			//nvDebug("Resize bitmap (%d, %d).\n", nextPowerOfTwo(w), nextPowerOfTwo(h));
 			m_bitmap.resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
 		}
@@ -309,8 +309,8 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 		//float best_angle = 2 * PI * best_r;
 		// Translate and rotate chart texture coordinates.
 		HalfEdge::Mesh *mesh = chart->chartMesh();
-		const uint vertexCount = mesh->vertexCount();
-		for (uint v = 0; v < vertexCount; v++) {
+		const uint32_t vertexCount = mesh->vertexCount();
+		for (uint32_t v = 0; v < vertexCount; v++) {
 			HalfEdge::Vertex *vertex = mesh->vertexAt(v);
 			Vector2 t = vertex->tex;
 			if (best_r) swap(t.x, t.y);
@@ -439,11 +439,11 @@ void AtlasPacker::drawChartBitmapDilate(const Chart *chart, BitMap *bitmap, int 
 	const int h = bitmap->height();
 	const Vector2 extents = Vector2(float(w), float(h));
 	// Rasterize chart faces, check that all bits are not set.
-	const uint faceCount = chart->faceCount();
-	for (uint f = 0; f < faceCount; f++) {
+	const uint32_t faceCount = chart->faceCount();
+	for (uint32_t f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = chart->chartMesh()->faceAt(f);
 		Vector2 vertices[4];
-		uint edgeCount = 0;
+		uint32_t edgeCount = 0;
 		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			if (edgeCount < 4) {
 				vertices[edgeCount] = it.vertex()->tex + Vector2(0.5) + Vector2(float(padding), float(padding));
@@ -499,11 +499,11 @@ void AtlasPacker::drawChartBitmap(const Chart *chart, BitMap *bitmap, const Vect
 	// Rasterize 4 times to add proper padding.
 	for (int i = 0; i < 4; i++) {
 		// Rasterize chart faces, check that all bits are not set.
-		const uint faceCount = chart->chartMesh()->faceCount();
-		for (uint f = 0; f < faceCount; f++) {
+		const uint32_t faceCount = chart->chartMesh()->faceCount();
+		for (uint32_t f = 0; f < faceCount; f++) {
 			const HalfEdge::Face *face = chart->chartMesh()->faceAt(f);
 			Vector2 vertices[4];
-			uint edgeCount = 0;
+			uint32_t edgeCount = 0;
 			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				if (edgeCount < 4) {
 					vertices[edgeCount] = it.vertex()->tex * scale + offset + pad[i];
@@ -650,13 +650,13 @@ void AtlasPacker::addChart(const BitMap *bitmap, int atlas_w, int atlas_h, int o
 
 float AtlasPacker::computeAtlasUtilization() const
 {
-	const uint w = m_width;
-	const uint h = m_height;
+	const uint32_t w = m_width;
+	const uint32_t h = m_height;
 	nvDebugCheck(w <= m_bitmap.width());
 	nvDebugCheck(h <= m_bitmap.height());
-	uint count = 0;
-	for (uint y = 0; y < h; y++) {
-		for (uint x = 0; x < w; x++) {
+	uint32_t count = 0;
+	for (uint32_t y = 0; y < h; y++) {
+		for (uint32_t x = 0; x < w; x++) {
 			count += m_bitmap.bitAt(x, y);
 		}
 	}

@@ -90,7 +90,7 @@ inline uint32_t nextPowerOfTwo(uint32_t x)
 	x |= x >> 16;
 	return x + 1;
 #else
-	uint p = 1;
+	uint32_t p = 1;
 	while ( x > p ) {
 		p += p;
 	}
@@ -101,7 +101,7 @@ inline uint32_t nextPowerOfTwo(uint32_t x)
 inline uint64_t nextPowerOfTwo(uint64_t x)
 {
 	nvDebugCheck(x != 0);
-	uint p = 1;
+	uint32_t p = 1;
 	while (x > p) {
 		p += p;
 	}

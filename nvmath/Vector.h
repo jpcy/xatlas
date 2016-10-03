@@ -416,7 +416,7 @@ inline float triangleArea(Vector2::Arg a, Vector2::Arg b, Vector2::Arg c)
 
 
 template <>
-inline uint hash(const Vector2 &v, uint h)
+inline uint32_t hash(const Vector2 &v, uint32_t h)
 {
 	return sdbmFloatHash(v.component, 2, h);
 }
@@ -621,7 +621,7 @@ inline Vector3 reflect(Vector3::Arg v, Vector3::Arg n)
 }
 
 template <>
-inline uint hash(const Vector3 &v, uint h)
+inline uint32_t hash(const Vector3 &v, uint32_t h)
 {
 	return sdbmFloatHash(v.component, 3, h);
 }

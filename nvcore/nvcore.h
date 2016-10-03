@@ -6,9 +6,6 @@
 
 #include <stdint.h>
 
-// Aliases
-typedef uint32_t      uint;
-
 #ifdef _MSC_VER
 // Ignore gcc attributes.
 #define __attribute__(X)

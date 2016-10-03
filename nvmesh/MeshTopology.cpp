@@ -11,23 +11,23 @@ using namespace nv;
 
 void MeshTopology::buildTopologyInfo(const HalfEdge::Mesh *mesh)
 {
-	const uint vertexCount = mesh->colocalVertexCount();
-	const uint faceCount = mesh->faceCount();
-	const uint edgeCount = mesh->edgeCount();
+	const uint32_t vertexCount = mesh->colocalVertexCount();
+	const uint32_t faceCount = mesh->faceCount();
+	const uint32_t edgeCount = mesh->edgeCount();
 	nvDebug( "--- Building mesh topology:\n" );
-	std::vector<uint> stack(faceCount);
+	std::vector<uint32_t> stack(faceCount);
 	BitArray bitFlags(faceCount);
 	bitFlags.clearAll();
 	// Compute connectivity.
 	nvDebug( "---   Computing connectivity.\n" );
 	m_connectedCount = 0;
-	for (uint f = 0; f < faceCount; f++ ) {
+	for (uint32_t f = 0; f < faceCount; f++ ) {
 		if ( bitFlags.bitAt(f) == false ) {
 			m_connectedCount++;
 			stack.push_back( f );
 			while ( !stack.empty() ) {
-				const uint top = stack.back();
-				nvCheck(top != uint(~0));
+				const uint32_t top = stack.back();
+				nvCheck(top != uint32_t(~0));
 				stack.pop_back();
 				if ( bitFlags.bitAt(top) == false ) {
 					bitFlags.setBitAt(top);
@@ -53,7 +53,7 @@ void MeshTopology::buildTopologyInfo(const HalfEdge::Mesh *mesh)
 	bitFlags.resize(edgeCount);
 	bitFlags.clearAll();
 	// Don't forget to link the boundary otherwise this won't work.
-	for (uint e = 0; e < edgeCount; e++) {
+	for (uint32_t e = 0; e < edgeCount; e++) {
 		const HalfEdge::Edge *startEdge = mesh->edgeAt(e);
 		if (startEdge != NULL && startEdge->isBoundary() && bitFlags.bitAt(e) == false) {
 			nvDebugCheck(startEdge->face != NULL);

@@ -8,7 +8,7 @@ ProximityGrid::ProximityGrid()
 {
 }
 
-void ProximityGrid::init(const Box &box, uint count)
+void ProximityGrid::init(const Box &box, uint32_t count)
 {
 	cellArray.clear();
 	// Determine grid size.
@@ -48,7 +48,7 @@ void ProximityGrid::init(const Box &box, uint count)
 
 // Gather all points inside the given sphere.
 // Radius is assumed to be small, so we don't bother culling the cells.
-void ProximityGrid::gather(const Vector3 &position, float radius, std::vector<uint> &indexArray)
+void ProximityGrid::gather(const Vector3 &position, float radius, std::vector<uint32_t> &indexArray)
 {
 	int x0 = index_x(position.x - radius);
 	int x1 = index_x(position.x + radius);
@@ -80,13 +80,13 @@ uint32_t ProximityGrid::mortonCount() const
 int ProximityGrid::mortonIndex(uint32_t code) const
 {
 	uint32_t x, y, z;
-	uint s = uint32_t(max3(sx, sy, sz));
+	uint32_t s = uint32_t(max3(sx, sy, sz));
 	if (s > 1024) {
 		// Use layered two-dimensional morton order.
 		s = nextPowerOfTwo(s);
-		uint layer = code / (s * s);
+		uint32_t layer = code / (s * s);
 		code = code % (s * s);
-		uint layer_count = uint32_t(min3(sx, sy, sz));
+		uint32_t layer_count = uint32_t(min3(sx, sy, sz));
 		if (sx == layer_count) {
 			x = layer;
 			y = decodeMorton2X(code);
