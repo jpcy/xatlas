@@ -633,7 +633,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 			x = decodeMorton2X(texelCode);
 			y = decodeMorton2Y(texelCode);
 			texelCode++;
-		} while (x >= uint32(vertexMapWidth) || y >= uint32(vertexMapHeight));
+		} while (x >= uint32_t(vertexMapWidth) || y >= uint32_t(vertexMapHeight));
 		texelCodes[i] = texelCode - 1;
 	}
 	for (uint i = 0; i < chartVertexCount; i++) {

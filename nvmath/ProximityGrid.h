@@ -29,8 +29,8 @@ struct ProximityGrid {
 	int index_z(float z) const;
 	int index(int x, int y, int z) const;
 
-	uint32 mortonCount() const;
-	int mortonIndex(uint32 code) const;
+	uint32_t mortonCount() const;
+	int mortonIndex(uint32_t code) const;
 
 	void add(const Vector3 &pos, uint key);
 

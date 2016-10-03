@@ -237,7 +237,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 	//nvDebug("Sorting charts.\n");
 	// Sort charts by area.
 	m_radix.sort(chartOrderArray);
-	const uint32 *ranks = m_radix.ranks();
+	const uint32_t *ranks = m_radix.ranks();
 	// Estimate size of the map based on the mesh surface area and given texel scale.
 	float texelCount = meshArea * square(texelsPerUnit) / 0.75f; // Assume 75% utilization.
 	if (texelCount < 1) texelCount = 1;
@@ -302,7 +302,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 		// Resize bitmap if necessary.
 		if (uint(w) > m_bitmap.width() || uint(h) > m_bitmap.height()) {
 			//nvDebug("Resize bitmap (%d, %d).\n", nextPowerOfTwo(w), nextPowerOfTwo(h));
-			m_bitmap.resize(nextPowerOfTwo(uint32(w)), nextPowerOfTwo(uint32(h)), false);
+			m_bitmap.resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
 		}
 		//nvDebug("Add chart at (%d, %d).\n", best_x, best_y);
 		addChart(&chart_bitmap, w, h, best_x, best_y, best_r);

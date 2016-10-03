@@ -67,26 +67,26 @@ void ProximityGrid::gather(const Vector3 &position, float radius, std::vector<ui
 }
 
 
-uint32 ProximityGrid::mortonCount() const
+uint32_t ProximityGrid::mortonCount() const
 {
-	uint64 s = uint64(max3(sx, sy, sz));
+	uint64_t s = uint64_t(max3(sx, sy, sz));
 	s = nextPowerOfTwo(s);
 	if (s > 1024) {
-		return uint32(s * s * min3(sx, sy, sz));
+		return uint32_t(s * s * min3(sx, sy, sz));
 	}
-	return uint32(s * s * s);
+	return uint32_t(s * s * s);
 }
 
-int ProximityGrid::mortonIndex(uint32 code) const
+int ProximityGrid::mortonIndex(uint32_t code) const
 {
-	uint32 x, y, z;
-	uint s = uint32(max3(sx, sy, sz));
+	uint32_t x, y, z;
+	uint s = uint32_t(max3(sx, sy, sz));
 	if (s > 1024) {
 		// Use layered two-dimensional morton order.
 		s = nextPowerOfTwo(s);
 		uint layer = code / (s * s);
 		code = code % (s * s);
-		uint layer_count = uint32(min3(sx, sy, sz));
+		uint layer_count = uint32_t(min3(sx, sy, sz));
 		if (sx == layer_count) {
 			x = layer;
 			y = decodeMorton2X(code);
@@ -105,7 +105,7 @@ int ProximityGrid::mortonIndex(uint32 code) const
 		y = decodeMorton3Y(code);
 		z = decodeMorton3Z(code);
 	}
-	if (x >= uint32(sx) || y >= uint32(sy) || z >= uint32(sz)) {
+	if (x >= uint32_t(sx) || y >= uint32_t(sy) || z >= uint32_t(sz)) {
 		return -1;
 	}
 	return index(x, y, z);

@@ -21,8 +21,8 @@ class HalfEdge::Face
 public:
 
 	uint id;
-	uint16 group;
-	uint16 material;
+	uint16_t group;
+	uint16_t material;
 	Edge *edge;
 
 

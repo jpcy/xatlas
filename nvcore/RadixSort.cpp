@@ -8,17 +8,17 @@
 
 using namespace nv;
 
-static inline void FloatFlip(uint32 &f)
+static inline void FloatFlip(uint32_t &f)
 {
-	//uint32 mask = -int32(f >> 31) | 0x80000000; // Michael Herf.
-	int32 mask = (int32(f) >> 31) | 0x80000000; // Warren Hunt, Manchor Ko.
+	//uint32_t mask = -int32_t(f >> 31) | 0x80000000; // Michael Herf.
+	int32_t mask = (int32_t(f) >> 31) | 0x80000000; // Warren Hunt, Manchor Ko.
 	f ^= mask;
 }
 
-static inline void IFloatFlip(uint32 &f)
+static inline void IFloatFlip(uint32_t &f)
 {
-	uint32 mask = ((f >> 31) - 1) | 0x80000000; // Michael Herf.
-	//uint32 mask = (int32(f ^ 0x80000000) >> 31) | 0x80000000; // Warren Hunt, Manchor Ko. @@ Correct, but fails in release on gcc-4.2.1
+	uint32_t mask = ((f >> 31) - 1) | 0x80000000; // Michael Herf.
+	//uint32_t mask = (int32_t(f ^ 0x80000000) >> 31) | 0x80000000; // Warren Hunt, Manchor Ko. @@ Correct, but fails in release on gcc-4.2.1
 	f ^= mask;
 }
 
@@ -35,8 +35,8 @@ void createHistograms(const T *buffer, uint count, uint *histogram)
 	memset(histogram, 0, 256 * bucketCount * sizeof(uint));
 	// @@ Add support for signed integers.
 	// Build histograms.
-	const uint8 *p = (const uint8 *)buffer;  // @@ Does this break aliasing rules?
-	const uint8 *pe = p + count * sizeof(T);
+	const uint8_t *p = (const uint8_t *)buffer;  // @@ Does this break aliasing rules?
+	const uint8_t *pe = p + count * sizeof(T);
 	while (p != pe) {
 		h[0][*p++]++, h[1][*p++]++, h[2][*p++]++, h[3][*p++]++;
 		if (bucketCount == 8) h[4][*p++]++, h[5][*p++]++, h[6][*p++]++, h[7][*p++]++;
@@ -96,7 +96,7 @@ template <typename T> inline void RadixSort::radixSort(const T *input, uint coun
 	for (uint j = 0; j < P; j++) {
 		// Pointer to this bucket.
 		const uint *h = &histogram[j * 256];
-		const uint8 *inputBytes = (const uint8 *)input; // @@ Is this aliasing legal?
+		const uint8_t *inputBytes = (const uint8_t *)input; // @@ Is this aliasing legal?
 		inputBytes += j;
 		if (h[inputBytes[0]] == count) {
 			// Skip this pass, all values are the same.
@@ -146,11 +146,11 @@ RadixSort &RadixSort::sort(const float *input, uint count)
 	} else {
 		// @@ Avoid touching the input multiple times.
 		for (uint i = 0; i < count; i++) {
-			FloatFlip((uint32 &)input[i]);
+			FloatFlip((uint32_t &)input[i]);
 		}
-		radixSort<uint32>((const uint32 *)input, count);
+		radixSort<uint32_t>((const uint32_t *)input, count);
 		for (uint i = 0; i < count; i++) {
-			IFloatFlip((uint32 &)input[i]);
+			IFloatFlip((uint32_t &)input[i]);
 		}
 	}
 	return *this;

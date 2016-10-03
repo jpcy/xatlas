@@ -10,7 +10,7 @@ namespace nv
 {
 inline uint sdbmHash(const void *data_in, uint size, uint h = 5381)
 {
-	const uint8 *data = (const uint8 *) data_in;
+	const uint8_t *data = (const uint8_t *) data_in;
 	uint i = 0;
 	while (i < size) {
 		h = (h << 16) + (h << 6) - h + (uint) data[i++];
@@ -25,7 +25,7 @@ inline uint sdbmFloatHash(const float *f, uint count, uint h = 5381)
 		//nvDebugCheck(nv::std::isfinite(*f));
 		union {
 			float f;
-			uint32 i;
+			uint32_t i;
 		} x = { f[i] };
 		if (x.i == 0x80000000) x.i = 0;
 		h = sdbmHash(&x, 4, h);

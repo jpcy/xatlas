@@ -55,7 +55,7 @@ inline void floatCleanup(float *fp, int n)
 		//nvDebugCheck(std::isfinite(fp[i]));
 		union {
 			float f;
-			uint32 i;
+			uint32_t i;
 		} x = { fp[i] };
 		if (x.i == 0x80000000) fp[i] = 0.0f;
 	}

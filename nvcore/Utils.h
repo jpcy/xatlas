@@ -78,7 +78,7 @@ inline float saturate(float f)
 * @note isPowerOfTwo(x) == true -> nextPowerOfTwo(x) == x
 * @note nextPowerOfTwo(x) = 2 << log2(x-1)
 */
-inline uint32 nextPowerOfTwo(uint32 x)
+inline uint32_t nextPowerOfTwo(uint32_t x)
 {
 	nvDebugCheck( x != 0 );
 #if 1	// On modern CPUs this is supposed to be as fast as using the bsr instruction.
@@ -98,7 +98,7 @@ inline uint32 nextPowerOfTwo(uint32 x)
 #endif
 }
 
-inline uint64 nextPowerOfTwo(uint64 x)
+inline uint64_t nextPowerOfTwo(uint64_t x)
 {
 	nvDebugCheck(x != 0);
 	uint p = 1;

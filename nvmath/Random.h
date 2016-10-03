@@ -73,14 +73,14 @@ public:
 
 private:
 
-	void initialize( uint32 seed )
+	void initialize( uint32_t seed )
 	{
 		// Initialize generator state with seed
 		// See Knuth TAOCP Vol 2, 3rd Ed, p.106 for multiplier.
 		// In previous versions, most significant bits (MSBs) of the seed affect
 		// only MSBs of the state array.  Modified 9 Jan 2002 by Makoto Matsumoto.
-		uint32 *s = state;
-		uint32 *r = state;
+		uint32_t *s = state;
+		uint32_t *r = state;
 		int i = 1;
 		*s++ = seed & 0xffffffffUL;
 		for ( ; i < N; ++i ) {
@@ -93,7 +93,7 @@ private:
 	{
 		// Generate N new values in state
 		// Made clearer and faster by Matthew Bellew (matthew.bellew@home.com)
-		uint32 *p = state;
+		uint32_t *p = state;
 		int i;
 		for ( i = N - M; i--; ++p )
 			*p = twist( p[M], p[0], p[1] );
