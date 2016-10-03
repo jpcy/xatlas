@@ -592,15 +592,15 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const Array<uint>
 		int cell = grid.mortonIndex(cellCode);
 		if (cell < 0) continue;
 		cellsVisited++;
-		const Array<uint> &indexArray = grid.cellArray[cell].indexArray;
-		for (uint i = 0; i < indexArray.count(); i++) {
+		const std::vector<uint> &indexArray = grid.cellArray[cell].indexArray;
+		for (uint i = 0; i < indexArray.size(); i++) {
 			uint idx = indexArray[i];
 			HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(idx);
 			nvDebugCheck(vertexIndexArray[idx] == -1);
-			Array<uint> neighbors;
+			std::vector<uint> neighbors;
 			grid.gather(vertex->pos, positionThreshold, /*ref*/neighbors);
 			// Compare against all nearby vertices, cluster greedily.
-			for (uint j = 0; j < neighbors.count(); j++) {
+			for (uint j = 0; j < neighbors.size(); j++) {
 				uint otherIdx = neighbors[j];
 				if (vertexIndexArray[otherIdx] != -1) {
 					HalfEdge::Vertex *otherVertex = m_chartMesh->vertexAt(otherIdx);

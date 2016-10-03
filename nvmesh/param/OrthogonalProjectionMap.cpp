@@ -1,5 +1,6 @@
 // This code is in the public domain -- castano@gmail.com
 
+#include <vector>
 #include "OrthogonalProjectionMap.h"
 #include "nvcore/Array.h"
 #include "nvmath/Fitting.h"
@@ -14,14 +15,14 @@ bool nv::computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh)
 {
 	Vector3 axis[2];
 	uint vertexCount = mesh->vertexCount();
-	Array<Vector3> points(vertexCount);
+	std::vector<Vector3> points(vertexCount);
 	points.resize(vertexCount);
 	for (uint i = 0; i < vertexCount; i++) {
 		points[i] = mesh->vertexAt(i)->pos;
 	}
 	// Avoid redundant computations.
 	float matrix[6];
-	Fit::computeCovariance(vertexCount, points.buffer(), matrix);
+	Fit::computeCovariance(vertexCount, points.data(), matrix);
 	if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0) {
 		return false;
 	}

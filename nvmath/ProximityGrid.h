@@ -2,6 +2,7 @@
 #ifndef NV_MATH_PROXIMITYGRID_H
 #define NV_MATH_PROXIMITYGRID_H
 
+#include <vector>
 #include "Vector.h"
 #include "ftoi.h"
 
@@ -17,7 +18,7 @@ namespace nv
 class Box;
 
 struct Cell {
-	Array<uint> indexArray;
+	std::vector<uint> indexArray;
 };
 
 struct ProximityGrid {
@@ -35,7 +36,7 @@ struct ProximityGrid {
 
 	void add(const Vector3 &pos, uint key);
 
-	void gather(const Vector3 &pos, float radius, Array<uint> &indices);
+	void gather(const Vector3 &pos, float radius, std::vector<uint> &indices);
 
 	Array<Cell> cellArray;
 
@@ -75,7 +76,7 @@ inline void ProximityGrid::add(const Vector3 &pos, uint key)
 	int y = index_y(pos.y);
 	int z = index_z(pos.z);
 	uint idx = index(x, y, z);
-	cellArray[idx].indexArray.append(key);
+	cellArray[idx].indexArray.push_back(key);
 }
 
 } // nv namespace

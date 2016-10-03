@@ -48,7 +48,7 @@ void ProximityGrid::init(const Box &box, uint count)
 
 // Gather all points inside the given sphere.
 // Radius is assumed to be small, so we don't bother culling the cells.
-void ProximityGrid::gather(const Vector3 &position, float radius, Array<uint> &indexArray)
+void ProximityGrid::gather(const Vector3 &position, float radius, std::vector<uint> &indexArray)
 {
 	int x0 = index_x(position.x - radius);
 	int x1 = index_x(position.x + radius);
@@ -60,7 +60,7 @@ void ProximityGrid::gather(const Vector3 &position, float radius, Array<uint> &i
 		for (int y = y0; y <= y1; y++) {
 			for (int x = x0; x <= x1; x++) {
 				int idx = index(x, y, z);
-				indexArray.append(cellArray[idx].indexArray);
+				indexArray.insert(indexArray.begin(), cellArray[idx].indexArray.begin(), cellArray[idx].indexArray.end());
 			}
 		}
 	}

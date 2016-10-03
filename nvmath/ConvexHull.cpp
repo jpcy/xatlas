@@ -1,5 +1,6 @@
 // This code is in the public domain -- Ignacio Castaño <castano@gmail.com>
 
+#include <vector>
 #include "ConvexHull.h"
 
 #include "Vector.h"
@@ -27,25 +28,27 @@ void nv::convexHull(const Array<Vector2> &input, Array<Vector2> &output, float e
 	RadixSort radix;
 	radix.sort(coords);
 	const uint *ranks = radix.ranks();
-	Array<Vector2> top(inputCount);
-	Array<Vector2> bottom(inputCount);
+	std::vector<Vector2> top;
+	top.reserve(inputCount);
+	std::vector<Vector2> bottom;
+	bottom.reserve(inputCount);
 	Vector2 P = input[ranks[0]];
 	Vector2 Q = input[ranks[inputCount - 1]];
 	float topy = max(P.y, Q.y);
 	float boty = min(P.y, Q.y);
 	for (uint i = 0; i < inputCount; i++) {
 		Vector2 p = input[ranks[i]];
-		if (p.y >= boty) top.append(p);
+		if (p.y >= boty) top.push_back(p);
 	}
 	for (uint i = 0; i < inputCount; i++) {
 		Vector2 p = input[ranks[inputCount - 1 - i]];
-		if (p.y <= topy) bottom.append(p);
+		if (p.y <= topy) bottom.push_back(p);
 	}
 	// Filter top list.
 	output.clear();
 	output.append(top[0]);
 	output.append(top[1]);
-	for (uint i = 2; i < top.count(); ) {
+	for (uint i = 2; i < top.size(); ) {
 		Vector2 a = output[output.count() - 2];
 		Vector2 b = output[output.count() - 1];
 		Vector2 c = top[i];
@@ -61,7 +64,7 @@ void nv::convexHull(const Array<Vector2> &input, Array<Vector2> &output, float e
 	uint top_count = output.count();
 	output.append(bottom[1]);
 	// Filter bottom list.
-	for (uint i = 2; i < bottom.count(); ) {
+	for (uint i = 2; i < bottom.size(); ) {
 		Vector2 a = output[output.count() - 2];
 		Vector2 b = output[output.count() - 1];
 		Vector2 c = bottom[i];
@@ -79,22 +82,4 @@ void nv::convexHull(const Array<Vector2> &input, Array<Vector2> &output, float e
 	output.popBack();
 }
 
-/*
-void testConvexHull() {
-
-    Array<Vector2> points;
-    points.append(Vector2(1.00, 1.00));
-    points.append(Vector2(0.00, 0.00));
-    points.append(Vector2(1.00, 1.00));
-    points.append(Vector2(1.00, -1.00));
-    points.append(Vector2(2.00, 5.00));
-    points.append(Vector2(-5.00, 3.00));
-    points.append(Vector2(-4.00, -3.00));
-    points.append(Vector2(7.00, -4.00));
-
-    Array<Vector2> hull;
-    convexHull(points, hull);
-
-}
-*/
 
