@@ -62,27 +62,6 @@ template <typename Key> struct Equal {
 	}
 };
 
-
-// @@ Move to Utils.h?
-template <typename T1, typename T2>
-struct Pair {
-	T1 first;
-	T2 second;
-};
-
-template <typename T1, typename T2>
-bool operator==(const Pair<T1, T2> &p0, const Pair<T1, T2> &p1)
-{
-	return p0.first == p1.first && p0.second == p1.second;
-}
-
-template <typename T1, typename T2>
-uint hash(const Pair<T1, T2> &p, uint h = 5381)
-{
-	return hash(p.second, hash(p.first));
-}
-
-
 } // nv namespace
 
 #endif // NV_CORE_HASH_H
