@@ -4,8 +4,14 @@
 #ifndef NV_MESH_HALFEDGE_MESH_H
 #define NV_MESH_HALFEDGE_MESH_H
 
+#include <unordered_map>
 #include <vector>
-#include "nvcore/HashMap.h"
+#include "Utils.h" // swap
+
+#include <new> // for placement new
+
+#include "Debug.h"
+#include "Hash.h"
 
 /*
 If I were to redo this again, there are a number of things that I would do differently.
@@ -350,7 +356,7 @@ private:
 	};
 	friend struct Hash<Mesh::Key>;
 
-	HashMap<Key, Edge *> m_edgeMap;
+	std::unordered_map<Key, Edge *, Hash<Key>, Equal<Key> > m_edgeMap;
 
 	uint m_colocalVertexCount;
 

@@ -11,7 +11,6 @@
 //#include "nvmesh/MeshBuilder.h"
 
 #include "nvmath/Vector.h"
-#include "nvcore/HashMap.h"
 
 
 using namespace nv;
@@ -63,10 +62,8 @@ void Mesh::clear()
 	for (size_t i = 0; i < m_vertexArray.size(); i++)
 		delete m_vertexArray[i];
 	m_vertexArray.clear();
-	for (int i = m_edgeMap.start(); !m_edgeMap.isDone(i); m_edgeMap.advance(i)) {
-		delete m_edgeMap[i].value;
-	}
-
+	for (auto it = m_edgeMap.begin(); it != m_edgeMap.end(); it++)
+		delete it->second;
 	m_edgeArray.clear();
 	m_edgeMap.clear();
 	for (size_t i = 0; i < m_faceArray.size(); i++)
@@ -277,7 +274,7 @@ Edge *Mesh::addEdge(uint i, uint j)
 			m_edgeArray.push_back(edge);
 		}
 		edge->vertex = m_vertexArray[i];
-		m_edgeMap.add(Key(i, j), edge);
+		m_edgeMap[Key(i, j)] = edge;
 	}
 	// Face and Next are set by addFace.
 	return edge;
@@ -295,13 +292,15 @@ Edge *Mesh::findEdge(uint i, uint j) const
 		for (Vertex::ConstVertexIterator it1(v1->colocals()); !it1.isDone(); it1.advance()) {
 			Key key(it0.current()->id, it1.current()->id);
 			if (edge == NULL) {
-				m_edgeMap.get(key, &edge);
+				auto edgeIt = m_edgeMap.find(key);
+				if (edgeIt != m_edgeMap.end())
+					edge = (*edgeIt).second;
 #if !defined(_DEBUG)
 				if (edge != NULL) return edge;
 #endif
 			} else {
 				// Make sure that only one edge is found.
-				nvDebugCheck(!m_edgeMap.get(key));
+				nvDebugCheck(m_edgeMap.find(key) == m_edgeMap.end());
 			}
 		}
 	}
@@ -322,9 +321,9 @@ void Mesh::linkBoundary()
 			uint i = edge->from()->id;
 			uint j = edge->next->from()->id;
 			Key key(j, i);
-			nvCheck(!m_edgeMap.get(key));
+			nvCheck(m_edgeMap.find(key) == m_edgeMap.end());
 			pair->vertex = m_vertexArray[j];
-			m_edgeMap.add(key, pair);
+			m_edgeMap[key] = pair;
 			edge->pair = pair;
 			pair->pair = edge;
 			num++;
@@ -564,8 +563,8 @@ void Mesh::disconnect(Edge *edge)
 	}
 	// Remove edge from map. @@ Store map key inside edge?
 	nvDebugCheck(edge->from() != NULL && edge->to() != NULL);
-	bool removed = m_edgeMap.remove(Key(edge->from()->id, edge->to()->id));
-	nvDebugCheck(removed == true);
+	size_t removed = m_edgeMap.erase(Key(edge->from()->id, edge->to()->id));
+	nvDebugCheck(removed == 1);
 	// Disconnect from vertex.
 	if (edge->vertex != NULL) {
 		if (edge->vertex->edge == edge) {

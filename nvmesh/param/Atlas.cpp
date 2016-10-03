@@ -23,8 +23,6 @@
 #include "nvmath/ProximityGrid.h"
 #include "nvmath/Morton.h"
 
-#include "nvcore/HashMap.h"
-
 using namespace nv;
 
 
