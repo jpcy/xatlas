@@ -6,6 +6,7 @@
 // http://www.codercorner.com/RadixSortRevisited.htm
 // http://www.stereopsis.com/radix.html
 
+#include <vector>
 #include "nvcore.h"
 #include "Array.h"
 
@@ -20,9 +21,9 @@ public:
 	~RadixSort();
 
 	RadixSort &sort(const float *input, uint count);
-	inline RadixSort &sort(const Array<float> &input)
+	inline RadixSort &sort(const std::vector<float> &input)
 	{
-		return sort(input.buffer(), input.count());
+		return sort(input.data(), input.size());
 	}
 
 	// Access to results. m_ranks is a list of indices in sorted order, i.e. in the order you may further process your data

@@ -11,6 +11,7 @@
 #include "nvmath/ConvexHull.h"
 #include "nvmath/ftoi.h"
 
+#include <vector>
 #include <float.h> // FLT_MAX
 #include <limits.h> // UINT_MAX
 
@@ -42,23 +43,24 @@ AtlasPacker::~AtlasPacker()
 static void computeBoundingBox(Chart *chart, Vector2 *majorAxis, Vector2 *minorAxis, Vector2 *minCorner, Vector2 *maxCorner)
 {
 	// Compute list of boundary points.
-	Array<Vector2> points(16);
+	std::vector<Vector2> points;
+	points.reserve(16);
 	HalfEdge::Mesh *mesh = chart->chartMesh();
 	const uint vertexCount = mesh->vertexCount();
 	for (uint i = 0; i < vertexCount; i++) {
 		HalfEdge::Vertex *vertex = mesh->vertexAt(i);
 		if (vertex->isBoundary()) {
-			points.append(vertex->tex);
+			points.push_back(vertex->tex);
 		}
 	}
-	Array<Vector2> hull;
+	std::vector<Vector2> hull;
 	convexHull(points, hull, 0.00001f);
 	// @@ Ideally I should use rotating calipers to find the best box. Using brute force for now.
 	float best_area = FLT_MAX;
 	Vector2 best_min;
 	Vector2 best_max;
 	Vector2 best_axis;
-	const uint hullCount = hull.count();
+	const uint hullCount = hull.size();
 	for (uint i = 0, j = hullCount - 1; i < hullCount; j = i, i++) {
 		if (equal(hull[i], hull[j])) {
 			continue;
@@ -108,8 +110,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 {
 	const uint chartCount = m_atlas->chartCount();
 	if (chartCount == 0) return;
-	Array<float> chartOrderArray;
-	chartOrderArray.resize(chartCount);
+	std::vector<float> chartOrderArray(chartCount);
 	Array<Vector2> chartExtents;
 	chartExtents.resize(chartCount);
 	float meshArea = 0;

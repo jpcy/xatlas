@@ -4,6 +4,7 @@
 #ifndef NV_MATH_CONVEXHULL_H
 #define NV_MATH_CONVEXHULL_H
 
+#include <vector>
 #include "nvmath.h"
 #include "nvcore/Array.h"
 
@@ -11,7 +12,7 @@ namespace nv
 {
 class Vector2;
 
-void convexHull(const Array<Vector2> &input, Array<Vector2> &output, float epsilon = 0);
+void convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &output, float epsilon = 0);
 
 } // namespace nv
 

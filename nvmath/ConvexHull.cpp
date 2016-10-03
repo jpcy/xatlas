@@ -17,11 +17,10 @@ inline static float triangleArea(Vector2::Arg v1, Vector2::Arg v2, Vector2::Arg 
 
 
 // Compute the convex hull using Graham Scan.
-void nv::convexHull(const Array<Vector2> &input, Array<Vector2> &output, float epsilon/*=0*/)
+void nv::convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &output, float epsilon/*=0*/)
 {
-	const uint inputCount = input.count();
-	Array<float> coords;
-	coords.resize(inputCount);
+	const uint inputCount = input.size();
+	std::vector<float> coords(inputCount);
 	for (uint i = 0; i < inputCount; i++) {
 		coords[i] = input[i].x;
 	}
@@ -46,40 +45,40 @@ void nv::convexHull(const Array<Vector2> &input, Array<Vector2> &output, float e
 	}
 	// Filter top list.
 	output.clear();
-	output.append(top[0]);
-	output.append(top[1]);
+	output.push_back(top[0]);
+	output.push_back(top[1]);
 	for (uint i = 2; i < top.size(); ) {
-		Vector2 a = output[output.count() - 2];
-		Vector2 b = output[output.count() - 1];
+		Vector2 a = output[output.size() - 2];
+		Vector2 b = output[output.size() - 1];
 		Vector2 c = top[i];
 		float area = triangleArea(a, b, c);
 		if (area >= -epsilon) {
-			output.popBack();
+			output.pop_back();
 		}
-		if (area < -epsilon || output.count() == 1) {
-			output.append(c);
+		if (area < -epsilon || output.size() == 1) {
+			output.push_back(c);
 			i++;
 		}
 	}
-	uint top_count = output.count();
-	output.append(bottom[1]);
+	uint top_count = output.size();
+	output.push_back(bottom[1]);
 	// Filter bottom list.
 	for (uint i = 2; i < bottom.size(); ) {
-		Vector2 a = output[output.count() - 2];
-		Vector2 b = output[output.count() - 1];
+		Vector2 a = output[output.size() - 2];
+		Vector2 b = output[output.size() - 1];
 		Vector2 c = bottom[i];
 		float area = triangleArea(a, b, c);
 		if (area >= -epsilon) {
-			output.popBack();
+			output.pop_back();
 		}
-		if (area < -epsilon || output.count() == top_count) {
-			output.append(c);
+		if (area < -epsilon || output.size() == top_count) {
+			output.push_back(c);
 			i++;
 		}
 	}
 	// Remove duplicate element.
 	nvDebugCheck(output.front() == output.back());
-	output.popBack();
+	output.pop_back();
 }
 
 
