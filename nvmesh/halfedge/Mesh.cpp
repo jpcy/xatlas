@@ -1,5 +1,6 @@
 // This code is in the public domain -- castanyo@yahoo.es
 
+#include <vector>
 #include <cmath>
 #include "Mesh.h"
 #include "Edge.h"
@@ -138,7 +139,7 @@ void Mesh::linkColocalsWithCanonicalMap(const Array<uint> &canonicalMap)
 	for (uint i = 0; i < canonicalMap.count(); i++) {
 		vertexMapSize = max(vertexMapSize, canonicalMap[i] + 1);
 	}
-	Array<Vertex *> vertexMap;
+	std::vector<Vertex *> vertexMap;
 	vertexMap.resize(vertexMapSize, NULL);
 	m_colocalVertexCount = 0;
 	const uint vertexCount = this->vertexCount();
@@ -440,16 +441,16 @@ Fixing T-junctions.
 */
 bool Mesh::splitBoundaryEdges()
 {
-	Array<Vertex *> boundaryVertices;
+	std::vector<Vertex *> boundaryVertices;
 	for (uint i = 0; i < m_vertexArray.count(); i++) {
 		Vertex *v = m_vertexArray[i];
 		if (v->isBoundary()) {
-			boundaryVertices.append(v);
+			boundaryVertices.push_back(v);
 		}
 	}
 	nvDebug("Fixing T-junctions:\n");
 	int splitCount = 0;
-	for (uint v = 0; v < boundaryVertices.count(); v++) {
+	for (uint v = 0; v < boundaryVertices.size(); v++) {
 		Vertex *vertex = boundaryVertices[v];
 		Vector3 x0 = vertex->pos;
 		// Find edges that this vertex overlaps with.

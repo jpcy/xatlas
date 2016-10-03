@@ -73,54 +73,6 @@ Vector3 Face::normal() const
 		}
 	}
 	return normalizeSafe(n, Vector3(0, 0, 1), 0.0f);
-	// Get face points eliminating duplicates.
-	/*Array<Vector3> points(4);
-
-	points.append(m_edge->prev()->from()->pos);
-
-	for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance())
-	{
-	    const Edge * edge = it.current();
-	    nvDebugCheck(edge != NULL);
-
-	    const Vector3 & p = edge->from()->pos;
-	    if (points.back() != p)
-	    {
-	        points.append(edge->from()->pos);
-	    }
-	}
-
-	points.popBack();
-
-	if (points.count() < 3)
-	{
-	    // Invalid normal.
-	    return Vector3(0.0f);
-	}
-	else
-	{
-	    // Compute regular normal.
-	    Vector3 normal = normalizeSafe(cross(points[1] - points[0], points[2] - points[0]), Vector3(0.0f), 0.0f);
-
-	#pragma NV_MESSAGE("TODO: make sure these three points are not colinear")
-
-	    if (points.count() > 3)
-	    {
-	        // Compute best fitting plane to the points.
-	        Plane plane = Fit::bestPlane(points.count(), points.buffer());
-
-	        // Adjust normal orientation.
-	        if (dot(normal, plane.vector()) > 0) {
-	            normal = plane.vector();
-	        }
-	        else {
-	            normal = -plane.vector();
-	        }
-	    }
-
-	    nvDebugCheck(isNormalized(normal));
-	    return normal;
-	}*/
 }
 
 Vector3 Face::centroid() const

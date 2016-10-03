@@ -428,10 +428,8 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArr
 	const uint meshVertexCount = originalMesh->vertexCount();
 	m_chartMesh.reset(new HalfEdge::Mesh());
 	m_unifiedMesh.reset(new HalfEdge::Mesh());
-	Array<uint> chartMeshIndices;
-	chartMeshIndices.resize(meshVertexCount, ~0);
-	Array<uint> unifiedMeshIndices;
-	unifiedMeshIndices.resize(meshVertexCount, ~0);
+	std::vector<uint> chartMeshIndices(meshVertexCount, ~0);
+	std::vector<uint> unifiedMeshIndices(meshVertexCount, ~0);
 	// Add vertices.
 	const uint faceCount = faceArray.count();
 	for (uint f = 0; f < faceCount; f++) {
@@ -531,8 +529,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const Array<uint>
 	// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
 	const uint meshVertexCount = originalMesh->vertexCount();
 	m_chartMesh.reset(new HalfEdge::Mesh());
-	Array<uint> chartMeshIndices;
-	chartMeshIndices.resize(meshVertexCount, ~0);
+	std::vector<uint> chartMeshIndices(meshVertexCount, ~0);
 	// Vertex map mesh only has disconnected vertices.
 	for (uint f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(m_faceArray[f]);
@@ -584,8 +581,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const Array<uint>
 	const float normalThreshold = 0.01f;
 	uint verticesVisited = 0;
 	uint cellsVisited = 0;
-	Array<int> vertexIndexArray;
-	vertexIndexArray.resize(chartVertexCount, -1); // Init all indices to -1.
+	std::vector<int> vertexIndexArray(chartVertexCount, -1); // Init all indices to -1.
 	// Traverse vertices in morton order. @@ It may be more interesting to sort them based on orientation.
 	const uint cellCodeCount = grid.mortonCount();
 	for (uint cellCode = 0; cellCode < cellCodeCount; cellCode++) {
@@ -627,8 +623,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const Array<uint>
 	nvDebugCheck(vertexMapWidth >= vertexMapHeight);
 	nvDebug("Reduced vertex count from %d to %d.\n", chartVertexCount, texelCount);
 	// Lay down the clustered vertices in morton order.
-	Array<uint> texelCodes;
-	texelCodes.resize(texelCount);
+	std::vector<uint> texelCodes(texelCount);
 	// For each texel, assign one morton code.
 	uint texelCode = 0;
 	for (uint i = 0; i < texelCount; i++) {
@@ -691,12 +686,11 @@ bool Chart::closeLoop(uint start, const Array<HalfEdge::Edge *> &loop)
 	// If the hole is planar, then we add a single face that will be properly triangulated later.
 	// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
 	// This is still a bit of a hack. There surely are better hole filling algorithms out there.
-	Array<Vector3> points;
-	points.resize(vertexCount);
+	std::vector<Vector3> points(vertexCount);
 	for (uint i = 0; i < vertexCount; i++) {
 		points[i] = loop[start + i]->vertex->pos;
 	}
-	bool isPlanar = Fit::isPlanar(vertexCount, points.buffer());
+	bool isPlanar = Fit::isPlanar(vertexCount, points.data());
 	if (isPlanar) {
 		// Add face and connect edges.
 		HalfEdge::Face *face = m_unifiedMesh->addFace();
@@ -737,7 +731,7 @@ bool Chart::closeHoles()
 		return true;
 	}
 	// Compute lengths and areas.
-	Array<float> boundaryLengths;
+	std::vector<float> boundaryLengths;
 	//Array<Vector3> boundaryCentroids;
 	for (uint i = 0; i < boundaryCount; i++) {
 		const HalfEdge::Edge *startEdge = boundaryEdges[i];
@@ -754,7 +748,7 @@ bool Chart::closeHoles()
 			//boundaryCentroid += edge->vertex()->pos;
 			edge = edge->next;
 		} while (edge != startEdge);
-		boundaryLengths.append(boundaryLength);
+		boundaryLengths.push_back(boundaryLength);
 		//boundaryCentroids.append(boundaryCentroid / boundaryEdgeCount);
 	}
 	// Find disk boundary.
@@ -775,18 +769,18 @@ bool Chart::closeHoles()
 		HalfEdge::Edge *startEdge = boundaryEdges[i];
 		nvDebugCheck(startEdge != NULL);
 		nvDebugCheck(startEdge->face == NULL);
-		Array<HalfEdge::Vertex *> vertexLoop;
+		std::vector<HalfEdge::Vertex *> vertexLoop;
 		Array<HalfEdge::Edge *> edgeLoop;
 		HalfEdge::Edge *edge = startEdge;
 		do {
 			HalfEdge::Vertex *vertex = edge->next->vertex;  // edge->to()
 			uint i;
-			for (i = 0; i < vertexLoop.count(); i++) {
+			for (i = 0; i < vertexLoop.size(); i++) {
 				if (vertex->isColocal(vertexLoop[i])) {
 					break;
 				}
 			}
-			bool isCrossing = (i != vertexLoop.count());
+			bool isCrossing = (i != vertexLoop.size());
 			if (isCrossing) {
 				HalfEdge::Edge *prev = edgeLoop[i];     // Previous edge before the loop.
 				HalfEdge::Edge *next = edge->next;    // Next edge after the loop.
@@ -803,7 +797,7 @@ bool Chart::closeHoles()
 				edge = startEdge;
 				vertex = edge->to();
 			}
-			vertexLoop.append(vertex);
+			vertexLoop.push_back(vertex);
 			edgeLoop.append(edge);
 			edge = edge->next;
 		} while (edge != startEdge);
