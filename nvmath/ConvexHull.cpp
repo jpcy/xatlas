@@ -6,7 +6,6 @@
 #include "Vector.h"
 
 #include "nvcore/RadixSort.h"
-#include "nvcore/Array.h"
 
 using namespace nv;
 

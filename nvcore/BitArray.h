@@ -6,7 +6,7 @@
 
 #include <vector>
 #include "nvcore.h"
-#include "Array.h"
+#include "Debug.h"
 
 namespace nv
 {

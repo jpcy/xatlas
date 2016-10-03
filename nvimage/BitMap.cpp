@@ -1,6 +1,7 @@
 // This code is in the public domain -- castanyo@yahoo.es
 
 #include "BitMap.h"
+#include "Utils.h"
 
 using namespace nv;
 

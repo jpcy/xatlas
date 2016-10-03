@@ -2,7 +2,6 @@
 
 #include <vector>
 #include "OrthogonalProjectionMap.h"
-#include "nvcore/Array.h"
 #include "nvmath/Fitting.h"
 #include "nvmath/Vector.h"
 #include "nvmesh/halfedge/Mesh.h"

@@ -6,7 +6,6 @@
 
 #include <vector>
 #include "nvmath.h"
-#include "nvcore/Array.h"
 
 namespace nv
 {

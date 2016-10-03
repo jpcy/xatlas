@@ -3,7 +3,6 @@
 #include "Fitting.h"
 #include "Vector.h"
 
-#include "nvcore/Array.h"
 #include "nvcore/Utils.h" // max, swap
 
 #include <float.h> // FLT_MAX

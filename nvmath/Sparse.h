@@ -4,8 +4,8 @@
 #ifndef NV_MATH_SPARSE_H
 #define NV_MATH_SPARSE_H
 
+#include <vector>
 #include "nvmath.h"
-#include "nvcore/Array.h"
 
 
 // Full and sparse vector and matrix classes. BLAS subset.
@@ -28,7 +28,7 @@ public:
 
 	uint dimension() const
 	{
-		return m_array.count();
+		return m_array.size();
 	}
 
 	const float &operator[]( uint index ) const
@@ -53,7 +53,7 @@ public:
 
 private:
 
-	Array<float> m_array;
+	std::vector<float> m_array;
 
 };
 
@@ -103,7 +103,7 @@ public:
 	}
 	uint height() const
 	{
-		return m_array.count();
+		return m_array.size();
 	}
 	bool isSquare() const
 	{
@@ -127,7 +127,7 @@ public:
 	void clearColumn(uint x);
 	void scaleColumn(uint x, float f);
 
-	const Array<Coefficient> &getRow(uint y) const;
+	const std::vector<Coefficient> &getRow(uint y) const;
 
 	bool isSymmetric() const;
 
@@ -137,7 +137,7 @@ private:
 	const uint m_width;
 
 	/// Array of matrix elements.
-	Array< Array<Coefficient> > m_array;
+	std::vector< std::vector<Coefficient> > m_array;
 
 };
 

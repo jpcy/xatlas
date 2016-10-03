@@ -5,7 +5,6 @@
 #define NV_MESH_ATLAS_H
 
 #include <memory>
-#include "nvcore/Array.h"
 #include "nvmath/Vector.h"
 #include "nvmesh/halfedge/Mesh.h"
 
@@ -45,7 +44,7 @@ public:
 
 	uint meshCount() const
 	{
-		return m_meshChartsArray.count();
+		return m_meshChartsArray.size();
 	}
 	const MeshCharts *meshAt(uint i) const
 	{
@@ -77,7 +76,7 @@ public:
 
 private:
 
-	Array<MeshCharts *> m_meshChartsArray;
+	std::vector<MeshCharts *> m_meshChartsArray;
 
 };
 
@@ -91,7 +90,7 @@ public:
 
 	uint chartCount() const
 	{
-		return m_chartArray.count();
+		return m_chartArray.size();
 	}
 	uint vertexCount () const
 	{
@@ -107,7 +106,7 @@ public:
 		return m_chartArray[i];
 	}
 
-	void computeVertexMap(const Array<uint> &unchartedMaterialArray);
+	void computeVertexMap(const std::vector<uint> &unchartedMaterialArray);
 
 	// Extract the charts of the input mesh.
 	void extractCharts();
@@ -135,13 +134,13 @@ private:
 
 	const HalfEdge::Mesh *m_mesh;
 
-	Array<Chart *> m_chartArray;
+	std::vector<Chart *> m_chartArray;
 
-	Array<uint> m_chartVertexCountPrefixSum;
+	std::vector<uint> m_chartVertexCountPrefixSum;
 	uint m_totalVertexCount;
 
-	Array<uint> m_faceChart; // the chart of every face of the input mesh.
-	Array<uint> m_faceIndex; // the index within the chart for every face of the input mesh.
+	std::vector<uint> m_faceChart; // the chart of every face of the input mesh.
+	std::vector<uint> m_faceIndex; // the index within the chart for every face of the input mesh.
 };
 
 
@@ -152,7 +151,7 @@ public:
 
 	Chart();
 
-	void build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArray);
+	void build(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &faceArray);
 	void buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &unchartedMaterialArray);
 
 	bool closeHoles();
@@ -177,7 +176,7 @@ public:
 
 	uint faceCount() const
 	{
-		return m_faceArray.count();
+		return m_faceArray.size();
 	}
 	uint faceAt(uint i) const
 	{
@@ -212,7 +211,7 @@ public:
 		return m_chartToUnifiedMap[i];
 	}
 
-	const Array<uint> &faceArray() const
+	const std::vector<uint> &faceArray() const
 	{
 		return m_faceArray;
 	}
@@ -230,7 +229,7 @@ public:
 
 private:
 
-	bool closeLoop(uint start, const Array<HalfEdge::Edge *> &loop);
+	bool closeLoop(uint start, const std::vector<HalfEdge::Edge *> &loop);
 
 	// Chart mesh.
 	std::auto_ptr<HalfEdge::Mesh> m_chartMesh;
@@ -240,12 +239,12 @@ private:
 	bool m_isVertexMapped;
 
 	// List of faces of the original mesh that belong to this chart.
-	Array<uint> m_faceArray;
+	std::vector<uint> m_faceArray;
 
 	// Map vertices of the chart mesh to vertices of the original mesh.
-	Array<uint> m_chartToOriginalMap;
+	std::vector<uint> m_chartToOriginalMap;
 
-	Array<uint> m_chartToUnifiedMap;
+	std::vector<uint> m_chartToUnifiedMap;
 };
 
 } // nv namespace

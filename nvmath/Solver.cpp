@@ -3,7 +3,6 @@
 #include "Solver.h"
 #include "Sparse.h"
 
-#include "nvcore/Array.h"
 
 using namespace nv;
 
@@ -83,7 +82,7 @@ bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVect
 	// Compute: b - Al * xl
 	FullVector b_Alxl(b);
 	for (uint y = 0; y < A.height(); y++) {
-		const uint count = A.getRow(y).count();
+		const uint count = A.getRow(y).size();
 		for (uint e = 0; e < count; e++) {
 			uint column = A.getRow(y)[e].x;
 			bool isFree = true;
@@ -98,7 +97,7 @@ bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVect
 	// Remove locked columns from A.
 	SparseMatrix Af(D, A.height());
 	for (uint y = 0; y < A.height(); y++) {
-		const uint count = A.getRow(y).count();
+		const uint count = A.getRow(y).size();
 		for (uint e = 0; e < count; e++) {
 			uint column = A.getRow(y)[e].x;
 			uint ix = column;

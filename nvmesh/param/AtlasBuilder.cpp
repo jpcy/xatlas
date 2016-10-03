@@ -10,7 +10,6 @@
 #include "nvmath/Vector.h"
 
 //#include "nvcore/IntroSort.h"
-#include "nvcore/Array.h"
 
 #include <algorithm> // std::sort
 
@@ -135,8 +134,8 @@ struct nv::ChartBuildData {
 	Vector3 normalSum;
 	Vector3 centroidSum;
 
-	Array<uint> seeds;  // @@ These could be a pointers to the HalfEdge faces directly.
-	Array<uint> faces;
+	std::vector<uint> seeds;  // @@ These could be a pointers to the HalfEdge faces directly.
+	std::vector<uint> faces;
 	PriorityQueue candidates;
 };
 
@@ -165,16 +164,16 @@ AtlasBuilder::AtlasBuilder(const HalfEdge::Mesh *m) : mesh(m), facesLeft(m->face
 
 AtlasBuilder::~AtlasBuilder()
 {
-	const uint chartCount = chartArray.count();
+	const uint chartCount = chartArray.size();
 	for (uint i = 0; i < chartCount; i++) {
 		delete chartArray[i];
 	}
 }
 
 
-void AtlasBuilder::markUnchartedFaces(const Array<uint> &unchartedFaces)
+void AtlasBuilder::markUnchartedFaces(const std::vector<uint> &unchartedFaces)
 {
-	const uint unchartedFaceCount = unchartedFaces.count();
+	const uint unchartedFaceCount = unchartedFaces.size();
 	for (uint i = 0; i < unchartedFaceCount; i++) {
 		uint f = unchartedFaces[i];
 		faceChartArray[f] = -2;
@@ -236,8 +235,8 @@ void AtlasBuilder::placeSeeds(float threshold, uint maxSeedCount)
 
 void AtlasBuilder::createRandomChart(float threshold)
 {
-	ChartBuildData *chart = new ChartBuildData(chartArray.count());
-	chartArray.append(chart);
+	ChartBuildData *chart = new ChartBuildData(chartArray.size());
+	chartArray.push_back(chart);
 	// Pick random face that is not used by any chart yet.
 	uint randomFaceIdx = rand.getRange(facesLeft - 1);
 	uint i = 0;
@@ -245,7 +244,7 @@ void AtlasBuilder::createRandomChart(float threshold)
 		while (faceChartArray[i] != -1) i++;
 	}
 	while (faceChartArray[i] != -1) i++;
-	chart->seeds.append(i);
+	chart->seeds.push_back(i);
 	addFaceToChart(chart, i, true);
 	// Grow the chart as much as possible within the given threshold.
 	growChart(chart, threshold * 0.5f, facesLeft);
@@ -255,7 +254,7 @@ void AtlasBuilder::createRandomChart(float threshold)
 void AtlasBuilder::addFaceToChart(ChartBuildData *chart, uint f, bool recomputeProxy)
 {
 	// Add face to chart.
-	chart->faces.append(f);
+	chart->faces.push_back(f);
 	nvDebugCheck(faceChartArray[f] == -1);
 	faceChartArray[f] = chart->id;
 	facesLeft--;
@@ -279,7 +278,7 @@ const AtlasBuilder::Candidate &AtlasBuilder::getBestCandidate() const
 {
 	uint best = 0;
 	float bestCandidateMetric = FLT_MAX;
-	const uint candidateCount = candidateArray.count();
+	const uint candidateCount = candidateArray.size();
 	nvCheck(candidateCount > 0);
 	for (uint i = 0; i < candidateCount; i++) {
 		const Candidate &candidate = candidateArray[i];
@@ -336,7 +335,7 @@ void AtlasBuilder::resetCharts()
 	}
 	facesLeft = faceCount;
 	candidateArray.clear();
-	const uint chartCount = chartArray.count();
+	const uint chartCount = chartArray.size();
 	for (uint i = 0; i < chartCount; i++) {
 		ChartBuildData *chart = chartArray[i];
 		const uint seed = chart->seeds.back();
@@ -369,7 +368,7 @@ void AtlasBuilder::updateCandidates(ChartBuildData *chart, uint f)
 
 void AtlasBuilder::updateProxies()
 {
-	const uint chartCount = chartArray.count();
+	const uint chartCount = chartArray.size();
 	for (uint i = 0; i < chartCount; i++) {
 		updateProxy(chartArray[i]);
 	}
@@ -422,7 +421,7 @@ void AtlasBuilder::updateProxy(ChartBuildData *chart)
 {
 	//#pragma message(NV_FILE_LINE "TODO: Use best fit plane instead of average normal.")
 	chart->planeNormal = normalizeSafe(chart->normalSum, Vector3(0), 0.0f);
-	chart->centroid = chart->centroidSum / float(chart->faces.count());
+	chart->centroid = chart->centroidSum / float(chart->faces.size());
 }
 
 
@@ -430,7 +429,7 @@ void AtlasBuilder::updateProxy(ChartBuildData *chart)
 bool AtlasBuilder::relocateSeeds()
 {
 	bool anySeedChanged = false;
-	const uint chartCount = chartArray.count();
+	const uint chartCount = chartArray.size();
 	for (uint i = 0; i < chartCount; i++) {
 		if (relocateSeed(chartArray[i])) {
 			anySeedChanged = true;
@@ -446,7 +445,7 @@ bool AtlasBuilder::relocateSeed(ChartBuildData *chart)
 	const uint N = 10;  // @@ Hardcoded to 10?
 	PriorityQueue bestTriangles(N);
 	// Find the first N triangles that fit the proxy best.
-	const uint faceCount = chart->faces.count();
+	const uint faceCount = chart->faces.size();
 	for (uint i = 0; i < faceCount; i++) {
 		float priority = evaluateProxyFitMetric(chart, chart->faces[i]);
 		bestTriangles.push(priority, chart->faces[i]);
@@ -466,15 +465,15 @@ bool AtlasBuilder::relocateSeed(ChartBuildData *chart)
 	}
 	nvDebugCheck(maxDistance >= 0);
 	// In order to prevent k-means cyles we record all the previously chosen seeds.
-	uint index;
-	if (chart->seeds.find(mostCentral, &index)) {
+	uint index = std::find(chart->seeds.begin(), chart->seeds.end(), mostCentral) - chart->seeds.begin();
+	if (index < chart->seeds.size()) {
 		// Move new seed to the end of the seed array.
-		uint last = chart->seeds.count() - 1;
+		uint last = chart->seeds.size() - 1;
 		swap(chart->seeds[index], chart->seeds[last]);
 		return false;
 	} else {
 		// Append new seed.
-		chart->seeds.append(mostCentral);
+		chart->seeds.push_back(mostCentral);
 		return true;
 	}
 }
@@ -484,10 +483,12 @@ void AtlasBuilder::removeCandidate(uint f)
 	int c = faceCandidateArray[f];
 	if (c != -1) {
 		faceCandidateArray[f] = -1;
-		if (c == candidateArray.count() - 1) {
-			candidateArray.popBack();
+		if (c == candidateArray.size() - 1) {
+			candidateArray.pop_back();
 		} else {
-			candidateArray.replaceWithLast(c);
+			// Replace with last.
+			candidateArray[c] = candidateArray[candidateArray.size() - 1];
+			candidateArray.pop_back();
 			faceCandidateArray[candidateArray[c].face] = c;
 		}
 	}
@@ -496,7 +497,7 @@ void AtlasBuilder::removeCandidate(uint f)
 void AtlasBuilder::updateCandidate(ChartBuildData *chart, uint f, float metric)
 {
 	if (faceCandidateArray[f] == -1) {
-		const uint index = candidateArray.count();
+		const uint index = candidateArray.size();
 		faceCandidateArray[f] = index;
 		candidateArray.resize(index + 1);
 		candidateArray[index].face = f;
@@ -766,7 +767,7 @@ Vector3 AtlasBuilder::evaluateChartCentroidSum(ChartBuildData *chart, uint f)
 Vector3 AtlasBuilder::computeChartCentroid(const ChartBuildData *chart)
 {
 	Vector3 centroid(0);
-	const uint faceCount = chart->faces.count();
+	const uint faceCount = chart->faces.size();
 	for (uint i = 0; i < faceCount; i++) {
 		const HalfEdge::Face *face = mesh->faceAt(chart->faces[i]);
 		centroid += triangleCenter(face);
@@ -785,12 +786,12 @@ void AtlasBuilder::fillHoles(float threshold)
 
 void AtlasBuilder::mergeChart(ChartBuildData *owner, ChartBuildData *chart, float sharedBoundaryLength)
 {
-	const uint faceCount = chart->faces.count();
+	const uint faceCount = chart->faces.size();
 	for (uint i = 0; i < faceCount; i++) {
 		uint f = chart->faces[i];
 		nvDebugCheck(faceChartArray[f] == chart->id);
 		faceChartArray[f] = owner->id;
-		owner->faces.append(f);
+		owner->faces.push_back(f);
 	}
 	// Update adjacencies?
 	owner->area += chart->area;
@@ -803,13 +804,13 @@ void AtlasBuilder::mergeChart(ChartBuildData *owner, ChartBuildData *chart, floa
 void AtlasBuilder::mergeCharts()
 {
 	std::vector<float> sharedBoundaryLengths;
-	const uint chartCount = chartArray.count();
+	const uint chartCount = chartArray.size();
 	for (int c = chartCount - 1; c >= 0; c--) {
 		sharedBoundaryLengths.clear();
 		sharedBoundaryLengths.resize(chartCount, 0.0f);
 		ChartBuildData *chart = chartArray[c];
 		float externalBoundary = 0.0f;
-		const uint faceCount = chart->faces.count();
+		const uint faceCount = chart->faces.size();
 		for (uint i = 0; i < faceCount; i++) {
 			uint f = chart->faces[i];
 			const HalfEdge::Face *face = mesh->faceAt(f);
@@ -861,15 +862,15 @@ void AtlasBuilder::mergeCharts()
 		}
 	}
 	// Remove deleted charts.
-	for (int c = 0; c < int32(chartArray.count()); /*do not increment if removed*/) {
+	for (int c = 0; c < int32(chartArray.size()); /*do not increment if removed*/) {
 		if (chartArray[c] == NULL) {
-			chartArray.removeAt(c);
+			chartArray.erase(chartArray.begin() + c);
 			// Update faceChartArray.
-			const uint faceCount = faceChartArray.count();
+			const uint faceCount = faceChartArray.size();
 			for (uint i = 0; i < faceCount; i++) {
 				nvDebugCheck (faceChartArray[i] != -1);
 				nvDebugCheck (faceChartArray[i] != c);
-				nvDebugCheck (faceChartArray[i] <= int32(chartArray.count()));
+				nvDebugCheck (faceChartArray[i] <= int32(chartArray.size()));
 				if (faceChartArray[i] > c) {
 					faceChartArray[i]--;
 				}
@@ -881,7 +882,7 @@ void AtlasBuilder::mergeCharts()
 	}
 }
 
-const Array<uint> &AtlasBuilder::chartFaces(uint i) const
+const std::vector<uint> &AtlasBuilder::chartFaces(uint i) const
 {
 	return chartArray[i]->faces;
 }

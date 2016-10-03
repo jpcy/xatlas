@@ -9,7 +9,6 @@
 #include "nvmath/Vector.h"
 #include "nvmath/Random.h"
 
-#include "nvcore/Array.h"
 #include "nvcore/BitArray.h"
 
 
@@ -27,7 +26,7 @@ struct AtlasBuilder {
 	AtlasBuilder(const HalfEdge::Mesh *m);
 	~AtlasBuilder();
 
-	void markUnchartedFaces(const Array<uint> &unchartedFaces);
+	void markUnchartedFaces(const std::vector<uint> &unchartedFaces);
 
 	void computeShortestPaths();
 
@@ -89,21 +88,21 @@ struct AtlasBuilder {
 
 	uint chartCount() const
 	{
-		return chartArray.count();
+		return chartArray.size();
 	}
-	const Array<uint> &chartFaces(uint i) const;
+	const std::vector<uint> &chartFaces(uint i) const;
 
 	const HalfEdge::Mesh *mesh;
 	uint facesLeft;
-	Array<int> faceChartArray;
-	Array<ChartBuildData *> chartArray;
-	Array<float> shortestPaths;
+	std::vector<int> faceChartArray;
+	std::vector<ChartBuildData *> chartArray;
+	std::vector<float> shortestPaths;
 
-	Array<float> edgeLengths;
-	Array<float> faceAreas;
+	std::vector<float> edgeLengths;
+	std::vector<float> faceAreas;
 
-	Array<Candidate> candidateArray; //
-	Array<uint> faceCandidateArray; // Map face index to candidate index.
+	std::vector<Candidate> candidateArray; //
+	std::vector<uint> faceCandidateArray; // Map face index to candidate index.
 
 	MTRand rand;
 

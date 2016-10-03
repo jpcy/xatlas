@@ -7,7 +7,6 @@
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmath/Basis.h"
 #include "nvmath/Vector.h"
-#include "nvcore/Array.h"
 
 using namespace nv;
 
@@ -35,7 +34,7 @@ HalfEdge::Mesh *nv::unifyVertices(const HalfEdge::Mesh *inputMesh)
 			mesh->addVertex(vertex->pos);
 		}
 	}
-	nv::Array<uint> indexArray;
+	std::vector<uint> indexArray;
 	// Add new faces pointing to first colocals.
 	uint faceCount = inputMesh->faceCount();
 	for (uint f = 0; f < faceCount; f++) {
@@ -44,7 +43,7 @@ HalfEdge::Mesh *nv::unifyVertices(const HalfEdge::Mesh *inputMesh)
 		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const HalfEdge::Edge *edge = it.current();
 			const HalfEdge::Vertex *vertex = edge->vertex->firstColocal();
-			indexArray.append(vertex->id);
+			indexArray.push_back(vertex->id);
 		}
 		mesh->addFace(indexArray);
 	}

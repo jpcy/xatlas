@@ -1,6 +1,5 @@
 // This code is in the public domain -- castanyo@yahoo.es
 #include <vector>
-#include "nvcore/Array.h"
 #include "nvcore/BitArray.h"
 
 #include "nvmesh/MeshTopology.h"

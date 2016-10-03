@@ -9,7 +9,6 @@
 #include "nvmath/Sparse.h"
 #include "nvmath/Solver.h"
 #include "nvmath/Vector.h"
-#include "nvcore/Array.h"
 
 using namespace nv;
 using namespace HalfEdge;

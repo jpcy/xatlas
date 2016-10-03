@@ -5,7 +5,6 @@
 
 #include "nvmath/Vector.h"
 
-#include "nvcore/Array.h"
 
 
 using namespace nv;

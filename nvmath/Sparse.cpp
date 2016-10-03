@@ -2,7 +2,6 @@
 
 #include "Sparse.h"
 
-#include "nvcore/Array.h"
 
 using namespace nv;
 
@@ -152,7 +151,7 @@ float SparseMatrix::getCoefficient(uint x, uint y) const
 {
 	nvDebugCheck( x < width() );
 	nvDebugCheck( y < height() );
-	const uint count = m_array[y].count();
+	const uint count = m_array[y].size();
 	for (uint i = 0; i < count; i++) {
 		if (m_array[y][i].x == x) return m_array[y][i].v;
 	}
@@ -163,7 +162,7 @@ void SparseMatrix::setCoefficient(uint x, uint y, float f)
 {
 	nvDebugCheck( x < width() );
 	nvDebugCheck( y < height() );
-	const uint count = m_array[y].count();
+	const uint count = m_array[y].size();
 	for (uint i = 0; i < count; i++) {
 		if (m_array[y][i].x == x) {
 			m_array[y][i].v = f;
@@ -172,7 +171,7 @@ void SparseMatrix::setCoefficient(uint x, uint y, float f)
 	}
 	if (f != 0.0f) {
 		Coefficient c = { x, f };
-		m_array[y].append( c );
+		m_array[y].push_back( c );
 	}
 }
 
@@ -181,7 +180,7 @@ void SparseMatrix::addCoefficient(uint x, uint y, float f)
 	nvDebugCheck( x < width() );
 	nvDebugCheck( y < height() );
 	if (f != 0.0f) {
-		const uint count = m_array[y].count();
+		const uint count = m_array[y].size();
 		for (uint i = 0; i < count; i++) {
 			if (m_array[y][i].x == x) {
 				m_array[y][i].v += f;
@@ -189,7 +188,7 @@ void SparseMatrix::addCoefficient(uint x, uint y, float f)
 			}
 		}
 		Coefficient c = { x, f };
-		m_array[y].append( c );
+		m_array[y].push_back( c );
 	}
 }
 
@@ -197,7 +196,7 @@ void SparseMatrix::mulCoefficient(uint x, uint y, float f)
 {
 	nvDebugCheck( x < width() );
 	nvDebugCheck( y < height() );
-	const uint count = m_array[y].count();
+	const uint count = m_array[y].size();
 	for (uint i = 0; i < count; i++) {
 		if (m_array[y][i].x == x) {
 			m_array[y][i].v *= f;
@@ -206,7 +205,7 @@ void SparseMatrix::mulCoefficient(uint x, uint y, float f)
 	}
 	if (f != 0.0f) {
 		Coefficient c = { x, f };
-		m_array[y].append( c );
+		m_array[y].push_back( c );
 	}
 }
 
@@ -214,7 +213,7 @@ void SparseMatrix::mulCoefficient(uint x, uint y, float f)
 float SparseMatrix::sumRow(uint y) const
 {
 	nvDebugCheck( y < height() );
-	const uint count = m_array[y].count();
+	const uint count = m_array[y].size();
 	float sum = 0;
 	for (uint i = 0; i < count; i++) {
 		sum += m_array[y][i].v;
@@ -225,7 +224,7 @@ float SparseMatrix::sumRow(uint y) const
 float SparseMatrix::dotRow(uint y, const FullVector &v) const
 {
 	nvDebugCheck( y < height() );
-	const uint count = m_array[y].count();
+	const uint count = m_array[y].size();
 	float sum = 0;
 	for (uint i = 0; i < count; i++) {
 		sum += m_array[y][i].v * v[m_array[y][i].x];
@@ -236,7 +235,7 @@ float SparseMatrix::dotRow(uint y, const FullVector &v) const
 void SparseMatrix::madRow(uint y, float alpha, FullVector &v) const
 {
 	nvDebugCheck(y < height());
-	const uint count = m_array[y].count();
+	const uint count = m_array[y].size();
 	for (uint i = 0; i < count; i++) {
 		v[m_array[y][i].x] += alpha * m_array[y][i].v;
 	}
@@ -252,7 +251,7 @@ void SparseMatrix::clearRow(uint y)
 void SparseMatrix::scaleRow(uint y, float f)
 {
 	nvDebugCheck( y < height() );
-	const uint count = m_array[y].count();
+	const uint count = m_array[y].size();
 	for (uint i = 0; i < count; i++) {
 		m_array[y][i].v *= f;
 	}
@@ -262,7 +261,7 @@ void SparseMatrix::normalizeRow(uint y)
 {
 	nvDebugCheck( y < height() );
 	float norm = 0.0f;
-	const uint count = m_array[y].count();
+	const uint count = m_array[y].size();
 	for (uint i = 0; i < count; i++) {
 		float f = m_array[y][i].v;
 		norm += f * f;
@@ -275,7 +274,7 @@ void SparseMatrix::clearColumn(uint x)
 {
 	nvDebugCheck(x < width());
 	for (uint y = 0; y < height(); y++) {
-		const uint count = m_array[y].count();
+		const uint count = m_array[y].size();
 		for (uint e = 0; e < count; e++) {
 			if (m_array[y][e].x == x) {
 				m_array[y][e].v = 0.0f;
@@ -289,7 +288,7 @@ void SparseMatrix::scaleColumn(uint x, float f)
 {
 	nvDebugCheck(x < width());
 	for (uint y = 0; y < height(); y++) {
-		const uint count = m_array[y].count();
+		const uint count = m_array[y].size();
 		for (uint e = 0; e < count; e++) {
 			if (m_array[y][e].x == x) {
 				m_array[y][e].v *= f;
@@ -299,7 +298,7 @@ void SparseMatrix::scaleColumn(uint x, float f)
 	}
 }
 
-const Array<SparseMatrix::Coefficient> &SparseMatrix::getRow(uint y) const
+const std::vector<SparseMatrix::Coefficient> &SparseMatrix::getRow(uint y) const
 {
 	return m_array[y];
 }
@@ -308,7 +307,7 @@ const Array<SparseMatrix::Coefficient> &SparseMatrix::getRow(uint y) const
 bool SparseMatrix::isSymmetric() const
 {
 	for (uint y = 0; y < height(); y++) {
-		const uint count = m_array[y].count();
+		const uint count = m_array[y].size();
 		for (uint e = 0; e < count; e++) {
 			const uint x = m_array[y][e].x;
 			if (x > y) {
@@ -378,8 +377,8 @@ void nv::sgemv(float alpha, Transpose TA, const SparseMatrix &A, const FullVecto
 // dot y-row of A by x-column of B
 static float dotRowColumn(int y, const SparseMatrix &A, int x, const SparseMatrix &B)
 {
-	const Array<SparseMatrix::Coefficient> &row = A.getRow(y);
-	const uint count = row.count();
+	const std::vector<SparseMatrix::Coefficient> &row = A.getRow(y);
+	const uint count = row.size();
 	float sum = 0.0f;
 	for (uint i = 0; i < count; i++) {
 		const SparseMatrix::Coefficient &c = row[i];
@@ -391,8 +390,8 @@ static float dotRowColumn(int y, const SparseMatrix &A, int x, const SparseMatri
 // dot y-row of A by x-row of B
 static float dotRowRow(int y, const SparseMatrix &A, int x, const SparseMatrix &B)
 {
-	const Array<SparseMatrix::Coefficient> &row = A.getRow(y);
-	const uint count = row.count();
+	const std::vector<SparseMatrix::Coefficient> &row = A.getRow(y);
+	const uint count = row.size();
 	float sum = 0.0f;
 	for (uint i = 0; i < count; i++) {
 		const SparseMatrix::Coefficient &c = row[i];
@@ -424,8 +423,8 @@ void nv::transpose(const SparseMatrix &A, SparseMatrix &B)
 	}
 	const uint h = A.height();
 	for (uint y = 0; y < h; y++) {
-		const Array<SparseMatrix::Coefficient> &row = A.getRow(y);
-		const uint count = row.count();
+		const std::vector<SparseMatrix::Coefficient> &row = A.getRow(y);
+		const uint count = row.size();
 		for (uint i = 0; i < count; i++) {
 			const SparseMatrix::Coefficient &c = row[i];
 			nvDebugCheck(c.x < w);

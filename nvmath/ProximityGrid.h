@@ -6,8 +6,6 @@
 #include "Vector.h"
 #include "ftoi.h"
 
-#include "nvcore/Array.h"
-
 
 // A simple, dynamic proximity grid based on Jon's code.
 // Instead of storing pointers here I store indices.
@@ -38,7 +36,7 @@ struct ProximityGrid {
 
 	void gather(const Vector3 &pos, float radius, std::vector<uint> &indices);
 
-	Array<Cell> cellArray;
+	std::vector<Cell> cellArray;
 
 	Vector3 corner;
 	Vector3 invCellSize;
@@ -66,7 +64,7 @@ inline int ProximityGrid::index(int x, int y, int z) const
 	nvDebugCheck(y >= 0 && y < sy);
 	nvDebugCheck(z >= 0 && z < sz);
 	int idx = (z * sy + y) * sx + x;
-	nvDebugCheck(idx >= 0 && uint(idx) < cellArray.count());
+	nvDebugCheck(idx >= 0 && uint(idx) < cellArray.size());
 	return idx;
 }
 

@@ -14,7 +14,6 @@
 #include "nvmath/Vector.h"
 #include "nvmath/ftoi.h"
 
-#include "nvcore/Array.h"
 
 
 using namespace Thekla;

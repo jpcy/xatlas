@@ -5,7 +5,6 @@
 #define NV_MESH_HALFEDGE_MESH_H
 
 #include <vector>
-#include "nvcore/Array.h"
 #include "nvcore/HashMap.h"
 
 /*
@@ -56,8 +55,8 @@ public:
 	Face *addFace();
 	Face *addFace(uint v0, uint v1, uint v2);
 	Face *addFace(uint v0, uint v1, uint v2, uint v3);
-	Face *addFace(const Array<uint> &indexArray);
-	Face *addFace(const Array<uint> &indexArray, uint first, uint num);
+	Face *addFace(const std::vector<uint> &indexArray);
+	Face *addFace(const std::vector<uint> &indexArray, uint first, uint num);
 	//void addFaces(const Mesh * mesh);
 
 	// These functions disconnect the given element from the mesh and delete it.
@@ -85,7 +84,7 @@ public:
 	// Vertices
 	uint vertexCount() const
 	{
-		return m_vertexArray.count();
+		return m_vertexArray.size();
 	}
 	const Vertex *vertexAt(int i) const
 	{
@@ -104,7 +103,7 @@ public:
 	// Faces
 	uint faceCount() const
 	{
-		return m_faceArray.count();
+		return m_faceArray.size();
 	}
 	const Face *faceAt(int i) const
 	{
@@ -118,7 +117,7 @@ public:
 	// Edges
 	uint edgeCount() const
 	{
-		return m_edgeArray.count();
+		return m_edgeArray.size();
 	}
 	const Edge *edgeAt(int i) const
 	{
@@ -316,7 +315,7 @@ public:
 
 private:
 
-	bool canAddFace(const Array<uint> &indexArray, uint first, uint num) const;
+	bool canAddFace(const std::vector<uint> &indexArray, uint first, uint num) const;
 	bool canAddEdge(uint i, uint j) const;
 	Edge *addEdge(uint i, uint j);
 
@@ -328,9 +327,9 @@ private:
 
 private:
 
-	Array<Vertex *> m_vertexArray;
-	Array<Edge *> m_edgeArray;
-	Array<Face *> m_faceArray;
+	std::vector<Vertex *> m_vertexArray;
+	std::vector<Edge *> m_edgeArray;
+	std::vector<Face *> m_faceArray;
 
 	struct Key {
 		Key() {}

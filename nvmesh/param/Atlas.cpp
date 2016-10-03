@@ -23,7 +23,6 @@
 #include "nvmath/ProximityGrid.h"
 #include "nvmath/Morton.h"
 
-#include "nvcore/Array.h"
 #include "nvcore/HashMap.h"
 
 using namespace nv;
@@ -37,13 +36,14 @@ Atlas::Atlas()
 // Dtor.
 Atlas::~Atlas()
 {
-	deleteAll(m_meshChartsArray);
+	for (size_t i = 0; i < m_meshChartsArray.size(); i++)
+		delete m_meshChartsArray[i];
 }
 
 uint Atlas::chartCount() const
 {
 	uint count = 0;
-	for (uint c = 0; c < m_meshChartsArray.count(); c++) {
+	for (uint c = 0; c < m_meshChartsArray.size(); c++) {
 		count += m_meshChartsArray[c]->chartCount();
 	}
 	return count;
@@ -51,7 +51,7 @@ uint Atlas::chartCount() const
 
 const Chart *Atlas::chartAt(uint i) const
 {
-	for (uint c = 0; c < m_meshChartsArray.count(); c++) {
+	for (uint c = 0; c < m_meshChartsArray.size(); c++) {
 		uint count = m_meshChartsArray[c]->chartCount();
 		if (i < count) {
 			return m_meshChartsArray[c]->chartAt(i);
@@ -63,7 +63,7 @@ const Chart *Atlas::chartAt(uint i) const
 
 Chart *Atlas::chartAt(uint i)
 {
-	for (uint c = 0; c < m_meshChartsArray.count(); c++) {
+	for (uint c = 0; c < m_meshChartsArray.size(); c++) {
 		uint count = m_meshChartsArray[c]->chartCount();
 		if (i < count) {
 			return m_meshChartsArray[c]->chartAt(i);
@@ -76,7 +76,7 @@ Chart *Atlas::chartAt(uint i)
 // Extract the charts and add to this atlas.
 void Atlas::addMeshCharts(MeshCharts *meshCharts)
 {
-	m_meshChartsArray.append(meshCharts);
+	m_meshChartsArray.push_back(meshCharts);
 }
 
 void Atlas::extractCharts(const HalfEdge::Mesh *mesh)
@@ -95,7 +95,7 @@ void Atlas::computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings
 
 void Atlas::parameterizeCharts()
 {
-	for (uint i = 0; i < m_meshChartsArray.count(); i++) {
+	for (uint i = 0; i < m_meshChartsArray.size(); i++) {
 		m_meshChartsArray[i]->parameterizeCharts();
 	}
 }
@@ -119,15 +119,16 @@ MeshCharts::MeshCharts(const HalfEdge::Mesh *mesh) : m_mesh(mesh)
 // Dtor.
 MeshCharts::~MeshCharts()
 {
-	deleteAll(m_chartArray);
+	for (size_t i = 0; i < m_chartArray.size(); i++)
+		delete m_chartArray[i];
 }
-
 
 void MeshCharts::extractCharts()
 {
 	const uint faceCount = m_mesh->faceCount();
 	int first = 0;
-	Array<uint> queue(faceCount);
+	std::vector<uint> queue;
+	queue.reserve(faceCount);
 	BitArray bitFlags(faceCount);
 	bitFlags.clearAll();
 	for (uint f = 0; f < faceCount; f++) {
@@ -135,9 +136,9 @@ void MeshCharts::extractCharts()
 			// Start new patch. Reset queue.
 			first = 0;
 			queue.clear();
-			queue.append(f);
+			queue.push_back(f);
 			bitFlags.setBitAt(f);
-			while (first != queue.count()) {
+			while (first != queue.size()) {
 				const HalfEdge::Face *face = m_mesh->faceAt(queue[first]);
 				// Visit face neighbors of queue[first]
 				for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
@@ -149,7 +150,7 @@ void MeshCharts::extractCharts()
 						const HalfEdge::Face *neighborFace = edge->pair->face;
 						nvDebugCheck(neighborFace != NULL);
 						if (bitFlags.bitAt(neighborFace->id) == false) {
-							queue.append(neighborFace->id);
+							queue.push_back(neighborFace->id);
 							bitFlags.setBitAt(neighborFace->id);
 						}
 					}
@@ -158,7 +159,7 @@ void MeshCharts::extractCharts()
 			}
 			Chart *chart = new Chart();
 			chart->build(m_mesh, queue);
-			m_chartArray.append(chart);
+			m_chartArray.push_back(chart);
 		}
 	}
 }
@@ -258,7 +259,7 @@ void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::
 	if (vertexMap != NULL) {
 		// Mark faces that do not need to be charted.
 		builder.markUnchartedFaces(vertexMap->faceArray());
-		m_chartArray.append(vertexMap);
+		m_chartArray.push_back(vertexMap);
 	}
 	if (builder.facesLeft != 0) {
 		// Tweak these values:
@@ -322,14 +323,14 @@ void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::
 #endif
 		// Make sure no holes are left!
 		nvDebugCheck(builder.facesLeft == 0);
-		const uint chartCount = builder.chartArray.count();
+		const uint chartCount = builder.chartArray.size();
 		for (uint i = 0; i < chartCount; i++) {
 			Chart *chart = new Chart();
-			m_chartArray.append(chart);
+			m_chartArray.push_back(chart);
 			chart->build(m_mesh, builder.chartFaces(i));
 		}
 	}
-	const uint chartCount = m_chartArray.count();
+	const uint chartCount = m_chartArray.size();
 	// Build face indices.
 	m_faceChart.resize(m_mesh->faceCount());
 	m_faceIndex.resize(m_mesh->faceCount());
@@ -362,8 +363,8 @@ void MeshCharts::parameterizeCharts()
 	ParameterizationQuality globalParameterizationQuality;
 	// Parameterize the charts.
 	uint diskCount = 0;
-	const uint chartCount = m_chartArray.count();
-	for (uint i = 0; i < chartCount; i++)\
+	const uint chartCount = m_chartArray.size();
+	for (uint i = 0; i < chartCount; i++)
 	{
 		Chart *chart = m_chartArray[i];
 
@@ -421,7 +422,7 @@ Chart::Chart() : m_isDisk(false), m_isVertexMapped(false)
 {
 }
 
-void Chart::build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArray)
+void Chart::build(const HalfEdge::Mesh *originalMesh, const std::vector<uint> &faceArray)
 {
 	// Copy face indices.
 	m_faceArray = faceArray;
@@ -431,7 +432,7 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArr
 	std::vector<uint> chartMeshIndices(meshVertexCount, ~0);
 	std::vector<uint> unifiedMeshIndices(meshVertexCount, ~0);
 	// Add vertices.
-	const uint faceCount = faceArray.count();
+	const uint faceCount = faceArray.size();
 	for (uint f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(faceArray[f]);
 		nvDebugCheck(face != NULL);
@@ -445,8 +446,8 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArr
 			}
 			if (chartMeshIndices[vertex->id] == ~0) {
 				chartMeshIndices[vertex->id] = m_chartMesh->vertexCount();
-				m_chartToOriginalMap.append(vertex->id);
-				m_chartToUnifiedMap.append(unifiedMeshIndices[unifiedVertex->id]);
+				m_chartToOriginalMap.push_back(vertex->id);
+				m_chartToUnifiedMap.push_back(unifiedMeshIndices[unifiedVertex->id]);
 				HalfEdge::Vertex *v = m_chartMesh->addVertex(vertex->pos);
 				v->nor = vertex->nor;
 				v->tex = vertex->tex;
@@ -462,7 +463,8 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArr
 	// is not guaranteed to return the same vertex for two colocal vertices.
 	//nvCheck(m_chartMesh->colocalVertexCount() == m_unifiedMesh->vertexCount());
 	// Is that OK? What happens in meshes were that happens? Does anything break? Apparently not...
-	Array<uint> faceIndices(7);
+	std::vector<uint> faceIndices;
+	faceIndices.reserve(7);
 	// Add faces.
 	for (uint f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(faceArray[f]);
@@ -471,7 +473,7 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArr
 		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const HalfEdge::Vertex *vertex = it.current()->vertex;
 			nvDebugCheck(vertex != NULL);
-			faceIndices.append(chartMeshIndices[vertex->id]);
+			faceIndices.push_back(chartMeshIndices[vertex->id]);
 		}
 		m_chartMesh->addFace(faceIndices);
 		faceIndices.clear();
@@ -479,7 +481,7 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const Array<uint> &faceArr
 			const HalfEdge::Vertex *vertex = it.current()->vertex;
 			nvDebugCheck(vertex != NULL);
 			vertex = vertex->firstColocal();
-			faceIndices.append(unifiedMeshIndices[vertex->id]);
+			faceIndices.push_back(unifiedMeshIndices[vertex->id]);
 		}
 		m_unifiedMesh->addFace(faceIndices);
 	}
@@ -519,10 +521,10 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 	for (uint f = 0; f < meshFaceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(f);
 		if (std::find(unchartedMaterialArray.begin(), unchartedMaterialArray.end(), face->material) != unchartedMaterialArray.end()) {
-			m_faceArray.append(f);
+			m_faceArray.push_back(f);
 		}
 	}
-	const uint faceCount = m_faceArray.count();
+	const uint faceCount = m_faceArray.size();
 	if (faceCount == 0) {
 		return;
 	}
@@ -538,7 +540,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 			const HalfEdge::Vertex *vertex = it.current()->vertex;
 			if (chartMeshIndices[vertex->id] == ~0) {
 				chartMeshIndices[vertex->id] = m_chartMesh->vertexCount();
-				m_chartToOriginalMap.append(vertex->id);
+				m_chartToOriginalMap.push_back(vertex->id);
 				HalfEdge::Vertex *v = m_chartMesh->addVertex(vertex->pos);
 				v->nor = vertex->nor;
 				v->tex = vertex->tex; // @@ Not necessary.
@@ -547,7 +549,8 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 	}
 	// @@ Link colocals using the original mesh canonical map? Build canonical map on the fly? Do we need to link colocals at all for this?
 	//m_chartMesh->linkColocals();
-	Array<uint> faceIndices(7);
+	std::vector<uint> faceIndices;
+	faceIndices.reserve(7);
 	// Add faces.
 	for (uint f = 0; f < faceCount; f++) {
 		const HalfEdge::Face *face = originalMesh->faceAt(m_faceArray[f]);
@@ -557,7 +560,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 			const HalfEdge::Vertex *vertex = it.current()->vertex;
 			nvDebugCheck(vertex != NULL);
 			nvDebugCheck(chartMeshIndices[vertex->id] != ~0);
-			faceIndices.append(chartMeshIndices[vertex->id]);
+			faceIndices.push_back(chartMeshIndices[vertex->id]);
 		}
 		HalfEdge::Face *new_face = m_chartMesh->addFace(faceIndices);
 		nvDebugCheck(new_face != NULL);
@@ -614,7 +617,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 			verticesVisited++;
 		}
 	}
-	nvDebugCheck(cellsVisited == grid.cellArray.count());
+	nvDebugCheck(cellsVisited == grid.cellArray.size());
 	nvDebugCheck(verticesVisited == chartVertexCount);
 	vertexMapWidth = ftoi_ceil(sqrtf(float(texelCount)));
 	vertexMapWidth = (vertexMapWidth + 3) & ~3;                             // Width aligned to 4.
@@ -650,7 +653,7 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 
 
 
-static void getBoundaryEdges(HalfEdge::Mesh *mesh, Array<HalfEdge::Edge *> &boundaryEdges)
+static void getBoundaryEdges(HalfEdge::Mesh *mesh, std::vector<HalfEdge::Edge *> &boundaryEdges)
 {
 	nvDebugCheck(mesh != NULL);
 	const uint edgeCount = mesh->edgeCount();
@@ -671,15 +674,15 @@ static void getBoundaryEdges(HalfEdge::Mesh *mesh, Array<HalfEdge::Edge *> &boun
 				bitFlags.setBitAt(edge->id / 2);
 				edge = edge->next;
 			} while (startEdge != edge);
-			boundaryEdges.append(startEdge);
+			boundaryEdges.push_back(startEdge);
 		}
 	}
 }
 
 
-bool Chart::closeLoop(uint start, const Array<HalfEdge::Edge *> &loop)
+bool Chart::closeLoop(uint start, const std::vector<HalfEdge::Edge *> &loop)
 {
-	const uint vertexCount = loop.count() - start;
+	const uint vertexCount = loop.size() - start;
 	nvDebugCheck(vertexCount >= 3);
 	if (vertexCount < 3) return false;
 	nvDebugCheck(loop[start]->vertex->isColocal(loop[start + vertexCount - 1]->to()));
@@ -723,16 +726,15 @@ bool Chart::closeLoop(uint start, const Array<HalfEdge::Edge *> &loop)
 bool Chart::closeHoles()
 {
 	nvDebugCheck(!m_isVertexMapped);
-	Array<HalfEdge::Edge *> boundaryEdges;
+	std::vector<HalfEdge::Edge *> boundaryEdges;
 	getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
-	uint boundaryCount = boundaryEdges.count();
+	uint boundaryCount = boundaryEdges.size();
 	if (boundaryCount <= 1) {
 		// Nothing to close.
 		return true;
 	}
 	// Compute lengths and areas.
 	std::vector<float> boundaryLengths;
-	//Array<Vector3> boundaryCentroids;
 	for (uint i = 0; i < boundaryCount; i++) {
 		const HalfEdge::Edge *startEdge = boundaryEdges[i];
 		nvCheck(startEdge->face == NULL);
@@ -770,7 +772,7 @@ bool Chart::closeHoles()
 		nvDebugCheck(startEdge != NULL);
 		nvDebugCheck(startEdge->face == NULL);
 		std::vector<HalfEdge::Vertex *> vertexLoop;
-		Array<HalfEdge::Edge *> edgeLoop;
+		std::vector<HalfEdge::Edge *> edgeLoop;
 		HalfEdge::Edge *edge = startEdge;
 		do {
 			HalfEdge::Vertex *vertex = edge->next->vertex;  // edge->to()
@@ -786,7 +788,7 @@ bool Chart::closeHoles()
 				HalfEdge::Edge *next = edge->next;    // Next edge after the loop.
 				nvDebugCheck(prev->to()->isColocal(next->from()));
 				// Close loop.
-				edgeLoop.append(edge);
+				edgeLoop.push_back(edge);
 				closeLoop(i + 1, edgeLoop);
 				// Link boundary loop.
 				prev->setNext(next);
@@ -798,13 +800,13 @@ bool Chart::closeHoles()
 				vertex = edge->to();
 			}
 			vertexLoop.push_back(vertex);
-			edgeLoop.append(edge);
+			edgeLoop.push_back(edge);
 			edge = edge->next;
 		} while (edge != startEdge);
 		closeLoop(0, edgeLoop);
 	}
 	getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
-	boundaryCount = boundaryEdges.count();
+	boundaryCount = boundaryEdges.size();
 	nvDebugCheck(boundaryCount == 1);
 	return boundaryCount == 1;
 }
