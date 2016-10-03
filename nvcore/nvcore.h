@@ -7,19 +7,6 @@
 // Platform definitions
 #include <posh.h>
 
-#if defined POSH_CPU_X86_64
-//#   define NV_CPU_X86 1
-#   define NV_CPU_X86_64 1
-#elif defined POSH_CPU_X86
-#   define NV_CPU_X86 1
-#elif defined POSH_CPU_PPC
-#   define NV_CPU_PPC 1
-#elif defined POSH_CPU_STRONGARM
-#   define NV_CPU_ARM 1
-#else
-#   error "Unsupported CPU"
-#endif
-
 // Type definitions:
 typedef posh_u8_t   uint8;
 typedef posh_i8_t   int8;
@@ -45,10 +32,6 @@ typedef posh_i64_t  int64;
 
 // Aliases
 typedef uint32      uint;
-
-// Null index. @@ Move this somewhere else... it's only used by nvmesh.
-//const unsigned int NIL = unsigned int(~0);
-#define NIL uint(~0)
 
 #ifdef _MSC_VER
 // Ignore gcc attributes.

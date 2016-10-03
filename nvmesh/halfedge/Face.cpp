@@ -118,7 +118,7 @@ uint Face::edgeIndex(const Edge *e) const
 	for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance(), i++) {
 		if (it.current() == e) return i;
 	}
-	return NIL;
+	return uint(~0);
 }
 
 

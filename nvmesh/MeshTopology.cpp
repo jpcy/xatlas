@@ -27,7 +27,7 @@ void MeshTopology::buildTopologyInfo(const HalfEdge::Mesh *mesh)
 			stack.push_back( f );
 			while ( !stack.empty() ) {
 				const uint top = stack.back();
-				nvCheck(top != NIL);
+				nvCheck(top != uint(~0));
 				stack.pop_back();
 				if ( bitFlags.bitAt(top) == false ) {
 					bitFlags.setBitAt(top);
