@@ -108,62 +108,6 @@ inline uint64 nextPowerOfTwo(uint64 x)
 	return p;
 }
 
-// @@ Move this to utils?
-/// Delete all the elements of a container.
-template <typename T>
-void deleteAll(T &container)
-{
-	for (typename T::PseudoIndex i = container.start(); !container.isDone(i); container.advance(i)) {
-		delete container[i];
-	}
-}
-
-// @@ Specialize these methods for numeric, pointer, and pod types.
-
-template <typename T>
-void construct_range(T *restrict ptr, uint new_size, uint old_size)
-{
-	for (uint i = old_size; i < new_size; i++) {
-		new(ptr + i) T; // placement new
-	}
-}
-
-template <typename T>
-void construct_range(T *restrict ptr, uint new_size, uint old_size, const T &elem)
-{
-	for (uint i = old_size; i < new_size; i++) {
-		new(ptr + i) T(elem); // placement new
-	}
-}
-
-template <typename T>
-void construct_range(T *restrict ptr, uint new_size, uint old_size, const T *src)
-{
-	for (uint i = old_size; i < new_size; i++) {
-		new(ptr + i) T(src[i]); // placement new
-	}
-}
-
-template <typename T>
-void destroy_range(T *restrict ptr, uint new_size, uint old_size)
-{
-	for (uint i = new_size; i < old_size; i++) {
-		(ptr + i)->~T(); // Explicit call to the destructor
-	}
-}
-
-template <typename T>
-bool find(const T &element, const T *restrict ptr, uint begin, uint end, uint *index)
-{
-	for (uint i = begin; i < end; i++) {
-		if (ptr[i] == element) {
-			if (index != NULL) *index = i;
-			return true;
-		}
-	}
-	return false;
-}
-
 } // nv namespace
 
 #endif // NV_CORE_UTILS_H
