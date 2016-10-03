@@ -132,11 +132,11 @@ void Mesh::linkColocals()
 	// @@ Remove duplicated vertices? or just leave them as colocals?
 }
 
-void Mesh::linkColocalsWithCanonicalMap(const Array<uint> &canonicalMap)
+void Mesh::linkColocalsWithCanonicalMap(const std::vector<uint> &canonicalMap)
 {
 	nvDebug("--- Linking colocals:\n");
 	uint vertexMapSize = 0;
-	for (uint i = 0; i < canonicalMap.count(); i++) {
+	for (uint i = 0; i < canonicalMap.size(); i++) {
 		vertexMapSize = max(vertexMapSize, canonicalMap[i] + 1);
 	}
 	std::vector<Vertex *> vertexMap;

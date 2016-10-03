@@ -1,6 +1,7 @@
 
 #include "thekla_atlas.h"
 
+#include <vector>
 #include <cfloat>
 #include <memory>
 
@@ -29,7 +30,7 @@ inline Atlas_Output_Mesh * set_error(Atlas_Error * error, Atlas_Error code) {
 
 static void input_to_mesh(const Atlas_Input_Mesh * input, HalfEdge::Mesh * mesh, Atlas_Error * error) {
 
-    Array<uint> canonicalMap;
+    std::vector<uint> canonicalMap;
     canonicalMap.reserve(input->vertex_count);
 
     for (int i = 0; i < input->vertex_count; i++) {
@@ -42,7 +43,7 @@ static void input_to_mesh(const Atlas_Input_Mesh * input, HalfEdge::Mesh * mesh,
         vertex->nor.set(nor[0], nor[1], nor[2]);
         vertex->tex.set(tex[0], tex[1]);
 
-        canonicalMap.append(input_vertex.first_colocal);
+        canonicalMap.push_back(input_vertex.first_colocal);
     }
 
     mesh->linkColocalsWithCanonicalMap(canonicalMap);

@@ -111,8 +111,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 	const uint chartCount = m_atlas->chartCount();
 	if (chartCount == 0) return;
 	std::vector<float> chartOrderArray(chartCount);
-	Array<Vector2> chartExtents;
-	chartExtents.resize(chartCount);
+	std::vector<Vector2> chartExtents(chartCount);
 	float meshArea = 0;
 	for (uint c = 0; c < chartCount; c++) {
 		Chart *chart = m_atlas->chartAt(c);

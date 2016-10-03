@@ -4,6 +4,7 @@
 #ifndef NV_MESH_HALFEDGE_MESH_H
 #define NV_MESH_HALFEDGE_MESH_H
 
+#include <vector>
 #include "nvcore/Array.h"
 #include "nvcore/HashMap.h"
 
@@ -50,7 +51,7 @@ public:
 	//void addVertices(const Mesh * mesh);
 
 	void linkColocals();
-	void linkColocalsWithCanonicalMap(const Array<uint> &canonicalMap);
+	void linkColocalsWithCanonicalMap(const std::vector<uint> &canonicalMap);
 
 	Face *addFace();
 	Face *addFace(uint v0, uint v1, uint v2);

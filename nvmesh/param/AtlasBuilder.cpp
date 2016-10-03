@@ -34,14 +34,14 @@ struct PriorityQueue {
 	void push(float priority, uint face)
 	{
 		uint i = 0;
-		const uint count = pairs.count();
+		const uint count = pairs.size();
 		for (; i < count; i++) {
 			if (pairs[i].priority > priority) break;
 		}
 		Pair p = { priority, face };
-		pairs.insertAt(i, p);
-		if (pairs.count() > maxSize) {
-			pairs.removeAt(0);
+		pairs.insert(pairs.begin() + i, p);
+		if (pairs.size() > maxSize) {
+			pairs.erase(pairs.begin());
 		}
 	}
 
@@ -49,7 +49,7 @@ struct PriorityQueue {
 	void push(uint face)
 	{
 		Pair p = { 0.0f, face };
-		pairs.append(p);
+		pairs.push_back(p);
 	}
 
 	uint pop()
@@ -62,7 +62,7 @@ struct PriorityQueue {
 	void sort()
 	{
 		//nv::sort(pairs); // @@ My intro sort appears to be much slower than it should!
-		std::sort(pairs.buffer(), pairs.buffer() + pairs.count());
+		std::sort(pairs.begin(), pairs.end());
 	}
 
 	void clear()
@@ -72,7 +72,7 @@ struct PriorityQueue {
 
 	uint count() const
 	{
-		return pairs.count();
+		return pairs.size();
 	}
 
 	float firstPriority() const
@@ -93,7 +93,7 @@ struct PriorityQueue {
 	};
 
 
-	Array<Pair> pairs;
+	std::vector<Pair> pairs;
 };
 
 static bool isNormalSeam(const HalfEdge::Edge *edge)
@@ -802,7 +802,7 @@ void AtlasBuilder::mergeChart(ChartBuildData *owner, ChartBuildData *chart, floa
 
 void AtlasBuilder::mergeCharts()
 {
-	Array<float> sharedBoundaryLengths;
+	std::vector<float> sharedBoundaryLengths;
 	const uint chartCount = chartArray.count();
 	for (int c = chartCount - 1; c >= 0; c--) {
 		sharedBoundaryLengths.clear();
