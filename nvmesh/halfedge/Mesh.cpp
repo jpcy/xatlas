@@ -1,6 +1,7 @@
 // This code is in the public domain -- castanyo@yahoo.es
 
 #include <vector>
+#include <unordered_map>
 #include <cmath>
 #include "Mesh.h"
 #include "Edge.h"
@@ -81,55 +82,25 @@ Vertex *Mesh::addVertex(const Vector3 &pos)
 	v->pos = pos;
 	m_vertexArray.push_back(v);
 	return v;
-//    return addVertex(m_vertexArray.count(), pos);
 }
-
-/*Vertex * Mesh::addVertex(uint id, const Vector3 & pos)
-{
-    nvDebugCheck(isFinite(pos));
-
-    Vertex * v = new Vertex(id);
-    v->pos = pos;
-    m_vertexArray.append(v);
-
-    return v;
-}*/
-
-/*void Mesh::addVertices(const Mesh * mesh)
-{
-nvCheck(mesh != NULL);
-
-// Add mesh vertices
-for (uint v = 0; v < vertexCount; v++)
-{
-const Vertex * vertex = mesh->vertexAt(v);
-nvDebugCheck(vertex != NULL);
-
-Vertex * v = addVertex(vertex->pos());
-nvDebugCheck(v != NULL);
-
-v->setNor(vertex->nor());
-v->setTex(vertex->tex());
-}
-}*/
-
 
 /// Link colocal vertices based on geometric location only.
 void Mesh::linkColocals()
 {
 	nvDebug("--- Linking colocals:\n");
 	const uint vertexCount = this->vertexCount();
-	HashMap<Vector3, Vertex *> vertexMap(vertexCount);
+	std::unordered_map<Vector3, Vertex *, Hash<Vector3>, Equal<Vector3> > vertexMap;
+	vertexMap.reserve(vertexCount);
 	for (uint v = 0; v < vertexCount; v++) {
 		Vertex *vertex = vertexAt(v);
-		Vertex *colocal;
-		if (vertexMap.get(vertex->pos, &colocal)) {
+		Vertex *colocal = vertexMap[vertex->pos];
+		if (colocal) {
 			colocal->linkColocal(vertex);
 		} else {
-			vertexMap.add(vertex->pos, vertex);
+			vertexMap[vertex->pos] = vertex;
 		}
 	}
-	m_colocalVertexCount = vertexMap.count();
+	m_colocalVertexCount = vertexMap.size();
 	nvDebug("---   %d vertex positions.\n", m_colocalVertexCount);
 	// @@ Remove duplicated vertices? or just leave them as colocals?
 }
