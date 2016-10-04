@@ -666,8 +666,6 @@ public:
 	Vector3 maxCorner;
 };
 
-void convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &output, float epsilon = 0);
-
 namespace fit {
 Vector3 computeCentroid(int n, const Vector3 *points);
 
@@ -934,22 +932,143 @@ inline uint32_t decodeMorton3Z(uint32_t code)
 
 // A simple, dynamic proximity grid based on Jon's code.
 // Instead of storing pointers here I store indices.
-struct ProximityGrid {
-	ProximityGrid();
+struct ProximityGrid 
+{
+	void init(const Box &box, uint32_t count)
+	{
+		cellArray.clear();
+		// Determine grid size.
+		float cellWidth;
+		Vector3 diagonal = box.extents() * 2.f;
+		float volume = box.volume();
+		if (equal(volume, 0)) {
+			// Degenerate box, treat like a quad.
+			Vector2 quad;
+			if (diagonal.x < diagonal.y && diagonal.x < diagonal.z) {
+				quad.x = diagonal.y;
+				quad.y = diagonal.z;
+			} else if (diagonal.y < diagonal.x && diagonal.y < diagonal.z) {
+				quad.x = diagonal.x;
+				quad.y = diagonal.z;
+			} else {
+				quad.x = diagonal.x;
+				quad.y = diagonal.y;
+			}
+			float cellArea = quad.x * quad.y / count;
+			cellWidth = sqrtf(cellArea); // pow(cellArea, 1.0f / 2.0f);
+		} else {
+			// Ideally we want one cell per point.
+			float cellVolume = volume / count;
+			cellWidth = powf(cellVolume, 1.0f / 3.0f);
+		}
+		nvDebugCheck(cellWidth != 0);
+		sx = std::max(1, ftoi_ceil(diagonal.x / cellWidth));
+		sy = std::max(1, ftoi_ceil(diagonal.y / cellWidth));
+		sz = std::max(1, ftoi_ceil(diagonal.z / cellWidth));
+		invCellSize.x = float(sx) / diagonal.x;
+		invCellSize.y = float(sy) / diagonal.y;
+		invCellSize.z = float(sz) / diagonal.z;
+		cellArray.resize(sx * sy * sz);
+		corner = box.minCorner; // @@ Align grid better?
+	}
 
-	void init(const Box &box, uint32_t count);
+	inline int index_x(float x) const
+	{
+		return clamp(ftoi_floor((x - corner.x) * invCellSize.x),  0, sx - 1);
+	}
 
-	int index_x(float x) const;
-	int index_y(float y) const;
-	int index_z(float z) const;
-	int index(int x, int y, int z) const;
+	inline int index_y(float y) const
+	{
+		return clamp(ftoi_floor((y - corner.y) * invCellSize.y),  0, sy - 1);
+	}
 
-	uint32_t mortonCount() const;
-	int mortonIndex(uint32_t code) const;
+	inline int index_z(float z) const
+	{
+		return clamp(ftoi_floor((z - corner.z) * invCellSize.z),  0, sz - 1);
+	}
 
-	void add(const Vector3 &pos, uint32_t key);
+	inline int index(int x, int y, int z) const
+	{
+		nvDebugCheck(x >= 0 && x < sx);
+		nvDebugCheck(y >= 0 && y < sy);
+		nvDebugCheck(z >= 0 && z < sz);
+		int idx = (z * sy + y) * sx + x;
+		nvDebugCheck(idx >= 0 && uint32_t(idx) < cellArray.size());
+		return idx;
+	}
 
-	void gather(const Vector3 &pos, float radius, std::vector<uint32_t> &indices);
+	uint32_t mortonCount() const
+	{
+		uint64_t s = uint64_t(max3(sx, sy, sz));
+		s = nextPowerOfTwo(s);
+		if (s > 1024) {
+			return uint32_t(s * s * min3(sx, sy, sz));
+		}
+		return uint32_t(s * s * s);
+	}
+
+	int mortonIndex(uint32_t code) const
+	{
+		uint32_t x, y, z;
+		uint32_t s = uint32_t(max3(sx, sy, sz));
+		if (s > 1024) {
+			// Use layered two-dimensional morton order.
+			s = nextPowerOfTwo(s);
+			uint32_t layer = code / (s * s);
+			code = code % (s * s);
+			uint32_t layer_count = uint32_t(min3(sx, sy, sz));
+			if (sx == layer_count) {
+				x = layer;
+				y = morton::decodeMorton2X(code);
+				z = morton::decodeMorton2Y(code);
+			} else if (sy == layer_count) {
+				x = morton::decodeMorton2Y(code);
+				y = layer;
+				z = morton::decodeMorton2X(code);
+			} else { /*if (sz == layer_count)*/
+				x = morton::decodeMorton2X(code);
+				y = morton::decodeMorton2Y(code);
+				z = layer;
+			}
+		} else {
+			x = morton::decodeMorton3X(code);
+			y = morton::decodeMorton3Y(code);
+			z = morton::decodeMorton3Z(code);
+		}
+		if (x >= uint32_t(sx) || y >= uint32_t(sy) || z >= uint32_t(sz)) {
+			return -1;
+		}
+		return index(x, y, z);
+	}
+
+	inline void add(const Vector3 &pos, uint32_t key)
+	{
+		int x = index_x(pos.x);
+		int y = index_y(pos.y);
+		int z = index_z(pos.z);
+		uint32_t idx = index(x, y, z);
+		cellArray[idx].indexArray.push_back(key);
+	}
+
+	// Gather all points inside the given sphere.
+	// Radius is assumed to be small, so we don't bother culling the cells.
+	void gather(const Vector3 &position, float radius, std::vector<uint32_t> &indexArray)
+	{
+		int x0 = index_x(position.x - radius);
+		int x1 = index_x(position.x + radius);
+		int y0 = index_y(position.y - radius);
+		int y1 = index_y(position.y + radius);
+		int z0 = index_z(position.z - radius);
+		int z1 = index_z(position.z + radius);
+		for (int z = z0; z <= z1; z++) {
+			for (int y = y0; y <= y1; y++) {
+				for (int x = x0; x <= x1; x++) {
+					int idx = index(x, y, z);
+					indexArray.insert(indexArray.begin(), cellArray[idx].indexArray.begin(), cellArray[idx].indexArray.end());
+				}
+			}
+		}
+	}
 
 	struct Cell {
 		std::vector<uint32_t> indexArray;
@@ -961,40 +1080,6 @@ struct ProximityGrid {
 	Vector3 invCellSize;
 	int sx, sy, sz;
 };
-
-inline int ProximityGrid::index_x(float x) const
-{
-	return clamp(ftoi_floor((x - corner.x) * invCellSize.x),  0, sx - 1);
-}
-
-inline int ProximityGrid::index_y(float y) const
-{
-	return clamp(ftoi_floor((y - corner.y) * invCellSize.y),  0, sy - 1);
-}
-
-inline int ProximityGrid::index_z(float z) const
-{
-	return clamp(ftoi_floor((z - corner.z) * invCellSize.z),  0, sz - 1);
-}
-
-inline int ProximityGrid::index(int x, int y, int z) const
-{
-	nvDebugCheck(x >= 0 && x < sx);
-	nvDebugCheck(y >= 0 && y < sy);
-	nvDebugCheck(z >= 0 && z < sz);
-	int idx = (z * sy + y) * sx + x;
-	nvDebugCheck(idx >= 0 && uint32_t(idx) < cellArray.size());
-	return idx;
-}
-
-inline void ProximityGrid::add(const Vector3 &pos, uint32_t key)
-{
-	int x = index_x(pos.x);
-	int y = index_y(pos.y);
-	int z = index_z(pos.z);
-	uint32_t idx = index(x, y, z);
-	cellArray[idx].indexArray.push_back(key);
-}
 
 namespace sparse {
 // Full and sparse vector and matrix classes. BLAS subset.
@@ -1021,56 +1106,199 @@ enum Transpose {
 class Matrix
 {
 public:
-
 	// An element of the sparse array.
-	struct Coefficient {
+	struct Coefficient
+	{
 		uint32_t x;  // column
 		float v; // value
 	};
 
+	Matrix(uint32_t d) : m_width(d) { m_array.resize(d); }
+	Matrix(uint32_t w, uint32_t h) : m_width(w) { m_array.resize(h); }
+	Matrix(const Matrix &m) : m_width(m.m_width) { m_array = m.m_array; }
 
-public:
-
-	Matrix(uint32_t d);
-	Matrix(uint32_t w, uint32_t h);
-	Matrix(const Matrix &m);
-
-	const Matrix &operator=(const Matrix &m);
-
-
-	uint32_t width() const
+	const Matrix &operator=(const Matrix &m)
 	{
-		return m_width;
-	}
-	uint32_t height() const
-	{
-		return m_array.size();
-	}
-	bool isSquare() const
-	{
-		return width() == height();
+		nvCheck(width() == m.width());
+		nvCheck(height() == m.height());
+		m_array = m.m_array;
+		return *this;
 	}
 
-	float getCoefficient(uint32_t x, uint32_t y) const; // x is column, y is row
+	uint32_t width() const { return m_width; }
+	uint32_t height() const { return m_array.size(); }
+	bool isSquare() const { return width() == height(); }
 
-	void setCoefficient(uint32_t x, uint32_t y, float f);
-	void addCoefficient(uint32_t x, uint32_t y, float f);
-	void mulCoefficient(uint32_t x, uint32_t y, float f);
+	// x is column, y is row
+	float getCoefficient(uint32_t x, uint32_t y) const
+	{
+		nvDebugCheck( x < width() );
+		nvDebugCheck( y < height() );
+		const uint32_t count = m_array[y].size();
+		for (uint32_t i = 0; i < count; i++) {
+			if (m_array[y][i].x == x) return m_array[y][i].v;
+		}
+		return 0.0f;
+	}
 
-	float sumRow(uint32_t y) const;
-	float dotRow(uint32_t y, const FullVector &v) const;
-	void madRow(uint32_t y, float alpha, FullVector &v) const;
+	void setCoefficient(uint32_t x, uint32_t y, float f)
+	{
+		nvDebugCheck( x < width() );
+		nvDebugCheck( y < height() );
+		const uint32_t count = m_array[y].size();
+		for (uint32_t i = 0; i < count; i++) {
+			if (m_array[y][i].x == x) {
+				m_array[y][i].v = f;
+				return;
+			}
+		}
+		if (f != 0.0f) {
+			Coefficient c = { x, f };
+			m_array[y].push_back( c );
+		}
+	}
 
-	void clearRow(uint32_t y);
-	void scaleRow(uint32_t y, float f);
-	void normalizeRow(uint32_t y);
+	void addCoefficient(uint32_t x, uint32_t y, float f)
+	{
+		nvDebugCheck( x < width() );
+		nvDebugCheck( y < height() );
+		if (f != 0.0f) {
+			const uint32_t count = m_array[y].size();
+			for (uint32_t i = 0; i < count; i++) {
+				if (m_array[y][i].x == x) {
+					m_array[y][i].v += f;
+					return;
+				}
+			}
+			Coefficient c = { x, f };
+			m_array[y].push_back( c );
+		}
+	}
 
-	void clearColumn(uint32_t x);
-	void scaleColumn(uint32_t x, float f);
+	void mulCoefficient(uint32_t x, uint32_t y, float f)
+	{
+		nvDebugCheck( x < width() );
+		nvDebugCheck( y < height() );
+		const uint32_t count = m_array[y].size();
+		for (uint32_t i = 0; i < count; i++) {
+			if (m_array[y][i].x == x) {
+				m_array[y][i].v *= f;
+				return;
+			}
+		}
+		if (f != 0.0f) {
+			Coefficient c = { x, f };
+			m_array[y].push_back( c );
+		}
+	}
 
-	const std::vector<Coefficient> &getRow(uint32_t y) const;
 
-	bool isSymmetric() const;
+	float sumRow(uint32_t y) const
+	{
+		nvDebugCheck( y < height() );
+		const uint32_t count = m_array[y].size();
+		float sum = 0;
+		for (uint32_t i = 0; i < count; i++) {
+			sum += m_array[y][i].v;
+		}
+		return sum;
+	}
+
+	float dotRow(uint32_t y, const FullVector &v) const
+	{
+		nvDebugCheck( y < height() );
+		const uint32_t count = m_array[y].size();
+		float sum = 0;
+		for (uint32_t i = 0; i < count; i++) {
+			sum += m_array[y][i].v * v[m_array[y][i].x];
+		}
+		return sum;
+	}
+
+	void madRow(uint32_t y, float alpha, FullVector &v) const
+	{
+		nvDebugCheck(y < height());
+		const uint32_t count = m_array[y].size();
+		for (uint32_t i = 0; i < count; i++) {
+			v[m_array[y][i].x] += alpha * m_array[y][i].v;
+		}
+	}
+
+
+	void clearRow(uint32_t y)
+	{
+		nvDebugCheck( y < height() );
+		m_array[y].clear();
+	}
+
+	void scaleRow(uint32_t y, float f)
+	{
+		nvDebugCheck( y < height() );
+		const uint32_t count = m_array[y].size();
+		for (uint32_t i = 0; i < count; i++) {
+			m_array[y][i].v *= f;
+		}
+	}
+
+	void normalizeRow(uint32_t y)
+	{
+		nvDebugCheck( y < height() );
+		float norm = 0.0f;
+		const uint32_t count = m_array[y].size();
+		for (uint32_t i = 0; i < count; i++) {
+			float f = m_array[y][i].v;
+			norm += f * f;
+		}
+		scaleRow(y, 1.0f / sqrtf(norm));
+	}
+
+
+	void clearColumn(uint32_t x)
+	{
+		nvDebugCheck(x < width());
+		for (uint32_t y = 0; y < height(); y++) {
+			const uint32_t count = m_array[y].size();
+			for (uint32_t e = 0; e < count; e++) {
+				if (m_array[y][e].x == x) {
+					m_array[y][e].v = 0.0f;
+					break;
+				}
+			}
+		}
+	}
+
+	void scaleColumn(uint32_t x, float f)
+	{
+		nvDebugCheck(x < width());
+		for (uint32_t y = 0; y < height(); y++) {
+			const uint32_t count = m_array[y].size();
+			for (uint32_t e = 0; e < count; e++) {
+				if (m_array[y][e].x == x) {
+					m_array[y][e].v *= f;
+					break;
+				}
+			}
+		}
+	}
+
+	const std::vector<Coefficient> &getRow(uint32_t y) const { return m_array[y]; }
+
+	bool isSymmetric() const
+	{
+		for (uint32_t y = 0; y < height(); y++) {
+			const uint32_t count = m_array[y].size();
+			for (uint32_t e = 0; e < count; e++) {
+				const uint32_t x = m_array[y][e].x;
+				if (x > y) {
+					float v = m_array[y][e].v;
+					if (!equal(getCoefficient(y, x), v)) {  // @@ epsilon
+						return false;
+					}
+				}
+			}
+		}
+		return true;
+	}
 
 private:
 
