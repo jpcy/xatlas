@@ -1,14 +1,13 @@
 // This code is in the public domain -- castanyo@yahoo.es
 
-#include "Solver.h"
 #include "Sparse.h"
 
 
 using namespace nv;
 
-namespace
-{
-// Jacobi preconditioner.
+namespace nv {
+namespace solver {
+
 class JacobiPreconditioner
 {
 public:
@@ -43,111 +42,6 @@ private:
 	FullVector m_inverseDiagonal;
 
 };
-
-} // namespace
-
-
-static bool ConjugateGradientSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon);
-static bool ConjugateGradientSolver(const JacobiPreconditioner &preconditioner, const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon);
-
-
-// Solve the symmetric system: At·A·x = At·b
-bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon/*1e-5f*/)
-{
-	nvDebugCheck(A.width() == x.dimension());
-	nvDebugCheck(A.height() == b.dimension());
-	nvDebugCheck(A.height() >= A.width()); // @@ If height == width we could solve it directly...
-	const uint32_t D = A.width();
-	SparseMatrix At(A.height(), A.width());
-	transpose(A, At);
-	FullVector Atb(D);
-	//mult(Transposed, A, b, Atb);
-	mult(At, b, Atb);
-	SparseMatrix AtA(D);
-	//mult(Transposed, A, NoTransposed, A, AtA);
-	mult(At, A, AtA);
-	return SymmetricSolver(AtA, Atb, x, epsilon);
-}
-
-
-// See section 10.4.3 in: Mesh Parameterization: Theory and Practice, Siggraph Course Notes, August 2007
-bool nv::LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon/*= 1e-5f*/)
-{
-	nvDebugCheck(A.width() == x.dimension());
-	nvDebugCheck(A.height() == b.dimension());
-	nvDebugCheck(A.height() >= A.width() - lockedCount);
-	// @@ This is not the most efficient way of building a system with reduced degrees of freedom. It would be faster to do it on the fly.
-	const uint32_t D = A.width() - lockedCount;
-	nvDebugCheck(D > 0);
-	// Compute: b - Al * xl
-	FullVector b_Alxl(b);
-	for (uint32_t y = 0; y < A.height(); y++) {
-		const uint32_t count = A.getRow(y).size();
-		for (uint32_t e = 0; e < count; e++) {
-			uint32_t column = A.getRow(y)[e].x;
-			bool isFree = true;
-			for (uint32_t i = 0; i < lockedCount; i++) {
-				isFree &= (lockedParameters[i] != column);
-			}
-			if (!isFree) {
-				b_Alxl[y] -= x[column] * A.getRow(y)[e].v;
-			}
-		}
-	}
-	// Remove locked columns from A.
-	SparseMatrix Af(D, A.height());
-	for (uint32_t y = 0; y < A.height(); y++) {
-		const uint32_t count = A.getRow(y).size();
-		for (uint32_t e = 0; e < count; e++) {
-			uint32_t column = A.getRow(y)[e].x;
-			uint32_t ix = column;
-			bool isFree = true;
-			for (uint32_t i = 0; i < lockedCount; i++) {
-				isFree &= (lockedParameters[i] != column);
-				if (column > lockedParameters[i]) ix--; // shift columns
-			}
-			if (isFree) {
-				Af.setCoefficient(ix, y, A.getRow(y)[e].v);
-			}
-		}
-	}
-	// Remove elements from x
-	FullVector xf(D);
-	for (uint32_t i = 0, j = 0; i < A.width(); i++) {
-		bool isFree = true;
-		for (uint32_t l = 0; l < lockedCount; l++) {
-			isFree &= (lockedParameters[l] != i);
-		}
-		if (isFree) {
-			xf[j++] = x[i];
-		}
-	}
-	// Solve reduced system.
-	bool result = LeastSquaresSolver(Af, b_Alxl, xf, epsilon);
-	// Copy results back to x.
-	for (uint32_t i = 0, j = 0; i < A.width(); i++) {
-		bool isFree = true;
-		for (uint32_t l = 0; l < lockedCount; l++) {
-			isFree &= (lockedParameters[l] != i);
-		}
-		if (isFree) {
-			x[i] = xf[j++];
-		}
-	}
-	return result;
-}
-
-
-bool nv::SymmetricSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon/*1e-5f*/)
-{
-	nvDebugCheck(A.height() == A.width());
-	nvDebugCheck(A.height() == b.dimension());
-	nvDebugCheck(b.dimension() == x.dimension());
-	JacobiPreconditioner jacobi(A, true);
-	return ConjugateGradientSolver(jacobi, A, b, x, epsilon);
-	//return ConjugateGradientSolver(A, b, x, epsilon);
-}
-
 
 /**
 * Compute the solution of the sparse linear system Ab=x using the Conjugate
@@ -285,3 +179,101 @@ bool nv::SymmetricSolver(const SparseMatrix &A, const FullVector &b, FullVector 
 	}
 	return delta_new <= epsilon * epsilon * delta_0;
 }
+
+static bool SymmetricSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon = 1e-5f)
+{
+	nvDebugCheck(A.height() == A.width());
+	nvDebugCheck(A.height() == b.dimension());
+	nvDebugCheck(b.dimension() == x.dimension());
+	JacobiPreconditioner jacobi(A, true);
+	return ConjugateGradientSolver(jacobi, A, b, x, epsilon);
+	//return ConjugateGradientSolver(A, b, x, epsilon);
+}
+
+// Solve the symmetric system: At·A·x = At·b
+bool LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon/*1e-5f*/)
+{
+	nvDebugCheck(A.width() == x.dimension());
+	nvDebugCheck(A.height() == b.dimension());
+	nvDebugCheck(A.height() >= A.width()); // @@ If height == width we could solve it directly...
+	const uint32_t D = A.width();
+	SparseMatrix At(A.height(), A.width());
+	transpose(A, At);
+	FullVector Atb(D);
+	//mult(Transposed, A, b, Atb);
+	mult(At, b, Atb);
+	SparseMatrix AtA(D);
+	//mult(Transposed, A, NoTransposed, A, AtA);
+	mult(At, A, AtA);
+	return SymmetricSolver(AtA, Atb, x, epsilon);
+}
+
+
+// See section 10.4.3 in: Mesh Parameterization: Theory and Practice, Siggraph Course Notes, August 2007
+bool LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon/*= 1e-5f*/)
+{
+	nvDebugCheck(A.width() == x.dimension());
+	nvDebugCheck(A.height() == b.dimension());
+	nvDebugCheck(A.height() >= A.width() - lockedCount);
+	// @@ This is not the most efficient way of building a system with reduced degrees of freedom. It would be faster to do it on the fly.
+	const uint32_t D = A.width() - lockedCount;
+	nvDebugCheck(D > 0);
+	// Compute: b - Al * xl
+	FullVector b_Alxl(b);
+	for (uint32_t y = 0; y < A.height(); y++) {
+		const uint32_t count = A.getRow(y).size();
+		for (uint32_t e = 0; e < count; e++) {
+			uint32_t column = A.getRow(y)[e].x;
+			bool isFree = true;
+			for (uint32_t i = 0; i < lockedCount; i++) {
+				isFree &= (lockedParameters[i] != column);
+			}
+			if (!isFree) {
+				b_Alxl[y] -= x[column] * A.getRow(y)[e].v;
+			}
+		}
+	}
+	// Remove locked columns from A.
+	SparseMatrix Af(D, A.height());
+	for (uint32_t y = 0; y < A.height(); y++) {
+		const uint32_t count = A.getRow(y).size();
+		for (uint32_t e = 0; e < count; e++) {
+			uint32_t column = A.getRow(y)[e].x;
+			uint32_t ix = column;
+			bool isFree = true;
+			for (uint32_t i = 0; i < lockedCount; i++) {
+				isFree &= (lockedParameters[i] != column);
+				if (column > lockedParameters[i]) ix--; // shift columns
+			}
+			if (isFree) {
+				Af.setCoefficient(ix, y, A.getRow(y)[e].v);
+			}
+		}
+	}
+	// Remove elements from x
+	FullVector xf(D);
+	for (uint32_t i = 0, j = 0; i < A.width(); i++) {
+		bool isFree = true;
+		for (uint32_t l = 0; l < lockedCount; l++) {
+			isFree &= (lockedParameters[l] != i);
+		}
+		if (isFree) {
+			xf[j++] = x[i];
+		}
+	}
+	// Solve reduced system.
+	bool result = LeastSquaresSolver(Af, b_Alxl, xf, epsilon);
+	// Copy results back to x.
+	for (uint32_t i = 0, j = 0; i < A.width(); i++) {
+		bool isFree = true;
+		for (uint32_t l = 0; l < lockedCount; l++) {
+			isFree &= (lockedParameters[l] != i);
+		}
+		if (isFree) {
+			x[i] = xf[j++];
+		}
+	}
+	return result;
+}
+} // namespace solver
+} // namespace nv

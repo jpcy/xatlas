@@ -5,8 +5,7 @@
 #define NV_MESH_ATLASPACKER_H
 
 #include "nvcore/nvcore.h"
-#include "nvmath/Vector.h"
-#include "nvmath/Random.h"
+#include "nvmath/nvmath.h"
 #include "nvimage/BitMap.h"
 
 namespace nv

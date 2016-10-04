@@ -1,6 +1,4 @@
-#include "ProximityGrid.h"
-#include "Morton.h"
-#include "Box.h"
+#include "nvmath.h"
 
 using namespace nv;
 
@@ -66,7 +64,6 @@ void ProximityGrid::gather(const Vector3 &position, float radius, std::vector<ui
 	}
 }
 
-
 uint32_t ProximityGrid::mortonCount() const
 {
 	uint64_t s = uint64_t(max3(sx, sy, sz));
@@ -89,21 +86,21 @@ int ProximityGrid::mortonIndex(uint32_t code) const
 		uint32_t layer_count = uint32_t(min3(sx, sy, sz));
 		if (sx == layer_count) {
 			x = layer;
-			y = decodeMorton2X(code);
-			z = decodeMorton2Y(code);
+			y = morton::decodeMorton2X(code);
+			z = morton::decodeMorton2Y(code);
 		} else if (sy == layer_count) {
-			x = decodeMorton2Y(code);
+			x = morton::decodeMorton2Y(code);
 			y = layer;
-			z = decodeMorton2X(code);
+			z = morton::decodeMorton2X(code);
 		} else { /*if (sz == layer_count)*/
-			x = decodeMorton2X(code);
-			y = decodeMorton2Y(code);
+			x = morton::decodeMorton2X(code);
+			y = morton::decodeMorton2Y(code);
 			z = layer;
 		}
 	} else {
-		x = decodeMorton3X(code);
-		y = decodeMorton3Y(code);
-		z = decodeMorton3Z(code);
+		x = morton::decodeMorton3X(code);
+		y = morton::decodeMorton3Y(code);
+		z = morton::decodeMorton3Z(code);
 	}
 	if (x >= uint32_t(sx) || y >= uint32_t(sy) || z >= uint32_t(sz)) {
 		return -1;

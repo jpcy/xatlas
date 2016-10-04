@@ -2,7 +2,7 @@
 
 #include "Vertex.h"
 
-#include "nvmath/Vector.h"
+#include "nvmath/nvmath.h"
 
 using namespace nv;
 using namespace HalfEdge;

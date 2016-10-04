@@ -10,7 +10,7 @@
 
 //#include "nvmesh/MeshBuilder.h"
 
-#include "nvmath/Vector.h"
+#include "nvmath/nvmath.h"
 
 
 using namespace nv;

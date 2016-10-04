@@ -17,11 +17,7 @@
 #include "nvmesh/param/Util.h"
 #include "nvmesh/geometry/Measurements.h"
 
-#include "nvmath/Vector.h"
-#include "nvmath/Box.h"
-#include "nvmath/Fitting.h"
-#include "nvmath/ProximityGrid.h"
-#include "nvmath/Morton.h"
+#include "nvmath/nvmath.h"
 
 using namespace nv;
 
@@ -630,8 +626,8 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 	for (uint32_t i = 0; i < texelCount; i++) {
 		uint32_t x, y;
 		do {
-			x = decodeMorton2X(texelCode);
-			y = decodeMorton2Y(texelCode);
+			x = morton::decodeMorton2X(texelCode);
+			y = morton::decodeMorton2Y(texelCode);
 			texelCode++;
 		} while (x >= uint32_t(vertexMapWidth) || y >= uint32_t(vertexMapHeight));
 		texelCodes[i] = texelCode - 1;
@@ -641,8 +637,8 @@ void Chart::buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector
 		int idx = vertexIndexArray[i];
 		if (idx != -1) {
 			uint32_t texelCode = texelCodes[idx];
-			uint32_t x = decodeMorton2X(texelCode);
-			uint32_t y = decodeMorton2Y(texelCode);
+			uint32_t x = morton::decodeMorton2X(texelCode);
+			uint32_t y = morton::decodeMorton2Y(texelCode);
 			vertex->tex.x = float(x);
 			vertex->tex.y = float(y);
 		}
@@ -691,7 +687,7 @@ bool Chart::closeLoop(uint32_t start, const std::vector<HalfEdge::Edge *> &loop)
 	for (uint32_t i = 0; i < vertexCount; i++) {
 		points[i] = loop[start + i]->vertex->pos;
 	}
-	bool isPlanar = Fit::isPlanar(vertexCount, points.data());
+	bool isPlanar = fit::isPlanar(vertexCount, points.data());
 	if (isPlanar) {
 		// Add face and connect edges.
 		HalfEdge::Face *face = m_unifiedMesh->addFace();

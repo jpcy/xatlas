@@ -1,19 +1,9 @@
 // This code is in the public domain -- Ignacio Castaño <castano@gmail.com>
 
 #include <vector>
-#include "ConvexHull.h"
-
-#include "Vector.h"
-
-#include "nvcore/nvcore.h"
+#include "nvmath.h"
 
 using namespace nv;
-
-inline static float triangleArea(Vector2::Arg v1, Vector2::Arg v2, Vector2::Arg v3)
-{
-	return 0.5f * (v3.x * v1.y + v1.x * v2.y + v2.x * v3.y - v2.x * v1.y - v3.x * v2.y - v1.x * v3.y);
-}
-
 
 // Compute the convex hull using Graham Scan.
 void nv::convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &output, float epsilon/*=0*/)
@@ -50,7 +40,7 @@ void nv::convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &out
 		Vector2 a = output[output.size() - 2];
 		Vector2 b = output[output.size() - 1];
 		Vector2 c = top[i];
-		float area = triangleArea(a, b, c);
+		float area = triangleArea2(a, b, c);
 		if (area >= -epsilon) {
 			output.pop_back();
 		}
@@ -66,7 +56,7 @@ void nv::convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &out
 		Vector2 a = output[output.size() - 2];
 		Vector2 b = output[output.size() - 1];
 		Vector2 c = bottom[i];
-		float area = triangleArea(a, b, c);
+		float area = triangleArea2(a, b, c);
 		if (area >= -epsilon) {
 			output.pop_back();
 		}

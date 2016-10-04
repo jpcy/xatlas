@@ -6,9 +6,7 @@
 
 #include "Atlas.h"
 
-#include "nvmath/Vector.h"
-#include "nvmath/Random.h"
-
+#include "nvmath/nvmath.h"
 #include "nvcore/nvcore.h"
 
 

@@ -9,8 +9,7 @@
 
 #include "nvcore/nvcore.h"
 
-#include "nvmath/Vector.h"
-#include "nvmath/ftoi.h"
+#include "nvmath/nvmath.h"
 
 
 #define RA_EPSILON		0.00001f

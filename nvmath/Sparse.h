@@ -12,50 +12,7 @@
 
 namespace nv
 {
-class FullVector;
 class SparseMatrix;
-
-
-/// Fixed size vector class.
-class FullVector
-{
-public:
-
-	FullVector(uint32_t dim);
-	FullVector(const FullVector &v);
-
-	const FullVector &operator=(const FullVector &v);
-
-	uint32_t dimension() const
-	{
-		return m_array.size();
-	}
-
-	const float &operator[]( uint32_t index ) const
-	{
-		return m_array[index];
-	}
-	float &operator[] ( uint32_t index )
-	{
-		return m_array[index];
-	}
-
-	void fill(float f);
-
-	void operator+= (const FullVector &v);
-	void operator-= (const FullVector &v);
-	void operator*= (const FullVector &v);
-
-	void operator+= (float f);
-	void operator-= (float f);
-	void operator*= (float f);
-
-
-private:
-
-	std::vector<float> m_array;
-
-};
 
 // Pseudo-BLAS interface.
 void saxpy(float a, const FullVector &x, FullVector &y);   // y = a * x + y

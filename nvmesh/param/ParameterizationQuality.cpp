@@ -5,7 +5,7 @@
 #include "nvmesh/halfedge/Face.h"
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Edge.h"
-#include "nvmath/Vector.h"
+#include "nvmath/nvmath.h"
 #include "nvcore/nvcore.h"
 #include <float.h>
 

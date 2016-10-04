@@ -1,19 +1,12 @@
 // This code is in the public domain -- Ignacio Castaño <castano@gmail.com>
 
-#include "Fitting.h"
-#include "Vector.h"
-
-#include "nvcore/nvcore.h" // max, swap
-
-#include <float.h> // FLT_MAX
-//#include <vector>
-#include <string.h>
+#include "nvmath.h"
 
 using namespace nv;
 
 // @@ Move to EigenSolver.h
 
-Vector3 nv::Fit::computeCentroid(int n, const Vector3 *__restrict points)
+Vector3 nv::fit::computeCentroid(int n, const Vector3 *__restrict points)
 {
 	Vector3 centroid(0.0f);
 	for (int i = 0; i < n; i++) {
@@ -23,7 +16,7 @@ Vector3 nv::Fit::computeCentroid(int n, const Vector3 *__restrict points)
 	return centroid;
 }
 
-Vector3 nv::Fit::computeCovariance(int n, const Vector3 *__restrict points, float *__restrict covariance)
+Vector3 nv::fit::computeCovariance(int n, const Vector3 *__restrict points, float *__restrict covariance)
 {
 	// compute the centroid
 	Vector3 centroid = computeCentroid(n, points);
@@ -43,7 +36,7 @@ Vector3 nv::Fit::computeCovariance(int n, const Vector3 *__restrict points, floa
 	return centroid;
 }
 
-bool nv::Fit::isPlanar(int n, const Vector3 *points, float epsilon/*=NV_EPSILON*/)
+bool nv::fit::isPlanar(int n, const Vector3 *points, float epsilon/*=NV_EPSILON*/)
 {
 	// compute the centroid and covariance
 	float matrix[6];
@@ -63,7 +56,7 @@ bool nv::Fit::isPlanar(int n, const Vector3 *points, float epsilon/*=NV_EPSILON*
 static void EigenSolver3_Tridiagonal(float mat[3][3], float *diag, float *subd);
 static bool EigenSolver3_QLAlgorithm(float mat[3][3], float *diag, float *subd);
 
-bool nv::Fit::eigenSolveSymmetric3(const float matrix[6], float eigenValues[3], Vector3 eigenVectors[3])
+bool nv::fit::eigenSolveSymmetric3(const float matrix[6], float eigenValues[3], Vector3 eigenVectors[3])
 {
 	nvDebugCheck(matrix != NULL && eigenValues != NULL && eigenVectors != NULL);
 	float subd[3];

@@ -1,5 +1,5 @@
 #include "nvmesh/raster/Raster.h"
-#include "nvmath/Vector.h"
+#include "nvmath/nvmath.h"
 
 #include "thekla_atlas.h"
 #include "thekla_mesh_load.h"
