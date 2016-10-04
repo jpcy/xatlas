@@ -1,10 +1,11 @@
 // This code is in the public domain -- Ignacio Castaño <castanyo@yahoo.es>
 
-#include "Sparse.h"
+#include "nvmath.h"
 
-using namespace nv;
+namespace nv {
+namespace sparse {
 
-void nv::saxpy(float a, const FullVector &x, FullVector &y)
+void saxpy(float a, const FullVector &x, FullVector &y)
 {
 	nvDebugCheck(x.dimension() == y.dimension());
 	const uint32_t dim = x.dimension();
@@ -13,7 +14,7 @@ void nv::saxpy(float a, const FullVector &x, FullVector &y)
 	}
 }
 
-void nv::copy(const FullVector &x, FullVector &y)
+void copy(const FullVector &x, FullVector &y)
 {
 	nvDebugCheck(x.dimension() == y.dimension());
 	const uint32_t dim = x.dimension();
@@ -22,7 +23,7 @@ void nv::copy(const FullVector &x, FullVector &y)
 	}
 }
 
-void nv::scal(float a, FullVector &x)
+void scal(float a, FullVector &x)
 {
 	const uint32_t dim = x.dimension();
 	for (uint32_t i = 0; i < dim; i++) {
@@ -30,7 +31,7 @@ void nv::scal(float a, FullVector &x)
 	}
 }
 
-float nv::dot(const FullVector &x, const FullVector &y)
+float dot(const FullVector &x, const FullVector &y)
 {
 	nvDebugCheck(x.dimension() == y.dimension());
 	const uint32_t dim = x.dimension();
@@ -42,23 +43,23 @@ float nv::dot(const FullVector &x, const FullVector &y)
 }
 
 /// Ctor. Init the size of the sparse matrix.
-SparseMatrix::SparseMatrix(uint32_t d) : m_width(d)
+Matrix::Matrix(uint32_t d) : m_width(d)
 {
 	m_array.resize(d);
 }
 
 /// Ctor. Init the size of the sparse matrix.
-SparseMatrix::SparseMatrix(uint32_t w, uint32_t h) : m_width(w)
+Matrix::Matrix(uint32_t w, uint32_t h) : m_width(w)
 {
 	m_array.resize(h);
 }
 
-SparseMatrix::SparseMatrix(const SparseMatrix &m) : m_width(m.m_width)
+Matrix::Matrix(const Matrix &m) : m_width(m.m_width)
 {
 	m_array = m.m_array;
 }
 
-const SparseMatrix &SparseMatrix::operator=(const SparseMatrix &m)
+const Matrix &Matrix::operator=(const Matrix &m)
 {
 	nvCheck(width() == m.width());
 	nvCheck(height() == m.height());
@@ -68,7 +69,7 @@ const SparseMatrix &SparseMatrix::operator=(const SparseMatrix &m)
 
 
 // x is column, y is row
-float SparseMatrix::getCoefficient(uint32_t x, uint32_t y) const
+float Matrix::getCoefficient(uint32_t x, uint32_t y) const
 {
 	nvDebugCheck( x < width() );
 	nvDebugCheck( y < height() );
@@ -79,7 +80,7 @@ float SparseMatrix::getCoefficient(uint32_t x, uint32_t y) const
 	return 0.0f;
 }
 
-void SparseMatrix::setCoefficient(uint32_t x, uint32_t y, float f)
+void Matrix::setCoefficient(uint32_t x, uint32_t y, float f)
 {
 	nvDebugCheck( x < width() );
 	nvDebugCheck( y < height() );
@@ -96,7 +97,7 @@ void SparseMatrix::setCoefficient(uint32_t x, uint32_t y, float f)
 	}
 }
 
-void SparseMatrix::addCoefficient(uint32_t x, uint32_t y, float f)
+void Matrix::addCoefficient(uint32_t x, uint32_t y, float f)
 {
 	nvDebugCheck( x < width() );
 	nvDebugCheck( y < height() );
@@ -113,7 +114,7 @@ void SparseMatrix::addCoefficient(uint32_t x, uint32_t y, float f)
 	}
 }
 
-void SparseMatrix::mulCoefficient(uint32_t x, uint32_t y, float f)
+void Matrix::mulCoefficient(uint32_t x, uint32_t y, float f)
 {
 	nvDebugCheck( x < width() );
 	nvDebugCheck( y < height() );
@@ -131,7 +132,7 @@ void SparseMatrix::mulCoefficient(uint32_t x, uint32_t y, float f)
 }
 
 
-float SparseMatrix::sumRow(uint32_t y) const
+float Matrix::sumRow(uint32_t y) const
 {
 	nvDebugCheck( y < height() );
 	const uint32_t count = m_array[y].size();
@@ -142,7 +143,7 @@ float SparseMatrix::sumRow(uint32_t y) const
 	return sum;
 }
 
-float SparseMatrix::dotRow(uint32_t y, const FullVector &v) const
+float Matrix::dotRow(uint32_t y, const FullVector &v) const
 {
 	nvDebugCheck( y < height() );
 	const uint32_t count = m_array[y].size();
@@ -153,7 +154,7 @@ float SparseMatrix::dotRow(uint32_t y, const FullVector &v) const
 	return sum;
 }
 
-void SparseMatrix::madRow(uint32_t y, float alpha, FullVector &v) const
+void Matrix::madRow(uint32_t y, float alpha, FullVector &v) const
 {
 	nvDebugCheck(y < height());
 	const uint32_t count = m_array[y].size();
@@ -163,13 +164,13 @@ void SparseMatrix::madRow(uint32_t y, float alpha, FullVector &v) const
 }
 
 
-void SparseMatrix::clearRow(uint32_t y)
+void Matrix::clearRow(uint32_t y)
 {
 	nvDebugCheck( y < height() );
 	m_array[y].clear();
 }
 
-void SparseMatrix::scaleRow(uint32_t y, float f)
+void Matrix::scaleRow(uint32_t y, float f)
 {
 	nvDebugCheck( y < height() );
 	const uint32_t count = m_array[y].size();
@@ -178,7 +179,7 @@ void SparseMatrix::scaleRow(uint32_t y, float f)
 	}
 }
 
-void SparseMatrix::normalizeRow(uint32_t y)
+void Matrix::normalizeRow(uint32_t y)
 {
 	nvDebugCheck( y < height() );
 	float norm = 0.0f;
@@ -191,7 +192,7 @@ void SparseMatrix::normalizeRow(uint32_t y)
 }
 
 
-void SparseMatrix::clearColumn(uint32_t x)
+void Matrix::clearColumn(uint32_t x)
 {
 	nvDebugCheck(x < width());
 	for (uint32_t y = 0; y < height(); y++) {
@@ -205,7 +206,7 @@ void SparseMatrix::clearColumn(uint32_t x)
 	}
 }
 
-void SparseMatrix::scaleColumn(uint32_t x, float f)
+void Matrix::scaleColumn(uint32_t x, float f)
 {
 	nvDebugCheck(x < width());
 	for (uint32_t y = 0; y < height(); y++) {
@@ -219,13 +220,13 @@ void SparseMatrix::scaleColumn(uint32_t x, float f)
 	}
 }
 
-const std::vector<SparseMatrix::Coefficient> &SparseMatrix::getRow(uint32_t y) const
+const std::vector<Matrix::Coefficient> &Matrix::getRow(uint32_t y) const
 {
 	return m_array[y];
 }
 
 
-bool SparseMatrix::isSymmetric() const
+bool Matrix::isSymmetric() const
 {
 	for (uint32_t y = 0; y < height(); y++) {
 		const uint32_t count = m_array[y].size();
@@ -244,12 +245,12 @@ bool SparseMatrix::isSymmetric() const
 
 
 // y = M * x
-void nv::mult(const SparseMatrix &M, const FullVector &x, FullVector &y)
+void mult(const Matrix &M, const FullVector &x, FullVector &y)
 {
 	mult(NoTransposed, M, x, y);
 }
 
-void nv::mult(Transpose TM, const SparseMatrix &M, const FullVector &x, FullVector &y)
+void mult(Transpose TM, const Matrix &M, const FullVector &x, FullVector &y)
 {
 	const uint32_t w = M.width();
 	const uint32_t h = M.height();
@@ -270,12 +271,12 @@ void nv::mult(Transpose TM, const SparseMatrix &M, const FullVector &x, FullVect
 }
 
 // y = alpha*A*x + beta*y
-void nv::sgemv(float alpha, const SparseMatrix &A, const FullVector &x, float beta, FullVector &y)
+void sgemv(float alpha, const Matrix &A, const FullVector &x, float beta, FullVector &y)
 {
 	sgemv(alpha, NoTransposed, A, x, beta, y);
 }
 
-void nv::sgemv(float alpha, Transpose TA, const SparseMatrix &A, const FullVector &x, float beta, FullVector &y)
+void sgemv(float alpha, Transpose TA, const Matrix &A, const FullVector &x, float beta, FullVector &y)
 {
 	const uint32_t w = A.width();
 	const uint32_t h = A.height();
@@ -296,33 +297,33 @@ void nv::sgemv(float alpha, Transpose TA, const SparseMatrix &A, const FullVecto
 
 
 // dot y-row of A by x-column of B
-static float dotRowColumn(int y, const SparseMatrix &A, int x, const SparseMatrix &B)
+static float dotRowColumn(int y, const Matrix &A, int x, const Matrix &B)
 {
-	const std::vector<SparseMatrix::Coefficient> &row = A.getRow(y);
+	const std::vector<Matrix::Coefficient> &row = A.getRow(y);
 	const uint32_t count = row.size();
 	float sum = 0.0f;
 	for (uint32_t i = 0; i < count; i++) {
-		const SparseMatrix::Coefficient &c = row[i];
+		const Matrix::Coefficient &c = row[i];
 		sum += c.v * B.getCoefficient(x, c.x);
 	}
 	return sum;
 }
 
 // dot y-row of A by x-row of B
-static float dotRowRow(int y, const SparseMatrix &A, int x, const SparseMatrix &B)
+static float dotRowRow(int y, const Matrix &A, int x, const Matrix &B)
 {
-	const std::vector<SparseMatrix::Coefficient> &row = A.getRow(y);
+	const std::vector<Matrix::Coefficient> &row = A.getRow(y);
 	const uint32_t count = row.size();
 	float sum = 0.0f;
 	for (uint32_t i = 0; i < count; i++) {
-		const SparseMatrix::Coefficient &c = row[i];
+		const Matrix::Coefficient &c = row[i];
 		sum += c.v * B.getCoefficient(c.x, x);
 	}
 	return sum;
 }
 
 // dot y-column of A by x-column of B
-static float dotColumnColumn(int y, const SparseMatrix &A, int x, const SparseMatrix &B)
+static float dotColumnColumn(int y, const Matrix &A, int x, const Matrix &B)
 {
 	nvDebugCheck(A.height() == B.height());
 	const uint32_t h = A.height();
@@ -334,7 +335,7 @@ static float dotColumnColumn(int y, const SparseMatrix &A, int x, const SparseMa
 }
 
 
-void nv::transpose(const SparseMatrix &A, SparseMatrix &B)
+void transpose(const Matrix &A, Matrix &B)
 {
 	nvDebugCheck(A.width() == B.height());
 	nvDebugCheck(B.width() == A.height());
@@ -344,10 +345,10 @@ void nv::transpose(const SparseMatrix &A, SparseMatrix &B)
 	}
 	const uint32_t h = A.height();
 	for (uint32_t y = 0; y < h; y++) {
-		const std::vector<SparseMatrix::Coefficient> &row = A.getRow(y);
+		const std::vector<Matrix::Coefficient> &row = A.getRow(y);
 		const uint32_t count = row.size();
 		for (uint32_t i = 0; i < count; i++) {
-			const SparseMatrix::Coefficient &c = row[i];
+			const Matrix::Coefficient &c = row[i];
 			nvDebugCheck(c.x < w);
 			B.setCoefficient(y, c.x, c.v);
 		}
@@ -355,23 +356,23 @@ void nv::transpose(const SparseMatrix &A, SparseMatrix &B)
 }
 
 // C = A * B
-void nv::mult(const SparseMatrix &A, const SparseMatrix &B, SparseMatrix &C)
+void mult(const Matrix &A, const Matrix &B, Matrix &C)
 {
 	mult(NoTransposed, A, NoTransposed, B, C);
 }
 
-void nv::mult(Transpose TA, const SparseMatrix &A, Transpose TB, const SparseMatrix &B, SparseMatrix &C)
+void mult(Transpose TA, const Matrix &A, Transpose TB, const Matrix &B, Matrix &C)
 {
 	sgemm(1.0f, TA, A, TB, B, 0.0f, C);
 }
 
 // C = alpha*A*B + beta*C
-void nv::sgemm(float alpha, const SparseMatrix &A, const SparseMatrix &B, float beta, SparseMatrix &C)
+void sgemm(float alpha, const Matrix &A, const Matrix &B, float beta, Matrix &C)
 {
 	sgemm(alpha, NoTransposed, A, NoTransposed, B, beta, C);
 }
 
-void nv::sgemm(float alpha, Transpose TA, const SparseMatrix &A, Transpose TB, const SparseMatrix &B, float beta, SparseMatrix &C)
+void sgemm(float alpha, Transpose TA, const Matrix &A, Transpose TB, const Matrix &B, float beta, Matrix &C)
 {
 	const uint32_t w = C.width();
 	const uint32_t h = C.height();
@@ -404,9 +405,6 @@ void nv::sgemm(float alpha, Transpose TA, const SparseMatrix &A, Transpose TB, c
 	}
 }
 
-// C = At * A
-void nv::sqm(const SparseMatrix &A, SparseMatrix &C)
-{
-	// This is quite expensive...
-	mult(Transposed, A, NoTransposed, A, C);
-}
+} // namespace sparse
+} // namespace nv
+

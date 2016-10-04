@@ -1,6 +1,6 @@
 // This code is in the public domain -- castanyo@yahoo.es
 
-#include "Sparse.h"
+#include "nvmath.h"
 
 
 using namespace nv;
@@ -12,7 +12,7 @@ class JacobiPreconditioner
 {
 public:
 
-	JacobiPreconditioner(const SparseMatrix &M, bool symmetric) : m_inverseDiagonal(M.width())
+	JacobiPreconditioner(const sparse::Matrix &M, bool symmetric) : m_inverseDiagonal(M.width())
 	{
 		nvCheck(M.isSquare());
 		for (uint32_t x = 0; x < M.width(); x++) {
@@ -75,7 +75,7 @@ private:
 * Jonhathan Richard Shewchuk.
 *
 **/
-/*static*/ bool ConjugateGradientSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon)
+/*static*/ bool ConjugateGradientSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon)
 {
 	nvDebugCheck( A.isSquare() );
 	nvDebugCheck( A.width() == b.dimension() );
@@ -92,41 +92,41 @@ private:
 	float alpha;
 	float beta;
 	// r = b - A·x;
-	copy(b, r);
-	sgemv(-1, A, x, 1, r);
+	sparse::copy(b, r);
+	sparse::sgemv(-1, A, x, 1, r);
 	// p = r;
-	copy(r, p);
-	delta_new = dot( r, r );
+	sparse::copy(r, p);
+	delta_new = sparse::dot( r, r );
 	delta_0 = delta_new;
 	while (i < i_max && delta_new > epsilon * epsilon * delta_0) {
 		i++;
 		// q = A·p
 		mult(A, p, q);
 		// alpha = delta_new / p·q
-		alpha = delta_new / dot( p, q );
+		alpha = delta_new / sparse::dot( p, q );
 		// x = alfa·p + x
-		saxpy(alpha, p, x);
+		sparse::saxpy(alpha, p, x);
 		if ((i & 31) == 0) { // recompute r after 32 steps
 			// r = b - A·x
-			copy(b, r);
-			sgemv(-1, A, x, 1, r);
+			sparse::copy(b, r);
+			sparse::sgemv(-1, A, x, 1, r);
 		} else {
 			// r = r - alpha·q
-			saxpy(-alpha, q, r);
+			sparse::saxpy(-alpha, q, r);
 		}
 		delta_old = delta_new;
-		delta_new = dot( r, r );
+		delta_new = sparse::dot( r, r );
 		beta = delta_new / delta_old;
 		// p = beta·p + r
-		scal(beta, p);
-		saxpy(1, r, p);
+		sparse::scal(beta, p);
+		sparse::saxpy(1, r, p);
 	}
 	return delta_new <= epsilon * epsilon * delta_0;
 }
 
 
 // Conjugate gradient with preconditioner.
-/*static*/ bool ConjugateGradientSolver(const JacobiPreconditioner &preconditioner, const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon)
+/*static*/ bool ConjugateGradientSolver(const JacobiPreconditioner &preconditioner, const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon)
 {
 	nvDebugCheck( A.isSquare() );
 	nvDebugCheck( A.width() == b.dimension() );
@@ -144,73 +144,68 @@ private:
 	float alpha;
 	float beta;
 	// r = b - A·x
-	copy(b, r);
-	sgemv(-1, A, x, 1, r);
+	sparse::copy(b, r);
+	sparse::sgemv(-1, A, x, 1, r);
 	// p = M^-1 · r
 	preconditioner.apply(r, p);
-	//copy(r, p);
-	delta_new = dot(r, p);
+	delta_new = sparse::dot(r, p);
 	delta_0 = delta_new;
 	while (i < i_max && delta_new > epsilon * epsilon * delta_0) {
 		i++;
 		// q = A·p
 		mult(A, p, q);
 		// alpha = delta_new / p·q
-		alpha = delta_new / dot(p, q);
+		alpha = delta_new / sparse::dot(p, q);
 		// x = alfa·p + x
-		saxpy(alpha, p, x);
+		sparse::saxpy(alpha, p, x);
 		if ((i & 31) == 0) { // recompute r after 32 steps
 			// r = b - A·x
-			copy(b, r);
-			sgemv(-1, A, x, 1, r);
+			sparse::copy(b, r);
+			sparse::sgemv(-1, A, x, 1, r);
 		} else {
 			// r = r - alfa·q
-			saxpy(-alpha, q, r);
+			sparse::saxpy(-alpha, q, r);
 		}
 		// s = M^-1 · r
 		preconditioner.apply(r, s);
-		//copy(r, s);
 		delta_old = delta_new;
-		delta_new = dot( r, s );
+		delta_new = sparse::dot( r, s );
 		beta = delta_new / delta_old;
 		// p = s + beta·p
-		scal(beta, p);
-		saxpy(1, s, p);
+		sparse::scal(beta, p);
+		sparse::saxpy(1, s, p);
 	}
 	return delta_new <= epsilon * epsilon * delta_0;
 }
 
-static bool SymmetricSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon = 1e-5f)
+static bool SymmetricSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon = 1e-5f)
 {
 	nvDebugCheck(A.height() == A.width());
 	nvDebugCheck(A.height() == b.dimension());
 	nvDebugCheck(b.dimension() == x.dimension());
 	JacobiPreconditioner jacobi(A, true);
 	return ConjugateGradientSolver(jacobi, A, b, x, epsilon);
-	//return ConjugateGradientSolver(A, b, x, epsilon);
 }
 
 // Solve the symmetric system: At·A·x = At·b
-bool LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, float epsilon/*1e-5f*/)
+bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon/*1e-5f*/)
 {
 	nvDebugCheck(A.width() == x.dimension());
 	nvDebugCheck(A.height() == b.dimension());
 	nvDebugCheck(A.height() >= A.width()); // @@ If height == width we could solve it directly...
 	const uint32_t D = A.width();
-	SparseMatrix At(A.height(), A.width());
-	transpose(A, At);
+	sparse::Matrix At(A.height(), A.width());
+	sparse::transpose(A, At);
 	FullVector Atb(D);
-	//mult(Transposed, A, b, Atb);
-	mult(At, b, Atb);
-	SparseMatrix AtA(D);
-	//mult(Transposed, A, NoTransposed, A, AtA);
-	mult(At, A, AtA);
+	sparse::mult(At, b, Atb);
+	sparse::Matrix AtA(D);
+	sparse::mult(At, A, AtA);
 	return SymmetricSolver(AtA, Atb, x, epsilon);
 }
 
 
 // See section 10.4.3 in: Mesh Parameterization: Theory and Practice, Siggraph Course Notes, August 2007
-bool LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon/*= 1e-5f*/)
+bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon/*= 1e-5f*/)
 {
 	nvDebugCheck(A.width() == x.dimension());
 	nvDebugCheck(A.height() == b.dimension());
@@ -234,7 +229,7 @@ bool LeastSquaresSolver(const SparseMatrix &A, const FullVector &b, FullVector &
 		}
 	}
 	// Remove locked columns from A.
-	SparseMatrix Af(D, A.height());
+	sparse::Matrix Af(D, A.height());
 	for (uint32_t y = 0; y < A.height(); y++) {
 		const uint32_t count = A.getRow(y).size();
 		for (uint32_t e = 0; e < count; e++) {

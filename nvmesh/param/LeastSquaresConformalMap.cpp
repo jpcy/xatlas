@@ -6,7 +6,6 @@
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Face.h"
-#include "nvmath/Sparse.h"
 #include "nvmath/nvmath.h"
 
 using namespace nv;
@@ -126,7 +125,7 @@ static void project_triangle(Vector3::Arg p0, Vector3::Arg p1, Vector3::Arg p2, 
 //  makes it more numerically stable in
 //  the presence of degenerate triangles.
 
-static void setup_conformal_map_relations(SparseMatrix &A, int row, const HalfEdge::Vertex *v0, const HalfEdge::Vertex *v1, const HalfEdge::Vertex *v2)
+static void setup_conformal_map_relations(sparse::Matrix &A, int row, const HalfEdge::Vertex *v0, const HalfEdge::Vertex *v1, const HalfEdge::Vertex *v2)
 {
 	int id0 = v0->id;
 	int id1 = v1->id;
@@ -196,7 +195,7 @@ static void triangle_cosines(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3, 
 	*a3 = vec_angle_cos(v2, v3, v1);
 }
 
-static void setup_abf_relations(SparseMatrix &A, int row, const HalfEdge::Vertex *v0, const HalfEdge::Vertex *v1, const HalfEdge::Vertex *v2)
+static void setup_abf_relations(sparse::Matrix &A, int row, const HalfEdge::Vertex *v0, const HalfEdge::Vertex *v1, const HalfEdge::Vertex *v2)
 {
 	int id0 = v0->id;
 	int id1 = v1->id;
@@ -269,7 +268,7 @@ bool nv::computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 	if (N < D - 4) {
 		return false;
 	}
-	SparseMatrix A(D, N);
+	sparse::Matrix A(D, N);
 	FullVector b(N);
 	FullVector x(D);
 	// Fill b:
