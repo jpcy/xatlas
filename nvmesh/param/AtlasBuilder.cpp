@@ -469,7 +469,7 @@ bool AtlasBuilder::relocateSeed(ChartBuildData *chart)
 	if (index < chart->seeds.size()) {
 		// Move new seed to the end of the seed array.
 		uint32_t last = chart->seeds.size() - 1;
-		swap(chart->seeds[index], chart->seeds[last]);
+		std::swap(chart->seeds[index], chart->seeds[last]);
 		return false;
 	} else {
 		// Append new seed.

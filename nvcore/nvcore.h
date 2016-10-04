@@ -31,15 +31,6 @@ void nvDebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)))
 
 namespace nv {
 
-/// Swap two values.
-template <typename T>
-inline void swap(T &a, T &b)
-{
-	T temp(a);
-	a = b;
-	b = temp;
-}
-
 /// Return the maximum of the two arguments. For floating point values, it returns the second value if the first is NaN.
 template <typename T>
 //inline const T & max(const T & a, const T & b)

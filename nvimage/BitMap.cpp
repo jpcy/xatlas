@@ -17,7 +17,7 @@ void BitMap::resize(uint32_t w, uint32_t h, bool initValue)
 			if (bitAt(x, y) != initValue) tmp.toggleBitAt(y * w + x);
 		}
 	}
-	swap(m_bitArray, tmp);
+	std::swap(m_bitArray, tmp);
 	m_width = w;
 	m_height = h;
 }

@@ -214,19 +214,19 @@ static void setup_abf_relations(SparseMatrix &A, int row, const HalfEdge::Vertex
 	float s1 = sinf(a1);
 	float s2 = sinf(a2);
 	if (s1 > s0 && s1 > s2) {
-		swap(s1, s2);
-		swap(s0, s1);
-		swap(a1, a2);
-		swap(a0, a1);
-		swap(id1, id2);
-		swap(id0, id1);
+		std::swap(s1, s2);
+		std::swap(s0, s1);
+		std::swap(a1, a2);
+		std::swap(a0, a1);
+		std::swap(id1, id2);
+		std::swap(id0, id1);
 	} else if (s0 > s1 && s0 > s2) {
-		swap(s0, s2);
-		swap(s0, s1);
-		swap(a0, a2);
-		swap(a0, a1);
-		swap(id0, id2);
-		swap(id0, id1);
+		std::swap(s0, s2);
+		std::swap(s0, s1);
+		std::swap(a0, a2);
+		std::swap(a0, a1);
+		std::swap(id0, id2);
+		std::swap(id0, id1);
 	}
 	float c0 = cosf(a0);
 	float ratio = (s2 == 0.0f) ? 1.0f : s1 / s2;

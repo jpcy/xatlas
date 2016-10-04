@@ -94,16 +94,16 @@ bool nv::Fit::eigenSolveSymmetric3(const float matrix[6], float eigenValues[3], 
 	}
 	// shuffle to sort by singular value :
 	if (eigenValues[2] > eigenValues[0] && eigenValues[2] > eigenValues[1]) {
-		swap(eigenValues[0], eigenValues[2]);
-		swap(eigenVectors[0], eigenVectors[2]);
+		std::swap(eigenValues[0], eigenValues[2]);
+		std::swap(eigenVectors[0], eigenVectors[2]);
 	}
 	if (eigenValues[1] > eigenValues[0]) {
-		swap(eigenValues[0], eigenValues[1]);
-		swap(eigenVectors[0], eigenVectors[1]);
+		std::swap(eigenValues[0], eigenValues[1]);
+		std::swap(eigenVectors[0], eigenVectors[1]);
 	}
 	if (eigenValues[2] > eigenValues[1]) {
-		swap(eigenValues[1], eigenValues[2]);
-		swap(eigenVectors[1], eigenVectors[2]);
+		std::swap(eigenValues[1], eigenValues[2]);
+		std::swap(eigenVectors[1], eigenVectors[2]);
 	}
 	nvDebugCheck(eigenValues[0] >= eigenValues[1] && eigenValues[0] >= eigenValues[2]);
 	nvDebugCheck(eigenValues[1] >= eigenValues[2]);

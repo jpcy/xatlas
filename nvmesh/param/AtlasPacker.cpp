@@ -313,7 +313,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 		for (uint32_t v = 0; v < vertexCount; v++) {
 			HalfEdge::Vertex *vertex = mesh->vertexAt(v);
 			Vector2 t = vertex->tex;
-			if (best_r) swap(t.x, t.y);
+			if (best_r) std::swap(t.x, t.y);
 			//vertex->tex.x = best_x + t.x * cosf(best_angle) - t.y * sinf(best_angle);
 			//vertex->tex.y = best_y + t.x * sinf(best_angle) + t.y * cosf(best_angle);
 			vertex->tex.x = best_x + t.x + 0.5f;
@@ -358,7 +358,7 @@ void AtlasPacker::findChartLocation_bruteForce(const BitMap *bitmap, Vector2::Ar
 	for (int r = 0; r < 2; r++) {
 		int cw = bitmap->width();
 		int ch = bitmap->height();
-		if (r & 1) swap(cw, ch);
+		if (r & 1) std::swap(cw, ch);
 		for (int y = 0; y <= h + 1; y += BLOCK_SIZE) { // + 1 to extend atlas in case atlas full.
 			for (int x = 0; x <= w + 1; x += BLOCK_SIZE) { // + 1 not really necessary here.
 				// Early out.
@@ -404,7 +404,7 @@ void AtlasPacker::findChartLocation_random(const BitMap *bitmap, Vector2::Arg ex
 		y = align(y, BLOCK_SIZE);
 		int cw = bitmap->width();
 		int ch = bitmap->height();
-		if (r & 1) swap(cw, ch);
+		if (r & 1) std::swap(cw, ch);
 		// Early out.
 		int area = max(w, x + cw) * max(h, y + ch);
 		//int perimeter = max(w, x+cw) + max(h, y+ch);
@@ -480,7 +480,7 @@ void AtlasPacker::drawChartBitmapDilate(const Chart *chart, BitMap *bitmap, int 
 				if (b) tmp.setBitAt(x, y);
 			}
 		}
-		swap(tmp, *bitmap);
+		std::swap(tmp, *bitmap);
 	}
 }
 
@@ -544,7 +544,7 @@ void AtlasPacker::drawChartBitmap(const Chart *chart, BitMap *bitmap, const Vect
 			if (b) tmp.setBitAt(x, y);
 		}
 	}
-	swap(tmp, *bitmap);
+	std::swap(tmp, *bitmap);
 }
 
 bool AtlasPacker::canAddChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)

@@ -114,7 +114,7 @@ template <typename T> inline void RadixSort::radixSort(const T *input, uint32_t 
 			}
 		}
 		// Swap pointers for next pass. Valid indices - the most recent ones - are in m_ranks after the swap.
-		swap(m_ranks, m_ranks2);
+		std::swap(m_ranks, m_ranks2);
 	}
 	// All values were equal, generate linear ranks.
 	if (!m_validRanks) {
