@@ -6,12 +6,10 @@
 
 #include <unordered_map>
 #include <vector>
-#include "Utils.h" // swap
 
 #include <new> // for placement new
 
-#include "Debug.h"
-#include "Hash.h"
+#include "nvcore/nvcore.h"
 
 /*
 If I were to redo this again, there are a number of things that I would do differently.

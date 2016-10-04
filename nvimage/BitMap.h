@@ -4,7 +4,7 @@
 #ifndef NV_IMAGE_BITMAP_H
 #define NV_IMAGE_BITMAP_H
 
-#include "nvcore/BitArray.h"
+#include "nvcore/nvcore.h"
 
 namespace nv
 {

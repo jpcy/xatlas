@@ -1,6 +1,5 @@
 // This code is in the public domain -- Ignacio Castaño <castano@gmail.com>
-#include <stdio.h>
-#include "Debug.h"
+#include "nvcore.h"
 
 /// Shows a message through the message handler.
 void nvDebugPrint(const char *msg, ...)

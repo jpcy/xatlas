@@ -5,8 +5,6 @@
 #define NV_MATH_H
 
 #include "nvcore/nvcore.h"
-#include "nvcore/Debug.h"   // nvDebugCheck
-#include "nvcore/Utils.h"   // max, clamp
 
 #include <math.h>
 #include <float.h>  // finite, isnan

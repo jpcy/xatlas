@@ -1,10 +1,6 @@
 // This code is in the public domain -- Ignacio Castaño <castano@gmail.com>
 
-#include "RadixSort.h"
-
-#include "Utils.h"
-
-#include <string.h> // memset
+#include "nvcore.h"
 
 using namespace nv;
 

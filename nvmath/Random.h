@@ -6,7 +6,7 @@
 
 #include <time.h>
 #include "nvmath.h"
-#include "nvcore/Utils.h" // nextPowerOfTwo
+#include "nvcore/nvcore.h" // nextPowerOfTwo
 
 
 namespace nv

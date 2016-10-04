@@ -1,7 +1,7 @@
 // This code is in the public domain -- castanyo@yahoo.es
 
 #include "BitMap.h"
-#include "Utils.h"
+#include "nvcore/nvcore.h"
 
 using namespace nv;
 

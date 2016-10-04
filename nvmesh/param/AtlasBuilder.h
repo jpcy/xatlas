@@ -9,8 +9,7 @@
 #include "nvmath/Vector.h"
 #include "nvmath/Random.h"
 
-#include "nvcore/BitArray.h"
-
+#include "nvcore/nvcore.h"
 
 
 namespace nv

@@ -4,7 +4,7 @@
 #ifndef NV_MESH_ATLASPACKER_H
 #define NV_MESH_ATLASPACKER_H
 
-#include "nvcore/RadixSort.h"
+#include "nvcore/nvcore.h"
 #include "nvmath/Vector.h"
 #include "nvmath/Random.h"
 #include "nvimage/BitMap.h"

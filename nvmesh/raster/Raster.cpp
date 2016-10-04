@@ -7,7 +7,7 @@
 
 #include "Raster.h"
 
-#include "nvcore/Utils.h" // min, max
+#include "nvcore/nvcore.h"
 
 #include "nvmath/Vector.h"
 #include "nvmath/ftoi.h"

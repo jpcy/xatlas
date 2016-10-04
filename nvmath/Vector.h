@@ -6,8 +6,7 @@
 
 #include <cmath>
 #include "nvmath.h"
-#include "nvcore/Utils.h" // min, max
-#include "nvcore/Hash.h" // hash
+#include "nvcore/nvcore.h" // min, max
 
 namespace nv
 {

@@ -6,7 +6,7 @@
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Edge.h"
 #include "nvmath/Vector.h"
-#include "nvcore/Debug.h"
+#include "nvcore/nvcore.h"
 #include <float.h>
 
 using namespace nv;
