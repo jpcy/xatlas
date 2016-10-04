@@ -1,6 +1,7 @@
 // This code is in the public domain -- Ignacio Castaño <castano@gmail.com>
 #pragma once
 
+#include <algorithm>
 #include <vector>
 #include <assert.h>
 #include <stdarg.h> // va_list
@@ -31,28 +32,12 @@ void nvDebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)))
 
 namespace nv {
 
-/// Return the maximum of the two arguments. For floating point values, it returns the second value if the first is NaN.
-template <typename T>
-//inline const T & max(const T & a, const T & b)
-inline T max(const T &a, const T &b)
-{
-	return (b < a) ? a : b;
-}
-
 /// Return the maximum of the three arguments.
 template <typename T>
 //inline const T & max3(const T & a, const T & b, const T & c)
 inline T max3(const T &a, const T &b, const T &c)
 {
-	return max(a, max(b, c));
-}
-
-/// Return the minimum of two values.
-template <typename T>
-//inline const T & min(const T & a, const T & b)
-inline T min(const T &a, const T &b)
-{
-	return (a < b) ? a : b;
+	return std::max(a, std::max(b, c));
 }
 
 /// Return the maximum of the three arguments.
@@ -60,7 +45,7 @@ template <typename T>
 //inline const T & min3(const T & a, const T & b, const T & c)
 inline T min3(const T &a, const T &b, const T &c)
 {
-	return min(a, min(b, c));
+	return std::min(a, std::min(b, c));
 }
 
 /// Clamp between two values.
@@ -68,7 +53,7 @@ template <typename T>
 //inline const T & clamp(const T & x, const T & a, const T & b)
 inline T clamp(const T &x, const T &a, const T &b)
 {
-	return min(max(x, a), b);
+	return std::min(std::max(x, a), b);
 }
 
 inline float saturate(float f)

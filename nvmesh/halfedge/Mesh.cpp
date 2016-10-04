@@ -107,7 +107,7 @@ void Mesh::linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMa
 	nvDebug("--- Linking colocals:\n");
 	uint32_t vertexMapSize = 0;
 	for (uint32_t i = 0; i < canonicalMap.size(); i++) {
-		vertexMapSize = max(vertexMapSize, canonicalMap[i] + 1);
+		vertexMapSize = std::max(vertexMapSize, canonicalMap[i] + 1);
 	}
 	std::vector<Vertex *> vertexMap;
 	vertexMap.resize(vertexMapSize, NULL);

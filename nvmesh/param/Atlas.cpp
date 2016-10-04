@@ -269,7 +269,7 @@ void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::
 		//builder.settings.roundnessMetricWeight = 0;
 		//builder.settings.straightnessMetricWeight = 0;
 		// This seems a reasonable estimate.
-		uint32_t maxSeedCount = max(6U, builder.facesLeft);
+		uint32_t maxSeedCount = std::max(6U, builder.facesLeft);
 		// Create initial charts greedely.
 		nvDebug("### Placing seeds\n");
 		builder.placeSeeds(maxThreshold, maxSeedCount);

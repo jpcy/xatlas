@@ -32,8 +32,8 @@ void nv::convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &out
 	bottom.reserve(inputCount);
 	Vector2 P = input[ranks[0]];
 	Vector2 Q = input[ranks[inputCount - 1]];
-	float topy = max(P.y, Q.y);
-	float boty = min(P.y, Q.y);
+	float topy = std::max(P.y, Q.y);
+	float boty = std::min(P.y, Q.y);
 	for (uint32_t i = 0; i < inputCount; i++) {
 		Vector2 p = input[ranks[i]];
 		if (p.y >= boty) top.push_back(p);

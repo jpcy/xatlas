@@ -108,7 +108,7 @@ void ParameterizationQuality::operator += (const ParameterizationQuality &pq)
 	m_parametricArea += pq.m_parametricArea;
 	m_geometricArea += pq.m_geometricArea;
 	m_stretchMetric += pq.m_stretchMetric;
-	m_maxStretchMetric = max(m_maxStretchMetric, pq.m_maxStretchMetric);
+	m_maxStretchMetric = std::max(m_maxStretchMetric, pq.m_maxStretchMetric);
 	m_conformalMetric += pq.m_conformalMetric;
 	m_authalicMetric += pq.m_authalicMetric;
 }
@@ -138,8 +138,8 @@ void ParameterizationQuality::processTriangle(Vector3 q[3], Vector2 p[3])
 	float b = dot(Ss, St); // F
 	float c = dot(St, St); // G
 	// Compute eigen-values of the first fundamental form:
-	float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
-	float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
+	float sigma1 = sqrtf(0.5f * std::max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
+	float sigma2 = sqrtf(0.5f * std::max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
 	nvCheck(sigma2 >= sigma1);
 	// isometric: sigma1 = sigma2 = 1
 	// conformal: sigma1 / sigma2 = 1
@@ -153,7 +153,7 @@ void ParameterizationQuality::processTriangle(Vector3 q[3], Vector2 p[3])
 		parametricArea = fabsf(parametricArea);
 	}
 	m_stretchMetric += square(rmsStretch) * geometricArea;
-	m_maxStretchMetric = max(m_maxStretchMetric, sigma2);
+	m_maxStretchMetric = std::max(m_maxStretchMetric, sigma2);
 	if (!isZero(sigma1, 0.000001f)) {
 		// sigma1 is zero when geometricArea is zero.
 		m_conformalMetric += (sigma2 / sigma1) * geometricArea;

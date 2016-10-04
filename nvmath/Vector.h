@@ -327,7 +327,7 @@ inline bool equal(Vector2::Arg v1, Vector2::Arg v2, float epsilon = NV_EPSILON)
 
 inline Vector2 max(Vector2::Arg a, Vector2::Arg b)
 {
-	return Vector2(max(a.x, b.x), max(a.y, b.y));
+	return Vector2(std::max(a.x, b.x), std::max(a.y, b.y));
 }
 
 inline bool isFinite(Vector2::Arg v)
@@ -484,12 +484,12 @@ inline bool equal(Vector3::Arg v1, Vector3::Arg v2, float epsilon = NV_EPSILON)
 
 inline Vector3 min(Vector3::Arg a, Vector3::Arg b)
 {
-	return Vector3(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z));
+	return Vector3(std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z));
 }
 
 inline Vector3 max(Vector3::Arg a, Vector3::Arg b)
 {
-	return Vector3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z));
+	return Vector3(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z));
 }
 
 inline Vector3 clamp(Vector3::Arg v, float min, float max)

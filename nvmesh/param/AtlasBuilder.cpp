@@ -208,7 +208,7 @@ void AtlasBuilder::computeShortestPaths()
 	for (uint32_t k = 0; k < faceCount; k++) {
 		for (uint32_t i = 0; i < faceCount; i++) {
 			for (uint32_t j = 0; j < faceCount; j++) {
-				shortestPaths[i * faceCount + j] = min(shortestPaths[i * faceCount + j], shortestPaths[i * faceCount + k] + shortestPaths[k * faceCount + j]);
+				shortestPaths[i * faceCount + j] = std::min(shortestPaths[i * faceCount + j], shortestPaths[i * faceCount + k] + shortestPaths[k * faceCount + j]);
 			}
 		}
 	}
@@ -295,7 +295,7 @@ const AtlasBuilder::Candidate &AtlasBuilder::getBestCandidate() const
 bool AtlasBuilder::growCharts(float threshold, uint32_t faceCount)
 {
 	// Using one global list.
-	faceCount = min(faceCount, facesLeft);
+	faceCount = std::min(faceCount, facesLeft);
 	for (uint32_t i = 0; i < faceCount; i++) {
 		const Candidate &candidate = getBestCandidate();
 		if (candidate.metric > threshold) {
@@ -623,7 +623,7 @@ float AtlasBuilder::evaluateStraightnessMetric(ChartBuildData *chart, uint32_t f
 	}
 	nvDebugCheck(l_in != 0.0f); // Candidate face must be adjacent to chart. @@ This is not true if the input mesh has zero-length edges.
 	float ratio = (l_out - l_in) / (l_out + l_in);
-	return min(ratio, 0.0f); // Only use the straightness metric to close gaps.
+	return std::min(ratio, 0.0f); // Only use the straightness metric to close gaps.
 }
 
 
@@ -748,7 +748,7 @@ float AtlasBuilder::evaluateBoundaryLength(ChartBuildData *chart, uint32_t f)
 			}
 		}
 	}
-	return max(0.0f, boundaryLength);  // @@ Hack!
+	return std::max(0.0f, boundaryLength);  // @@ Hack!
 }
 
 Vector3 AtlasBuilder::evaluateChartNormalSum(ChartBuildData *chart, uint32_t f)
@@ -839,7 +839,7 @@ void AtlasBuilder::mergeCharts()
 			ChartBuildData *chart2 = chartArray[cc];
 			if (chart2 == NULL)
 				continue;
-			if (sharedBoundaryLengths[cc] > 0.8 * max(0.0f, chart->boundaryLength - externalBoundary)) {
+			if (sharedBoundaryLengths[cc] > 0.8 * std::max(0.0f, chart->boundaryLength - externalBoundary)) {
 				// Try to avoid degenerate configurations.
 				if (chart2->boundaryLength > sharedBoundaryLengths[cc]) {
 					if (dot(chart2->planeNormal, chart->planeNormal) > -0.25) {
@@ -850,7 +850,7 @@ void AtlasBuilder::mergeCharts()
 					}
 				}
 			}
-			if (sharedBoundaryLengths[cc] > 0.20 * max(0.0f, chart->boundaryLength - externalBoundary)) {
+			if (sharedBoundaryLengths[cc] > 0.20 * std::max(0.0f, chart->boundaryLength - externalBoundary)) {
 				// Compare proxies.
 				if (dot(chart2->planeNormal, chart->planeNormal) > 0) {
 					mergeChart(chart2, chart, sharedBoundaryLengths[cc]);

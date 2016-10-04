@@ -300,10 +300,10 @@ bool Triangle::draw(const Vector2 &extents, bool enableScissors, SamplingCallbac
 		int frustumX1 =  (int)extents.x << 4;
 		int frustumY1 =  (int)extents.y << 4;
 		// Bounding rectangle
-		minx = (nv::max(min3(X1, X2, X3), frustumX0) + 0xF) >> 4;
-		miny = (nv::max(min3(Y1, Y2, Y3), frustumY0) + 0xF) >> 4;
-		maxx = (nv::min(max3(X1, X2, X3), frustumX1) + 0xF) >> 4;
-		maxy = (nv::min(max3(Y1, Y2, Y3), frustumY1) + 0xF) >> 4;
+		minx = (std::max(min3(X1, X2, X3), frustumX0) + 0xF) >> 4;
+		miny = (std::max(min3(Y1, Y2, Y3), frustumY0) + 0xF) >> 4;
+		maxx = (std::min(max3(X1, X2, X3), frustumX1) + 0xF) >> 4;
+		maxy = (std::min(max3(Y1, Y2, Y3), frustumY1) + 0xF) >> 4;
 	} else {
 		// Bounding rectangle
 		minx = (min3(X1, X2, X3) + 0xF) >> 4;
@@ -415,10 +415,10 @@ bool Triangle::drawAA(const Vector2 &extents, bool enableScissors, SamplingCallb
 	float minx, miny, maxx, maxy;
 	if (enableScissors) {
 		// Bounding rectangle
-		minx = floorf(max(min3(v1.x, v2.x, v3.x), 0.0f));
-		miny = floorf(max(min3(v1.y, v2.y, v3.y), 0.0f));
-		maxx = ceilf( min(max3(v1.x, v2.x, v3.x), extents.x - 1.0f));
-		maxy = ceilf( min(max3(v1.y, v2.y, v3.y), extents.y - 1.0f));
+		minx = floorf(std::max(min3(v1.x, v2.x, v3.x), 0.0f));
+		miny = floorf(std::max(min3(v1.y, v2.y, v3.y), 0.0f));
+		maxx = ceilf( std::min(max3(v1.x, v2.x, v3.x), extents.x - 1.0f));
+		maxy = ceilf( std::min(max3(v1.y, v2.y, v3.y), extents.y - 1.0f));
 	} else {
 		// Bounding rectangle
 		minx = floorf(min3(v1.x, v2.x, v3.x));

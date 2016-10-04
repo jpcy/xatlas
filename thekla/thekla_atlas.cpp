@@ -104,8 +104,8 @@ static Atlas_Output_Mesh * mesh_atlas_to_output(const HalfEdge::Mesh * mesh, con
             Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
             output_vertex.uv[0] = uv.x;
             output_vertex.uv[1] = uv.y;
-            w = max(w, ftoi_ceil(uv.x));
-            h = max(h, ftoi_ceil(uv.y));
+            w = std::max(w, ftoi_ceil(uv.x));
+            h = std::max(h, ftoi_ceil(uv.y));
         }
     }
 

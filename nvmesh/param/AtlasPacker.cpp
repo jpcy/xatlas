@@ -175,7 +175,7 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 			nvDebugCheck(extents.x >= 0 && extents.y >= 0);
 			// Limit chart size.
 			if (extents.x > 1024 || extents.y > 1024) {
-				float limit = max(extents.x, extents.y);
+				float limit = std::max(extents.x, extents.y);
 				scale = 1024 / (limit + 1);
 				for (uint32_t i = 0; i < vertexCount; i++) {
 					HalfEdge::Vertex *vertex = mesh->vertexAt(i);
@@ -295,8 +295,8 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 		    nvDebug("Resize extents to (%d, %d).\n", best_x + best_cw, best_y + best_ch);
 		}*/
 		// Update parametric extents.
-		w = max(w, best_x + best_cw);
-		h = max(h, best_y + best_ch);
+		w = std::max(w, best_x + best_cw);
+		h = std::max(h, best_y + best_ch);
 		w = align(w, 4);
 		h = align(h, 4);
 		// Resize bitmap if necessary.
@@ -324,8 +324,8 @@ void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned
 	}
 	//w -= padding - 1; // Leave one pixel border!
 	//h -= padding - 1;
-	m_width = max(0, w);
-	m_height = max(0, h);
+	m_width = std::max(0, w);
+	m_height = std::max(0, h);
 	nvCheck(isAligned(m_width, 4));
 	nvCheck(isAligned(m_height, 4));
 }
@@ -362,14 +362,14 @@ void AtlasPacker::findChartLocation_bruteForce(const BitMap *bitmap, Vector2::Ar
 		for (int y = 0; y <= h + 1; y += BLOCK_SIZE) { // + 1 to extend atlas in case atlas full.
 			for (int x = 0; x <= w + 1; x += BLOCK_SIZE) { // + 1 not really necessary here.
 				// Early out.
-				int area = max(w, x + cw) * max(h, y + ch);
+				int area = std::max(w, x + cw) * std::max(h, y + ch);
 				//int perimeter = max(w, x+cw) + max(h, y+ch);
-				int extents = max(max(w, x + cw), max(h, y + ch));
+				int extents = std::max(std::max(w, x + cw), std::max(h, y + ch));
 				int metric = extents * extents + area;
 				if (metric > best_metric) {
 					continue;
 				}
-				if (metric == best_metric && max(x, y) >= max(*best_x, *best_y)) {
+				if (metric == best_metric && std::max(x, y) >= std::max(*best_x, *best_y)) {
 					// If metric is the same, pick the one closest to the origin.
 					continue;
 				}
@@ -406,14 +406,14 @@ void AtlasPacker::findChartLocation_random(const BitMap *bitmap, Vector2::Arg ex
 		int ch = bitmap->height();
 		if (r & 1) std::swap(cw, ch);
 		// Early out.
-		int area = max(w, x + cw) * max(h, y + ch);
+		int area = std::max(w, x + cw) * std::max(h, y + ch);
 		//int perimeter = max(w, x+cw) + max(h, y+ch);
-		int extents = max(max(w, x + cw), max(h, y + ch));
+		int extents = std::max(std::max(w, x + cw), std::max(h, y + ch));
 		int metric = extents * extents + area;
 		if (metric > best_metric) {
 			continue;
 		}
-		if (metric == best_metric && min(x, y) > min(*best_x, *best_y)) {
+		if (metric == best_metric && std::min(x, y) > std::min(*best_x, *best_y)) {
 			// If metric is the same, pick the one closest to the origin.
 			continue;
 		}

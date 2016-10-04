@@ -36,9 +36,9 @@ void ProximityGrid::init(const Box &box, uint32_t count)
 		cellWidth = powf(cellVolume, 1.0f / 3.0f);
 	}
 	nvDebugCheck(cellWidth != 0);
-	sx = max(1, ftoi_ceil(diagonal.x / cellWidth));
-	sy = max(1, ftoi_ceil(diagonal.y / cellWidth));
-	sz = max(1, ftoi_ceil(diagonal.z / cellWidth));
+	sx = std::max(1, ftoi_ceil(diagonal.x / cellWidth));
+	sy = std::max(1, ftoi_ceil(diagonal.y / cellWidth));
+	sz = std::max(1, ftoi_ceil(diagonal.z / cellWidth));
 	invCellSize.x = float(sx) / diagonal.x;
 	invCellSize.y = float(sy) / diagonal.y;
 	invCellSize.z = float(sz) / diagonal.z;
