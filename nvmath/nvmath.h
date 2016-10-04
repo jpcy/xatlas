@@ -46,18 +46,6 @@ inline int square(int i)
 	return i * i;
 }
 
-// Eliminates negative zeros from a float array.
-inline void floatCleanup(float *fp, int n)
-{
-	for (int i = 0; i < n; i++) {
-		//nvDebugCheck(std::isfinite(fp[i]));
-		union {
-			float f;
-			uint32_t i;
-		} x = { fp[i] };
-		if (x.i == 0x80000000) fp[i] = 0.0f;
-	}
-}
 } // nv
 
 #endif // NV_MATH_H

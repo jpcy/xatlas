@@ -246,37 +246,19 @@ inline bool operator!=(Vector3::Arg a, Vector3::Arg b)
 
 // Vector2
 
-inline Vector2 add(Vector2::Arg a, Vector2::Arg b)
+inline Vector2 operator+(Vector2::Arg a, Vector2::Arg b)
 {
 	return Vector2(a.x + b.x, a.y + b.y);
 }
-inline Vector2 operator+(Vector2::Arg a, Vector2::Arg b)
-{
-	return add(a, b);
-}
 
-inline Vector2 sub(Vector2::Arg a, Vector2::Arg b)
-{
-	return Vector2(a.x - b.x, a.y - b.y);
-}
 inline Vector2 operator-(Vector2::Arg a, Vector2::Arg b)
 {
-	return sub(a, b);
-}
-
-inline Vector2 scale(Vector2::Arg v, float s)
-{
-	return Vector2(v.x * s, v.y * s);
-}
-
-inline Vector2 scale(Vector2::Arg v, Vector2::Arg s)
-{
-	return Vector2(v.x * s.x, v.y * s.y);
+	return Vector2(a.x - b.x, a.y - b.y);
 }
 
 inline Vector2 operator*(Vector2::Arg v, float s)
 {
-	return scale(v, s);
+	return Vector2(v.x * s, v.y * s);
 }
 
 inline Vector2 operator*(Vector2::Arg v1, Vector2::Arg v2)
@@ -284,14 +266,9 @@ inline Vector2 operator*(Vector2::Arg v1, Vector2::Arg v2)
 	return Vector2(v1.x * v2.x, v1.y * v2.y);
 }
 
-inline Vector2 operator*(float s, Vector2::Arg v)
-{
-	return scale(v, s);
-}
-
 inline Vector2 operator/(Vector2::Arg v, float s)
 {
-	return scale(v, 1.0f / s);
+	return Vector2(v.x / s, v.y / s);
 }
 
 inline Vector2 lerp(Vector2::Arg v1, Vector2::Arg v2, float t)
@@ -320,11 +297,6 @@ inline float distance(Vector2::Arg a, Vector2::Arg b)
 	return length(a - b);
 }
 
-inline float inverseLength(Vector2::Arg v)
-{
-	return 1.0f / sqrtf(lengthSquared(v));
-}
-
 inline bool isNormalized(Vector2::Arg v, float epsilon = NV_NORMAL_EPSILON)
 {
 	return equal(length(v), 1, epsilon);
@@ -334,7 +306,7 @@ inline Vector2 normalize(Vector2::Arg v, float epsilon = NV_EPSILON)
 {
 	float l = length(v);
 	nvDebugCheck(!isZero(l, epsilon));
-	Vector2 n = scale(v, 1.0f / l);
+	Vector2 n = v * (1.0f / l);
 	nvDebugCheck(isNormalized(n));
 	return n;
 }
@@ -345,16 +317,7 @@ inline Vector2 normalizeSafe(Vector2::Arg v, Vector2::Arg fallback, float epsilo
 	if (isZero(l, epsilon)) {
 		return fallback;
 	}
-	return scale(v, 1.0f / l);
-}
-
-// Safe, branchless normalization from Andy Firth. All error checking ommitted.
-// http://altdevblogaday.com/2011/08/21/practical-flt-point-tricks/
-inline Vector2 normalizeFast(Vector2::Arg v)
-{
-	const float very_small_float = 1.0e-037f;
-	float l = very_small_float + length(v);
-	return scale(v, 1.0f / l);
+	return v * (1.0f / l);
 }
 
 inline bool equal(Vector2::Arg v1, Vector2::Arg v2, float epsilon = NV_EPSILON)
@@ -362,37 +325,14 @@ inline bool equal(Vector2::Arg v1, Vector2::Arg v2, float epsilon = NV_EPSILON)
 	return equal(v1.x, v2.x, epsilon) && equal(v1.y, v2.y, epsilon);
 }
 
-inline Vector2 min(Vector2::Arg a, Vector2::Arg b)
-{
-	return Vector2(min(a.x, b.x), min(a.y, b.y));
-}
-
 inline Vector2 max(Vector2::Arg a, Vector2::Arg b)
 {
 	return Vector2(max(a.x, b.x), max(a.y, b.y));
 }
 
-inline Vector2 clamp(Vector2::Arg v, float min, float max)
-{
-	return Vector2(clamp(v.x, min, max), clamp(v.y, min, max));
-}
-
-inline Vector2 saturate(Vector2::Arg v)
-{
-	return Vector2(saturate(v.x), saturate(v.y));
-}
-
 inline bool isFinite(Vector2::Arg v)
 {
 	return std::isfinite(v.x) && std::isfinite(v.y);
-}
-
-inline Vector2 validate(Vector2::Arg v, Vector2::Arg fallback = Vector2(0.0f))
-{
-	if (!isFinite(v)) return fallback;
-	Vector2 vf = v;
-	nv::floatCleanup(vf.component, 2);
-	return vf;
 }
 
 // Note, this is the area scaled by 2!
@@ -463,40 +403,25 @@ inline Vector3 cross(Vector3::Arg a, Vector3::Arg b)
 	return Vector3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
 }
 
-inline Vector3 scale(Vector3::Arg v, float s)
+inline Vector3 operator*(Vector3::Arg v, float s)
 {
 	return Vector3(v.x * s, v.y * s, v.z * s);
 }
 
-inline Vector3 scale(Vector3::Arg v, Vector3::Arg s)
-{
-	return Vector3(v.x * s.x, v.y * s.y, v.z * s.z);
-}
-
-inline Vector3 operator*(Vector3::Arg v, float s)
-{
-	return scale(v, s);
-}
-
 inline Vector3 operator*(float s, Vector3::Arg v)
 {
-	return scale(v, s);
+	return Vector3(v.x * s, v.y * s, v.z * s);
 }
 
 inline Vector3 operator*(Vector3::Arg v, Vector3::Arg s)
 {
-	return scale(v, s);
+	return Vector3(v.x * s.x, v.y * s.y, v.z * s.z);
 }
 
 inline Vector3 operator/(Vector3::Arg v, float s)
 {
-	return scale(v, 1.0f / s);
+	return v * (1.0f / s);
 }
-
-/*inline Vector3 add_scaled(Vector3::Arg a, Vector3::Arg b, float s)
-{
-    return Vector3(a.x + b.x * s, a.y + b.y * s, a.z + b.z * s);
-}*/
 
 inline Vector3 lerp(Vector3::Arg v1, Vector3::Arg v2, float t)
 {
@@ -529,11 +454,6 @@ inline float distanceSquared(Vector3::Arg a, Vector3::Arg b)
 	return lengthSquared(a - b);
 }
 
-inline float inverseLength(Vector3::Arg v)
-{
-	return 1.0f / sqrtf(lengthSquared(v));
-}
-
 inline bool isNormalized(Vector3::Arg v, float epsilon = NV_NORMAL_EPSILON)
 {
 	return equal(length(v), 1, epsilon);
@@ -543,7 +463,7 @@ inline Vector3 normalize(Vector3::Arg v, float epsilon = NV_EPSILON)
 {
 	float l = length(v);
 	nvDebugCheck(!isZero(l, epsilon));
-	Vector3 n = scale(v, 1.0f / l);
+	Vector3 n = v * (1.0f / l);
 	nvDebugCheck(isNormalized(n));
 	return n;
 }
@@ -554,16 +474,7 @@ inline Vector3 normalizeSafe(Vector3::Arg v, Vector3::Arg fallback, float epsilo
 	if (isZero(l, epsilon)) {
 		return fallback;
 	}
-	return scale(v, 1.0f / l);
-}
-
-// Safe, branchless normalization from Andy Firth. All error checking ommitted.
-// http://altdevblogaday.com/2011/08/21/practical-flt-point-tricks/
-inline Vector3 normalizeFast(Vector3::Arg v)
-{
-	const float very_small_float = 1.0e-037f;
-	float l = very_small_float + length(v);
-	return scale(v, 1.0f / l);
+	return v * (1.0f / l);
 }
 
 inline bool equal(Vector3::Arg v1, Vector3::Arg v2, float epsilon = NV_EPSILON)
@@ -604,19 +515,6 @@ inline Vector3 ceil(Vector3::Arg v)
 inline bool isFinite(Vector3::Arg v)
 {
 	return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
-}
-
-inline Vector3 validate(Vector3::Arg v, Vector3::Arg fallback = Vector3(0.0f))
-{
-	if (!isFinite(v)) return fallback;
-	Vector3 vf = v;
-	nv::floatCleanup(vf.component, 3);
-	return vf;
-}
-
-inline Vector3 reflect(Vector3::Arg v, Vector3::Arg n)
-{
-	return v - (2 * dot(v, n)) * n;
 }
 
 template <>
