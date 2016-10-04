@@ -178,6 +178,63 @@ private:
 	std::vector<uint32_t> m_wordArray;
 };
 
+/// Bit map. This should probably be called BitImage.
+class BitMap
+{
+public:
+	BitMap() : m_width(0), m_height(0) {}
+	BitMap(uint32_t w, uint32_t h) : m_width(w), m_height(h), m_bitArray(w * h) {}
+
+	uint32_t width() const
+	{
+		return m_width;
+	}
+	uint32_t height() const
+	{
+		return m_height;
+	}
+
+	void resize(uint32_t w, uint32_t h, bool initValue)
+	{
+		BitArray tmp(w * h);
+		if (initValue) tmp.setAll();
+		else tmp.clearAll();
+		// @@ Copying one bit at a time. This could be much faster.
+		for (uint32_t y = 0; y < m_height; y++) {
+			for (uint32_t x = 0; x < m_width; x++) {
+				//tmp.setBitAt(y*w + x, bitAt(x, y));
+				if (bitAt(x, y) != initValue) tmp.toggleBitAt(y * w + x);
+			}
+		}
+		std::swap(m_bitArray, tmp);
+		m_width = w;
+		m_height = h;
+	}
+
+
+	bool bitAt(uint32_t x, uint32_t y) const
+	{
+		nvDebugCheck(x < m_width && y < m_height);
+		return m_bitArray.bitAt(y * m_width + x);
+	}
+
+	void setBitAt(uint32_t x, uint32_t y)
+	{
+		nvDebugCheck(x < m_width && y < m_height);
+		m_bitArray.setBitAt(y * m_width + x);
+	}
+
+	void clearAll()
+	{
+		m_bitArray.clearAll();
+	}
+
+private:
+	uint32_t m_width;
+	uint32_t m_height;
+	BitArray m_bitArray;
+};
+
 inline uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
 {
 	const uint8_t *data = (const uint8_t *) data_in;

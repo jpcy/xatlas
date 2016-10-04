@@ -6,7 +6,6 @@
 
 #include "nvcore/nvcore.h"
 #include "nvmath/nvmath.h"
-#include "nvimage/BitMap.h"
 
 namespace nv
 {

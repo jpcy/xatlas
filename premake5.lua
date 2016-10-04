@@ -45,19 +45,12 @@ project "atlas"
 	
 	files
 	{
-		"extern/poshlib/*.c",
 		"nvcore/*.cpp",
 		"nvcore/*.h",
-		"nvcore/*.inl",
-		"nvimage/*.cpp",
-		"nvimage/*.h",
-		"nvimage/*.inl",
 		"nvmath/*.cpp",
 		"nvmath/*.h",
-		"nvmath/*.inl",
 		"nvmesh/**.cpp",
 		"nvmesh/**.h",
-		"nvmesh/**.inl",
 		"thekla/*.cpp",
 		"thekla/*.h",
 	}
@@ -65,8 +58,6 @@ project "atlas"
 	includedirs
 	{
 		".",
-		"extern/poshlib",
-		"extern/stb",
 		"extern/tinyobj",
 		"nvcore",
 		"nvmesh",
