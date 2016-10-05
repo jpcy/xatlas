@@ -6,7 +6,6 @@
 
 #include <memory>
 #include "xatlas.h"
-#include "nvmesh/halfedge/Mesh.h"
 
 
 namespace nv

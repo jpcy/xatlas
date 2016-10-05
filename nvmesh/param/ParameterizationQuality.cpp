@@ -1,8 +1,6 @@
 // Copyright NVIDIA Corporation 2008 -- Ignacio Castano <icastano@nvidia.com>
 
 #include "ParameterizationQuality.h"
-#include "nvmesh/halfedge/Mesh.h"
-#include "nvmesh/halfedge/Face.h"
 #include "xatlas.h"
 #include <float.h>
 

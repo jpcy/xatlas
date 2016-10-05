@@ -1,8 +1,7 @@
 // This code is in the public domain -- castano@gmail.com
 
 #include "Measurements.h"
-#include "nvmesh/halfedge/Mesh.h"
-#include "nvmesh/halfedge/Face.h"
+#include "xatlas.h"
 
 using namespace nv;
 

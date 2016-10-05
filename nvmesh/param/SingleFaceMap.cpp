@@ -1,10 +1,6 @@
 // Copyright NVIDIA Corporation 2008 -- Ignacio Castano <icastano@nvidia.com>
 
 #include "SingleFaceMap.h"
-
-#include "nvmesh/halfedge/Mesh.h"
-#include "nvmesh/halfedge/Face.h"
-
 #include "xatlas.h"
 
 using namespace nv;

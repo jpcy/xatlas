@@ -3,8 +3,6 @@
 #include <vector>
 #include <unordered_map>
 #include <cmath>
-#include "Mesh.h"
-#include "Face.h"
 
 //#include "nvmesh/MeshBuilder.h"
 

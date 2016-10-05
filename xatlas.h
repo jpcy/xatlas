@@ -5,6 +5,7 @@
 #define ATLAS_H
 
 #include <algorithm>
+#include <unordered_map>
 #include <vector>
 #include <assert.h>
 #include <stdarg.h> // va_list
@@ -1320,6 +1321,439 @@ public:
 	{
 		return ConstVertexIterator(this);
 	}
+
+};
+
+class Face
+{
+public:
+	uint32_t id;
+	uint16_t group;
+	uint16_t material;
+	Edge *edge;
+
+	Face(uint32_t id) : id(id), group(~0), material(~0), edge(NULL) {}
+
+	float area() const;
+	float parametricArea() const;
+	float boundaryLength() const;
+	Vector3 normal() const;
+	Vector3 centroid() const;
+
+	bool isValid() const;
+
+	bool contains(const Edge *e) const;
+	uint32_t edgeIndex(const Edge *e) const;
+
+	Edge *edgeAt(uint32_t idx);
+	const Edge *edgeAt(uint32_t idx) const;
+
+	uint32_t edgeCount() const;
+	bool isBoundary() const;
+	uint32_t boundaryCount() const;
+
+
+	// The iterator that visits the edges of this face in clockwise order.
+	class EdgeIterator //: public Iterator<Edge *>
+	{
+	public:
+		EdgeIterator(Edge *e) : m_end(NULL), m_current(e) { }
+
+		virtual void advance()
+		{
+			if (m_end == NULL) m_end = m_current;
+			m_current = m_current->next;
+		}
+
+		virtual bool isDone() const
+		{
+			return m_end == m_current;
+		}
+		virtual Edge *current() const
+		{
+			return m_current;
+		}
+		Vertex *vertex() const
+		{
+			return m_current->vertex;
+		}
+
+	private:
+		Edge *m_end;
+		Edge *m_current;
+	};
+
+	EdgeIterator edges()
+	{
+		return EdgeIterator(edge);
+	}
+	EdgeIterator edges(Edge *e)
+	{
+		nvDebugCheck(contains(e));
+		return EdgeIterator(e);
+	}
+
+	// The iterator that visits the edges of this face in clockwise order.
+	class ConstEdgeIterator //: public Iterator<const Edge *>
+	{
+	public:
+		ConstEdgeIterator(const Edge *e) : m_end(NULL), m_current(e) { }
+		ConstEdgeIterator(const EdgeIterator &it) : m_end(NULL), m_current(it.current()) { }
+
+		virtual void advance()
+		{
+			if (m_end == NULL) m_end = m_current;
+			m_current = m_current->next;
+		}
+
+		virtual bool isDone() const
+		{
+			return m_end == m_current;
+		}
+		virtual const Edge *current() const
+		{
+			return m_current;
+		}
+		const Vertex *vertex() const
+		{
+			return m_current->vertex;
+		}
+
+	private:
+		const Edge *m_end;
+		const Edge *m_current;
+	};
+
+	ConstEdgeIterator edges() const
+	{
+		return ConstEdgeIterator(edge);
+	}
+	ConstEdgeIterator edges(const Edge *e) const
+	{
+		nvDebugCheck(contains(e));
+		return ConstEdgeIterator(e);
+	}
+};
+
+/// Simple half edge mesh designed for dynamic mesh manipulation.
+class Mesh
+{
+public:
+
+	Mesh();
+	Mesh(const Mesh *mesh);
+	~Mesh();
+
+	void clear();
+
+	Vertex *addVertex(const Vector3 &pos);
+	//Vertex * addVertex(uint32_t id, const Vector3 & pos);
+	//void addVertices(const Mesh * mesh);
+
+	void linkColocals();
+	void linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMap);
+
+	Face *addFace();
+	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2);
+	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3);
+	Face *addFace(const std::vector<uint32_t> &indexArray);
+	Face *addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num);
+	//void addFaces(const Mesh * mesh);
+
+	// These functions disconnect the given element from the mesh and delete it.
+	void disconnect(Edge *edge);
+
+	void remove(Edge *edge);
+	void remove(Vertex *vertex);
+	void remove(Face *face);
+
+	// Remove holes from arrays and reassign indices.
+	void compactEdges();
+	void compactVertices();
+	void compactFaces();
+
+	void triangulate();
+
+	void linkBoundary();
+
+	bool splitBoundaryEdges(); // Returns true if any split was made.
+
+	// Sew the boundary that starts at the given edge, returns one edge that still belongs to boundary, or NULL if boundary closed.
+	HalfEdge::Edge *sewBoundary(Edge *startEdge);
+
+
+	// Vertices
+	uint32_t vertexCount() const
+	{
+		return m_vertexArray.size();
+	}
+	const Vertex *vertexAt(int i) const
+	{
+		return m_vertexArray[i];
+	}
+	Vertex *vertexAt(int i)
+	{
+		return m_vertexArray[i];
+	}
+
+	uint32_t colocalVertexCount() const
+	{
+		return m_colocalVertexCount;
+	}
+
+	// Faces
+	uint32_t faceCount() const
+	{
+		return m_faceArray.size();
+	}
+	const Face *faceAt(int i) const
+	{
+		return m_faceArray[i];
+	}
+	Face *faceAt(int i)
+	{
+		return m_faceArray[i];
+	}
+
+	// Edges
+	uint32_t edgeCount() const
+	{
+		return m_edgeArray.size();
+	}
+	const Edge *edgeAt(int i) const
+	{
+		return m_edgeArray[i];
+	}
+	Edge *edgeAt(int i)
+	{
+		return m_edgeArray[i];
+	}
+
+	class ConstVertexIterator;
+
+	class VertexIterator
+	{
+		friend class ConstVertexIterator;
+	public:
+		VertexIterator(Mesh *mesh) : m_mesh(mesh), m_current(0) { }
+
+		virtual void advance()
+		{
+			m_current++;
+		}
+		virtual bool isDone() const
+		{
+			return m_current == m_mesh->vertexCount();
+		}
+		virtual Vertex *current() const
+		{
+			return m_mesh->vertexAt(m_current);
+		}
+
+	private:
+		HalfEdge::Mesh *m_mesh;
+		uint32_t m_current;
+	};
+	VertexIterator vertices()
+	{
+		return VertexIterator(this);
+	}
+
+	class ConstVertexIterator
+	{
+	public:
+		ConstVertexIterator(const Mesh *mesh) : m_mesh(mesh), m_current(0) { }
+		ConstVertexIterator(class VertexIterator &it) : m_mesh(it.m_mesh), m_current(it.m_current) { }
+
+		virtual void advance()
+		{
+			m_current++;
+		}
+		virtual bool isDone() const
+		{
+			return m_current == m_mesh->vertexCount();
+		}
+		virtual const Vertex *current() const
+		{
+			return m_mesh->vertexAt(m_current);
+		}
+
+	private:
+		const HalfEdge::Mesh *m_mesh;
+		uint32_t m_current;
+	};
+	ConstVertexIterator vertices() const
+	{
+		return ConstVertexIterator(this);
+	}
+
+	class ConstFaceIterator;
+
+	class FaceIterator
+	{
+		friend class ConstFaceIterator;
+	public:
+		FaceIterator(Mesh *mesh) : m_mesh(mesh), m_current(0) { }
+
+		virtual void advance()
+		{
+			m_current++;
+		}
+		virtual bool isDone() const
+		{
+			return m_current == m_mesh->faceCount();
+		}
+		virtual Face *current() const
+		{
+			return m_mesh->faceAt(m_current);
+		}
+
+	private:
+		HalfEdge::Mesh *m_mesh;
+		uint32_t m_current;
+	};
+	FaceIterator faces()
+	{
+		return FaceIterator(this);
+	}
+
+	class ConstFaceIterator
+	{
+	public:
+		ConstFaceIterator(const Mesh *mesh) : m_mesh(mesh), m_current(0) { }
+		ConstFaceIterator(const FaceIterator &it) : m_mesh(it.m_mesh), m_current(it.m_current) { }
+
+		virtual void advance()
+		{
+			m_current++;
+		}
+		virtual bool isDone() const
+		{
+			return m_current == m_mesh->faceCount();
+		}
+		virtual const Face *current() const
+		{
+			return m_mesh->faceAt(m_current);
+		}
+
+	private:
+		const HalfEdge::Mesh *m_mesh;
+		uint32_t m_current;
+	};
+	ConstFaceIterator faces() const
+	{
+		return ConstFaceIterator(this);
+	}
+
+	class ConstEdgeIterator;
+
+	class EdgeIterator
+	{
+		friend class ConstEdgeIterator;
+	public:
+		EdgeIterator(Mesh *mesh) : m_mesh(mesh), m_current(0) { }
+
+		virtual void advance()
+		{
+			m_current++;
+		}
+		virtual bool isDone() const
+		{
+			return m_current == m_mesh->edgeCount();
+		}
+		virtual Edge *current() const
+		{
+			return m_mesh->edgeAt(m_current);
+		}
+
+	private:
+		HalfEdge::Mesh *m_mesh;
+		uint32_t m_current;
+	};
+	EdgeIterator edges()
+	{
+		return EdgeIterator(this);
+	}
+
+	class ConstEdgeIterator
+	{
+	public:
+		ConstEdgeIterator(const Mesh *mesh) : m_mesh(mesh), m_current(0) { }
+		ConstEdgeIterator(const EdgeIterator &it) : m_mesh(it.m_mesh), m_current(it.m_current) { }
+
+		virtual void advance()
+		{
+			m_current++;
+		}
+		virtual bool isDone() const
+		{
+			return m_current == m_mesh->edgeCount();
+		}
+		virtual const Edge *current() const
+		{
+			return m_mesh->edgeAt(m_current);
+		}
+
+	private:
+		const HalfEdge::Mesh *m_mesh;
+		uint32_t m_current;
+	};
+	ConstEdgeIterator edges() const
+	{
+		return ConstEdgeIterator(this);
+	}
+
+	// @@ Add half-edge iterator.
+
+	bool isValid() const;
+
+public:
+
+	// Error status:
+	mutable uint32_t errorCount;
+	mutable uint32_t errorIndex0;
+	mutable uint32_t errorIndex1;
+
+private:
+
+	bool canAddFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num) const;
+	bool canAddEdge(uint32_t i, uint32_t j) const;
+	Edge *addEdge(uint32_t i, uint32_t j);
+
+	Edge *findEdge(uint32_t i, uint32_t j) const;
+
+	void linkBoundaryEdge(Edge *edge);
+	Vertex *splitBoundaryEdge(Edge *edge, float t, const Vector3 &pos);
+	void splitBoundaryEdge(Edge *edge, Vertex *vertex);
+
+private:
+
+	std::vector<Vertex *> m_vertexArray;
+	std::vector<Edge *> m_edgeArray;
+	std::vector<Face *> m_faceArray;
+
+	struct Key {
+		Key() {}
+		Key(const Key &k) : p0(k.p0), p1(k.p1) {}
+		Key(uint32_t v0, uint32_t v1) : p0(v0), p1(v1) {}
+		void operator=(const Key &k)
+		{
+			p0 = k.p0;
+			p1 = k.p1;
+		}
+		bool operator==(const Key &k) const
+		{
+			return p0 == k.p0 && p1 == k.p1;
+		}
+
+		uint32_t p0;
+		uint32_t p1;
+	};
+	friend struct Hash<Mesh::Key>;
+
+	std::unordered_map<Key, Edge *, Hash<Key>, Equal<Key> > m_edgeMap;
+
+	uint32_t m_colocalVertexCount;
 
 };
 
