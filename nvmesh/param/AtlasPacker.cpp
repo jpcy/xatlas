@@ -2,7 +2,6 @@
 
 #include "AtlasPacker.h"
 #include "nvmesh/param/Atlas.h"
-#include "nvmesh/param/Util.h"
 
 #include "xatlas.h"
 

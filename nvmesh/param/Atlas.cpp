@@ -1,16 +1,12 @@
 // Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
 
 #include "Atlas.h"
-#include "Util.h"
 #include "AtlasBuilder.h"
 #include "AtlasPacker.h"
 #include "SingleFaceMap.h"
 #include "OrthogonalProjectionMap.h"
 #include "LeastSquaresConformalMap.h"
 #include "ParameterizationQuality.h"
-
-#include "nvmesh/param/Util.h"
-
 #include "xatlas.h"
 
 using namespace nv;
@@ -477,7 +473,7 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t
 	m_unifiedMesh->linkBoundary();
 	//exportMesh(m_unifiedMesh.ptr(), "debug_input.obj");
 	if (m_unifiedMesh->splitBoundaryEdges()) {
-		m_unifiedMesh.reset(unifyVertices(m_unifiedMesh.get()));
+		m_unifiedMesh.reset(HalfEdge::unifyVertices(m_unifiedMesh.get()));
 	}
 	//exportMesh(m_unifiedMesh.ptr(), "debug_split.obj");
 	// Closing the holes is not always the best solution and does not fix all the problems.
@@ -491,7 +487,7 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t
 		fileName.format("debug_hole_%d.obj", pieceCount++);
 		exportMesh(m_unifiedMesh.ptr(), fileName.str());*/
 	}
-	m_unifiedMesh.reset(triangulate(m_unifiedMesh.get()));
+	m_unifiedMesh.reset(HalfEdge::triangulate(m_unifiedMesh.get()));
 	//exportMesh(m_unifiedMesh.ptr(), "debug_triangulated.obj");
 	// Analyze chart topology.
 	HalfEdge::MeshTopology topology(m_unifiedMesh.get());

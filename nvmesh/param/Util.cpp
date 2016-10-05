@@ -1,17 +1,16 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include <vector>
-#include "Util.h"
 #include "xatlas.h"
 
-using namespace nv;
+namespace nv {
+namespace HalfEdge {
 
-uint32_t nv::countMeshTriangles(const HalfEdge::Mesh *mesh)
+uint32_t countMeshTriangles(const Mesh *mesh)
 {
 	const uint32_t faceCount = mesh->faceCount();
 	uint32_t triangleCount = 0;
 	for (uint32_t f = 0; f < faceCount; f++) {
-		const HalfEdge::Face *face = mesh->faceAt(f);
+		const Face *face = mesh->faceAt(f);
 		uint32_t edgeCount = face->edgeCount();
 		nvDebugCheck(edgeCount > 2);
 		triangleCount += edgeCount - 2;
@@ -19,13 +18,13 @@ uint32_t nv::countMeshTriangles(const HalfEdge::Mesh *mesh)
 	return triangleCount;
 }
 
-HalfEdge::Mesh *nv::unifyVertices(const HalfEdge::Mesh *inputMesh)
+Mesh *unifyVertices(const Mesh *inputMesh)
 {
-	HalfEdge::Mesh *mesh = new HalfEdge::Mesh;
+	Mesh *mesh = new Mesh;
 	// Only add the first colocal.
 	const uint32_t vertexCount = inputMesh->vertexCount();
 	for (uint32_t v = 0; v < vertexCount; v++) {
-		const HalfEdge::Vertex *vertex = inputMesh->vertexAt(v);
+		const Vertex *vertex = inputMesh->vertexAt(v);
 		if (vertex->isFirstColocal()) {
 			mesh->addVertex(vertex->pos);
 		}
@@ -34,11 +33,11 @@ HalfEdge::Mesh *nv::unifyVertices(const HalfEdge::Mesh *inputMesh)
 	// Add new faces pointing to first colocals.
 	uint32_t faceCount = inputMesh->faceCount();
 	for (uint32_t f = 0; f < faceCount; f++) {
-		const HalfEdge::Face *face = inputMesh->faceAt(f);
+		const Face *face = inputMesh->faceAt(f);
 		indexArray.clear();
-		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const HalfEdge::Edge *edge = it.current();
-			const HalfEdge::Vertex *vertex = edge->vertex->firstColocal();
+		for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const Edge *edge = it.current();
+			const Vertex *vertex = edge->vertex->firstColocal();
 			indexArray.push_back(vertex->id);
 		}
 		mesh->addFace(indexArray);
@@ -57,13 +56,13 @@ static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b
 
 // This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
-HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
+Mesh *triangulate(const Mesh *inputMesh)
 {
-	HalfEdge::Mesh *mesh = new HalfEdge::Mesh;
+	Mesh *mesh = new Mesh;
 	// Add all vertices.
 	const uint32_t vertexCount = inputMesh->vertexCount();
 	for (uint32_t v = 0; v < vertexCount; v++) {
-		const HalfEdge::Vertex *vertex = inputMesh->vertexAt(v);
+		const Vertex *vertex = inputMesh->vertexAt(v);
 		mesh->addVertex(vertex->pos);
 	}
 	std::vector<int> polygonVertices;
@@ -71,7 +70,7 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 	std::vector<Vector2> polygonPoints;
 	const uint32_t faceCount = inputMesh->faceCount();
 	for (uint32_t f = 0; f < faceCount; f++) {
-		const HalfEdge::Face *face = inputMesh->faceAt(f);
+		const Face *face = inputMesh->faceAt(f);
 		nvDebugCheck(face != NULL);
 		const uint32_t edgeCount = face->edgeCount();
 		nvDebugCheck(edgeCount >= 3);
@@ -79,9 +78,9 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 		polygonVertices.reserve(edgeCount);
 		if (edgeCount == 3) {
 			// Simple case for triangles.
-			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const HalfEdge::Edge *edge = it.current();
-				const HalfEdge::Vertex *vertex = edge->vertex;
+			for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const Edge *edge = it.current();
+				const Vertex *vertex = edge->vertex;
 				polygonVertices.push_back(vertex->id);
 			}
 			int v0 = polygonVertices[0];
@@ -99,9 +98,9 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 			polygonPoints.reserve(edgeCount);
 			polygonAngles.clear();
 			polygonAngles.reserve(edgeCount);
-			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const HalfEdge::Edge *edge = it.current();
-				const HalfEdge::Vertex *vertex = edge->vertex;
+			for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const Edge *edge = it.current();
+				const Vertex *vertex = edge->vertex;
 				polygonVertices.push_back(vertex->id);
 				Vector2 p;
 				p.x = dot(basis.tangent, vertex->pos);
@@ -164,4 +163,5 @@ HalfEdge::Mesh *nv::triangulate(const HalfEdge::Mesh *inputMesh)
 	return mesh;
 }
 
-
+}
+}

@@ -2010,6 +2010,9 @@ private:
 
 float computeSurfaceArea(const Mesh *mesh);
 float computeParametricArea(const Mesh *mesh);
+uint32_t countMeshTriangles(const Mesh *mesh);
+Mesh *unifyVertices(const Mesh *inputMesh);
+Mesh *triangulate(const Mesh *inputMesh);
 
 } //  namespace HalfEdge
 

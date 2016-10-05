@@ -2,7 +2,6 @@
 
 #include "LeastSquaresConformalMap.h"
 #include "ParameterizationQuality.h"
-#include "Util.h"
 #include "xatlas.h"
 
 using namespace nv;
@@ -259,7 +258,7 @@ bool nv::computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 	// attributes, unless you want the vertices to actually have different texcoords.
 	const uint32_t vertexCount = mesh->vertexCount();
 	const uint32_t D = 2 * vertexCount;
-	const uint32_t N = 2 * countMeshTriangles(mesh);
+	const uint32_t N = 2 * HalfEdge::countMeshTriangles(mesh);
 	// N is the number of equations (one per triangle)
 	// D is the number of variables (one per vertex; there are 2 pinned vertices).
 	if (N < D - 4) {

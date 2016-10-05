@@ -1,7 +1,6 @@
 // This code is in the public domain -- castano@gmail.com
 
 #include "AtlasBuilder.h"
-#include "Util.h"
 
 #include "xatlas.h"
 
