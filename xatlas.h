@@ -1147,16 +1147,82 @@ public:
 		prev = this;
 	}
 
-	void setEdge(Edge *e);
-	void setPos(const Vector3 &p);
+	// Set first edge of all colocals.
+	void setEdge(Edge *e)
+	{
+		for (VertexIterator it(colocals()); !it.isDone(); it.advance()) {
+			it.current()->edge = e;
+		}
+	}
 
-	uint32_t colocalCount() const;
-	uint32_t valence() const;
-	bool isFirstColocal() const;
-	const Vertex *firstColocal() const;
-	Vertex *firstColocal();
+	// Update position of all colocals.
+	void setPos(const Vector3 &p)
+	{
+		for (VertexIterator it(colocals()); !it.isDone(); it.advance()) {
+			it.current()->pos = p;
+		}
+	}
 
-	bool isColocal(const Vertex *v) const;
+	uint32_t colocalCount() const
+	{
+		uint32_t count = 0;
+		for (ConstVertexIterator it(colocals()); !it.isDone(); it.advance()) {
+			++count;
+		}
+		return count;
+	}
+
+	uint32_t valence() const
+	{
+		uint32_t count = 0;
+		for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
+			++count;
+		}
+		return count;
+	}
+
+	bool isFirstColocal() const
+	{
+		return firstColocal() == this;
+	}
+
+	const Vertex *firstColocal() const
+	{
+		uint32_t firstId = id;
+		const Vertex *vertex = this;
+		for (ConstVertexIterator it(colocals()); !it.isDone(); it.advance()) {
+			if (it.current()->id < firstId) {
+				firstId = vertex->id;
+				vertex = it.current();
+			}
+		}
+		return vertex;
+	}
+
+	Vertex *firstColocal()
+	{
+		Vertex *vertex = this;
+		uint32_t firstId = id;
+		for (VertexIterator it(colocals()); !it.isDone(); it.advance()) {
+			if (it.current()->id < firstId) {
+				firstId = vertex->id;
+				vertex = it.current();
+			}
+		}
+		return vertex;
+	}
+
+	bool isColocal(const Vertex *v) const
+	{
+		if (this == v) return true;
+		if (pos != v->pos) return false;
+		for (ConstVertexIterator it(colocals()); !it.isDone(); it.advance()) {
+			if (v == it.current()) {
+				return true;
+			}
+		}
+		return false;
+	}
 
 	void linkColocal(Vertex *v)
 	{
