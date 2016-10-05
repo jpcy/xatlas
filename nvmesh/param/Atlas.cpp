@@ -3,9 +3,6 @@
 #include "Atlas.h"
 #include "AtlasBuilder.h"
 #include "AtlasPacker.h"
-#include "SingleFaceMap.h"
-#include "OrthogonalProjectionMap.h"
-#include "LeastSquaresConformalMap.h"
 #include "ParameterizationQuality.h"
 #include "xatlas.h"
 
@@ -364,12 +361,12 @@ void MeshCharts::parameterizeCharts()
 			diskCount++;
 			ParameterizationQuality chartParameterizationQuality;
 			if (chart->faceCount() == 1) {
-				computeSingleFaceMap(chart->unifiedMesh());
+				param::computeSingleFaceMap(chart->unifiedMesh());
 				chartParameterizationQuality = ParameterizationQuality(chart->unifiedMesh());
 			} else {
-				computeOrthogonalProjectionMap(chart->unifiedMesh());
+				param::computeOrthogonalProjectionMap(chart->unifiedMesh());
 				ParameterizationQuality orthogonalQuality(chart->unifiedMesh());
-				computeLeastSquaresConformalMap(chart->unifiedMesh());
+				param::computeLeastSquaresConformalMap(chart->unifiedMesh());
 				ParameterizationQuality lscmQuality(chart->unifiedMesh());
 				chartParameterizationQuality = lscmQuality;
 			}

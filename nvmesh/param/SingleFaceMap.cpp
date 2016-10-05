@@ -1,13 +1,11 @@
 // Copyright NVIDIA Corporation 2008 -- Ignacio Castano <icastano@nvidia.com>
 
-#include "SingleFaceMap.h"
 #include "xatlas.h"
 
-using namespace nv;
+namespace nv {
+namespace param {
 
-
-
-void nv::computeSingleFaceMap(HalfEdge::Mesh *mesh)
+void computeSingleFaceMap(HalfEdge::Mesh *mesh)
 {
 	nvDebugCheck(mesh != NULL);
 	nvDebugCheck(mesh->faceCount() == 1);
@@ -33,3 +31,5 @@ void nv::computeSingleFaceMap(HalfEdge::Mesh *mesh)
 	}
 }
 
+}
+}

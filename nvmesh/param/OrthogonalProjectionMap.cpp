@@ -1,12 +1,12 @@
 // This code is in the public domain -- castano@gmail.com
 
 #include <vector>
-#include "OrthogonalProjectionMap.h"
 #include "xatlas.h"
 
-using namespace nv;
+namespace nv {
+namespace param {
 
-bool nv::computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh)
+bool computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh)
 {
 	Vector3 axis[2];
 	uint32_t vertexCount = mesh->vertexCount();
@@ -35,4 +35,7 @@ bool nv::computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh)
 		vertex->tex.y = dot(axis[1], vertex->pos);
 	}
 	return true;
+}
+
+}
 }

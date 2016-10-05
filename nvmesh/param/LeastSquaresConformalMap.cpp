@@ -1,14 +1,11 @@
 // Copyright NVIDIA Corporation 2008 -- Ignacio Castano <icastano@nvidia.com>
 
-#include "LeastSquaresConformalMap.h"
 #include "ParameterizationQuality.h"
 #include "xatlas.h"
 
-using namespace nv;
-using namespace HalfEdge;
 
-namespace
-{
+namespace nv {
+namespace param {
 // Test all pairs of vertices in the boundary and check distance.
 static void findDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vertex **a, HalfEdge::Vertex **b)
 {
@@ -248,10 +245,7 @@ static void setup_abf_relations(sparse::Matrix &A, int row, const HalfEdge::Vert
 	A.setCoefficient(v2_id, 2 * row + 1, 1);
 }
 
-} // namespace
-
-
-bool nv::computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
+bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 {
 	nvDebugCheck(mesh != NULL);
 	// For this to work properly, mesh should not have colocals that have the same
@@ -323,4 +317,7 @@ bool nv::computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 		vertex->tex = Vector2(x[2 * v + 0], x[2 * v + 1]);
 	}
 	return true;
+}
+
+}
 }

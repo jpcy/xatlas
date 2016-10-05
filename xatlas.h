@@ -3237,6 +3237,12 @@ bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector
 bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon = 1e-5f);
 } // namespace solver
 
+namespace param {
+bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh);
+bool computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh);
+void computeSingleFaceMap(HalfEdge::Mesh *mesh);
+} // namespace param
+
 } // namespace nv
 
 #endif // ATLAS_H
