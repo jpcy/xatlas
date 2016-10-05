@@ -3,7 +3,6 @@
 #include "Atlas.h"
 #include "AtlasBuilder.h"
 #include "AtlasPacker.h"
-#include "ParameterizationQuality.h"
 #include "xatlas.h"
 
 using namespace nv;
@@ -341,7 +340,7 @@ void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::
 
 void MeshCharts::parameterizeCharts()
 {
-	ParameterizationQuality globalParameterizationQuality;
+	param::ParameterizationQuality globalParameterizationQuality;
 	// Parameterize the charts.
 	uint32_t diskCount = 0;
 	const uint32_t chartCount = m_chartArray.size();
@@ -359,15 +358,15 @@ void MeshCharts::parameterizeCharts()
 		if (chart->isDisk())
 		{
 			diskCount++;
-			ParameterizationQuality chartParameterizationQuality;
+			param::ParameterizationQuality chartParameterizationQuality;
 			if (chart->faceCount() == 1) {
 				param::computeSingleFaceMap(chart->unifiedMesh());
-				chartParameterizationQuality = ParameterizationQuality(chart->unifiedMesh());
+				chartParameterizationQuality = param::ParameterizationQuality(chart->unifiedMesh());
 			} else {
 				param::computeOrthogonalProjectionMap(chart->unifiedMesh());
-				ParameterizationQuality orthogonalQuality(chart->unifiedMesh());
+				param::ParameterizationQuality orthogonalQuality(chart->unifiedMesh());
 				param::computeLeastSquaresConformalMap(chart->unifiedMesh());
-				ParameterizationQuality lscmQuality(chart->unifiedMesh());
+				param::ParameterizationQuality lscmQuality(chart->unifiedMesh());
 				chartParameterizationQuality = lscmQuality;
 			}
 			isValid = chartParameterizationQuality.isValid();

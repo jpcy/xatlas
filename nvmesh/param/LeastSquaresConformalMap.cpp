@@ -1,8 +1,6 @@
 // Copyright NVIDIA Corporation 2008 -- Ignacio Castano <icastano@nvidia.com>
 
-#include "ParameterizationQuality.h"
 #include "xatlas.h"
-
 
 namespace nv {
 namespace param {
