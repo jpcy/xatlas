@@ -7,7 +7,7 @@
 #include "nvmesh/halfedge/Face.h"
 #include "nvmesh/halfedge/Vertex.h"
 
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 
 //#include "nvcore/IntroSort.h"
 

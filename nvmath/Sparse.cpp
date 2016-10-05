@@ -1,6 +1,6 @@
 // This code is in the public domain -- Ignacio Castaño <castanyo@yahoo.es>
 
-#include "nvmath.h"
+#include "xatlas.h"
 
 namespace nv {
 namespace sparse {

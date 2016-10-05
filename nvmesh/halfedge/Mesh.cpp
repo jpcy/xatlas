@@ -10,7 +10,7 @@
 
 //#include "nvmesh/MeshBuilder.h"
 
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 
 
 using namespace nv;

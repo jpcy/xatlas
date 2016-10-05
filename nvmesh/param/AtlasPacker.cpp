@@ -7,7 +7,7 @@
 #include "nvmesh/param/Util.h"
 #include "nvmesh/raster/Raster.h"
 
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 
 #include <vector>
 #include <float.h> // FLT_MAX

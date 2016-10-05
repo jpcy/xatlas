@@ -4,8 +4,8 @@
 #ifndef NV_MESH_ATLASPACKER_H
 #define NV_MESH_ATLASPACKER_H
 
-#include "nvcore/nvcore.h"
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
+#include "xatlas.h"
 
 namespace nv
 {

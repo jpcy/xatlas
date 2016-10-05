@@ -11,7 +11,7 @@
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/param/Atlas.h"
 
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 
 
 

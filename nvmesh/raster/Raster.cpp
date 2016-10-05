@@ -7,9 +7,9 @@
 
 #include "Raster.h"
 
-#include "nvcore/nvcore.h"
+#include "xatlas.h"
 
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 
 
 #define RA_EPSILON		0.00001f

@@ -5,7 +5,7 @@
 #define NV_MESH_ATLAS_H
 
 #include <memory>
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 #include "nvmesh/halfedge/Mesh.h"
 
 

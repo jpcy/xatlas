@@ -4,7 +4,7 @@
 #ifndef NV_MESH_HALFEDGE_EDGE_H
 #define NV_MESH_HALFEDGE_EDGE_H
 
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 
 namespace nv
 {

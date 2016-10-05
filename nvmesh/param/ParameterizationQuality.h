@@ -4,7 +4,7 @@
 #ifndef NV_MESH_PARAMETERIZATIONQUALITY_H
 #define NV_MESH_PARAMETERIZATIONQUALITY_H
 
-#include "nvcore/nvcore.h"
+#include "xatlas.h"
 
 namespace nv
 {

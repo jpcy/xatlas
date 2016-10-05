@@ -2,7 +2,7 @@
 
 #include <vector>
 #include "OrthogonalProjectionMap.h"
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Face.h"

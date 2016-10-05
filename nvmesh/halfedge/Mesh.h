@@ -9,7 +9,7 @@
 
 #include <new> // for placement new
 
-#include "nvcore/nvcore.h"
+#include "xatlas.h"
 
 /*
 If I were to redo this again, there are a number of things that I would do differently.

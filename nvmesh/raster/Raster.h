@@ -11,7 +11,7 @@
  * projects. The perspective correction wasn't necessary so I just removed it.
 **/
 
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 
 namespace nv
 {

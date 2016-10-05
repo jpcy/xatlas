@@ -45,6 +45,7 @@ project "atlas"
 	
 	files
 	{
+		"xatlas.h",
 		"nvcore/*.cpp",
 		"nvcore/*.h",
 		"nvmath/*.cpp",

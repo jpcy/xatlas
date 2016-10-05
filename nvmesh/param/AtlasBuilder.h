@@ -6,8 +6,8 @@
 
 #include "Atlas.h"
 
-#include "nvmath/nvmath.h"
-#include "nvcore/nvcore.h"
+#include "xatlas.h"
+#include "xatlas.h"
 
 
 namespace nv

@@ -1,5 +1,5 @@
 // This code is in the public domain -- Ignacio Castaño <castano@gmail.com>
-#include "nvcore.h"
+#include "xatlas.h"
 
 /// Shows a message through the message handler.
 void nvDebugPrint(const char *msg, ...)

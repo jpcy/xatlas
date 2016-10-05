@@ -1,6 +1,6 @@
 // This code is in the public domain -- Ignacio Castaño <castano@gmail.com>
 
-#include "nvmath.h"
+#include "xatlas.h"
 
 using namespace nv;
 

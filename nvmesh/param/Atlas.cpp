@@ -17,7 +17,7 @@
 #include "nvmesh/param/Util.h"
 #include "nvmesh/geometry/Measurements.h"
 
-#include "nvmath/nvmath.h"
+#include "xatlas.h"
 
 using namespace nv;
 

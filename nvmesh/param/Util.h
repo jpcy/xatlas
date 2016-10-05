@@ -1,6 +1,6 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include "nvcore/nvcore.h"
+#include "xatlas.h"
 
 namespace nv
 {
