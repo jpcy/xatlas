@@ -10,7 +10,6 @@
 #include "ParameterizationQuality.h"
 
 #include "nvmesh/param/Util.h"
-#include "nvmesh/geometry/Measurements.h"
 
 #include "xatlas.h"
 
@@ -815,7 +814,7 @@ void Chart::transferParameterization()
 
 float Chart::computeSurfaceArea() const
 {
-	return nv::computeSurfaceArea(m_chartMesh.get()) * scale;
+	return HalfEdge::computeSurfaceArea(m_chartMesh.get()) * scale;
 }
 
 float Chart::computeParametricArea() const
@@ -823,7 +822,7 @@ float Chart::computeParametricArea() const
 	// This only makes sense in parameterized meshes.
 	nvDebugCheck(m_isDisk);
 	nvDebugCheck(!m_isVertexMapped);
-	return nv::computeParametricArea(m_chartMesh.get());
+	return HalfEdge::computeParametricArea(m_chartMesh.get());
 }
 
 Vector2 Chart::computeParametricBounds() const

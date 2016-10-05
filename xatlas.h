@@ -1899,7 +1899,7 @@ private:
 class MeshTopology
 {
 public:
-	MeshTopology(const HalfEdge::Mesh *mesh)
+	MeshTopology(const Mesh *mesh)
 	{
 		buildTopologyInfo(mesh);
 	}
@@ -1923,7 +1923,7 @@ public:
 	}
 
 private:
-	void buildTopologyInfo(const HalfEdge::Mesh *mesh)
+	void buildTopologyInfo(const Mesh *mesh)
 	{
 		const uint32_t vertexCount = mesh->colocalVertexCount();
 		const uint32_t faceCount = mesh->faceCount();
@@ -1945,11 +1945,11 @@ private:
 					stack.pop_back();
 					if ( bitFlags.bitAt(top) == false ) {
 						bitFlags.setBitAt(top);
-						const HalfEdge::Face *face = mesh->faceAt(top);
-						const HalfEdge::Edge *firstEdge = face->edge;
-						const HalfEdge::Edge *edge = firstEdge;
+						const Face *face = mesh->faceAt(top);
+						const Edge *firstEdge = face->edge;
+						const Edge *edge = firstEdge;
 						do {
-							const HalfEdge::Face *neighborFace = edge->pair->face;
+							const Face *neighborFace = edge->pair->face;
 							if (neighborFace != NULL) {
 								stack.push_back(neighborFace->id);
 							}
@@ -1968,13 +1968,13 @@ private:
 		bitFlags.clearAll();
 		// Don't forget to link the boundary otherwise this won't work.
 		for (uint32_t e = 0; e < edgeCount; e++) {
-			const HalfEdge::Edge *startEdge = mesh->edgeAt(e);
+			const Edge *startEdge = mesh->edgeAt(e);
 			if (startEdge != NULL && startEdge->isBoundary() && bitFlags.bitAt(e) == false) {
 				nvDebugCheck(startEdge->face != NULL);
 				nvDebugCheck(startEdge->pair->face == NULL);
 				startEdge = startEdge->pair;
 				m_boundaryCount++;
-				const HalfEdge::Edge *edge = startEdge;
+				const Edge *edge = startEdge;
 				do {
 					bitFlags.setBitAt(edge->id / 2);
 					edge = edge->next;
@@ -2007,6 +2007,9 @@ private:
 	/// Mesh genus.
 	int m_genus;
 };
+
+float computeSurfaceArea(const Mesh *mesh);
+float computeParametricArea(const Mesh *mesh);
 
 } //  namespace HalfEdge
 

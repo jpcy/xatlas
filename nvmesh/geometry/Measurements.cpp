@@ -1,11 +1,11 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include "Measurements.h"
 #include "xatlas.h"
 
-using namespace nv;
+namespace nv {
+namespace HalfEdge {
 
-float nv::computeSurfaceArea(const HalfEdge::Mesh *mesh)
+float computeSurfaceArea(const HalfEdge::Mesh *mesh)
 {
 	float area = 0;
 	for (HalfEdge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
@@ -16,7 +16,7 @@ float nv::computeSurfaceArea(const HalfEdge::Mesh *mesh)
 	return area;
 }
 
-float nv::computeParametricArea(const HalfEdge::Mesh *mesh)
+float computeParametricArea(const HalfEdge::Mesh *mesh)
 {
 	float area = 0;
 	for (HalfEdge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
@@ -24,4 +24,7 @@ float nv::computeParametricArea(const HalfEdge::Mesh *mesh)
 		area += face->parametricArea();
 	}
 	return area;
+}
+
+}
 }
