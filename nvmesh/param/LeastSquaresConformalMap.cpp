@@ -4,7 +4,6 @@
 #include "ParameterizationQuality.h"
 #include "Util.h"
 #include "nvmesh/halfedge/Mesh.h"
-#include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Face.h"
 #include "xatlas.h"
 

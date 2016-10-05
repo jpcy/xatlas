@@ -5,10 +5,8 @@
 #include <cfloat>
 #include <memory>
 
-#include "nvmesh/halfedge/Edge.h"
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Face.h"
-#include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/param/Atlas.h"
 
 #include "xatlas.h"

@@ -4,7 +4,6 @@
 
 #include "nvmesh/MeshTopology.h"
 #include "nvmesh/halfedge/Mesh.h"
-#include "nvmesh/halfedge/Edge.h"
 #include "nvmesh/halfedge/Face.h"
 
 using namespace nv;

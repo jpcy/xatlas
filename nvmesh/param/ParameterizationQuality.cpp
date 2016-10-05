@@ -3,9 +3,6 @@
 #include "ParameterizationQuality.h"
 #include "nvmesh/halfedge/Mesh.h"
 #include "nvmesh/halfedge/Face.h"
-#include "nvmesh/halfedge/Vertex.h"
-#include "nvmesh/halfedge/Edge.h"
-#include "xatlas.h"
 #include "xatlas.h"
 #include <float.h>
 

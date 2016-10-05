@@ -1,7 +1,5 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include "Vertex.h"
-
 #include "xatlas.h"
 
 using namespace nv;

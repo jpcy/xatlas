@@ -1,11 +1,7 @@
 // This code is in the public domain -- castanyo@yahoo.es
 
-#include "Face.h"
-#include "Vertex.h"
-
 #include "xatlas.h"
-
-
+#include "Face.h"
 
 using namespace nv;
 using namespace HalfEdge;

@@ -1,7 +1,6 @@
 // This code is in the public domain -- castano@gmail.com
 
 #include "AtlasPacker.h"
-#include "nvmesh/halfedge/Vertex.h"
 #include "nvmesh/halfedge/Face.h"
 #include "nvmesh/param/Atlas.h"
 #include "nvmesh/param/Util.h"

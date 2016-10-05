@@ -1045,6 +1045,286 @@ private:
 	std::vector<float> m_array;
 };
 
+namespace HalfEdge {
+class Face;
+class Vertex;
+
+class Edge
+{
+public:
+	uint32_t id;
+	Edge *next;
+	Edge *prev;	// This is not strictly half-edge, but makes algorithms easier and faster.
+	Edge *pair;
+	Vertex *vertex;
+	Face *face;
+
+	// Default constructor.
+	Edge(uint32_t id) : id(id), next(NULL), prev(NULL), pair(NULL), vertex(NULL), face(NULL)
+	{
+	}
+
+	// Vertex queries.
+	const Vertex *from() const
+	{
+		return vertex;
+	}
+
+	Vertex *from()
+	{
+		return vertex;
+	}
+
+	const Vertex *to() const
+	{
+		return pair->vertex;    // This used to be 'next->vertex', but that changed often when the connectivity of the mesh changes.
+	}
+
+	Vertex *to()
+	{
+		return pair->vertex;
+	}
+
+	// Edge queries.
+	void setNext(Edge *e)
+	{
+		next = e;
+		if (e != NULL) e->prev = this;
+	}
+	void setPrev(Edge *e)
+	{
+		prev = e;
+		if (e != NULL) e->next = this;
+	}
+
+	// @@ It would be more simple to only check m_pair == NULL
+	// Face queries.
+	bool isBoundary() const
+	{
+		return !(face && pair->face);
+	}
+
+	// @@ This is not exactly accurate, we should compare the texture coordinates...
+	bool isSeam() const
+	{
+		return vertex != pair->next->vertex || next->vertex != pair->vertex;
+	}
+
+	bool isValid() const
+	{
+		// null face is OK.
+		if (next == NULL || prev == NULL || pair == NULL || vertex == NULL) return false;
+		if (next->prev != this) return false;
+		if (prev->next != this) return false;
+		if (pair->pair != this) return false;
+		return true;
+	}
+
+	// Geometric queries.
+	Vector3 midPoint() const;
+
+	float length() const;
+
+	// Return angle between this edge and the previous one.
+	float angle() const;
+};
+
+class Vertex
+{
+public:
+	uint32_t id;
+	Edge *edge;
+	Vertex *next;
+	Vertex *prev;
+	Vector3 pos;
+	Vector3 nor;
+	Vector2 tex;
+
+	Vertex(uint32_t id) : id(id), edge(NULL), pos(0.0f), nor(0.0f), tex(0.0f)
+	{
+		next = this;
+		prev = this;
+	}
+
+	void setEdge(Edge *e);
+	void setPos(const Vector3 &p);
+
+	uint32_t colocalCount() const;
+	uint32_t valence() const;
+	bool isFirstColocal() const;
+	const Vertex *firstColocal() const;
+	Vertex *firstColocal();
+
+	bool isColocal(const Vertex *v) const;
+
+	void linkColocal(Vertex *v)
+	{
+		next->prev = v;
+		v->next = next;
+		next = v;
+		v->prev = this;
+	}
+	void unlinkColocal()
+	{
+		next->prev = prev;
+		prev->next = next;
+		next = this;
+		prev = this;
+	}
+
+	// @@ Note: This only works if linkBoundary has been called.
+	bool isBoundary() const
+	{
+		return (edge && !edge->face);
+	}
+
+	// Iterator that visits the edges around this vertex in counterclockwise order.
+	class EdgeIterator //: public Iterator<Edge *>
+	{
+	public:
+		EdgeIterator(Edge *e) : m_end(NULL), m_current(e) { }
+
+		virtual void advance()
+		{
+			if (m_end == NULL) m_end = m_current;
+			m_current = m_current->pair->next;
+			//m_current = m_current->prev->pair;
+		}
+
+		virtual bool isDone() const
+		{
+			return m_end == m_current;
+		}
+		virtual Edge *current() const
+		{
+			return m_current;
+		}
+		Vertex *vertex() const
+		{
+			return m_current->vertex;
+		}
+
+	private:
+		Edge *m_end;
+		Edge *m_current;
+	};
+
+	EdgeIterator edges()
+	{
+		return EdgeIterator(edge);
+	}
+	EdgeIterator edges(Edge *e)
+	{
+		return EdgeIterator(e);
+	}
+
+	// Iterator that visits the edges around this vertex in counterclockwise order.
+	class ConstEdgeIterator //: public Iterator<Edge *>
+	{
+	public:
+		ConstEdgeIterator(const Edge *e) : m_end(NULL), m_current(e) { }
+		ConstEdgeIterator(EdgeIterator it) : m_end(NULL), m_current(it.current()) { }
+
+		virtual void advance()
+		{
+			if (m_end == NULL) m_end = m_current;
+			m_current = m_current->pair->next;
+			//m_current = m_current->prev->pair;
+		}
+
+		virtual bool isDone() const
+		{
+			return m_end == m_current;
+		}
+		virtual const Edge *current() const
+		{
+			return m_current;
+		}
+		const Vertex *vertex() const
+		{
+			return m_current->to();
+		}
+
+	private:
+		const Edge *m_end;
+		const Edge *m_current;
+	};
+
+	ConstEdgeIterator edges() const
+	{
+		return ConstEdgeIterator(edge);
+	}
+	ConstEdgeIterator edges(const Edge *e) const
+	{
+		return ConstEdgeIterator(e);
+	}
+
+	// Iterator that visits all the colocal vertices.
+	class VertexIterator //: public Iterator<Edge *>
+	{
+	public:
+		VertexIterator(Vertex *v) : m_end(NULL), m_current(v) { }
+
+		virtual void advance()
+		{
+			if (m_end == NULL) m_end = m_current;
+			m_current = m_current->next;
+		}
+
+		virtual bool isDone() const
+		{
+			return m_end == m_current;
+		}
+		virtual Vertex *current() const
+		{
+			return m_current;
+		}
+
+	private:
+		Vertex *m_end;
+		Vertex *m_current;
+	};
+
+	VertexIterator colocals()
+	{
+		return VertexIterator(this);
+	}
+
+	// Iterator that visits all the colocal vertices.
+	class ConstVertexIterator //: public Iterator<Edge *>
+	{
+	public:
+		ConstVertexIterator(const Vertex *v) : m_end(NULL), m_current(v) { }
+
+		virtual void advance()
+		{
+			if (m_end == NULL) m_end = m_current;
+			m_current = m_current->next;
+		}
+
+		virtual bool isDone() const
+		{
+			return m_end == m_current;
+		}
+		virtual const Vertex *current() const
+		{
+			return m_current;
+		}
+
+	private:
+		const Vertex *m_end;
+		const Vertex *m_current;
+	};
+
+	ConstVertexIterator colocals() const
+	{
+		return ConstVertexIterator(this);
+	}
+
+};
+
+} //  namespace HalfEdge
+
 /// Mersenne twister random number generator.
 class MTRand
 {
