@@ -9,7 +9,6 @@
 #include "LeastSquaresConformalMap.h"
 #include "ParameterizationQuality.h"
 
-#include "nvmesh/MeshTopology.h"
 #include "nvmesh/param/Util.h"
 #include "nvmesh/geometry/Measurements.h"
 
@@ -496,7 +495,7 @@ void Chart::build(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t
 	m_unifiedMesh.reset(triangulate(m_unifiedMesh.get()));
 	//exportMesh(m_unifiedMesh.ptr(), "debug_triangulated.obj");
 	// Analyze chart topology.
-	MeshTopology topology(m_unifiedMesh.get());
+	HalfEdge::MeshTopology topology(m_unifiedMesh.get());
 	m_isDisk = topology.isDisk();
 }
 
