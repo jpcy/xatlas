@@ -5,7 +5,6 @@
 #include "nvmesh/halfedge/Face.h"
 #include "nvmesh/param/Atlas.h"
 #include "nvmesh/param/Util.h"
-#include "nvmesh/raster/Raster.h"
 
 #include "xatlas.h"
 
@@ -514,9 +513,9 @@ void AtlasPacker::drawChartBitmapDilate(const Chart *chart, BitMap *bitmap, int 
 			edgeCount++;
 		}
 		if (edgeCount == 3) {
-			Raster::drawTriangle(Raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitmap);
+			raster::drawTriangle(raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitmap);
 		} else {
-			Raster::drawQuad(Raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitmap);
+			raster::drawQuad(raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitmap);
 		}
 	}
 	// Expand chart by padding pixels. (dilation)
@@ -578,9 +577,9 @@ void AtlasPacker::drawChartBitmap(const Chart *chart, BitMap *bitmap, const Vect
 				edgeCount++;
 			}
 			if (edgeCount == 3) {
-				Raster::drawTriangle(Raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitmap);
+				raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitmap);
 			} else {
-				Raster::drawQuad(Raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitmap);
+				raster::drawQuad(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitmap);
 			}
 		}
 	}
