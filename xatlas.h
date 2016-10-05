@@ -1334,24 +1334,97 @@ public:
 
 	Face(uint32_t id) : id(id), group(~0), material(~0), edge(NULL) {}
 
-	float area() const;
-	float parametricArea() const;
-	float boundaryLength() const;
-	Vector3 normal() const;
-	Vector3 centroid() const;
+	float area() const
+	{
+		float area = 0;
+		const Vector3 &v0 = edge->from()->pos;
+		for (ConstEdgeIterator it(edges(edge->next)); it.current() != edge->prev; it.advance()) {
+			const Edge *e = it.current();
+			const Vector3 &v1 = e->vertex->pos;
+			const Vector3 &v2 = e->next->vertex->pos;
+			area += length(cross(v1 - v0, v2 - v0));
+		}
+		return area * 0.5f;
+	}
 
-	bool isValid() const;
+	float parametricArea() const
+	{
+		float area = 0;
+		const Vector2 &v0 = edge->from()->tex;
+		for (ConstEdgeIterator it(edges(edge->next)); it.current() != edge->prev; it.advance()) {
+			const Edge *e = it.current();
+			const Vector2 &v1 = e->vertex->tex;
+			const Vector2 &v2 = e->next->vertex->tex;
+			area += triangleArea(v0, v1, v2);
+		}
+		return area * 0.5f;
+	}
 
-	bool contains(const Edge *e) const;
-	uint32_t edgeIndex(const Edge *e) const;
+	Vector3 normal() const
+	{
+		Vector3 n(0);
+		const Vertex *vertex0 = NULL;
+		for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
+			const Edge *edge = it.current();
+			nvCheck(edge != NULL);
+			if (vertex0 == NULL) {
+				vertex0 = edge->vertex;
+			} else if (edge->next->vertex != vertex0) {
+				const HalfEdge::Vertex *vertex1 = edge->from();
+				const HalfEdge::Vertex *vertex2 = edge->to();
+				const Vector3 &p0 = vertex0->pos;
+				const Vector3 &p1 = vertex1->pos;
+				const Vector3 &p2 = vertex2->pos;
+				Vector3 v10 = p1 - p0;
+				Vector3 v20 = p2 - p0;
+				n += cross(v10, v20);
+			}
+		}
+		return normalizeSafe(n, Vector3(0, 0, 1), 0.0f);
+	}
 
-	Edge *edgeAt(uint32_t idx);
-	const Edge *edgeAt(uint32_t idx) const;
+	Vector3 centroid() const
+	{
+		Vector3 sum(0.0f);
+		uint32_t count = 0;
+		for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
+			const Edge *edge = it.current();
+			sum += edge->from()->pos;
+			count++;
+		}
+		return sum / float(count);
+	}
 
-	uint32_t edgeCount() const;
-	bool isBoundary() const;
-	uint32_t boundaryCount() const;
+	bool isValid() const
+	{
+		uint32_t count = 0;
+		for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
+			const Edge *edge = it.current();
+			if (edge->face != this) return false;
+			if (!edge->isValid()) return false;
+			if (!edge->pair->isValid()) return false;
+			count++;
+		}
+		if (count < 3) return false;
+		return true;
+	}
 
+	bool contains(const Edge *e) const
+	{
+		for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
+			if (it.current() == e) return true;
+		}
+		return false;
+	}
+
+	uint32_t edgeCount() const
+	{
+		uint32_t count = 0;
+		for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
+			++count;
+		}
+		return count;
+	}
 
 	// The iterator that visits the edges of this face in clockwise order.
 	class EdgeIterator //: public Iterator<Edge *>
