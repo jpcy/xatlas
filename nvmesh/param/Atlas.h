@@ -15,6 +15,7 @@ namespace HalfEdge
 class Mesh;
 }
 
+namespace param {
 class Chart;
 class MeshCharts;
 class VertexMap;
@@ -48,7 +49,7 @@ public:
 	void addMeshCharts(MeshCharts *meshCharts);
 
 	void extractCharts(const HalfEdge::Mesh *mesh);
-	void computeCharts(const HalfEdge::Mesh *mesh, const param::SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
+	void computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
 
 
 	// Compute a trivial seamless texture similar to ZBrush.
@@ -64,7 +65,6 @@ private:
 	std::vector<MeshCharts *> m_meshChartsArray;
 
 };
-
 
 // Set of charts corresponding to a single mesh.
 class MeshCharts
@@ -91,13 +91,11 @@ public:
 		return m_chartArray[i];
 	}
 
-	void computeVertexMap(const std::vector<uint32_t> &unchartedMaterialArray);
-
 	// Extract the charts of the input mesh.
 	void extractCharts();
 
 	// Compute charts using a simple segmentation algorithm.
-	void computeCharts(const param::SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
+	void computeCharts(const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
 
 	void parameterizeCharts();
 
@@ -128,110 +126,7 @@ private:
 	std::vector<uint32_t> m_faceIndex; // the index within the chart for every face of the input mesh.
 };
 
-
-/// A chart is a connected set of faces with a certain topology (usually a disk).
-class Chart
-{
-public:
-
-	Chart();
-
-	void build(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t> &faceArray);
-	void buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t> &unchartedMaterialArray);
-
-	bool closeHoles();
-
-	bool isDisk() const
-	{
-		return m_isDisk;
-	}
-	bool isVertexMapped() const
-	{
-		return m_isVertexMapped;
-	}
-
-	uint32_t vertexCount() const
-	{
-		return m_chartMesh->vertexCount();
-	}
-	uint32_t colocalVertexCount() const
-	{
-		return m_unifiedMesh->vertexCount();
-	}
-
-	uint32_t faceCount() const
-	{
-		return m_faceArray.size();
-	}
-	uint32_t faceAt(uint32_t i) const
-	{
-		return m_faceArray[i];
-	}
-
-	const HalfEdge::Mesh *chartMesh() const
-	{
-		return m_chartMesh.get();
-	}
-	HalfEdge::Mesh *chartMesh()
-	{
-		return m_chartMesh.get();
-	}
-	const HalfEdge::Mesh *unifiedMesh() const
-	{
-		return m_unifiedMesh.get();
-	}
-	HalfEdge::Mesh *unifiedMesh()
-	{
-		return m_unifiedMesh.get();
-	}
-
-	//uint32_t vertexIndex(uint32_t i) const { return m_vertexIndexArray[i]; }
-
-	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const
-	{
-		return m_chartToOriginalMap[i];
-	}
-	uint32_t mapChartVertexToUnifiedVertex(uint32_t i) const
-	{
-		return m_chartToUnifiedMap[i];
-	}
-
-	const std::vector<uint32_t> &faceArray() const
-	{
-		return m_faceArray;
-	}
-
-	void transferParameterization();
-
-	float computeSurfaceArea() const;
-	float computeParametricArea() const;
-	Vector2 computeParametricBounds() const;
-
-
-	float scale = 1.0f;
-	uint32_t vertexMapWidth;
-	uint32_t vertexMapHeight;
-
-private:
-
-	bool closeLoop(uint32_t start, const std::vector<HalfEdge::Edge *> &loop);
-
-	// Chart mesh.
-	std::auto_ptr<HalfEdge::Mesh> m_chartMesh;
-	std::auto_ptr<HalfEdge::Mesh> m_unifiedMesh;
-
-	bool m_isDisk;
-	bool m_isVertexMapped;
-
-	// List of faces of the original mesh that belong to this chart.
-	std::vector<uint32_t> m_faceArray;
-
-	// Map vertices of the chart mesh to vertices of the original mesh.
-	std::vector<uint32_t> m_chartToOriginalMap;
-
-	std::vector<uint32_t> m_chartToUnifiedMap;
-};
-
+}
 } // nv namespace
 
 #endif // NV_MESH_ATLAS_H

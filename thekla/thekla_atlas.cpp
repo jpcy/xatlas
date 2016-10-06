@@ -69,11 +69,11 @@ static void input_to_mesh(const Atlas_Input_Mesh * input, HalfEdge::Mesh * mesh,
     }
 }
 
-static Atlas_Output_Mesh * mesh_atlas_to_output(const HalfEdge::Mesh * mesh, const Atlas & atlas, Atlas_Error * error) {
+static Atlas_Output_Mesh * mesh_atlas_to_output(const HalfEdge::Mesh * mesh, const param::Atlas & atlas, Atlas_Error * error) {
 
     Atlas_Output_Mesh * output = new Atlas_Output_Mesh;
 
-    const MeshCharts * charts = atlas.meshAt(0);
+    const param::MeshCharts * charts = atlas.meshAt(0);
 
     // Allocate vertices.
     const int vertex_count = charts->vertexCount();
@@ -86,7 +86,7 @@ static Atlas_Output_Mesh * mesh_atlas_to_output(const HalfEdge::Mesh * mesh, con
     // Output vertices.
     const int chart_count = charts->chartCount();
     for (int i = 0; i < chart_count; i++) {
-        const Chart * chart = charts->chartAt(i);
+        const param::Chart * chart = charts->chartAt(i);
         uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
 
         const uint32_t chart_vertex_count = chart->vertexCount();
@@ -114,7 +114,7 @@ static Atlas_Output_Mesh * mesh_atlas_to_output(const HalfEdge::Mesh * mesh, con
         uint32_t i = charts->faceIndexWithinChartAt(f);
         uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
 
-        const Chart * chart = charts->chartAt(c);
+        const param::Chart * chart = charts->chartAt(c);
         nvDebugCheck(chart->faceAt(i) == f);
 
         const HalfEdge::Face * face = chart->chartMesh()->faceAt(i);
@@ -207,7 +207,7 @@ Atlas_Output_Mesh * Thekla::atlas_generate(const Atlas_Input_Mesh * input, const
         return NULL;
     }
 
-    Atlas atlas;
+    param::Atlas atlas;
 
     // Charter.
     if (options->charter == Atlas_Charter_Extract) {
