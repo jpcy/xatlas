@@ -5,6 +5,16 @@
 namespace nv {
 namespace HalfEdge {
 
+bool Edge::isNormalSeam() const
+{
+	return (vertex->nor != pair->next->vertex->nor || next->vertex->nor != pair->vertex->nor);
+}
+
+bool Edge::isTextureSeam() const
+{
+	return (vertex->tex != pair->next->vertex->tex || next->vertex->tex != pair->vertex->tex);
+}
+
 Vector3 Edge::midPoint() const
 {
 	return (to()->pos + from()->pos) * 0.5f;
