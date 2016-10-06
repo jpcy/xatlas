@@ -1,7 +1,5 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include "AtlasBuilder.h"
-
 #include "xatlas.h"
 
 //#include "nvcore/IntroSort.h"
@@ -11,84 +9,8 @@
 #include <float.h> // FLT_MAX
 #include <limits.h> // UINT_MAX
 
-using namespace nv;
-
-namespace
-{
-
-// Dummy implementation of a priority queue using sort at insertion.
-// - Insertion is o(n)
-// - Smallest element goes at the end, so that popping it is o(1).
-// - Resorting is n*log(n)
-// @@ Number of elements in the queue is usually small, and we'd have to rebalance often. I'm not sure it's worth implementing a heap.
-// @@ Searcing at removal would remove the need for sorting when priorities change.
-struct PriorityQueue {
-	PriorityQueue(uint32_t size = UINT_MAX) : maxSize(size) {}
-
-	void push(float priority, uint32_t face)
-	{
-		uint32_t i = 0;
-		const uint32_t count = pairs.size();
-		for (; i < count; i++) {
-			if (pairs[i].priority > priority) break;
-		}
-		Pair p = { priority, face };
-		pairs.insert(pairs.begin() + i, p);
-		if (pairs.size() > maxSize) {
-			pairs.erase(pairs.begin());
-		}
-	}
-
-	// push face out of order, to be sorted later.
-	void push(uint32_t face)
-	{
-		Pair p = { 0.0f, face };
-		pairs.push_back(p);
-	}
-
-	uint32_t pop()
-	{
-		uint32_t f = pairs.back().face;
-		pairs.pop_back();
-		return f;
-	}
-
-	void sort()
-	{
-		//nv::sort(pairs); // @@ My intro sort appears to be much slower than it should!
-		std::sort(pairs.begin(), pairs.end());
-	}
-
-	void clear()
-	{
-		pairs.clear();
-	}
-
-	uint32_t count() const
-	{
-		return pairs.size();
-	}
-
-	float firstPriority() const
-	{
-		return pairs.back().priority;
-	}
-
-
-	const uint32_t maxSize;
-
-	struct Pair {
-		bool operator <(const Pair &p) const
-		{
-			return priority > p.priority;    // !! Sort in inverse priority order!
-		}
-		float priority;
-		uint32_t face;
-	};
-
-
-	std::vector<Pair> pairs;
-};
+namespace nv {
+namespace param {
 
 static bool isNormalSeam(const HalfEdge::Edge *edge)
 {
@@ -99,42 +21,6 @@ static bool isTextureSeam(const HalfEdge::Edge *edge)
 {
 	return (edge->vertex->tex != edge->pair->next->vertex->tex || edge->next->vertex->tex != edge->pair->vertex->tex);
 }
-
-} // namespace
-
-
-struct nv::ChartBuildData {
-	ChartBuildData(int id) : id(id)
-	{
-		planeNormal = Vector3(0);
-		centroid = Vector3(0);
-		coneAxis = Vector3(0);
-		coneAngle = 0;
-		area = 0;
-		boundaryLength = 0;
-		normalSum = Vector3(0);
-		centroidSum = Vector3(0);
-	}
-
-	int id;
-
-	// Proxy info:
-	Vector3 planeNormal;
-	Vector3 centroid;
-	Vector3 coneAxis;
-	float coneAngle;
-
-	float area;
-	float boundaryLength;
-	Vector3 normalSum;
-	Vector3 centroidSum;
-
-	std::vector<uint32_t> seeds;  // @@ These could be a pointers to the HalfEdge faces directly.
-	std::vector<uint32_t> faces;
-	PriorityQueue candidates;
-};
-
-
 
 AtlasBuilder::AtlasBuilder(const HalfEdge::Mesh *m) : mesh(m), facesLeft(m->faceCount())
 {
@@ -369,10 +255,6 @@ void AtlasBuilder::updateProxies()
 	}
 }
 
-
-namespace
-{
-
 // Unnormalized face normal assuming it's a triangle.
 static Vector3 triangleNormal(const HalfEdge::Face *face)
 {
@@ -409,8 +291,6 @@ static Vector3 triangleCenter(const HalfEdge::Face *face)
 	Vector3 m2 = (p2 + p0) * l2 / (l0 + l1 + l2);
 	return m0 + m1 + m2;
 }
-
-} // namespace
 
 void AtlasBuilder::updateProxy(ChartBuildData *chart)
 {
@@ -880,4 +760,7 @@ void AtlasBuilder::mergeCharts()
 const std::vector<uint32_t> &AtlasBuilder::chartFaces(uint32_t i) const
 {
 	return chartArray[i]->faces;
+}
+
+}
 }

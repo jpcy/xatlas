@@ -3255,6 +3255,225 @@ bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh);
 bool computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh);
 void computeSingleFaceMap(HalfEdge::Mesh *mesh);
 
+// Dummy implementation of a priority queue using sort at insertion.
+// - Insertion is o(n)
+// - Smallest element goes at the end, so that popping it is o(1).
+// - Resorting is n*log(n)
+// @@ Number of elements in the queue is usually small, and we'd have to rebalance often. I'm not sure it's worth implementing a heap.
+// @@ Searcing at removal would remove the need for sorting when priorities change.
+struct PriorityQueue
+{
+	PriorityQueue(uint32_t size = UINT_MAX) : maxSize(size) {}
+
+	void push(float priority, uint32_t face)
+	{
+		uint32_t i = 0;
+		const uint32_t count = pairs.size();
+		for (; i < count; i++) {
+			if (pairs[i].priority > priority) break;
+		}
+		Pair p = { priority, face };
+		pairs.insert(pairs.begin() + i, p);
+		if (pairs.size() > maxSize) {
+			pairs.erase(pairs.begin());
+		}
+	}
+
+	// push face out of order, to be sorted later.
+	void push(uint32_t face)
+	{
+		Pair p = { 0.0f, face };
+		pairs.push_back(p);
+	}
+
+	uint32_t pop()
+	{
+		uint32_t f = pairs.back().face;
+		pairs.pop_back();
+		return f;
+	}
+
+	void sort()
+	{
+		//sort(pairs); // @@ My intro sort appears to be much slower than it should!
+		std::sort(pairs.begin(), pairs.end());
+	}
+
+	void clear()
+	{
+		pairs.clear();
+	}
+
+	uint32_t count() const
+	{
+		return pairs.size();
+	}
+
+	float firstPriority() const
+	{
+		return pairs.back().priority;
+	}
+
+	const uint32_t maxSize;
+
+	struct Pair
+	{
+		bool operator <(const Pair &p) const
+		{
+			return priority > p.priority;    // !! Sort in inverse priority order!
+		}
+
+		float priority;
+		uint32_t face;
+	};
+
+	std::vector<Pair> pairs;
+};
+
+struct ChartBuildData
+{
+	ChartBuildData(int id) : id(id)
+	{
+		planeNormal = Vector3(0);
+		centroid = Vector3(0);
+		coneAxis = Vector3(0);
+		coneAngle = 0;
+		area = 0;
+		boundaryLength = 0;
+		normalSum = Vector3(0);
+		centroidSum = Vector3(0);
+	}
+
+	int id;
+
+	// Proxy info:
+	Vector3 planeNormal;
+	Vector3 centroid;
+	Vector3 coneAxis;
+	float coneAngle;
+
+	float area;
+	float boundaryLength;
+	Vector3 normalSum;
+	Vector3 centroidSum;
+
+	std::vector<uint32_t> seeds;  // @@ These could be a pointers to the HalfEdge faces directly.
+	std::vector<uint32_t> faces;
+	PriorityQueue candidates;
+};
+
+struct SegmentationSettings
+{
+	SegmentationSettings()
+	{
+		// Charts have no area or boundary limits right now.
+		maxChartArea = NV_FLOAT_MAX;
+		maxBoundaryLength = NV_FLOAT_MAX;
+		proxyFitMetricWeight = 1.0f;
+		roundnessMetricWeight = 0.1f;
+		straightnessMetricWeight = 0.25f;
+		normalSeamMetricWeight = 1.0f;
+		textureSeamMetricWeight = 0.1f;
+	}
+
+	float maxChartArea;
+	float maxBoundaryLength;
+
+	float proxyFitMetricWeight;
+	float roundnessMetricWeight;
+	float straightnessMetricWeight;
+	float normalSeamMetricWeight;
+	float textureSeamMetricWeight;
+};
+
+struct AtlasBuilder
+{
+	AtlasBuilder(const HalfEdge::Mesh *m);
+	~AtlasBuilder();
+
+	void markUnchartedFaces(const std::vector<uint32_t> &unchartedFaces);
+
+	void computeShortestPaths();
+
+	void placeSeeds(float threshold, uint32_t maxSeedCount);
+	void createRandomChart(float threshold);
+
+	void addFaceToChart(ChartBuildData *chart, uint32_t f, bool recomputeProxy = false);
+
+	bool growCharts(float threshold, uint32_t faceCount);
+	bool growChart(ChartBuildData *chart, float threshold, uint32_t faceCount);
+
+	void resetCharts();
+
+	void updateCandidates(ChartBuildData *chart, uint32_t face);
+
+	void updateProxies();
+	void updateProxy(ChartBuildData *chart);
+
+	bool relocateSeeds();
+	bool relocateSeed(ChartBuildData *chart);
+
+	void updatePriorities(ChartBuildData *chart);
+
+	float evaluatePriority(ChartBuildData *chart, uint32_t face);
+	float evaluateProxyFitMetric(ChartBuildData *chart, uint32_t face);
+	float evaluateDistanceToBoundary(ChartBuildData *chart, uint32_t face);
+	float evaluateDistanceToSeed(ChartBuildData *chart, uint32_t face);
+	float evaluateRoundnessMetric(ChartBuildData *chart, uint32_t face, float newBoundaryLength, float newChartArea);
+	float evaluateStraightnessMetric(ChartBuildData *chart, uint32_t face);
+
+	float evaluateNormalSeamMetric(ChartBuildData *chart, uint32_t f);
+	float evaluateTextureSeamMetric(ChartBuildData *chart, uint32_t f);
+	float evaluateSeamMetric(ChartBuildData *chart, uint32_t f);
+
+	float evaluateChartArea(ChartBuildData *chart, uint32_t f);
+	float evaluateBoundaryLength(ChartBuildData *chart, uint32_t f);
+	Vector3 evaluateChartNormalSum(ChartBuildData *chart, uint32_t f);
+	Vector3 evaluateChartCentroidSum(ChartBuildData *chart, uint32_t f);
+
+	Vector3 computeChartCentroid(const ChartBuildData *chart);
+
+
+	void fillHoles(float threshold);
+	void mergeCharts();
+
+	// @@ Cleanup.
+	struct Candidate {
+		uint32_t face;
+		ChartBuildData *chart;
+		float metric;
+	};
+
+	const Candidate &getBestCandidate() const;
+	void removeCandidate(uint32_t f);
+	void updateCandidate(ChartBuildData *chart, uint32_t f, float metric);
+
+	void mergeChart(ChartBuildData *owner, ChartBuildData *chart, float sharedBoundaryLength);
+
+
+	uint32_t chartCount() const
+	{
+		return chartArray.size();
+	}
+	const std::vector<uint32_t> &chartFaces(uint32_t i) const;
+
+	const HalfEdge::Mesh *mesh;
+	uint32_t facesLeft;
+	std::vector<int> faceChartArray;
+	std::vector<ChartBuildData *> chartArray;
+	std::vector<float> shortestPaths;
+
+	std::vector<float> edgeLengths;
+	std::vector<float> faceAreas;
+
+	std::vector<Candidate> candidateArray; //
+	std::vector<uint32_t> faceCandidateArray; // Map face index to candidate index.
+
+	MTRand rand;
+
+	SegmentationSettings settings;
+};
+
 struct AtlasPacker
 {
 	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_bitmap(256, 256), m_width(0), m_height(0) {}

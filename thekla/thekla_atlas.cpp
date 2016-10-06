@@ -214,7 +214,7 @@ Atlas_Output_Mesh * Thekla::atlas_generate(const Atlas_Input_Mesh * input, const
         return set_error(error, Atlas_Error_Not_Implemented);
     }
     else if (options->charter == Atlas_Charter_Witness) {
-        SegmentationSettings segmentation_settings;
+        param::SegmentationSettings segmentation_settings;
         segmentation_settings.proxyFitMetricWeight = options->charter_options.witness.proxy_fit_metric_weight;
         segmentation_settings.roundnessMetricWeight = options->charter_options.witness.roundness_metric_weight;
         segmentation_settings.straightnessMetricWeight = options->charter_options.witness.straightness_metric_weight;

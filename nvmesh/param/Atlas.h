@@ -19,20 +19,6 @@ class Chart;
 class MeshCharts;
 class VertexMap;
 
-struct SegmentationSettings {
-	SegmentationSettings();
-
-	float maxChartArea;
-	float maxBoundaryLength;
-
-	float proxyFitMetricWeight;
-	float roundnessMetricWeight;
-	float straightnessMetricWeight;
-	float normalSeamMetricWeight;
-	float textureSeamMetricWeight;
-};
-
-
 /// An atlas is a set of charts.
 class Atlas
 {
@@ -62,7 +48,7 @@ public:
 	void addMeshCharts(MeshCharts *meshCharts);
 
 	void extractCharts(const HalfEdge::Mesh *mesh);
-	void computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
+	void computeCharts(const HalfEdge::Mesh *mesh, const param::SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
 
 
 	// Compute a trivial seamless texture similar to ZBrush.
@@ -111,7 +97,7 @@ public:
 	void extractCharts();
 
 	// Compute charts using a simple segmentation algorithm.
-	void computeCharts(const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
+	void computeCharts(const param::SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray);
 
 	void parameterizeCharts();
 

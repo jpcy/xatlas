@@ -1,7 +1,6 @@
 // Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
 
 #include "Atlas.h"
-#include "AtlasBuilder.h"
 #include "xatlas.h"
 
 using namespace nv;
@@ -65,7 +64,7 @@ void Atlas::extractCharts(const HalfEdge::Mesh *mesh)
 	addMeshCharts(meshCharts);
 }
 
-void Atlas::computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
+void Atlas::computeCharts(const HalfEdge::Mesh *mesh, const param::SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
 {
 	MeshCharts *meshCharts = new MeshCharts(mesh);
 	meshCharts->computeCharts(settings, unchartedMaterialArray);
@@ -208,22 +207,7 @@ Postprocess:
 
 */
 
-
-SegmentationSettings::SegmentationSettings()
-{
-	// Charts have no area or boundary limits right now.
-	maxChartArea = NV_FLOAT_MAX;
-	maxBoundaryLength = NV_FLOAT_MAX;
-	proxyFitMetricWeight = 1.0f;
-	roundnessMetricWeight = 0.1f;
-	straightnessMetricWeight = 0.25f;
-	normalSeamMetricWeight = 1.0f;
-	textureSeamMetricWeight = 0.1f;
-}
-
-
-
-void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
+void MeshCharts::computeCharts(const param::SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
 {
 	Chart *vertexMap = NULL;
 	if (unchartedMaterialArray.size() != 0) {
@@ -234,7 +218,7 @@ void MeshCharts::computeCharts(const SegmentationSettings &settings, const std::
 			vertexMap = NULL;
 		}
 	}
-	AtlasBuilder builder(m_mesh);
+	param::AtlasBuilder builder(m_mesh);
 	if (vertexMap != NULL) {
 		// Mark faces that do not need to be charted.
 		builder.markUnchartedFaces(vertexMap->faceArray());
