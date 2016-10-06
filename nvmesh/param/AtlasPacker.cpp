@@ -1,6 +1,5 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include "AtlasPacker.h"
 #include "nvmesh/param/Atlas.h"
 
 #include "xatlas.h"
@@ -9,29 +8,8 @@
 #include <float.h> // FLT_MAX
 #include <limits.h> // UINT_MAX
 
-using namespace nv;
-
-inline int align(int x, int a)
-{
-	return (x + a - 1) & ~(a - 1);
-}
-
-inline bool isAligned(int x, int a)
-{
-	return (x & (a - 1)) == 0;
-}
-
-
-
-AtlasPacker::AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_bitmap(256, 256)
-{
-	m_width = 0;
-	m_height = 0;
-}
-
-AtlasPacker::~AtlasPacker()
-{
-}
+namespace nv {
+namespace param {
 
 // Compute the convex hull using Graham Scan.
 static void convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &output, float epsilon)
@@ -606,118 +584,5 @@ void AtlasPacker::drawChartBitmap(const Chart *chart, BitMap *bitmap, const Vect
 	std::swap(tmp, *bitmap);
 }
 
-bool AtlasPacker::canAddChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
-{
-	nvDebugCheck(r == 0 || r == 1);
-	// Check whether the two bitmaps overlap.
-	const int w = bitmap->width();
-	const int h = bitmap->height();
-	if (r == 0) {
-		for (int y = 0; y < h; y++) {
-			int yy = y + offset_y;
-			if (yy >= 0) {
-				for (int x = 0; x < w; x++) {
-					int xx = x + offset_x;
-					if (xx >= 0) {
-						if (bitmap->bitAt(x, y)) {
-							if (xx < atlas_w && yy < atlas_h) {
-								if (m_bitmap.bitAt(xx, yy)) return false;
-							}
-						}
-					}
-				}
-			}
-		}
-	} else if (r == 1) {
-		for (int y = 0; y < h; y++) {
-			int xx = y + offset_x;
-			if (xx >= 0) {
-				for (int x = 0; x < w; x++) {
-					int yy = x + offset_y;
-					if (yy >= 0) {
-						if (bitmap->bitAt(x, y)) {
-							if (xx < atlas_w && yy < atlas_h) {
-								if (m_bitmap.bitAt(xx, yy)) return false;
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return true;
 }
-
-void AtlasPacker::addChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
-{
-	nvDebugCheck(r == 0 || r == 1);
-	// Check whether the two bitmaps overlap.
-	const int w = bitmap->width();
-	const int h = bitmap->height();
-	if (r == 0) {
-		for (int y = 0; y < h; y++) {
-			int yy = y + offset_y;
-			if (yy >= 0) {
-				for (int x = 0; x < w; x++) {
-					int xx = x + offset_x;
-					if (xx >= 0) {
-						if (bitmap->bitAt(x, y)) {
-							if (xx < atlas_w && yy < atlas_h) {
-								nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
-								m_bitmap.setBitAt(xx, yy);
-							}
-						}
-					}
-				}
-			}
-		}
-	} else if (r == 1) {
-		for (int y = 0; y < h; y++) {
-			int xx = y + offset_x;
-			if (xx >= 0) {
-				for (int x = 0; x < w; x++) {
-					int yy = x + offset_y;
-					if (yy >= 0) {
-						if (bitmap->bitAt(x, y)) {
-							if (xx < atlas_w && yy < atlas_h) {
-								nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
-								m_bitmap.setBitAt(xx, yy);
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-/*static*/ bool AtlasPacker::checkBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float)
-{
-	BitMap *bitmap = (BitMap * )param;
-	nvDebugCheck(bitmap->bitAt(x, y) == false);
-	return true;
-}
-
-/*static*/ bool AtlasPacker::setBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float area)
-{
-	BitMap *bitmap = (BitMap * )param;
-	if (area > 0.0) {
-		bitmap->setBitAt(x, y);
-	}
-	return true;
-}
-
-float AtlasPacker::computeAtlasUtilization() const
-{
-	const uint32_t w = m_width;
-	const uint32_t h = m_height;
-	nvDebugCheck(w <= m_bitmap.width());
-	nvDebugCheck(h <= m_bitmap.height());
-	uint32_t count = 0;
-	for (uint32_t y = 0; y < h; y++) {
-		for (uint32_t x = 0; x < w; x++) {
-			count += m_bitmap.bitAt(x, y);
-		}
-	}
-	return float(count) / (w * h);
 }

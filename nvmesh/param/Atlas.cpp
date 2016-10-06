@@ -2,7 +2,6 @@
 
 #include "Atlas.h"
 #include "AtlasBuilder.h"
-#include "AtlasPacker.h"
 #include "xatlas.h"
 
 using namespace nv;
@@ -83,7 +82,7 @@ void Atlas::parameterizeCharts()
 
 float Atlas::packCharts(int quality, float texelsPerUnit, bool blockAlign, bool conservative)
 {
-	AtlasPacker packer(this);
+	param::AtlasPacker packer(this);
 	packer.packCharts(quality, texelsPerUnit, blockAlign, conservative);
 	return packer.computeAtlasUtilization();
 }

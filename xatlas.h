@@ -47,6 +47,16 @@ void nvDebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)))
 
 namespace nv
 {
+inline int align(int x, int a)
+{
+	return (x + a - 1) & ~(a - 1);
+}
+
+inline bool isAligned(int x, int a)
+{
+	return (x & (a - 1)) == 0;
+}
+
 /// Return the maximum of the three arguments.
 template <typename T>
 //inline const T & max3(const T & a, const T & b, const T & c)
@@ -3237,10 +3247,150 @@ bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector
 bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon = 1e-5f);
 } // namespace solver
 
+class Atlas;
+class Chart;
+
 namespace param {
 bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh);
 bool computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh);
 void computeSingleFaceMap(HalfEdge::Mesh *mesh);
+
+struct AtlasPacker
+{
+	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_bitmap(256, 256), m_width(0), m_height(0) {}
+	void packCharts(int quality, float texelArea, bool blockAligned, bool conservative);
+
+	float computeAtlasUtilization() const
+	{
+		const uint32_t w = m_width;
+		const uint32_t h = m_height;
+		nvDebugCheck(w <= m_bitmap.width());
+		nvDebugCheck(h <= m_bitmap.height());
+		uint32_t count = 0;
+		for (uint32_t y = 0; y < h; y++) {
+			for (uint32_t x = 0; x < w; x++) {
+				count += m_bitmap.bitAt(x, y);
+			}
+		}
+		return float(count) / (w * h);
+	}
+
+private:
+	void findChartLocation(int quality, const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r);
+	void findChartLocation_bruteForce(const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r);
+	void findChartLocation_random(const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount);
+
+	void drawChartBitmapDilate(const Chart *chart, BitMap *bitmap, int padding);
+	void drawChartBitmap(const Chart *chart, BitMap *bitmap, const Vector2 &scale, const Vector2 &offset);
+
+	bool canAddChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	{
+		nvDebugCheck(r == 0 || r == 1);
+		// Check whether the two bitmaps overlap.
+		const int w = bitmap->width();
+		const int h = bitmap->height();
+		if (r == 0) {
+			for (int y = 0; y < h; y++) {
+				int yy = y + offset_y;
+				if (yy >= 0) {
+					for (int x = 0; x < w; x++) {
+						int xx = x + offset_x;
+						if (xx >= 0) {
+							if (bitmap->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									if (m_bitmap.bitAt(xx, yy)) return false;
+								}
+							}
+						}
+					}
+				}
+			}
+		} else if (r == 1) {
+			for (int y = 0; y < h; y++) {
+				int xx = y + offset_x;
+				if (xx >= 0) {
+					for (int x = 0; x < w; x++) {
+						int yy = x + offset_y;
+						if (yy >= 0) {
+							if (bitmap->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									if (m_bitmap.bitAt(xx, yy)) return false;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return true;
+	}
+
+	void addChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	{
+		nvDebugCheck(r == 0 || r == 1);
+		// Check whether the two bitmaps overlap.
+		const int w = bitmap->width();
+		const int h = bitmap->height();
+		if (r == 0) {
+			for (int y = 0; y < h; y++) {
+				int yy = y + offset_y;
+				if (yy >= 0) {
+					for (int x = 0; x < w; x++) {
+						int xx = x + offset_x;
+						if (xx >= 0) {
+							if (bitmap->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
+									m_bitmap.setBitAt(xx, yy);
+								}
+							}
+						}
+					}
+				}
+			}
+		} else if (r == 1) {
+			for (int y = 0; y < h; y++) {
+				int xx = y + offset_x;
+				if (xx >= 0) {
+					for (int x = 0; x < w; x++) {
+						int yy = x + offset_y;
+						if (yy >= 0) {
+							if (bitmap->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
+									m_bitmap.setBitAt(xx, yy);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	static bool checkBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float)
+	{
+		BitMap *bitmap = (BitMap * )param;
+		nvDebugCheck(bitmap->bitAt(x, y) == false);
+		return true;
+	}
+
+	static bool setBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float area)
+	{
+		BitMap *bitmap = (BitMap * )param;
+		if (area > 0.0) {
+			bitmap->setBitAt(x, y);
+		}
+		return true;
+	}
+
+	Atlas *m_atlas;
+	BitMap m_bitmap;
+	RadixSort m_radix;
+	uint32_t m_width;
+	uint32_t m_height;
+	MTRand m_rand;
+};
 
 // Estimate quality of existing parameterization.
 class ParameterizationQuality
