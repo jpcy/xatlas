@@ -1945,24 +1945,173 @@ class Mesh
 {
 public:
 
-	Mesh();
-	Mesh(const Mesh *mesh);
-	~Mesh();
+	Mesh() : m_colocalVertexCount(0), errorCount(0) {}
 
-	void clear();
+	Mesh(const Mesh *mesh)
+	{
+		errorCount = 0;
+		// Copy mesh vertices.
+		const uint32_t vertexCount = mesh->vertexCount();
+		m_vertexArray.resize(vertexCount);
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			const Vertex *vertex = mesh->vertexAt(v);
+			nvDebugCheck(vertex->id == v);
+			m_vertexArray[v] = new Vertex(v);
+			m_vertexArray[v]->pos = vertex->pos;
+			m_vertexArray[v]->nor = vertex->nor;
+			m_vertexArray[v]->tex = vertex->tex;
+		}
+		m_colocalVertexCount = vertexCount;
+		// Copy mesh faces.
+		const uint32_t faceCount = mesh->faceCount();
+		std::vector<uint32_t> indexArray;
+		indexArray.reserve(3);
+		for (uint32_t f = 0; f < faceCount; f++) {
+			const Face *face = mesh->faceAt(f);
+			for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const Vertex *vertex = it.current()->from();
+				indexArray.push_back(vertex->id);
+			}
+			addFace(indexArray);
+			indexArray.clear();
+		}
+	}
 
-	Vertex *addVertex(const Vector3 &pos);
-	//Vertex * addVertex(uint32_t id, const Vector3 & pos);
-	//void addVertices(const Mesh * mesh);
+	~Mesh()
+	{
+		clear();
+	}
 
-	void linkColocals();
-	void linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMap);
+	void clear()
+	{
+		for (size_t i = 0; i < m_vertexArray.size(); i++)
+			delete m_vertexArray[i];
+		m_vertexArray.clear();
+		for (auto it = m_edgeMap.begin(); it != m_edgeMap.end(); it++)
+			delete it->second;
+		m_edgeArray.clear();
+		m_edgeMap.clear();
+		for (size_t i = 0; i < m_faceArray.size(); i++)
+			delete m_faceArray[i];
+		m_faceArray.clear();
+	}
 
-	Face *addFace();
-	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2);
-	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3);
-	Face *addFace(const std::vector<uint32_t> &indexArray);
-	Face *addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num);
+	Vertex *addVertex(const Vector3 &pos)
+	{
+		nvDebugCheck(isFinite(pos));
+		Vertex *v = new Vertex(m_vertexArray.size());
+		v->pos = pos;
+		m_vertexArray.push_back(v);
+		return v;
+	}
+
+	/// Link colocal vertices based on geometric location only.
+	void linkColocals()
+	{
+		nvDebug("--- Linking colocals:\n");
+		const uint32_t vertexCount = this->vertexCount();
+		std::unordered_map<Vector3, Vertex *, Hash<Vector3>, Equal<Vector3> > vertexMap;
+		vertexMap.reserve(vertexCount);
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			Vertex *vertex = vertexAt(v);
+			Vertex *colocal = vertexMap[vertex->pos];
+			if (colocal) {
+				colocal->linkColocal(vertex);
+			} else {
+				vertexMap[vertex->pos] = vertex;
+			}
+		}
+		m_colocalVertexCount = vertexMap.size();
+		nvDebug("---   %d vertex positions.\n", m_colocalVertexCount);
+		// @@ Remove duplicated vertices? or just leave them as colocals?
+	}
+
+	void linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMap)
+	{
+		nvDebug("--- Linking colocals:\n");
+		uint32_t vertexMapSize = 0;
+		for (uint32_t i = 0; i < canonicalMap.size(); i++) {
+			vertexMapSize = std::max(vertexMapSize, canonicalMap[i] + 1);
+		}
+		std::vector<Vertex *> vertexMap;
+		vertexMap.resize(vertexMapSize, NULL);
+		m_colocalVertexCount = 0;
+		const uint32_t vertexCount = this->vertexCount();
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			Vertex *vertex = vertexAt(v);
+			Vertex *colocal = vertexMap[canonicalMap[v]];
+			if (colocal != NULL) {
+				nvDebugCheck(vertex->pos == colocal->pos);
+				colocal->linkColocal(vertex);
+			} else {
+				vertexMap[canonicalMap[v]] = vertex;
+				m_colocalVertexCount++;
+			}
+		}
+		nvDebug("---   %d vertex positions.\n", m_colocalVertexCount);
+	}
+
+	Face *addFace()
+	{
+		Face *f = new Face(m_faceArray.size());
+		m_faceArray.push_back(f);
+		return f;
+	}
+
+	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2)
+	{
+		std::vector<uint32_t> indexArray(3);
+		indexArray[0] = v0;
+		indexArray[1] = v1;
+		indexArray[2] = v2;
+		return addFace(indexArray, 0, 3);
+	}
+
+	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3)
+	{
+		std::vector<uint32_t> indexArray(4);
+		indexArray[0] = v0;
+		indexArray[1] = v1;
+		indexArray[2] = v2;
+		indexArray[3] = v3;
+		return addFace(indexArray, 0, 4);
+	}
+
+	Face *addFace(const std::vector<uint32_t> &indexArray)
+	{
+		return addFace(indexArray, 0, indexArray.size());
+	}
+
+	Face *addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num)
+	{
+		nvDebugCheck(first < indexArray.size());
+		nvDebugCheck(num <= indexArray.size() - first);
+		nvDebugCheck(num > 2);
+		if (!canAddFace(indexArray, first, num)) {
+			errorCount++;
+			return NULL;
+		}
+		Face *f = new Face(m_faceArray.size());
+		Edge *firstEdge = NULL;
+		Edge *last = NULL;
+		Edge *current = NULL;
+		for (uint32_t i = 0; i < num - 1; i++) {
+			current = addEdge(indexArray[first + i], indexArray[first + i + 1]);
+			nvCheck(current != NULL && current->face == NULL);
+			current->face = f;
+			if (last != NULL) last->setNext(current);
+			else firstEdge = current;
+			last = current;
+		}
+		current = addEdge(indexArray[first + num - 1], indexArray[first]);
+		nvCheck(current != NULL && current->face == NULL);
+		current->face = f;
+		last->setNext(current);
+		current->setNext(firstEdge);
+		f->edge = firstEdge;
+		m_faceArray.push_back(f);
+		return f;
+	}
 	//void addFaces(const Mesh * mesh);
 
 	// These functions disconnect the given element from the mesh and delete it.
@@ -1979,7 +2128,37 @@ public:
 
 	void triangulate();
 
-	void linkBoundary();
+	/// Link boundary edges once the mesh has been created.
+	void linkBoundary()
+	{
+		nvDebug("--- Linking boundaries:\n");
+		int num = 0;
+		// Create boundary edges.
+		uint32_t edgeCount = this->edgeCount();
+		for (uint32_t e = 0; e < edgeCount; e++) {
+			Edge *edge = edgeAt(e);
+			if (edge != NULL && edge->pair == NULL) {
+				Edge *pair = new Edge(edge->id + 1);
+				uint32_t i = edge->from()->id;
+				uint32_t j = edge->next->from()->id;
+				Key key(j, i);
+				nvCheck(m_edgeMap.find(key) == m_edgeMap.end());
+				pair->vertex = m_vertexArray[j];
+				m_edgeMap[key] = pair;
+				edge->pair = pair;
+				pair->pair = edge;
+				num++;
+			}
+		}
+		// Link boundary edges.
+		for (uint32_t e = 0; e < edgeCount; e++) {
+			Edge *edge = edgeAt(e);
+			if (edge != NULL && edge->pair->face == NULL) {
+				linkBoundaryEdge(edge->pair);
+			}
+		}
+		nvDebug("---   %d boundary edges.\n", num);
+	}
 
 	bool splitBoundaryEdges(); // Returns true if any split was made.
 
@@ -2220,14 +2399,135 @@ public:
 	mutable uint32_t errorIndex1;
 
 private:
+	// Return true if the face can be added to the manifold mesh.
+	bool canAddFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num) const
+	{
+		for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
+			if (!canAddEdge(indexArray[first + j], indexArray[first + i])) {
+				errorIndex0 = indexArray[first + j];
+				errorIndex1 = indexArray[first + i];
+				return false;
+			}
+		}
+		// We also have to make sure the face does not have any duplicate edge!
+		for (uint32_t i = 0; i < num; i++) {
+			int i0 = indexArray[first + i + 0];
+			int i1 = indexArray[first + (i + 1) % num];
+			for (uint32_t j = i + 1; j < num; j++) {
+				int j0 = indexArray[first + j + 0];
+				int j1 = indexArray[first + (j + 1) % num];
+				if (i0 == j0 && i1 == j1) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
 
-	bool canAddFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num) const;
-	bool canAddEdge(uint32_t i, uint32_t j) const;
-	Edge *addEdge(uint32_t i, uint32_t j);
+	// Return true if the edge doesn't exist or doesn't have any adjacent face.
+	bool canAddEdge(uint32_t i, uint32_t j) const
+	{
+		if (i == j) {
+			// Skip degenerate edges.
+			return false;
+		}
+		// Same check, but taking into account colocal vertices.
+		const Vertex *v0 = vertexAt(i);
+		const Vertex *v1 = vertexAt(j);
+		for (Vertex::ConstVertexIterator it(v0->colocals()); !it.isDone(); it.advance()) {
+			if (it.current() == v1) {
+				// Skip degenerate edges.
+				return false;
+			}
+		}
+		// Make sure edge has not been added yet.
+		Edge *edge = findEdge(i, j);
+		return edge == NULL || edge->face == NULL; // We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
+	}
 
-	Edge *findEdge(uint32_t i, uint32_t j) const;
+	Edge *addEdge(uint32_t i, uint32_t j)
+	{
+		nvCheck(i != j);
+		Edge *edge = findEdge(i, j);
+		if (edge != NULL) {
+			// Edge may already exist, but its face must not be set.
+			nvDebugCheck(edge->face == NULL);
+			// Nothing else to do!
+		} else {
+			// Add new edge.
+			// Lookup pair.
+			Edge *pair = findEdge(j, i);
+			if (pair != NULL) {
+				// Create edge with same id.
+				edge = new Edge(pair->id + 1);
+				// Link edge pairs.
+				edge->pair = pair;
+				pair->pair = edge;
+				// @@ I'm not sure this is necessary!
+				pair->vertex->setEdge(pair);
+			} else {
+				// Create edge.
+				edge = new Edge(2 * m_edgeArray.size());
+				// Add only unpaired edges.
+				m_edgeArray.push_back(edge);
+			}
+			edge->vertex = m_vertexArray[i];
+			m_edgeMap[Key(i, j)] = edge;
+		}
+		// Face and Next are set by addFace.
+		return edge;
+	}
 
-	void linkBoundaryEdge(Edge *edge);
+	/// Find edge, test all colocals.
+	Edge *findEdge(uint32_t i, uint32_t j) const
+	{
+		Edge *edge = NULL;
+		const Vertex *v0 = vertexAt(i);
+		const Vertex *v1 = vertexAt(j);
+		// Test all colocal pairs.
+		for (Vertex::ConstVertexIterator it0(v0->colocals()); !it0.isDone(); it0.advance()) {
+			for (Vertex::ConstVertexIterator it1(v1->colocals()); !it1.isDone(); it1.advance()) {
+				Key key(it0.current()->id, it1.current()->id);
+				if (edge == NULL) {
+					auto edgeIt = m_edgeMap.find(key);
+					if (edgeIt != m_edgeMap.end())
+						edge = (*edgeIt).second;
+	#if !defined(_DEBUG)
+					if (edge != NULL) return edge;
+	#endif
+				} else {
+					// Make sure that only one edge is found.
+					nvDebugCheck(m_edgeMap.find(key) == m_edgeMap.end());
+				}
+			}
+		}
+		return edge;
+	}
+
+	/// Link this boundary edge.
+	void linkBoundaryEdge(Edge *edge)
+	{
+		nvCheck(edge->face == NULL);
+		// Make sure next pointer has not been set. @@ We want to be able to relink boundary edges after mesh changes.
+		//nvCheck(edge->next() == NULL);
+		Edge *next = edge;
+		while (next->pair->face != NULL) {
+			// Get pair prev
+			Edge *e = next->pair->next;
+			while (e->next != next->pair) {
+				e = e->next;
+			}
+			next = e;
+		}
+		edge->setNext(next->pair);
+		// Adjust vertex edge, so that it's the boundary edge. (required for isBoundary())
+		if (edge->vertex->edge != edge) {
+			// Multiple boundaries in the same edge.
+			//nvCheck( edge->vertex()->edge() == NULL || edge->vertex()->edge()->face() != NULL );
+			edge->vertex->edge = edge;
+		}
+	}
+
 	Vertex *splitBoundaryEdge(Edge *edge, float t, const Vector3 &pos);
 	void splitBoundaryEdge(Edge *edge, Vertex *vertex);
 
@@ -7465,343 +7765,6 @@ float Edge::angle() const
 	Vector3 v0 = a - p;
 	Vector3 v1 = b - p;
 	return acosf(dot(v0, v1) / (nv::length(v0) * nv::length(v1)));
-}
-
-Mesh::Mesh() : m_colocalVertexCount(0)
-{
-	errorCount = 0;
-}
-
-Mesh::Mesh(const Mesh *mesh)
-{
-	errorCount = 0;
-	// Copy mesh vertices.
-	const uint32_t vertexCount = mesh->vertexCount();
-	m_vertexArray.resize(vertexCount);
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		const Vertex *vertex = mesh->vertexAt(v);
-		nvDebugCheck(vertex->id == v);
-		m_vertexArray[v] = new Vertex(v);
-		m_vertexArray[v]->pos = vertex->pos;
-		m_vertexArray[v]->nor = vertex->nor;
-		m_vertexArray[v]->tex = vertex->tex;
-	}
-	m_colocalVertexCount = vertexCount;
-	// Copy mesh faces.
-	const uint32_t faceCount = mesh->faceCount();
-	std::vector<uint32_t> indexArray;
-	indexArray.reserve(3);
-	for (uint32_t f = 0; f < faceCount; f++) {
-		const Face *face = mesh->faceAt(f);
-		for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const Vertex *vertex = it.current()->from();
-			indexArray.push_back(vertex->id);
-		}
-		addFace(indexArray);
-		indexArray.clear();
-	}
-}
-
-Mesh::~Mesh()
-{
-	clear();
-}
-
-
-void Mesh::clear()
-{
-	for (size_t i = 0; i < m_vertexArray.size(); i++)
-		delete m_vertexArray[i];
-	m_vertexArray.clear();
-	for (auto it = m_edgeMap.begin(); it != m_edgeMap.end(); it++)
-		delete it->second;
-	m_edgeArray.clear();
-	m_edgeMap.clear();
-	for (size_t i = 0; i < m_faceArray.size(); i++)
-		delete m_faceArray[i];
-	m_faceArray.clear();
-}
-
-
-Vertex *Mesh::addVertex(const Vector3 &pos)
-{
-	nvDebugCheck(isFinite(pos));
-	Vertex *v = new Vertex(m_vertexArray.size());
-	v->pos = pos;
-	m_vertexArray.push_back(v);
-	return v;
-}
-
-/// Link colocal vertices based on geometric location only.
-void Mesh::linkColocals()
-{
-	nvDebug("--- Linking colocals:\n");
-	const uint32_t vertexCount = this->vertexCount();
-	std::unordered_map<Vector3, Vertex *, Hash<Vector3>, Equal<Vector3> > vertexMap;
-	vertexMap.reserve(vertexCount);
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		Vertex *vertex = vertexAt(v);
-		Vertex *colocal = vertexMap[vertex->pos];
-		if (colocal) {
-			colocal->linkColocal(vertex);
-		} else {
-			vertexMap[vertex->pos] = vertex;
-		}
-	}
-	m_colocalVertexCount = vertexMap.size();
-	nvDebug("---   %d vertex positions.\n", m_colocalVertexCount);
-	// @@ Remove duplicated vertices? or just leave them as colocals?
-}
-
-void Mesh::linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMap)
-{
-	nvDebug("--- Linking colocals:\n");
-	uint32_t vertexMapSize = 0;
-	for (uint32_t i = 0; i < canonicalMap.size(); i++) {
-		vertexMapSize = std::max(vertexMapSize, canonicalMap[i] + 1);
-	}
-	std::vector<Vertex *> vertexMap;
-	vertexMap.resize(vertexMapSize, NULL);
-	m_colocalVertexCount = 0;
-	const uint32_t vertexCount = this->vertexCount();
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		Vertex *vertex = vertexAt(v);
-		Vertex *colocal = vertexMap[canonicalMap[v]];
-		if (colocal != NULL) {
-			nvDebugCheck(vertex->pos == colocal->pos);
-			colocal->linkColocal(vertex);
-		} else {
-			vertexMap[canonicalMap[v]] = vertex;
-			m_colocalVertexCount++;
-		}
-	}
-	nvDebug("---   %d vertex positions.\n", m_colocalVertexCount);
-}
-
-
-Face *Mesh::addFace()
-{
-	Face *f = new Face(m_faceArray.size());
-	m_faceArray.push_back(f);
-	return f;
-}
-
-Face *Mesh::addFace(uint32_t v0, uint32_t v1, uint32_t v2)
-{
-	std::vector<uint32_t> indexArray(3);
-	indexArray[0] = v0;
-	indexArray[1] = v1;
-	indexArray[2] = v2;
-	return addFace(indexArray, 0, 3);
-}
-
-Face *Mesh::addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3)
-{
-	std::vector<uint32_t> indexArray(4);
-	indexArray[0] = v0;
-	indexArray[1] = v1;
-	indexArray[2] = v2;
-	indexArray[3] = v3;
-	return addFace(indexArray, 0, 4);
-}
-
-Face *Mesh::addFace(const std::vector<uint32_t> &indexArray)
-{
-	return addFace(indexArray, 0, indexArray.size());
-}
-
-
-Face *Mesh::addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num)
-{
-	nvDebugCheck(first < indexArray.size());
-	nvDebugCheck(num <= indexArray.size() - first);
-	nvDebugCheck(num > 2);
-	if (!canAddFace(indexArray, first, num)) {
-		errorCount++;
-		return NULL;
-	}
-	Face *f = new Face(m_faceArray.size());
-	Edge *firstEdge = NULL;
-	Edge *last = NULL;
-	Edge *current = NULL;
-	for (uint32_t i = 0; i < num - 1; i++) {
-		current = addEdge(indexArray[first + i], indexArray[first + i + 1]);
-		nvCheck(current != NULL && current->face == NULL);
-		current->face = f;
-		if (last != NULL) last->setNext(current);
-		else firstEdge = current;
-		last = current;
-	}
-	current = addEdge(indexArray[first + num - 1], indexArray[first]);
-	nvCheck(current != NULL && current->face == NULL);
-	current->face = f;
-	last->setNext(current);
-	current->setNext(firstEdge);
-	f->edge = firstEdge;
-	m_faceArray.push_back(f);
-	return f;
-}
-
-// Return true if the face can be added to the manifold mesh.
-bool Mesh::canAddFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num) const
-{
-	for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
-		if (!canAddEdge(indexArray[first + j], indexArray[first + i])) {
-			errorIndex0 = indexArray[first + j];
-			errorIndex1 = indexArray[first + i];
-			return false;
-		}
-	}
-	// We also have to make sure the face does not have any duplicate edge!
-	for (uint32_t i = 0; i < num; i++) {
-		int i0 = indexArray[first + i + 0];
-		int i1 = indexArray[first + (i + 1) % num];
-		for (uint32_t j = i + 1; j < num; j++) {
-			int j0 = indexArray[first + j + 0];
-			int j1 = indexArray[first + (j + 1) % num];
-			if (i0 == j0 && i1 == j1) {
-				return false;
-			}
-		}
-	}
-	return true;
-}
-
-// Return true if the edge doesn't exist or doesn't have any adjacent face.
-bool Mesh::canAddEdge(uint32_t i, uint32_t j) const
-{
-	if (i == j) {
-		// Skip degenerate edges.
-		return false;
-	}
-	// Same check, but taking into account colocal vertices.
-	const Vertex *v0 = vertexAt(i);
-	const Vertex *v1 = vertexAt(j);
-	for (Vertex::ConstVertexIterator it(v0->colocals()); !it.isDone(); it.advance()) {
-		if (it.current() == v1) {
-			// Skip degenerate edges.
-			return false;
-		}
-	}
-	// Make sure edge has not been added yet.
-	Edge *edge = findEdge(i, j);
-	return edge == NULL || edge->face == NULL; // We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
-}
-
-Edge *Mesh::addEdge(uint32_t i, uint32_t j)
-{
-	nvCheck(i != j);
-	Edge *edge = findEdge(i, j);
-	if (edge != NULL) {
-		// Edge may already exist, but its face must not be set.
-		nvDebugCheck(edge->face == NULL);
-		// Nothing else to do!
-	} else {
-		// Add new edge.
-		// Lookup pair.
-		Edge *pair = findEdge(j, i);
-		if (pair != NULL) {
-			// Create edge with same id.
-			edge = new Edge(pair->id + 1);
-			// Link edge pairs.
-			edge->pair = pair;
-			pair->pair = edge;
-			// @@ I'm not sure this is necessary!
-			pair->vertex->setEdge(pair);
-		} else {
-			// Create edge.
-			edge = new Edge(2 * m_edgeArray.size());
-			// Add only unpaired edges.
-			m_edgeArray.push_back(edge);
-		}
-		edge->vertex = m_vertexArray[i];
-		m_edgeMap[Key(i, j)] = edge;
-	}
-	// Face and Next are set by addFace.
-	return edge;
-}
-
-
-/// Find edge, test all colocals.
-Edge *Mesh::findEdge(uint32_t i, uint32_t j) const
-{
-	Edge *edge = NULL;
-	const Vertex *v0 = vertexAt(i);
-	const Vertex *v1 = vertexAt(j);
-	// Test all colocal pairs.
-	for (Vertex::ConstVertexIterator it0(v0->colocals()); !it0.isDone(); it0.advance()) {
-		for (Vertex::ConstVertexIterator it1(v1->colocals()); !it1.isDone(); it1.advance()) {
-			Key key(it0.current()->id, it1.current()->id);
-			if (edge == NULL) {
-				auto edgeIt = m_edgeMap.find(key);
-				if (edgeIt != m_edgeMap.end())
-					edge = (*edgeIt).second;
-#if !defined(_DEBUG)
-				if (edge != NULL) return edge;
-#endif
-			} else {
-				// Make sure that only one edge is found.
-				nvDebugCheck(m_edgeMap.find(key) == m_edgeMap.end());
-			}
-		}
-	}
-	return edge;
-}
-
-/// Link boundary edges once the mesh has been created.
-void Mesh::linkBoundary()
-{
-	nvDebug("--- Linking boundaries:\n");
-	int num = 0;
-	// Create boundary edges.
-	uint32_t edgeCount = this->edgeCount();
-	for (uint32_t e = 0; e < edgeCount; e++) {
-		Edge *edge = edgeAt(e);
-		if (edge != NULL && edge->pair == NULL) {
-			Edge *pair = new Edge(edge->id + 1);
-			uint32_t i = edge->from()->id;
-			uint32_t j = edge->next->from()->id;
-			Key key(j, i);
-			nvCheck(m_edgeMap.find(key) == m_edgeMap.end());
-			pair->vertex = m_vertexArray[j];
-			m_edgeMap[key] = pair;
-			edge->pair = pair;
-			pair->pair = edge;
-			num++;
-		}
-	}
-	// Link boundary edges.
-	for (uint32_t e = 0; e < edgeCount; e++) {
-		Edge *edge = edgeAt(e);
-		if (edge != NULL && edge->pair->face == NULL) {
-			linkBoundaryEdge(edge->pair);
-		}
-	}
-	nvDebug("---   %d boundary edges.\n", num);
-}
-
-/// Link this boundary edge.
-void Mesh::linkBoundaryEdge(Edge *edge)
-{
-	nvCheck(edge->face == NULL);
-	// Make sure next pointer has not been set. @@ We want to be able to relink boundary edges after mesh changes.
-	//nvCheck(edge->next() == NULL);
-	Edge *next = edge;
-	while (next->pair->face != NULL) {
-		// Get pair prev
-		Edge *e = next->pair->next;
-		while (e->next != next->pair) {
-			e = e->next;
-		}
-		next = e;
-	}
-	edge->setNext(next->pair);
-	// Adjust vertex edge, so that it's the boundary edge. (required for isBoundary())
-	if (edge->vertex->edge != edge) {
-		// Multiple boundaries in the same edge.
-		//nvCheck( edge->vertex()->edge() == NULL || edge->vertex()->edge()->face() != NULL );
-		edge->vertex->edge = edge;
-	}
 }
 
 // Triangulate in place.
