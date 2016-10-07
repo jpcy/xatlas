@@ -307,7 +307,7 @@ bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 		2 * v1->id + 1
 	};
 	// Solve
-	solver::LeastSquaresSolver(A, b, x, lockedParameters, 4, 0.000001f);
+	Solver::LeastSquaresSolver(A, b, x, lockedParameters, 4, 0.000001f);
 	// Map x back to texcoords:
 	for (uint32_t v = 0; v < vertexCount; v++) {
 		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
