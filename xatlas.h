@@ -3,47 +3,6 @@
 #ifndef XATLAS_H
 #define XATLAS_H
 
-#include <algorithm>
-#include <cmath>
-#include <unordered_map>
-#include <vector>
-#include <assert.h>
-#include <float.h>
-#include <math.h>
-#include <stdarg.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <time.h>
-
-#ifdef _MSC_VER
-// Ignore gcc attributes.
-#define __attribute__(X)
-#define restrict
-#define NV_FORCEINLINE __forceinline
-#else
-#define restrict __restrict__
-#define NV_FORCEINLINE  inline __attribute__((always_inline))
-#endif
-
-#define nvCheck(exp)     if (!(exp)) { nvDebugPrint("%s %s %s\n", #exp, __FILE__, __LINE__); }
-#define nvDebugCheck(exp) assert(exp)
-#define nvDebug(...)    nvDebugPrint(__VA_ARGS__)
-void nvDebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)));
-
-// Just in case. Grrr.
-#undef min
-#undef max
-
-#define NV_UINT32_MAX   0xffffffff
-#define NV_FLOAT_MAX    3.402823466e+38F
-
-#ifndef PI
-#define PI                  float(3.1415926535897932384626433833)
-#endif
-
-#define NV_EPSILON          (0.0001f)
-#define NV_NORMAL_EPSILON   (0.001f)
-
 namespace xatlas {
 enum Atlas_Charter
 {
@@ -154,8 +113,57 @@ Atlas_Output_Mesh * atlas_generate(const Atlas_Input_Mesh * input, const Atlas_O
 void atlas_free(Atlas_Output_Mesh * output);
 } // namespace xatlas
 
+#ifdef XATLAS_IMPLEMENTATION
+#include <algorithm>
+#include <cmath>
+#include <unordered_map>
+#include <vector>
+#include <assert.h>
+#include <float.h>
+#include <math.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <time.h>
+
+#ifdef _MSC_VER
+// Ignore gcc attributes.
+#define __attribute__(X)
+#define restrict
+#define NV_FORCEINLINE __forceinline
+#else
+#define restrict __restrict__
+#define NV_FORCEINLINE  inline __attribute__((always_inline))
+#endif
+
+#define nvCheck(exp)     if (!(exp)) { nv::DebugPrint("%s %s %s\n", #exp, __FILE__, __LINE__); }
+#define nvDebugCheck(exp) assert(exp)
+#define nvDebug(...)    nv::DebugPrint(__VA_ARGS__)
+
+// Just in case. Grrr.
+#undef min
+#undef max
+
+#define NV_UINT32_MAX   0xffffffff
+#define NV_FLOAT_MAX    3.402823466e+38F
+
+#ifndef PI
+#define PI                  float(3.1415926535897932384626433833)
+#endif
+
+#define NV_EPSILON          (0.0001f)
+#define NV_NORMAL_EPSILON   (0.001f)
+
 namespace nv
 {
+static void DebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)))
+{
+	va_list arg;
+	va_start(arg, msg);
+	vprintf(msg, arg);
+	va_end(arg);
+}
+
 inline int align(int x, int a)
 {
 	return (x + a - 1) & ~(a - 1);
@@ -3342,16 +3350,11 @@ bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, const Ve
 bool drawQuad(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[4], SamplingCallback cb, void *param);
 } // namespace raster
 
-namespace sparse {
 // Full and sparse vector and matrix classes. BLAS subset.
 // Pseudo-BLAS interface.
-void saxpy(float a, const FullVector &x, FullVector &y);   // y = a * x + y
-void copy(const FullVector &x, FullVector &y);
-void scal(float a, FullVector &x);
-float dot(const FullVector &x, const FullVector &y);
-
-
-enum Transpose {
+namespace sparse {
+enum Transpose
+{
 	NoTransposed = 0,
 	Transposed = 1
 };
@@ -3453,7 +3456,6 @@ public:
 		}
 	}
 
-
 	float sumRow(uint32_t y) const
 	{
 		nvDebugCheck( y < height() );
@@ -3485,7 +3487,6 @@ public:
 		}
 	}
 
-
 	void clearRow(uint32_t y)
 	{
 		nvDebugCheck( y < height() );
@@ -3512,7 +3513,6 @@ public:
 		}
 		scaleRow(y, 1.0f / sqrtf(norm));
 	}
-
 
 	void clearColumn(uint32_t x)
 	{
@@ -3562,30 +3562,209 @@ public:
 	}
 
 private:
-
 	/// Number of columns.
 	const uint32_t m_width;
 
 	/// Array of matrix elements.
 	std::vector< std::vector<Coefficient> > m_array;
-
 };
 
-void transpose(const Matrix &A, Matrix &B);
+// y = a * x + y
+static void saxpy(float a, const FullVector &x, FullVector &y)
+{
+	nvDebugCheck(x.dimension() == y.dimension());
+	const uint32_t dim = x.dimension();
+	for (uint32_t i = 0; i < dim; i++) {
+		y[i] += a * x[i];
+	}
+}
 
-void mult(const Matrix &M, const FullVector &x, FullVector &y);
-void mult(Transpose TM, const Matrix &M, const FullVector &x, FullVector &y);
+static void copy(const FullVector &x, FullVector &y)
+{
+	nvDebugCheck(x.dimension() == y.dimension());
+	const uint32_t dim = x.dimension();
+	for (uint32_t i = 0; i < dim; i++) {
+		y[i] = x[i];
+	}
+}
+
+static void scal(float a, FullVector &x)
+{
+	const uint32_t dim = x.dimension();
+	for (uint32_t i = 0; i < dim; i++) {
+		x[i] *= a;
+	}
+}
+
+static float dot(const FullVector &x, const FullVector &y)
+{
+	nvDebugCheck(x.dimension() == y.dimension());
+	const uint32_t dim = x.dimension();
+	float sum = 0;
+	for (uint32_t i = 0; i < dim; i++) {
+		sum += x[i] * y[i];
+	}
+	return sum;
+}
+
+static void mult(Transpose TM, const Matrix &M, const FullVector &x, FullVector &y)
+{
+	const uint32_t w = M.width();
+	const uint32_t h = M.height();
+	if (TM == Transposed) {
+		nvDebugCheck( h == x.dimension() );
+		nvDebugCheck( w == y.dimension() );
+		y.fill(0.0f);
+		for (uint32_t i = 0; i < h; i++) {
+			M.madRow(i, x[i], y);
+		}
+	} else {
+		nvDebugCheck( w == x.dimension() );
+		nvDebugCheck( h == y.dimension() );
+		for (uint32_t i = 0; i < h; i++) {
+			y[i] = M.dotRow(i, x);
+		}
+	}
+}
+
+// y = M * x
+static void mult(const Matrix &M, const FullVector &x, FullVector &y)
+{
+	mult(NoTransposed, M, x, y);
+}
+
+static void sgemv(float alpha, Transpose TA, const Matrix &A, const FullVector &x, float beta, FullVector &y)
+{
+	const uint32_t w = A.width();
+	const uint32_t h = A.height();
+	if (TA == Transposed) {
+		nvDebugCheck( h == x.dimension() );
+		nvDebugCheck( w == y.dimension() );
+		for (uint32_t i = 0; i < h; i++) {
+			A.madRow(i, alpha * x[i], y);
+		}
+	} else {
+		nvDebugCheck( w == x.dimension() );
+		nvDebugCheck( h == y.dimension() );
+		for (uint32_t i = 0; i < h; i++) {
+			y[i] = alpha * A.dotRow(i, x) + beta * y[i];
+		}
+	}
+}
 
 // y = alpha*A*x + beta*y
-void sgemv(float alpha, const Matrix &A, const FullVector &x, float beta, FullVector &y);
-void sgemv(float alpha, Transpose TA, const Matrix &A, const FullVector &x, float beta, FullVector &y);
+static void sgemv(float alpha, const Matrix &A, const FullVector &x, float beta, FullVector &y)
+{
+	sgemv(alpha, NoTransposed, A, x, beta, y);
+}
 
-void mult(const Matrix &A, const Matrix &B, Matrix &C);
-void mult(Transpose TA, const Matrix &A, Transpose TB, const Matrix &B, Matrix &C);
+// dot y-row of A by x-column of B
+static float dotRowColumn(int y, const Matrix &A, int x, const Matrix &B)
+{
+	const std::vector<Matrix::Coefficient> &row = A.getRow(y);
+	const uint32_t count = row.size();
+	float sum = 0.0f;
+	for (uint32_t i = 0; i < count; i++) {
+		const Matrix::Coefficient &c = row[i];
+		sum += c.v * B.getCoefficient(x, c.x);
+	}
+	return sum;
+}
+
+// dot y-row of A by x-row of B
+static float dotRowRow(int y, const Matrix &A, int x, const Matrix &B)
+{
+	const std::vector<Matrix::Coefficient> &row = A.getRow(y);
+	const uint32_t count = row.size();
+	float sum = 0.0f;
+	for (uint32_t i = 0; i < count; i++) {
+		const Matrix::Coefficient &c = row[i];
+		sum += c.v * B.getCoefficient(c.x, x);
+	}
+	return sum;
+}
+
+// dot y-column of A by x-column of B
+static float dotColumnColumn(int y, const Matrix &A, int x, const Matrix &B)
+{
+	nvDebugCheck(A.height() == B.height());
+	const uint32_t h = A.height();
+	float sum = 0.0f;
+	for (uint32_t i = 0; i < h; i++) {
+		sum += A.getCoefficient(y, i) * B.getCoefficient(x, i);
+	}
+	return sum;
+}
+
+static void transpose(const Matrix &A, Matrix &B)
+{
+	nvDebugCheck(A.width() == B.height());
+	nvDebugCheck(B.width() == A.height());
+	const uint32_t w = A.width();
+	for (uint32_t x = 0; x < w; x++) {
+		B.clearRow(x);
+	}
+	const uint32_t h = A.height();
+	for (uint32_t y = 0; y < h; y++) {
+		const std::vector<Matrix::Coefficient> &row = A.getRow(y);
+		const uint32_t count = row.size();
+		for (uint32_t i = 0; i < count; i++) {
+			const Matrix::Coefficient &c = row[i];
+			nvDebugCheck(c.x < w);
+			B.setCoefficient(y, c.x, c.v);
+		}
+	}
+}
+
+static void sgemm(float alpha, Transpose TA, const Matrix &A, Transpose TB, const Matrix &B, float beta, Matrix &C)
+{
+	const uint32_t w = C.width();
+	const uint32_t h = C.height();
+	uint32_t aw = (TA == NoTransposed) ? A.width() : A.height();
+	uint32_t ah = (TA == NoTransposed) ? A.height() : A.width();
+	uint32_t bw = (TB == NoTransposed) ? B.width() : B.height();
+	uint32_t bh = (TB == NoTransposed) ? B.height() : B.width();
+	nvDebugCheck(aw == bh);
+	nvDebugCheck(bw == ah);
+	nvDebugCheck(w == bw);
+	nvDebugCheck(h == ah);
+	for (uint32_t y = 0; y < h; y++) {
+		for (uint32_t x = 0; x < w; x++) {
+			float c = beta * C.getCoefficient(x, y);
+			if (TA == NoTransposed && TB == NoTransposed) {
+				// dot y-row of A by x-column of B.
+				c += alpha * dotRowColumn(y, A, x, B);
+			} else if (TA == Transposed && TB == Transposed) {
+				// dot y-column of A by x-row of B.
+				c += alpha * dotRowColumn(x, B, y, A);
+			} else if (TA == Transposed && TB == NoTransposed) {
+				// dot y-column of A by x-column of B.
+				c += alpha * dotColumnColumn(y, A, x, B);
+			} else if (TA == NoTransposed && TB == Transposed) {
+				// dot y-row of A by x-row of B.
+				c += alpha * dotRowRow(y, A, x, B);
+			}
+			C.setCoefficient(x, y, c);
+		}
+	}
+}
 
 // C = alpha*A*B + beta*C
-void sgemm(float alpha, const Matrix &A, const Matrix &B, float beta, Matrix &C);
-void sgemm(float alpha, Transpose TA, const Matrix &A, Transpose TB, const Matrix &B, float beta, Matrix &C);
+static void sgemm(float alpha, const Matrix &A, const Matrix &B, float beta, Matrix &C)
+{
+	sgemm(alpha, NoTransposed, A, NoTransposed, B, beta, C);
+}
+
+static void mult(Transpose TA, const Matrix &A, Transpose TB, const Matrix &B, Matrix &C)
+{
+	sgemm(1.0f, TA, A, TB, B, 0.0f, C);
+}
+
+// C = A * B
+static void mult(const Matrix &A, const Matrix &B, Matrix &C)
+{
+	mult(NoTransposed, A, NoTransposed, B, C);
+}
 
 } // namespace sparse
 
@@ -6472,7 +6651,6 @@ private:
 
 } // namespace nv
 
-#ifdef XATLAS_IMPLEMENTATION
 namespace xatlas {
 static Atlas_Output_Mesh *set_error(Atlas_Error *error, Atlas_Error code)
 {
@@ -6669,5 +6847,1555 @@ static void atlas_free(Atlas_Output_Mesh *output)
 	}
 }
 } // namespace xatlas
+
+namespace nv {
+namespace HalfEdge {
+
+uint32_t countMeshTriangles(const Mesh *mesh)
+{
+	const uint32_t faceCount = mesh->faceCount();
+	uint32_t triangleCount = 0;
+	for (uint32_t f = 0; f < faceCount; f++) {
+		const Face *face = mesh->faceAt(f);
+		uint32_t edgeCount = face->edgeCount();
+		nvDebugCheck(edgeCount > 2);
+		triangleCount += edgeCount - 2;
+	}
+	return triangleCount;
+}
+
+Mesh *unifyVertices(const Mesh *inputMesh)
+{
+	Mesh *mesh = new Mesh;
+	// Only add the first colocal.
+	const uint32_t vertexCount = inputMesh->vertexCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		const Vertex *vertex = inputMesh->vertexAt(v);
+		if (vertex->isFirstColocal()) {
+			mesh->addVertex(vertex->pos);
+		}
+	}
+	std::vector<uint32_t> indexArray;
+	// Add new faces pointing to first colocals.
+	uint32_t faceCount = inputMesh->faceCount();
+	for (uint32_t f = 0; f < faceCount; f++) {
+		const Face *face = inputMesh->faceAt(f);
+		indexArray.clear();
+		for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const Edge *edge = it.current();
+			const Vertex *vertex = edge->vertex->firstColocal();
+			indexArray.push_back(vertex->id);
+		}
+		mesh->addFace(indexArray);
+	}
+	mesh->linkBoundary();
+	return mesh;
+}
+
+static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c)
+{
+	return triangleArea(a, b, p) >= 0.00001f &&
+	       triangleArea(b, c, p) >= 0.00001f &&
+	       triangleArea(c, a, p) >= 0.00001f;
+}
+
+
+// This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
+// also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
+Mesh *triangulate(const Mesh *inputMesh)
+{
+	Mesh *mesh = new Mesh;
+	// Add all vertices.
+	const uint32_t vertexCount = inputMesh->vertexCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		const Vertex *vertex = inputMesh->vertexAt(v);
+		mesh->addVertex(vertex->pos);
+	}
+	std::vector<int> polygonVertices;
+	std::vector<float> polygonAngles;
+	std::vector<Vector2> polygonPoints;
+	const uint32_t faceCount = inputMesh->faceCount();
+	for (uint32_t f = 0; f < faceCount; f++) {
+		const Face *face = inputMesh->faceAt(f);
+		nvDebugCheck(face != NULL);
+		const uint32_t edgeCount = face->edgeCount();
+		nvDebugCheck(edgeCount >= 3);
+		polygonVertices.clear();
+		polygonVertices.reserve(edgeCount);
+		if (edgeCount == 3) {
+			// Simple case for triangles.
+			for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const Edge *edge = it.current();
+				const Vertex *vertex = edge->vertex;
+				polygonVertices.push_back(vertex->id);
+			}
+			int v0 = polygonVertices[0];
+			int v1 = polygonVertices[1];
+			int v2 = polygonVertices[2];
+			mesh->addFace(v0, v1, v2);
+		} else {
+			// Build 2D polygon projecting vertices onto normal plane.
+			// Faces are not necesarily planar, this is for example the case, when the face comes from filling a hole. In such cases
+			// it's much better to use the best fit plane.
+			const Vector3 fn = face->normal();
+			Basis basis;
+			basis.buildFrameForDirection(fn);
+			polygonPoints.clear();
+			polygonPoints.reserve(edgeCount);
+			polygonAngles.clear();
+			polygonAngles.reserve(edgeCount);
+			for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const Edge *edge = it.current();
+				const Vertex *vertex = edge->vertex;
+				polygonVertices.push_back(vertex->id);
+				Vector2 p;
+				p.x = dot(basis.tangent, vertex->pos);
+				p.y = dot(basis.bitangent, vertex->pos);
+				polygonPoints.push_back(p);
+			}
+			polygonAngles.resize(edgeCount);
+			while (polygonVertices.size() > 2) {
+				uint32_t size = polygonVertices.size();
+				// Update polygon angles. @@ Update only those that have changed.
+				float minAngle = 2 * PI;
+				uint32_t bestEar = 0; // Use first one if none of them is valid.
+				bool bestIsValid = false;
+				for (uint32_t i = 0; i < size; i++) {
+					uint32_t i0 = i;
+					uint32_t i1 = (i + 1) % size; // Use Sean's polygon interation trick.
+					uint32_t i2 = (i + 2) % size;
+					Vector2 p0 = polygonPoints[i0];
+					Vector2 p1 = polygonPoints[i1];
+					Vector2 p2 = polygonPoints[i2];
+					float d = clamp(dot(p0 - p1, p2 - p1) / (length(p0 - p1) * length(p2 - p1)), -1.0f, 1.0f);
+					float angle = acosf(d);
+					float area = triangleArea(p0, p1, p2);
+					if (area < 0.0f) angle = 2.0f * PI - angle;
+					polygonAngles[i1] = angle;
+					if (angle < minAngle || !bestIsValid) {
+						// Make sure this is a valid ear, if not, skip this point.
+						bool valid = true;
+						for (uint32_t j = 0; j < size; j++) {
+							if (j == i0 || j == i1 || j == i2) continue;
+							Vector2 p = polygonPoints[j];
+							if (pointInTriangle(p, p0, p1, p2)) {
+								valid = false;
+								break;
+							}
+						}
+						if (valid || !bestIsValid) {
+							minAngle = angle;
+							bestEar = i1;
+							bestIsValid = valid;
+						}
+					}
+				}
+				nvDebugCheck(minAngle <= 2 * PI);
+				// Clip best ear:
+				uint32_t i0 = (bestEar + size - 1) % size;
+				uint32_t i1 = (bestEar + 0) % size;
+				uint32_t i2 = (bestEar + 1) % size;
+				int v0 = polygonVertices[i0];
+				int v1 = polygonVertices[i1];
+				int v2 = polygonVertices[i2];
+				mesh->addFace(v0, v1, v2);
+				polygonVertices.erase(polygonVertices.begin() + i1);
+				polygonPoints.erase(polygonPoints.begin() + i1);
+				polygonAngles.erase(polygonAngles.begin() + i1);
+			}
+		}
+	}
+	mesh->linkBoundary();
+	return mesh;
+}
+
+float computeSurfaceArea(const HalfEdge::Mesh *mesh)
+{
+	float area = 0;
+	for (HalfEdge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
+		const HalfEdge::Face *face = it.current();
+		area += face->area();
+	}
+	nvDebugCheck(area >= 0);
+	return area;
+}
+
+float computeParametricArea(const HalfEdge::Mesh *mesh)
+{
+	float area = 0;
+	for (HalfEdge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
+		const HalfEdge::Face *face = it.current();
+		area += face->parametricArea();
+	}
+	return area;
+}
+
+bool Edge::isNormalSeam() const
+{
+	return (vertex->nor != pair->next->vertex->nor || next->vertex->nor != pair->vertex->nor);
+}
+
+bool Edge::isTextureSeam() const
+{
+	return (vertex->tex != pair->next->vertex->tex || next->vertex->tex != pair->vertex->tex);
+}
+
+Vector3 Edge::midPoint() const
+{
+	return (to()->pos + from()->pos) * 0.5f;
+}
+
+float Edge::length() const
+{
+	return nv::length(to()->pos - from()->pos);
+}
+
+float Edge::angle() const
+{
+	Vector3 p = vertex->pos;
+	Vector3 a = prev->vertex->pos;
+	Vector3 b = next->vertex->pos;
+	Vector3 v0 = a - p;
+	Vector3 v1 = b - p;
+	return acosf(dot(v0, v1) / (nv::length(v0) * nv::length(v1)));
+}
+
+Mesh::Mesh() : m_colocalVertexCount(0)
+{
+	errorCount = 0;
+}
+
+Mesh::Mesh(const Mesh *mesh)
+{
+	errorCount = 0;
+	// Copy mesh vertices.
+	const uint32_t vertexCount = mesh->vertexCount();
+	m_vertexArray.resize(vertexCount);
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		const Vertex *vertex = mesh->vertexAt(v);
+		nvDebugCheck(vertex->id == v);
+		m_vertexArray[v] = new Vertex(v);
+		m_vertexArray[v]->pos = vertex->pos;
+		m_vertexArray[v]->nor = vertex->nor;
+		m_vertexArray[v]->tex = vertex->tex;
+	}
+	m_colocalVertexCount = vertexCount;
+	// Copy mesh faces.
+	const uint32_t faceCount = mesh->faceCount();
+	std::vector<uint32_t> indexArray;
+	indexArray.reserve(3);
+	for (uint32_t f = 0; f < faceCount; f++) {
+		const Face *face = mesh->faceAt(f);
+		for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const Vertex *vertex = it.current()->from();
+			indexArray.push_back(vertex->id);
+		}
+		addFace(indexArray);
+		indexArray.clear();
+	}
+}
+
+Mesh::~Mesh()
+{
+	clear();
+}
+
+
+void Mesh::clear()
+{
+	for (size_t i = 0; i < m_vertexArray.size(); i++)
+		delete m_vertexArray[i];
+	m_vertexArray.clear();
+	for (auto it = m_edgeMap.begin(); it != m_edgeMap.end(); it++)
+		delete it->second;
+	m_edgeArray.clear();
+	m_edgeMap.clear();
+	for (size_t i = 0; i < m_faceArray.size(); i++)
+		delete m_faceArray[i];
+	m_faceArray.clear();
+}
+
+
+Vertex *Mesh::addVertex(const Vector3 &pos)
+{
+	nvDebugCheck(isFinite(pos));
+	Vertex *v = new Vertex(m_vertexArray.size());
+	v->pos = pos;
+	m_vertexArray.push_back(v);
+	return v;
+}
+
+/// Link colocal vertices based on geometric location only.
+void Mesh::linkColocals()
+{
+	nvDebug("--- Linking colocals:\n");
+	const uint32_t vertexCount = this->vertexCount();
+	std::unordered_map<Vector3, Vertex *, Hash<Vector3>, Equal<Vector3> > vertexMap;
+	vertexMap.reserve(vertexCount);
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		Vertex *vertex = vertexAt(v);
+		Vertex *colocal = vertexMap[vertex->pos];
+		if (colocal) {
+			colocal->linkColocal(vertex);
+		} else {
+			vertexMap[vertex->pos] = vertex;
+		}
+	}
+	m_colocalVertexCount = vertexMap.size();
+	nvDebug("---   %d vertex positions.\n", m_colocalVertexCount);
+	// @@ Remove duplicated vertices? or just leave them as colocals?
+}
+
+void Mesh::linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMap)
+{
+	nvDebug("--- Linking colocals:\n");
+	uint32_t vertexMapSize = 0;
+	for (uint32_t i = 0; i < canonicalMap.size(); i++) {
+		vertexMapSize = std::max(vertexMapSize, canonicalMap[i] + 1);
+	}
+	std::vector<Vertex *> vertexMap;
+	vertexMap.resize(vertexMapSize, NULL);
+	m_colocalVertexCount = 0;
+	const uint32_t vertexCount = this->vertexCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		Vertex *vertex = vertexAt(v);
+		Vertex *colocal = vertexMap[canonicalMap[v]];
+		if (colocal != NULL) {
+			nvDebugCheck(vertex->pos == colocal->pos);
+			colocal->linkColocal(vertex);
+		} else {
+			vertexMap[canonicalMap[v]] = vertex;
+			m_colocalVertexCount++;
+		}
+	}
+	nvDebug("---   %d vertex positions.\n", m_colocalVertexCount);
+}
+
+
+Face *Mesh::addFace()
+{
+	Face *f = new Face(m_faceArray.size());
+	m_faceArray.push_back(f);
+	return f;
+}
+
+Face *Mesh::addFace(uint32_t v0, uint32_t v1, uint32_t v2)
+{
+	std::vector<uint32_t> indexArray(3);
+	indexArray[0] = v0;
+	indexArray[1] = v1;
+	indexArray[2] = v2;
+	return addFace(indexArray, 0, 3);
+}
+
+Face *Mesh::addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3)
+{
+	std::vector<uint32_t> indexArray(4);
+	indexArray[0] = v0;
+	indexArray[1] = v1;
+	indexArray[2] = v2;
+	indexArray[3] = v3;
+	return addFace(indexArray, 0, 4);
+}
+
+Face *Mesh::addFace(const std::vector<uint32_t> &indexArray)
+{
+	return addFace(indexArray, 0, indexArray.size());
+}
+
+
+Face *Mesh::addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num)
+{
+	nvDebugCheck(first < indexArray.size());
+	nvDebugCheck(num <= indexArray.size() - first);
+	nvDebugCheck(num > 2);
+	if (!canAddFace(indexArray, first, num)) {
+		errorCount++;
+		return NULL;
+	}
+	Face *f = new Face(m_faceArray.size());
+	Edge *firstEdge = NULL;
+	Edge *last = NULL;
+	Edge *current = NULL;
+	for (uint32_t i = 0; i < num - 1; i++) {
+		current = addEdge(indexArray[first + i], indexArray[first + i + 1]);
+		nvCheck(current != NULL && current->face == NULL);
+		current->face = f;
+		if (last != NULL) last->setNext(current);
+		else firstEdge = current;
+		last = current;
+	}
+	current = addEdge(indexArray[first + num - 1], indexArray[first]);
+	nvCheck(current != NULL && current->face == NULL);
+	current->face = f;
+	last->setNext(current);
+	current->setNext(firstEdge);
+	f->edge = firstEdge;
+	m_faceArray.push_back(f);
+	return f;
+}
+
+/*void Mesh::addFaces(const Mesh * mesh)
+{
+nvCheck(mesh != NULL);
+
+Array indexArray;
+// Add faces
+
+}*/
+
+
+// Return true if the face can be added to the manifold mesh.
+bool Mesh::canAddFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num) const
+{
+	for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
+		if (!canAddEdge(indexArray[first + j], indexArray[first + i])) {
+			errorIndex0 = indexArray[first + j];
+			errorIndex1 = indexArray[first + i];
+			return false;
+		}
+	}
+	// We also have to make sure the face does not have any duplicate edge!
+	for (uint32_t i = 0; i < num; i++) {
+		int i0 = indexArray[first + i + 0];
+		int i1 = indexArray[first + (i + 1) % num];
+		for (uint32_t j = i + 1; j < num; j++) {
+			int j0 = indexArray[first + j + 0];
+			int j1 = indexArray[first + (j + 1) % num];
+			if (i0 == j0 && i1 == j1) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+// Return true if the edge doesn't exist or doesn't have any adjacent face.
+bool Mesh::canAddEdge(uint32_t i, uint32_t j) const
+{
+	if (i == j) {
+		// Skip degenerate edges.
+		return false;
+	}
+	// Same check, but taking into account colocal vertices.
+	const Vertex *v0 = vertexAt(i);
+	const Vertex *v1 = vertexAt(j);
+	for (Vertex::ConstVertexIterator it(v0->colocals()); !it.isDone(); it.advance()) {
+		if (it.current() == v1) {
+			// Skip degenerate edges.
+			return false;
+		}
+	}
+	// Make sure edge has not been added yet.
+	Edge *edge = findEdge(i, j);
+	return edge == NULL || edge->face == NULL; // We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
+}
+
+Edge *Mesh::addEdge(uint32_t i, uint32_t j)
+{
+	nvCheck(i != j);
+	Edge *edge = findEdge(i, j);
+	if (edge != NULL) {
+		// Edge may already exist, but its face must not be set.
+		nvDebugCheck(edge->face == NULL);
+		// Nothing else to do!
+	} else {
+		// Add new edge.
+		// Lookup pair.
+		Edge *pair = findEdge(j, i);
+		if (pair != NULL) {
+			// Create edge with same id.
+			edge = new Edge(pair->id + 1);
+			// Link edge pairs.
+			edge->pair = pair;
+			pair->pair = edge;
+			// @@ I'm not sure this is necessary!
+			pair->vertex->setEdge(pair);
+		} else {
+			// Create edge.
+			edge = new Edge(2 * m_edgeArray.size());
+			// Add only unpaired edges.
+			m_edgeArray.push_back(edge);
+		}
+		edge->vertex = m_vertexArray[i];
+		m_edgeMap[Key(i, j)] = edge;
+	}
+	// Face and Next are set by addFace.
+	return edge;
+}
+
+
+/// Find edge, test all colocals.
+Edge *Mesh::findEdge(uint32_t i, uint32_t j) const
+{
+	Edge *edge = NULL;
+	const Vertex *v0 = vertexAt(i);
+	const Vertex *v1 = vertexAt(j);
+	// Test all colocal pairs.
+	for (Vertex::ConstVertexIterator it0(v0->colocals()); !it0.isDone(); it0.advance()) {
+		for (Vertex::ConstVertexIterator it1(v1->colocals()); !it1.isDone(); it1.advance()) {
+			Key key(it0.current()->id, it1.current()->id);
+			if (edge == NULL) {
+				auto edgeIt = m_edgeMap.find(key);
+				if (edgeIt != m_edgeMap.end())
+					edge = (*edgeIt).second;
+#if !defined(_DEBUG)
+				if (edge != NULL) return edge;
+#endif
+			} else {
+				// Make sure that only one edge is found.
+				nvDebugCheck(m_edgeMap.find(key) == m_edgeMap.end());
+			}
+		}
+	}
+	return edge;
+}
+
+/// Link boundary edges once the mesh has been created.
+void Mesh::linkBoundary()
+{
+	nvDebug("--- Linking boundaries:\n");
+	int num = 0;
+	// Create boundary edges.
+	uint32_t edgeCount = this->edgeCount();
+	for (uint32_t e = 0; e < edgeCount; e++) {
+		Edge *edge = edgeAt(e);
+		if (edge != NULL && edge->pair == NULL) {
+			Edge *pair = new Edge(edge->id + 1);
+			uint32_t i = edge->from()->id;
+			uint32_t j = edge->next->from()->id;
+			Key key(j, i);
+			nvCheck(m_edgeMap.find(key) == m_edgeMap.end());
+			pair->vertex = m_vertexArray[j];
+			m_edgeMap[key] = pair;
+			edge->pair = pair;
+			pair->pair = edge;
+			num++;
+		}
+	}
+	// Link boundary edges.
+	for (uint32_t e = 0; e < edgeCount; e++) {
+		Edge *edge = edgeAt(e);
+		if (edge != NULL && edge->pair->face == NULL) {
+			linkBoundaryEdge(edge->pair);
+		}
+	}
+	nvDebug("---   %d boundary edges.\n", num);
+}
+
+/// Link this boundary edge.
+void Mesh::linkBoundaryEdge(Edge *edge)
+{
+	nvCheck(edge->face == NULL);
+	// Make sure next pointer has not been set. @@ We want to be able to relink boundary edges after mesh changes.
+	//nvCheck(edge->next() == NULL);
+	Edge *next = edge;
+	while (next->pair->face != NULL) {
+		// Get pair prev
+		Edge *e = next->pair->next;
+		while (e->next != next->pair) {
+			e = e->next;
+		}
+		next = e;
+	}
+	edge->setNext(next->pair);
+	// Adjust vertex edge, so that it's the boundary edge. (required for isBoundary())
+	if (edge->vertex->edge != edge) {
+		// Multiple boundaries in the same edge.
+		//nvCheck( edge->vertex()->edge() == NULL || edge->vertex()->edge()->face() != NULL );
+		edge->vertex->edge = edge;
+	}
+}
+
+// Triangulate in place.
+void Mesh::triangulate()
+{
+	bool all_triangles = true;
+	const uint32_t faceCount = m_faceArray.size();
+	for (uint32_t f = 0; f < faceCount; f++) {
+		Face *face = m_faceArray[f];
+		if (face->edgeCount() != 3) {
+			all_triangles = false;
+			break;
+		}
+	}
+	if (all_triangles) {
+		return;
+	}
+	// Do not touch vertices, but rebuild edges and faces.
+	std::vector<Edge *> edgeArray;
+	std::vector<Face *> faceArray;
+	std::swap(edgeArray, m_edgeArray);
+	std::swap(faceArray, m_faceArray);
+	m_edgeMap.clear();
+	for (uint32_t f = 0; f < faceCount; f++) {
+		Face *face = faceArray[f];
+		// Trivial fan-like triangulation.
+		const uint32_t v0 = face->edge->vertex->id;
+		uint32_t v2, v1 = -1;
+		for (Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			Edge *edge = it.current();
+			v2 = edge->to()->id;
+			if (v2 == v0) break;
+			if (v1 != -1) addFace(v0, v1, v2);
+			v1 = v2;
+		}
+	}
+	nvDebugCheck(m_faceArray.size() > faceCount); // triangle count > face count
+	linkBoundary();
+	for (size_t i = 0; i < edgeArray.size(); i++)
+		delete edgeArray[i];
+	for (size_t i = 0; i < faceArray.size(); i++)
+		delete faceArray[i];
+}
+
+
+/*
+Fixing T-junctions.
+
+- Find T-junctions. Find  vertices that are on an edge.
+    - This test is approximate.
+    - Insert edges on a spatial index to speedup queries.
+    - Consider only open edges, that is edges that have no pairs.
+    - Consider only vertices on boundaries.
+- Close T-junction.
+    - Split edge.
+
+*/
+bool Mesh::splitBoundaryEdges()
+{
+	std::vector<Vertex *> boundaryVertices;
+	for (uint32_t i = 0; i < m_vertexArray.size(); i++) {
+		Vertex *v = m_vertexArray[i];
+		if (v->isBoundary()) {
+			boundaryVertices.push_back(v);
+		}
+	}
+	nvDebug("Fixing T-junctions:\n");
+	int splitCount = 0;
+	for (uint32_t v = 0; v < boundaryVertices.size(); v++) {
+		Vertex *vertex = boundaryVertices[v];
+		Vector3 x0 = vertex->pos;
+		// Find edges that this vertex overlaps with.
+		for (uint32_t e = 0; e < m_edgeArray.size(); e++) {
+			Edge *edge = m_edgeArray[e];
+			if (edge != NULL && edge->isBoundary()) {
+				if (edge->from() == vertex || edge->to() == vertex) {
+					continue;
+				}
+				Vector3 x1 = edge->from()->pos;
+				Vector3 x2 = edge->to()->pos;
+				Vector3 v01 = x0 - x1;
+				Vector3 v21 = x2 - x1;
+				float l = length(v21);
+				float d = length(cross(v01, v21)) / l;
+				if (isZero(d)) {
+					float t = dot(v01, v21) / (l * l);
+					// @@ Snap x0 to x1 or x2, if too close? No, do vertex snapping elsewhere.
+					/*if (equal(t, 0.0f, 0.01f)) {
+					    //vertex->setPos(x1);
+					}
+					else if (equal(t, 1.0f, 0.01f)) {
+					    //vertex->setPos(x2);
+					}
+					else*/
+					if (t > 0.0f + NV_EPSILON && t < 1.0f - NV_EPSILON) {
+						nvDebugCheck(equal(lerp(x1, x2, t), x0));
+						Vertex *splitVertex = splitBoundaryEdge(edge, t, x0);
+						vertex->linkColocal(splitVertex);   // @@ Should we do this here?
+						splitCount++;
+					}
+				}
+			}
+		}
+	}
+	nvDebug(" - %d edges split.\n", splitCount);
+	nvDebugCheck(isValid());
+	return splitCount != 0;
+}
+
+
+// For this to be effective, we have to fix the boundary junctions first.
+Edge *Mesh::sewBoundary(Edge *startEdge)
+{
+	nvDebugCheck(startEdge->face == NULL);
+	// @@ We may want to be more conservative linking colocals in order to preserve the input topology. One way of doing that is by linking colocals only
+	// if the vertices next to them are linked as well. That is, by sewing boundaries after detecting them. If any pair of consecutive edges have their first
+	// and last vertex in the same position, then it can be linked.
+	Edge *lastBoundarySeen = startEdge;
+	nvDebug("Sewing Boundary:\n");
+	int count = 0;
+	int sewnCount = 0;
+	Edge *edge = startEdge;
+	do {
+		nvDebugCheck(edge->face == NULL);
+		Edge *edge_a = edge;
+		Edge *edge_b = edge->prev;
+		Edge *pair_a = edge_a->pair;
+		Edge *pair_b = edge_b->pair;
+		Vertex *v0a = edge_a->to();
+		Vertex *v0b = edge_b->from();
+		Vertex *v1a = edge_a->from();
+		Vertex *v1b = edge_b->to();
+		nvDebugCheck(v1a->isColocal(v1b));
+		/*
+		v0b +      _+ v0a
+		     \     /
+		    b \   / a
+		       \|/
+		    v1b + v1a
+		*/
+		// @@ This should not happen while sewing, but it may be produced somewhere else.
+		nvDebugCheck(edge_a != edge_b);
+		if (v0a->pos == v0b->pos) {
+			// Link vertices.
+			v0a->linkColocal(v0b);
+			// Remove edges to be collapsed.
+			disconnect(edge_a);
+			disconnect(edge_b);
+			disconnect(pair_a);
+			disconnect(pair_b);
+			// Link new boundary edges.
+			Edge *prevBoundary = edge_b->prev;
+			Edge *nextBoundary = edge_a->next;
+			if (nextBoundary != NULL) {
+				nvDebugCheck(nextBoundary->face == NULL);
+				nvDebugCheck(prevBoundary->face == NULL);
+				nextBoundary->setPrev(prevBoundary);
+				// Make sure boundary vertex points to boundary edge.
+				v0a->setEdge(nextBoundary); // This updates all colocals.
+			}
+			lastBoundarySeen = prevBoundary;
+			// Creat new edge.
+			Edge *newEdge_a = addEdge(v0a->id, v1a->id);    // pair_a->from()->id, pair_a->to()->id
+			Edge *newEdge_b = addEdge(v1b->id, v0b->id);
+			newEdge_a->pair = newEdge_b;
+			newEdge_b->pair = newEdge_a;
+			newEdge_a->face = pair_a->face;
+			newEdge_b->face = pair_b->face;
+			newEdge_a->setNext(pair_a->next);
+			newEdge_a->setPrev(pair_a->prev);
+			newEdge_b->setNext(pair_b->next);
+			newEdge_b->setPrev(pair_b->prev);
+			delete edge_a;
+			delete edge_b;
+			delete pair_a;
+			delete pair_b;
+			edge = nextBoundary;    // If nextBoundary is NULL we have closed the loop.
+			sewnCount++;
+		} else {
+			edge = edge->next;
+		}
+		count++;
+	} while (edge != NULL && edge != lastBoundarySeen);
+	nvDebug(" - Sewn %d out of %d.\n", sewnCount, count);
+	if (lastBoundarySeen != NULL) {
+		nvDebugCheck(lastBoundarySeen->face == NULL);
+	}
+	return lastBoundarySeen;
+}
+
+
+// @@ We must always disconnect edge pairs simultaneously.
+void Mesh::disconnect(Edge *edge)
+{
+	nvDebugCheck(edge != NULL);
+	// Remove from edge list.
+	if ((edge->id & 1) == 0) {
+		nvDebugCheck(m_edgeArray[edge->id / 2] == edge);
+		m_edgeArray[edge->id / 2] = NULL;
+	}
+	// Remove edge from map. @@ Store map key inside edge?
+	nvDebugCheck(edge->from() != NULL && edge->to() != NULL);
+	size_t removed = m_edgeMap.erase(Key(edge->from()->id, edge->to()->id));
+	nvDebugCheck(removed == 1);
+	// Disconnect from vertex.
+	if (edge->vertex != NULL) {
+		if (edge->vertex->edge == edge) {
+			if (edge->prev && edge->prev->pair) {
+				edge->vertex->edge = edge->prev->pair;
+			} else if (edge->pair && edge->pair->next) {
+				edge->vertex->edge = edge->pair->next;
+			} else {
+				edge->vertex->edge = NULL;
+				// @@ Remove disconnected vertex?
+			}
+		}
+		//edge->setVertex(NULL);
+	}
+	// Disconnect from face.
+	if (edge->face != NULL) {
+		if (edge->face->edge == edge) {
+			if (edge->next != NULL && edge->next != edge) {
+				edge->face->edge = edge->next;
+			} else if (edge->prev != NULL && edge->prev != edge) {
+				edge->face->edge = edge->prev;
+			} else {
+				edge->face->edge = NULL;
+				// @@ Remove disconnected face?
+			}
+		}
+		//edge->setFace(NULL);
+	}
+	// @@ Hack, we don't disconnect from pair, because pair needs us to remove itself from the map.
+	// Disconect from pair.
+	/*if (edge->pair != NULL) {
+	    if (edge->pair->pair == edge) {
+	        edge->pair->setPair(NULL);
+	    }
+	    //edge->setPair(NULL);
+	}*/
+	// Disconnect from previous.
+	if (edge->prev) {
+		if (edge->prev->next == edge) {
+			edge->prev->setNext(NULL);
+		}
+		//edge->setPrev(NULL);
+	}
+	// Disconnect from next.
+	if (edge->next) {
+		if (edge->next->prev == edge) {
+			edge->next->setPrev(NULL);
+		}
+		//edge->setNext(NULL);
+	}
+}
+
+
+void Mesh::remove(Edge *edge)
+{
+	nvDebugCheck(edge != NULL);
+	disconnect(edge);
+	delete edge;
+}
+
+void Mesh::remove(Vertex *vertex)
+{
+	nvDebugCheck(vertex != NULL);
+	// Remove from vertex list.
+	m_vertexArray[vertex->id] = NULL;
+	// Disconnect from colocals.
+	vertex->unlinkColocal();
+	// Disconnect from edges.
+	if (vertex->edge != NULL) {
+		// @@ Removing a connected vertex is asking for trouble...
+		if (vertex->edge->vertex == vertex) {
+			// @@ Connect edge to a colocal?
+			vertex->edge->vertex = NULL;
+		}
+		vertex->setEdge(NULL);
+	}
+	delete vertex;
+}
+
+void Mesh::remove(Face *face)
+{
+	nvDebugCheck(face != NULL);
+	// Remove from face list.
+	m_faceArray[face->id] = NULL;
+	// Disconnect from edges.
+	if (face->edge != NULL) {
+		nvDebugCheck(face->edge->face == face);
+		face->edge->face = NULL;
+		face->edge = NULL;
+	}
+	delete face;
+}
+
+
+void Mesh::compactEdges()
+{
+	const uint32_t edgeCount = m_edgeArray.size();
+	uint32_t c = 0;
+	for (uint32_t i = 0; i < edgeCount; i++) {
+		if (m_edgeArray[i] != NULL) {
+			if (i != c) {
+				m_edgeArray[c] = m_edgeArray[i];
+				m_edgeArray[c]->id = 2 * c;
+				if (m_edgeArray[c]->pair != NULL) {
+					m_edgeArray[c]->pair->id = 2 * c + 1;
+				}
+			}
+			c++;
+		}
+	}
+	m_edgeArray.resize(c);
+}
+
+
+void Mesh::compactVertices()
+{
+	const uint32_t vertexCount = m_vertexArray.size();
+	uint32_t c = 0;
+	for (uint32_t i = 0; i < vertexCount; i++) {
+		if (m_vertexArray[i] != NULL) {
+			if (i != c) {
+				m_vertexArray[c] = m_vertexArray[i];
+				m_vertexArray[c]->id = c;
+			}
+			c++;
+		}
+	}
+	m_vertexArray.resize(c);
+	// @@ Generate xref array for external attributes.
+}
+
+
+void Mesh::compactFaces()
+{
+	const uint32_t faceCount = m_faceArray.size();
+	uint32_t c = 0;
+	for (uint32_t i = 0; i < faceCount; i++) {
+		if (m_faceArray[i] != NULL) {
+			if (i != c) {
+				m_faceArray[c] = m_faceArray[i];
+				m_faceArray[c]->id = c;
+			}
+			c++;
+		}
+	}
+	m_faceArray.resize(c);
+}
+
+
+Vertex *Mesh::splitBoundaryEdge(Edge *edge, float t, const Vector3 &pos)
+{
+	/*
+	  We want to go from this configuration:
+
+	        +   +
+	        |   ^
+	   edge |<->|  pair
+	        v   |
+	        +   +
+
+	  To this one:
+
+	        +   +
+	        |   ^
+	     e0 |<->| p0
+	        v   |
+	 vertex +   +
+	        |   ^
+	     e1 |<->| p1
+	        v   |
+	        +   +
+
+	*/
+	Edge *pair = edge->pair;
+	// Make sure boundaries are linked.
+	nvDebugCheck(pair != NULL);
+	// Make sure edge is a boundary edge.
+	nvDebugCheck(pair->face == NULL);
+	// Add new vertex.
+	Vertex *vertex = addVertex(pos);
+	vertex->nor = lerp(edge->from()->nor, edge->to()->nor, t);
+	vertex->tex = lerp(edge->from()->tex, edge->to()->tex, t);
+	disconnect(edge);
+	disconnect(pair);
+	// Add edges.
+	Edge *e0 = addEdge(edge->from()->id, vertex->id);
+	Edge *p0 = addEdge(vertex->id, pair->to()->id);
+	Edge *e1 = addEdge(vertex->id, edge->to()->id);
+	Edge *p1 = addEdge(pair->from()->id, vertex->id);
+	// Link edges.
+	e0->setNext(e1);
+	p1->setNext(p0);
+	e0->setPrev(edge->prev);
+	e1->setNext(edge->next);
+	p1->setPrev(pair->prev);
+	p0->setNext(pair->next);
+	nvDebugCheck(e0->next == e1);
+	nvDebugCheck(e1->prev == e0);
+	nvDebugCheck(p1->next == p0);
+	nvDebugCheck(p0->prev == p1);
+	nvDebugCheck(p0->pair == e0);
+	nvDebugCheck(e0->pair == p0);
+	nvDebugCheck(p1->pair == e1);
+	nvDebugCheck(e1->pair == p1);
+	// Link faces.
+	e0->face = edge->face;
+	e1->face = edge->face;
+	// Link vertices.
+	edge->from()->setEdge(e0);
+	vertex->setEdge(e1);
+	delete edge;
+	delete pair;
+	return vertex;
+}
+
+#if 0
+// Without introducing new vertices.
+void Mesh::splitBoundaryEdge(Edge *edge, Vertex *vertex)
+{
+	/*
+	  We want to go from this configuration:
+
+	        |   | pn
+	        +   +
+	        |   ^
+	        |   |
+	   edge |<->| pair
+	        |   |
+	        v   |
+	        +   +
+	        |   | pp
+
+	  To this one:
+	      \       /
+	       \     /
+	        +   +
+	        |   ^
+	     e0 |<->| p0
+	        v   |
+	 vertex +   +
+	        |   ^
+	     e1 |<->| p1
+	        v   |
+	        +   +
+	       /     \
+	      /       \
+	*/
+	Edge *pair = edge->pair;
+	Edge *pn = pair->next();
+	Edge *pp = pair->prev();
+	// Make sure boundaries are linked.
+	nvDebugCheck(pair != NULL);
+	// Make sure edge is a boundary edge.
+	nvDebugCheck(pair->face() == NULL);
+	nvDebugCheck(edge->isValid());
+	nvDebugCheck(pair->isValid());
+	disconnect(edge);
+	disconnect(pair);
+	// Add edges.
+	Edge *e0 = addEdge(edge->from()->id(), vertex->id());
+	Edge *e1 = addEdge(vertex->id(), edge->to()->id());
+	// Link faces.
+	e0->setFace(edge->face());
+	e1->setFace(edge->face());
+	// Link pairs.
+	Edge *p0 = findEdge(vertex->id(), pair->to()->id());
+	if (p0 == NULL) {
+		p0 = addEdge(vertex->id(), pair->to()->id());
+		pn->setPrev(p0);
+	} else {
+		nvDebugCheck(p0->face() != NULL);
+		if (e0->prev() != NULL) {
+			pn->setPrev(e0->prev());
+		} else {
+			nvDebugCheck(pn == e0);
+		}
+	}
+	Edge *p1 = findEdge(pair->from()->id(), vertex->id());
+	if (p1 == NULL) {
+		p1 = addEdge(pair->from()->id(), vertex->id());
+		pp->setNext(p1);
+	} else {
+		nvDebugCheck(p1->face() != NULL);
+		if (e1->next() != NULL) {
+			pp->setPrev(e1->next());
+		} else {
+			nvDebugCheck(pp == e1);
+		}
+	}
+	// Link edges.
+	e0->setNext(e1); // e1->setPrev(e0)
+	if (p0->face() == p1->face()) { // can be null
+		p1->setNext(p0); // p0->setPrev(p1)
+	} else {
+		//if (p1->face() == NULL) p1->setNext(
+	}
+	e0->setPrev(edge->prev());
+	e1->setNext(edge->next());
+	nvDebugCheck(e0->pair == p0);
+	nvDebugCheck(e1->pair == p1);
+	nvDebugCheck(p0->pair == e0);
+	nvDebugCheck(p1->pair == e1);
+	nvDebugCheck(e0->isValid());
+	nvDebugCheck(e1->isValid());
+	nvDebugCheck(pp->isValid());
+	nvDebugCheck(pn->isValid());
+	nvDebugCheck(e0->pair->isValid());
+	nvDebugCheck(e1->pair->isValid());
+	nvDebugCheck(pp->pair->isValid());
+	nvDebugCheck(pn->pair->isValid());
+	nvDebugCheck(edge->face->isValid());
+	if (pn->pair->face != NULL) {
+		nvDebugCheck(pn->pair->face->isValid());
+	}
+	if (pp->pair->face() != NULL) {
+		nvDebugCheck(pn->pair->face->isValid());
+	}
+	if (p0->face != NULL) {
+		nvDebugCheck(p0->face->isValid());
+	}
+	if (p1->face() != NULL) {
+		nvDebugCheck(p1->face()->isValid());
+	}
+	nvDebugCheck(isValid()); // Only for extreme debugging.
+	// Link vertices.
+	edge->from()->setEdge(e0);
+	vertex->setEdge(p0);
+	delete edge;
+	delete pair;
+}
+#endif
+
+bool Mesh::isValid() const
+{
+	// Make sure all edges are valid.
+	const uint32_t edgeCount = m_edgeArray.size();
+	for (uint32_t e = 0; e < edgeCount; e++) {
+		Edge *edge = m_edgeArray[e];
+		if (edge != NULL) {
+			if (edge->id != 2 * e) {
+				return false;
+			}
+			if (!edge->isValid()) {
+				return false;
+			}
+			if (edge->pair->id != 2 * e + 1) {
+				return false;
+			}
+			if (!edge->pair->isValid()) {
+				return false;
+			}
+		}
+	}
+	// @@ Make sure all faces are valid.
+	// @@ Make sure all vertices are valid.
+	return true;
+}
+
+}
+}
+
+namespace nv {
+namespace raster {
+/// Process the given triangle.
+bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void *param)
+{
+	Triangle tri(v[0], v[1], v[2], Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1));
+	// @@ It would be nice to have a conservative drawing mode that enlarges the triangle extents by one texel and is able to handle degenerate triangles.
+	// @@ Maybe the simplest thing to do would be raster triangle edges.
+	if (tri.valid) {
+		if (mode == Mode_Antialiased) {
+			return tri.drawAA(extents, enableScissors, cb, param);
+		}
+		if (mode == Mode_Nearest) {
+			return tri.draw(extents, enableScissors, cb, param);
+		}
+	}
+	return true;
+}
+
+/// Process the given quad.
+bool drawQuad(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[4], SamplingCallback cb, void *param)
+{
+	bool sign0 = triangleArea2(v[0], v[1], v[2]) > 0.0f;
+	bool sign1 = triangleArea2(v[0], v[2], v[3]) > 0.0f;
+	// Divide the quad into two non overlapping triangles.
+	if (sign0 == sign1) {
+		Triangle tri0(v[0], v[1], v[2], Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 1, 0));
+		Triangle tri1(v[0], v[2], v[3], Vector3(0, 0, 0), Vector3(1, 1, 0), Vector3(0, 1, 0));
+		if (tri0.valid && tri1.valid) {
+			if (mode == Mode_Antialiased) {
+				return tri0.drawAA(extents, enableScissors, cb, param) && tri1.drawAA(extents, enableScissors, cb, param);
+			} else {
+				return tri0.draw(extents, enableScissors, cb, param) && tri1.draw(extents, enableScissors, cb, param);
+			}
+		}
+	} else {
+		Triangle tri0(v[0], v[1], v[3], Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(0, 1, 0));
+		Triangle tri1(v[1], v[2], v[3], Vector3(1, 0, 0), Vector3(1, 1, 0), Vector3(0, 1, 0));
+		if (tri0.valid && tri1.valid) {
+			if (mode == Mode_Antialiased) {
+				return tri0.drawAA(extents, enableScissors, cb, param) && tri1.drawAA(extents, enableScissors, cb, param);
+			} else {
+				return tri0.draw(extents, enableScissors, cb, param) && tri1.draw(extents, enableScissors, cb, param);
+			}
+		}
+	}
+	return true;
+}
+
+} // namespace raster
+} // namespace nv
+
+namespace nv {
+namespace param {
+// Test all pairs of vertices in the boundary and check distance.
+static void findDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vertex **a, HalfEdge::Vertex **b)
+{
+	nvDebugCheck(mesh != NULL);
+	nvDebugCheck(a != NULL);
+	nvDebugCheck(b != NULL);
+	const uint32_t vertexCount = mesh->vertexCount();
+	float maxLength = 0.0f;
+	for (uint32_t v0 = 1; v0 < vertexCount; v0++) {
+		HalfEdge::Vertex *vertex0 = mesh->vertexAt(v0);
+		nvDebugCheck(vertex0 != NULL);
+		if (!vertex0->isBoundary()) continue;
+		for (uint32_t v1 = 0; v1 < v0; v1++) {
+			HalfEdge::Vertex *vertex1 = mesh->vertexAt(v1);
+			nvDebugCheck(vertex1 != NULL);
+			if (!vertex1->isBoundary()) continue;
+			float len = length(vertex0->pos - vertex1->pos);
+			if (len > maxLength) {
+				maxLength = len;
+				*a = vertex0;
+				*b = vertex1;
+			}
+		}
+	}
+	nvDebugCheck(*a != NULL && *b != NULL);
+}
+
+// Fast sweep in 3 directions
+static bool findApproximateDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vertex **a, HalfEdge::Vertex **b)
+{
+	nvDebugCheck(mesh != NULL);
+	nvDebugCheck(a != NULL);
+	nvDebugCheck(b != NULL);
+	const uint32_t vertexCount = mesh->vertexCount();
+	HalfEdge::Vertex *minVertex[3];
+	HalfEdge::Vertex *maxVertex[3];
+	minVertex[0] = minVertex[1] = minVertex[2] = NULL;
+	maxVertex[0] = maxVertex[1] = maxVertex[2] = NULL;
+	for (uint32_t v = 1; v < vertexCount; v++) {
+		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+		nvDebugCheck(vertex != NULL);
+		if (vertex->isBoundary()) {
+			minVertex[0] = minVertex[1] = minVertex[2] = vertex;
+			maxVertex[0] = maxVertex[1] = maxVertex[2] = vertex;
+			break;
+		}
+	}
+	if (minVertex[0] == NULL) {
+		// Input mesh has not boundaries.
+		return false;
+	}
+	for (uint32_t v = 1; v < vertexCount; v++) {
+		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+		nvDebugCheck(vertex != NULL);
+		if (!vertex->isBoundary()) {
+			// Skip interior vertices.
+			continue;
+		}
+		if (vertex->pos.x < minVertex[0]->pos.x) minVertex[0] = vertex;
+		else if (vertex->pos.x > maxVertex[0]->pos.x) maxVertex[0] = vertex;
+		if (vertex->pos.y < minVertex[1]->pos.y) minVertex[1] = vertex;
+		else if (vertex->pos.y > maxVertex[1]->pos.y) maxVertex[1] = vertex;
+		if (vertex->pos.z < minVertex[2]->pos.z) minVertex[2] = vertex;
+		else if (vertex->pos.z > maxVertex[2]->pos.z) maxVertex[2] = vertex;
+	}
+	float lengths[3];
+	for (int i = 0; i < 3; i++) {
+		lengths[i] = length(minVertex[i]->pos - maxVertex[i]->pos);
+	}
+	if (lengths[0] > lengths[1] && lengths[0] > lengths[2]) {
+		*a = minVertex[0];
+		*b = maxVertex[0];
+	} else if (lengths[1] > lengths[2]) {
+		*a = minVertex[1];
+		*b = maxVertex[1];
+	} else {
+		*a = minVertex[2];
+		*b = maxVertex[2];
+	}
+	return true;
+}
+
+// Conformal relations from Bruno Levy:
+
+// Computes the coordinates of the vertices of a triangle
+// in a local 2D orthonormal basis of the triangle's plane.
+static void project_triangle(Vector3::Arg p0, Vector3::Arg p1, Vector3::Arg p2, Vector2 *z0, Vector2 *z1, Vector2 *z2)
+{
+	Vector3 X = normalize(p1 - p0, 0.0f);
+	Vector3 Z = normalize(cross(X, (p2 - p0)), 0.0f);
+	Vector3 Y = normalize(cross(Z, X), 0.0f);
+	float x0 = 0.0f;
+	float y0 = 0.0f;
+	float x1 = length(p1 - p0);
+	float y1 = 0.0f;
+	float x2 = dot((p2 - p0), X);
+	float y2 = dot((p2 - p0), Y);
+	*z0 = Vector2(x0, y0);
+	*z1 = Vector2(x1, y1);
+	*z2 = Vector2(x2, y2);
+}
+
+// LSCM equation, geometric form :
+// (Z1 - Z0)(U2 - U0) = (Z2 - Z0)(U1 - U0)
+// Where Uk = uk + i.vk is the complex number
+//                       corresponding to (u,v) coords
+//       Zk = xk + i.yk is the complex number
+//                       corresponding to local (x,y) coords
+// cool: no divide with this expression,
+//  makes it more numerically stable in
+//  the presence of degenerate triangles.
+
+static void setup_conformal_map_relations(sparse::Matrix &A, int row, const HalfEdge::Vertex *v0, const HalfEdge::Vertex *v1, const HalfEdge::Vertex *v2)
+{
+	int id0 = v0->id;
+	int id1 = v1->id;
+	int id2 = v2->id;
+	Vector3 p0 = v0->pos;
+	Vector3 p1 = v1->pos;
+	Vector3 p2 = v2->pos;
+	Vector2 z0, z1, z2;
+	project_triangle(p0, p1, p2, &z0, &z1, &z2);
+	Vector2 z01 = z1 - z0;
+	Vector2 z02 = z2 - z0;
+	float a = z01.x;
+	float b = z01.y;
+	float c = z02.x;
+	float d = z02.y;
+	nvCheck(b == 0.0f);
+	// Note  : 2*id + 0 --> u
+	//         2*id + 1 --> v
+	int u0_id = 2 * id0 + 0;
+	int v0_id = 2 * id0 + 1;
+	int u1_id = 2 * id1 + 0;
+	int v1_id = 2 * id1 + 1;
+	int u2_id = 2 * id2 + 0;
+	int v2_id = 2 * id2 + 1;
+	// Note : b = 0
+	// Real part
+	A.setCoefficient(u0_id, 2 * row + 0, -a + c);
+	A.setCoefficient(v0_id, 2 * row + 0,  b - d);
+	A.setCoefficient(u1_id, 2 * row + 0,   -c);
+	A.setCoefficient(v1_id, 2 * row + 0,    d);
+	A.setCoefficient(u2_id, 2 * row + 0,    a);
+	// Imaginary part
+	A.setCoefficient(u0_id, 2 * row + 1, -b + d);
+	A.setCoefficient(v0_id, 2 * row + 1, -a + c);
+	A.setCoefficient(u1_id, 2 * row + 1,   -d);
+	A.setCoefficient(v1_id, 2 * row + 1,   -c);
+	A.setCoefficient(v2_id, 2 * row + 1,    a);
+}
+
+
+// Conformal relations from Brecht Van Lommel (based on ABF):
+
+static float vec_angle_cos(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3)
+{
+	Vector3 d1 = v1 - v2;
+	Vector3 d2 = v3 - v2;
+	return clamp(dot(d1, d2) / (length(d1) * length(d2)), -1.0f, 1.0f);
+}
+
+static float vec_angle(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3)
+{
+	float dot = vec_angle_cos(v1, v2, v3);
+	return acosf(dot);
+}
+
+static void triangle_angles(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3, float *a1, float *a2, float *a3)
+{
+	*a1 = vec_angle(v3, v1, v2);
+	*a2 = vec_angle(v1, v2, v3);
+	*a3 = PI - *a2 - *a1;
+}
+
+static void triangle_cosines(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3, float *a1, float *a2, float *a3)
+{
+	*a1 = vec_angle_cos(v3, v1, v2);
+	*a2 = vec_angle_cos(v1, v2, v3);
+	*a3 = vec_angle_cos(v2, v3, v1);
+}
+
+static void setup_abf_relations(sparse::Matrix &A, int row, const HalfEdge::Vertex *v0, const HalfEdge::Vertex *v1, const HalfEdge::Vertex *v2)
+{
+	int id0 = v0->id;
+	int id1 = v1->id;
+	int id2 = v2->id;
+	Vector3 p0 = v0->pos;
+	Vector3 p1 = v1->pos;
+	Vector3 p2 = v2->pos;
+	// @@ IC: Wouldn't it be more accurate to return cos and compute 1-cos^2?
+	// It does indeed seem to be a little bit more robust.
+	// @@ Need to revisit this more carefully!
+	float a0, a1, a2;
+	triangle_angles(p0, p1, p2, &a0, &a1, &a2);
+	float s0 = sinf(a0);
+	float s1 = sinf(a1);
+	float s2 = sinf(a2);
+	if (s1 > s0 && s1 > s2) {
+		std::swap(s1, s2);
+		std::swap(s0, s1);
+		std::swap(a1, a2);
+		std::swap(a0, a1);
+		std::swap(id1, id2);
+		std::swap(id0, id1);
+	} else if (s0 > s1 && s0 > s2) {
+		std::swap(s0, s2);
+		std::swap(s0, s1);
+		std::swap(a0, a2);
+		std::swap(a0, a1);
+		std::swap(id0, id2);
+		std::swap(id0, id1);
+	}
+	float c0 = cosf(a0);
+	float ratio = (s2 == 0.0f) ? 1.0f : s1 / s2;
+	float cosine = c0 * ratio;
+	float sine = s0 * ratio;
+	// Note  : 2*id + 0 --> u
+	//         2*id + 1 --> v
+	int u0_id = 2 * id0 + 0;
+	int v0_id = 2 * id0 + 1;
+	int u1_id = 2 * id1 + 0;
+	int v1_id = 2 * id1 + 1;
+	int u2_id = 2 * id2 + 0;
+	int v2_id = 2 * id2 + 1;
+	// Real part
+	A.setCoefficient(u0_id, 2 * row + 0, cosine - 1.0f);
+	A.setCoefficient(v0_id, 2 * row + 0, -sine);
+	A.setCoefficient(u1_id, 2 * row + 0, -cosine);
+	A.setCoefficient(v1_id, 2 * row + 0, sine);
+	A.setCoefficient(u2_id, 2 * row + 0, 1);
+	// Imaginary part
+	A.setCoefficient(u0_id, 2 * row + 1, sine);
+	A.setCoefficient(v0_id, 2 * row + 1, cosine - 1.0f);
+	A.setCoefficient(u1_id, 2 * row + 1, -sine);
+	A.setCoefficient(v1_id, 2 * row + 1, -cosine);
+	A.setCoefficient(v2_id, 2 * row + 1, 1);
+}
+
+bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
+{
+	nvDebugCheck(mesh != NULL);
+	// For this to work properly, mesh should not have colocals that have the same
+	// attributes, unless you want the vertices to actually have different texcoords.
+	const uint32_t vertexCount = mesh->vertexCount();
+	const uint32_t D = 2 * vertexCount;
+	const uint32_t N = 2 * HalfEdge::countMeshTriangles(mesh);
+	// N is the number of equations (one per triangle)
+	// D is the number of variables (one per vertex; there are 2 pinned vertices).
+	if (N < D - 4) {
+		return false;
+	}
+	sparse::Matrix A(D, N);
+	FullVector b(N);
+	FullVector x(D);
+	// Fill b:
+	b.fill(0.0f);
+	// Fill x:
+	HalfEdge::Vertex *v0;
+	HalfEdge::Vertex *v1;
+	if (!findApproximateDiameterVertices(mesh, &v0, &v1)) {
+		// Mesh has no boundaries.
+		return false;
+	}
+	if (v0->tex == v1->tex) {
+		// LSCM expects an existing parameterization.
+		return false;
+	}
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+		nvDebugCheck(vertex != NULL);
+		// Initial solution.
+		x[2 * v + 0] = vertex->tex.x;
+		x[2 * v + 1] = vertex->tex.y;
+	}
+	// Fill A:
+	const uint32_t faceCount = mesh->faceCount();
+	for (uint32_t f = 0, t = 0; f < faceCount; f++) {
+		const HalfEdge::Face *face = mesh->faceAt(f);
+		nvDebugCheck(face != NULL);
+		nvDebugCheck(face->edgeCount() == 3);
+		const HalfEdge::Vertex *vertex0 = NULL;
+		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const HalfEdge::Edge *edge = it.current();
+			nvCheck(edge != NULL);
+			if (vertex0 == NULL) {
+				vertex0 = edge->vertex;
+			} else if (edge->next->vertex != vertex0) {
+				const HalfEdge::Vertex *vertex1 = edge->from();
+				const HalfEdge::Vertex *vertex2 = edge->to();
+				setup_abf_relations(A, t, vertex0, vertex1, vertex2);
+				//setup_conformal_map_relations(A, t, vertex0, vertex1, vertex2);
+				t++;
+			}
+		}
+	}
+	const uint32_t lockedParameters[] = {
+		2 * v0->id + 0,
+		2 * v0->id + 1,
+		2 * v1->id + 0,
+		2 * v1->id + 1
+	};
+	// Solve
+	Solver::LeastSquaresSolver(A, b, x, lockedParameters, 4, 0.000001f);
+	// Map x back to texcoords:
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+		nvDebugCheck(vertex != NULL);
+		vertex->tex = Vector2(x[2 * v + 0], x[2 * v + 1]);
+	}
+	return true;
+}
+
+bool computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh)
+{
+	Vector3 axis[2];
+	uint32_t vertexCount = mesh->vertexCount();
+	std::vector<Vector3> points(vertexCount);
+	points.resize(vertexCount);
+	for (uint32_t i = 0; i < vertexCount; i++) {
+		points[i] = mesh->vertexAt(i)->pos;
+	}
+	// Avoid redundant computations.
+	float matrix[6];
+	Fit::computeCovariance(vertexCount, points.data(), matrix);
+	if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0) {
+		return false;
+	}
+	float eigenValues[3];
+	Vector3 eigenVectors[3];
+	if (!nv::Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors)) {
+		return false;
+	}
+	axis[0] = normalize(eigenVectors[0]);
+	axis[1] = normalize(eigenVectors[1]);
+	// Project vertices to plane.
+	for (HalfEdge::Mesh::VertexIterator it(mesh->vertices()); !it.isDone(); it.advance()) {
+		HalfEdge::Vertex *vertex = it.current();
+		vertex->tex.x = dot(axis[0], vertex->pos);
+		vertex->tex.y = dot(axis[1], vertex->pos);
+	}
+	return true;
+}
+
+void computeSingleFaceMap(HalfEdge::Mesh *mesh)
+{
+	nvDebugCheck(mesh != NULL);
+	nvDebugCheck(mesh->faceCount() == 1);
+	HalfEdge::Face *face = mesh->faceAt(0);
+	nvCheck(face != NULL);
+	Vector3 p0 = face->edge->from()->pos;
+	Vector3 p1 = face->edge->to()->pos;
+	Vector3 X = normalizeSafe(p1 - p0, Vector3(0.0f), 0.0f);
+	Vector3 Z = face->normal();
+	Vector3 Y = normalizeSafe(cross(Z, X), Vector3(0.0f), 0.0f);
+	uint32_t i = 0;
+	for (HalfEdge::Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance(), i++) {
+		HalfEdge::Vertex *vertex = it.vertex();
+		nvCheck(vertex != NULL);
+		if (i == 0) {
+			vertex->tex = Vector2(0);
+		} else {
+			Vector3 pn = vertex->pos;
+			float xn = dot((pn - p0), X);
+			float yn = dot((pn - p0), Y);
+			vertex->tex = Vector2(xn, yn);
+		}
+	}
+}
+
+}
+}
+
 #endif // XATLAS_IMPLEMENTATION
 #endif // XATLAS_H
