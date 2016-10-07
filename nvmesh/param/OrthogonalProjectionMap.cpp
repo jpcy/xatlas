@@ -17,13 +17,13 @@ bool computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh)
 	}
 	// Avoid redundant computations.
 	float matrix[6];
-	fit::computeCovariance(vertexCount, points.data(), matrix);
+	Fit::computeCovariance(vertexCount, points.data(), matrix);
 	if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0) {
 		return false;
 	}
 	float eigenValues[3];
 	Vector3 eigenVectors[3];
-	if (!nv::fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors)) {
+	if (!nv::Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors)) {
 		return false;
 	}
 	axis[0] = normalize(eigenVectors[0]);
