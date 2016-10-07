@@ -1,19 +1,18 @@
 // This code is in the public domain -- castanyo@yahoo.es
-
 #pragma once
-#ifndef ATLAS_H
-#define ATLAS_H
+#ifndef XATLAS_H
+#define XATLAS_H
 
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 #include <vector>
 #include <assert.h>
-#include <stdarg.h> // va_list
-#include <stdint.h>
-#include <stdio.h>
-#include <cmath>
 #include <float.h>
 #include <math.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <time.h>
 
 #ifdef _MSC_VER
@@ -44,6 +43,116 @@ void nvDebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)))
 
 #define NV_EPSILON          (0.0001f)
 #define NV_NORMAL_EPSILON   (0.001f)
+
+namespace xatlas {
+enum Atlas_Charter
+{
+    Atlas_Charter_Witness,  // Options: threshold
+    Atlas_Charter_Extract,  // Options: ---
+    Atlas_Charter_Default = Atlas_Charter_Witness
+};
+
+enum Atlas_Mapper
+{
+    Atlas_Mapper_LSCM,      // Options: ---
+    Atlas_Mapper_Default = Atlas_Mapper_LSCM
+};
+
+enum Atlas_Packer
+{
+    Atlas_Packer_Witness,   // Options: texel_area
+    Atlas_Packer_Default = Atlas_Packer_Witness
+};
+
+struct Atlas_Options
+{
+    Atlas_Charter charter;
+    
+	union
+	{
+        struct
+		{
+            float proxy_fit_metric_weight;
+            float roundness_metric_weight;
+            float straightness_metric_weight;
+            float normal_seam_metric_weight;
+            float texture_seam_metric_weight;
+            float max_chart_area;
+            float max_boundary_length;
+        }
+		witness;
+    }
+	charter_options;
+
+    Atlas_Mapper mapper;
+    Atlas_Packer packer;
+    
+	union
+	{
+        struct
+		{
+            int packing_quality;
+            float texel_area;       // This is not really texel area, but 1 / texel width?
+            bool block_align;       // Align charts to 4x4 blocks. 
+            bool conservative;      // Pack charts with extra padding.
+        }
+		witness;
+    }
+	packer_options;
+};
+
+struct Atlas_Input_Vertex
+{
+    float position[3];
+    float normal[3];
+    float uv[2];
+    int first_colocal;
+};
+
+struct Atlas_Input_Face
+{
+    int vertex_index[3];
+    int material_index;
+};
+
+struct Atlas_Input_Mesh
+{
+    int vertex_count;
+    int face_count;
+    Atlas_Input_Vertex * vertex_array;
+    Atlas_Input_Face * face_array;
+};
+
+struct Atlas_Output_Vertex
+{
+    float uv[2];
+    int xref;   // Index of input vertex from which this output vertex originated.
+};
+
+struct Atlas_Output_Mesh
+{
+    int atlas_width;
+    int atlas_height;
+    int vertex_count;
+    int index_count;
+    Atlas_Output_Vertex * vertex_array;
+    int * index_array;
+};
+
+enum Atlas_Error
+{
+    Atlas_Error_Success,
+    Atlas_Error_Invalid_Args,
+    Atlas_Error_Invalid_Options,
+    Atlas_Error_Invalid_Mesh,
+    Atlas_Error_Invalid_Mesh_Non_Manifold,
+    Atlas_Error_Not_Implemented,
+};
+
+void atlas_set_default_options(Atlas_Options * options);
+Atlas_Output_Mesh * atlas_generate(const Atlas_Input_Mesh * input, const Atlas_Options * options, Atlas_Error * error);
+void atlas_free(Atlas_Output_Mesh * output);
+} // namespace xatlas
 
 namespace nv
 {
@@ -6363,4 +6472,202 @@ private:
 
 } // namespace nv
 
-#endif // ATLAS_H
+#ifdef XATLAS_IMPLEMENTATION
+namespace xatlas {
+static Atlas_Output_Mesh *set_error(Atlas_Error *error, Atlas_Error code)
+{
+	if (error) *error = code;
+	return NULL;
+}
+
+static void input_to_mesh(const Atlas_Input_Mesh *input, nv::HalfEdge::Mesh *mesh, Atlas_Error *error)
+{
+	std::vector<uint32_t> canonicalMap;
+	canonicalMap.reserve(input->vertex_count);
+	for (int i = 0; i < input->vertex_count; i++) {
+		const Atlas_Input_Vertex &input_vertex = input->vertex_array[i];
+		const float *pos = input_vertex.position;
+		const float *nor = input_vertex.normal;
+		const float *tex = input_vertex.uv;
+		nv::HalfEdge::Vertex *vertex = mesh->addVertex(nv::Vector3(pos[0], pos[1], pos[2]));
+		vertex->nor.set(nor[0], nor[1], nor[2]);
+		vertex->tex.set(tex[0], tex[1]);
+		canonicalMap.push_back(input_vertex.first_colocal);
+	}
+	mesh->linkColocalsWithCanonicalMap(canonicalMap);
+	const int face_count = input->face_count;
+	int non_manifold_faces = 0;
+	for (int i = 0; i < face_count; i++) {
+		const Atlas_Input_Face &input_face = input->face_array[i];
+		int v0 = input_face.vertex_index[0];
+		int v1 = input_face.vertex_index[1];
+		int v2 = input_face.vertex_index[2];
+		nv::HalfEdge::Face *face = mesh->addFace(v0, v1, v2);
+		if (face != NULL) {
+			face->material = input_face.material_index;
+		} else {
+			non_manifold_faces++;
+		}
+	}
+	mesh->linkBoundary();
+	if (non_manifold_faces != 0 && error != NULL) {
+		*error = Atlas_Error_Invalid_Mesh_Non_Manifold;
+	}
+}
+
+static Atlas_Output_Mesh *mesh_atlas_to_output(const nv::HalfEdge::Mesh *mesh, const nv::param::Atlas &atlas, Atlas_Error *error)
+{
+	Atlas_Output_Mesh *output = new Atlas_Output_Mesh;
+	const nv::param::MeshCharts *charts = atlas.meshAt(0);
+	// Allocate vertices.
+	const int vertex_count = charts->vertexCount();
+	output->vertex_count = vertex_count;
+	output->vertex_array = new Atlas_Output_Vertex[vertex_count];
+	int w = 0;
+	int h = 0;
+	// Output vertices.
+	const int chart_count = charts->chartCount();
+	for (int i = 0; i < chart_count; i++) {
+		const nv::param::Chart *chart = charts->chartAt(i);
+		uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
+		const uint32_t chart_vertex_count = chart->vertexCount();
+		for (uint32_t v = 0; v < chart_vertex_count; v++) {
+			Atlas_Output_Vertex &output_vertex = output->vertex_array[vertexOffset + v];
+			uint32_t original_vertex = chart->mapChartVertexToOriginalVertex(v);
+			output_vertex.xref = original_vertex;
+			nv::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
+			output_vertex.uv[0] = uv.x;
+			output_vertex.uv[1] = uv.y;
+			w = std::max(w, nv::ftoi_ceil(uv.x));
+			h = std::max(h, nv::ftoi_ceil(uv.y));
+		}
+	}
+	const int face_count = mesh->faceCount();
+	output->index_count = face_count * 3;
+	output->index_array = new int[face_count * 3];
+	// Set face indices.
+	for (int f = 0; f < face_count; f++) {
+		uint32_t c = charts->faceChartAt(f);
+		uint32_t i = charts->faceIndexWithinChartAt(f);
+		uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
+		const nv::param::Chart *chart = charts->chartAt(c);
+		nvDebugCheck(chart->faceAt(i) == f);
+		const nv::HalfEdge::Face *face = chart->chartMesh()->faceAt(i);
+		const nv::HalfEdge::Edge *edge = face->edge;
+		output->index_array[3 * f + 0] = vertexOffset + edge->vertex->id;
+		output->index_array[3 * f + 1] = vertexOffset + edge->next->vertex->id;
+		output->index_array[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
+	}
+	*error = Atlas_Error_Success;
+	output->atlas_width = w;
+	output->atlas_height = h;
+	return output;
+}
+
+static void atlas_set_default_options(Atlas_Options *options)
+{
+	if (options != NULL) {
+		// These are the default values we use on The Witness.
+		options->charter = Atlas_Charter_Default;
+		options->charter_options.witness.proxy_fit_metric_weight = 2.0f;
+		options->charter_options.witness.roundness_metric_weight = 0.01f;
+		options->charter_options.witness.straightness_metric_weight = 6.0f;
+		options->charter_options.witness.normal_seam_metric_weight = 4.0f;
+		options->charter_options.witness.texture_seam_metric_weight = 0.5f;
+		options->charter_options.witness.max_chart_area = FLT_MAX;
+		options->charter_options.witness.max_boundary_length = FLT_MAX;
+		options->mapper = Atlas_Mapper_Default;
+		options->packer = Atlas_Packer_Default;
+		options->packer_options.witness.packing_quality = 0;
+		options->packer_options.witness.texel_area = 8;
+		options->packer_options.witness.block_align = true;
+		options->packer_options.witness.conservative = false;
+	}
+}
+
+static Atlas_Output_Mesh *atlas_generate(const Atlas_Input_Mesh *input, const Atlas_Options *options, Atlas_Error *error)
+{
+	// Validate args.
+	if (input == NULL || options == NULL || error == NULL) return set_error(error, Atlas_Error_Invalid_Args);
+	// Validate options.
+	if (options->charter != Atlas_Charter_Witness) {
+		return set_error(error, Atlas_Error_Invalid_Options);
+	}
+	if (options->charter == Atlas_Charter_Witness) {
+		// @@ Validate input options!
+	}
+	if (options->mapper != Atlas_Mapper_LSCM) {
+		return set_error(error, Atlas_Error_Invalid_Options);
+	}
+	if (options->mapper == Atlas_Mapper_LSCM) {
+		// No options.
+	}
+	if (options->packer != Atlas_Packer_Witness) {
+		return set_error(error, Atlas_Error_Invalid_Options);
+	}
+	if (options->packer == Atlas_Packer_Witness) {
+		// @@ Validate input options!
+	}
+	// Validate input mesh.
+	for (int i = 0; i < input->face_count; i++) {
+		int v0 = input->face_array[i].vertex_index[0];
+		int v1 = input->face_array[i].vertex_index[1];
+		int v2 = input->face_array[i].vertex_index[2];
+		if (v0 < 0 || v0 >= input->vertex_count ||
+		        v1 < 0 || v1 >= input->vertex_count ||
+		        v2 < 0 || v2 >= input->vertex_count) {
+			return set_error(error, Atlas_Error_Invalid_Mesh);
+		}
+	}
+	// Build half edge mesh.
+	std::auto_ptr<nv::HalfEdge::Mesh> mesh(new nv::HalfEdge::Mesh);
+	input_to_mesh(input, mesh.get(), error);
+	if (*error == Atlas_Error_Invalid_Mesh) {
+		return NULL;
+	}
+	nv::param::Atlas atlas;
+	// Charter.
+	if (options->charter == Atlas_Charter_Extract) {
+		return set_error(error, Atlas_Error_Not_Implemented);
+	} else if (options->charter == Atlas_Charter_Witness) {
+		nv::param::SegmentationSettings segmentation_settings;
+		segmentation_settings.proxyFitMetricWeight = options->charter_options.witness.proxy_fit_metric_weight;
+		segmentation_settings.roundnessMetricWeight = options->charter_options.witness.roundness_metric_weight;
+		segmentation_settings.straightnessMetricWeight = options->charter_options.witness.straightness_metric_weight;
+		segmentation_settings.normalSeamMetricWeight = options->charter_options.witness.normal_seam_metric_weight;
+		segmentation_settings.textureSeamMetricWeight = options->charter_options.witness.texture_seam_metric_weight;
+		segmentation_settings.maxChartArea = options->charter_options.witness.max_chart_area;
+		segmentation_settings.maxBoundaryLength = options->charter_options.witness.max_boundary_length;
+		std::vector<uint32_t> uncharted_materials;
+		atlas.computeCharts(mesh.get(), segmentation_settings, uncharted_materials);
+	}
+	// Mapper.
+	if (options->mapper == Atlas_Mapper_LSCM) {
+		atlas.parameterizeCharts();
+	}
+	// Packer.
+	if (options->packer == Atlas_Packer_Witness) {
+		int packing_quality = options->packer_options.witness.packing_quality;
+		float texel_area = options->packer_options.witness.texel_area;
+		bool block_align = options->packer_options.witness.block_align;
+		bool conservative = options->packer_options.witness.conservative;
+		nv::param::AtlasPacker packer(&atlas);
+		packer.packCharts(packing_quality, texel_area, block_align, conservative);
+		//float utilization = return packer.computeAtlasUtilization();
+	}
+	// Build output mesh.
+	return mesh_atlas_to_output(mesh.get(), atlas, error);
+}
+
+
+static void atlas_free(Atlas_Output_Mesh *output)
+{
+	if (output != NULL) {
+		delete [] output->vertex_array;
+		delete [] output->index_array;
+		delete output;
+	}
+}
+} // namespace xatlas
+#endif // XATLAS_IMPLEMENTATION
+#endif // XATLAS_H
