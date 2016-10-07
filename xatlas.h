@@ -5113,9 +5113,101 @@ private:
 	std::vector<uint32_t> m_faceIndex; // the index within the chart for every face of the input mesh.
 };
 
+/// An atlas is a set of charts.
+class Atlas
+{
+public:
+	~Atlas()
+	{
+		for (size_t i = 0; i < m_meshChartsArray.size(); i++)
+			delete m_meshChartsArray[i];
+	}
+
+	uint32_t meshCount() const
+	{
+		return m_meshChartsArray.size();
+	}
+
+	const MeshCharts *meshAt(uint32_t i) const
+	{
+		return m_meshChartsArray[i];
+	}
+
+	MeshCharts *meshAt(uint32_t i)
+	{
+		return m_meshChartsArray[i];
+	}
+
+	uint32_t chartCount() const
+	{
+		uint32_t count = 0;
+		for (uint32_t c = 0; c < m_meshChartsArray.size(); c++) {
+			count += m_meshChartsArray[c]->chartCount();
+		}
+		return count;
+	}
+
+	const Chart *chartAt(uint32_t i) const
+	{
+		for (uint32_t c = 0; c < m_meshChartsArray.size(); c++) {
+			uint32_t count = m_meshChartsArray[c]->chartCount();
+			if (i < count) {
+				return m_meshChartsArray[c]->chartAt(i);
+			}
+			i -= count;
+		}
+		return NULL;
+	}
+
+	Chart *chartAt(uint32_t i)
+	{
+		for (uint32_t c = 0; c < m_meshChartsArray.size(); c++) {
+			uint32_t count = m_meshChartsArray[c]->chartCount();
+			if (i < count) {
+				return m_meshChartsArray[c]->chartAt(i);
+			}
+			i -= count;
+		}
+		return NULL;
+	}
+
+	// Add mesh charts and takes ownership.
+	// Extract the charts and add to this atlas.
+	void addMeshCharts(MeshCharts *meshCharts)
+	{
+		m_meshChartsArray.push_back(meshCharts);
+	}
+
+	void extractCharts(const HalfEdge::Mesh *mesh)
+	{
+		MeshCharts *meshCharts = new MeshCharts(mesh);
+		meshCharts->extractCharts();
+		addMeshCharts(meshCharts);
+	}
+
+	void computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
+	{
+		MeshCharts *meshCharts = new MeshCharts(mesh);
+		meshCharts->computeCharts(settings, unchartedMaterialArray);
+		addMeshCharts(meshCharts);
+	}
+
+	void parameterizeCharts()
+	{
+		for (uint32_t i = 0; i < m_meshChartsArray.size(); i++) {
+			m_meshChartsArray[i]->parameterizeCharts();
+		}
+	}
+
+private:
+	std::vector<MeshCharts *> m_meshChartsArray;
+};
+
 struct AtlasPacker
 {
 	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_bitmap(256, 256), m_width(0), m_height(0) {}
+
+	// Pack charts in the smallest possible rectangle.
 	void packCharts(int quality, float texelArea, bool blockAligned, bool conservative);
 
 	float computeAtlasUtilization() const

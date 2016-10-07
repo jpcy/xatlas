@@ -4,9 +4,6 @@
 #include <vector>
 #include <cfloat>
 #include <memory>
-
-#include "nvmesh/param/Atlas.h"
-
 #include "xatlas.h"
 
 
@@ -240,7 +237,9 @@ Atlas_Output_Mesh * Thekla::atlas_generate(const Atlas_Input_Mesh * input, const
         bool block_align = options->packer_options.witness.block_align;
         bool conservative = options->packer_options.witness.conservative;
 
-        /*float utilization =*/ atlas.packCharts(packing_quality, texel_area, block_align, conservative);
+		param::AtlasPacker packer(&atlas);
+		packer.packCharts(packing_quality, texel_area, block_align, conservative);
+		//float utilization = return packer.computeAtlasUtilization();
     }
 
 

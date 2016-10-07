@@ -1,7 +1,5 @@
 // This code is in the public domain -- castano@gmail.com
 
-#include "nvmesh/param/Atlas.h"
-
 #include "xatlas.h"
 
 #include <vector>
@@ -141,7 +139,6 @@ static void computeBoundingBox(Chart *chart, Vector2 *majorAxis, Vector2 *minorA
 	*minCorner = best_min;
 	*maxCorner = best_max;
 }
-
 
 void AtlasPacker::packCharts(int quality, float texelsPerUnit, bool blockAligned, bool conservative)
 {
