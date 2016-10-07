@@ -4621,143 +4621,6 @@ private:
 	std::vector<uint32_t> m_chartToUnifiedMap;
 };
 
-struct AtlasPacker
-{
-	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_bitmap(256, 256), m_width(0), m_height(0) {}
-	void packCharts(int quality, float texelArea, bool blockAligned, bool conservative);
-
-	float computeAtlasUtilization() const
-	{
-		const uint32_t w = m_width;
-		const uint32_t h = m_height;
-		nvDebugCheck(w <= m_bitmap.width());
-		nvDebugCheck(h <= m_bitmap.height());
-		uint32_t count = 0;
-		for (uint32_t y = 0; y < h; y++) {
-			for (uint32_t x = 0; x < w; x++) {
-				count += m_bitmap.bitAt(x, y);
-			}
-		}
-		return float(count) / (w * h);
-	}
-
-private:
-	void findChartLocation(int quality, const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r);
-	void findChartLocation_bruteForce(const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r);
-	void findChartLocation_random(const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount);
-
-	void drawChartBitmapDilate(const Chart *chart, BitMap *bitmap, int padding);
-	void drawChartBitmap(const Chart *chart, BitMap *bitmap, const Vector2 &scale, const Vector2 &offset);
-
-	bool canAddChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
-	{
-		nvDebugCheck(r == 0 || r == 1);
-		// Check whether the two bitmaps overlap.
-		const int w = bitmap->width();
-		const int h = bitmap->height();
-		if (r == 0) {
-			for (int y = 0; y < h; y++) {
-				int yy = y + offset_y;
-				if (yy >= 0) {
-					for (int x = 0; x < w; x++) {
-						int xx = x + offset_x;
-						if (xx >= 0) {
-							if (bitmap->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									if (m_bitmap.bitAt(xx, yy)) return false;
-								}
-							}
-						}
-					}
-				}
-			}
-		} else if (r == 1) {
-			for (int y = 0; y < h; y++) {
-				int xx = y + offset_x;
-				if (xx >= 0) {
-					for (int x = 0; x < w; x++) {
-						int yy = x + offset_y;
-						if (yy >= 0) {
-							if (bitmap->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									if (m_bitmap.bitAt(xx, yy)) return false;
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-		return true;
-	}
-
-	void addChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
-	{
-		nvDebugCheck(r == 0 || r == 1);
-		// Check whether the two bitmaps overlap.
-		const int w = bitmap->width();
-		const int h = bitmap->height();
-		if (r == 0) {
-			for (int y = 0; y < h; y++) {
-				int yy = y + offset_y;
-				if (yy >= 0) {
-					for (int x = 0; x < w; x++) {
-						int xx = x + offset_x;
-						if (xx >= 0) {
-							if (bitmap->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
-									m_bitmap.setBitAt(xx, yy);
-								}
-							}
-						}
-					}
-				}
-			}
-		} else if (r == 1) {
-			for (int y = 0; y < h; y++) {
-				int xx = y + offset_x;
-				if (xx >= 0) {
-					for (int x = 0; x < w; x++) {
-						int yy = x + offset_y;
-						if (yy >= 0) {
-							if (bitmap->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
-									m_bitmap.setBitAt(xx, yy);
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	static bool checkBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float)
-	{
-		BitMap *bitmap = (BitMap * )param;
-		nvDebugCheck(bitmap->bitAt(x, y) == false);
-		return true;
-	}
-
-	static bool setBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float area)
-	{
-		BitMap *bitmap = (BitMap * )param;
-		if (area > 0.0) {
-			bitmap->setBitAt(x, y);
-		}
-		return true;
-	}
-
-	Atlas *m_atlas;
-	BitMap m_bitmap;
-	RadixSort m_radix;
-	uint32_t m_width;
-	uint32_t m_height;
-	MTRand m_rand;
-};
-
 // Estimate quality of existing parameterization.
 class ParameterizationQuality
 {
@@ -4926,6 +4789,467 @@ private:
 	float m_conformalMetric;
 	float m_authalicMetric;
 };
+
+// Set of charts corresponding to a single mesh.
+class MeshCharts
+{
+public:
+	MeshCharts(const HalfEdge::Mesh *mesh) : m_mesh(mesh) {}
+
+	~MeshCharts()
+	{
+		for (size_t i = 0; i < m_chartArray.size(); i++)
+			delete m_chartArray[i];
+	}
+
+	uint32_t chartCount() const
+	{
+		return m_chartArray.size();
+	}
+	uint32_t vertexCount () const
+	{
+		return m_totalVertexCount;
+	}
+
+	const Chart *chartAt(uint32_t i) const
+	{
+		return m_chartArray[i];
+	}
+	Chart *chartAt(uint32_t i)
+	{
+		return m_chartArray[i];
+	}
+
+	// Extract the charts of the input mesh.
+	void extractCharts()
+	{
+		const uint32_t faceCount = m_mesh->faceCount();
+		int first = 0;
+		std::vector<uint32_t> queue;
+		queue.reserve(faceCount);
+		BitArray bitFlags(faceCount);
+		bitFlags.clearAll();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			if (bitFlags.bitAt(f) == false) {
+				// Start new patch. Reset queue.
+				first = 0;
+				queue.clear();
+				queue.push_back(f);
+				bitFlags.setBitAt(f);
+				while (first != queue.size()) {
+					const HalfEdge::Face *face = m_mesh->faceAt(queue[first]);
+					// Visit face neighbors of queue[first]
+					for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+						const HalfEdge::Edge *edge = it.current();
+						nvDebugCheck(edge->pair != NULL);
+						if (!edge->isBoundary() && /*!edge->isSeam()*/
+								//!(edge->from()->tex() != edge->pair()->to()->tex() || edge->to()->tex() != edge->pair()->from()->tex()))
+								!(edge->from() != edge->pair->to() || edge->to() != edge->pair->from())) { // Preserve existing seams (not just texture seams).
+							const HalfEdge::Face *neighborFace = edge->pair->face;
+							nvDebugCheck(neighborFace != NULL);
+							if (bitFlags.bitAt(neighborFace->id) == false) {
+								queue.push_back(neighborFace->id);
+								bitFlags.setBitAt(neighborFace->id);
+							}
+						}
+					}
+					first++;
+				}
+				Chart *chart = new Chart();
+				chart->build(m_mesh, queue);
+				m_chartArray.push_back(chart);
+			}
+		}
+	}
+
+	/*
+	Compute charts using a simple segmentation algorithm.
+
+	LSCM:
+	- identify sharp features using local dihedral angles.
+	- identify seed faces farthest from sharp features.
+	- grow charts from these seeds.
+
+	MCGIM:
+	- phase 1: chart growth
+	  - grow all charts simultaneously using dijkstra search on the dual graph of the mesh.
+	  - graph edges are weighted based on planarity metric.
+	  - metric uses distance to global chart normal.
+	  - terminate when all faces have been assigned.
+	- phase 2: seed computation:
+	  - place new seed of the chart at the most interior face.
+	  - most interior is evaluated using distance metric only.
+
+	- method repeates the two phases, until the location of the seeds does not change.
+	  - cycles are detected by recording all the previous seeds and chartification terminates.
+
+	D-Charts:
+
+	- Uniaxial conic metric:
+	  - N_c = axis of the generalized cone that best fits the chart. (cone can a be cylinder or a plane).
+	  - omega_c = angle between the face normals and the axis.
+	  - Fitting error between chart C and tringle t: F(c,t) = (N_c*n_t - cos(omega_c))^2
+
+	- Compactness metrics:
+	  - Roundness:
+		- C(c,t) = pi * D(S_c,t)^2 / A_c
+		- S_c = chart seed.
+		- D(S_c,t) = length of the shortest path inside the chart betwen S_c and t.
+		- A_c = chart area.
+	  - Straightness:
+		- P(c,t) = l_out(c,t) / l_in(c,t)
+		- l_out(c,t) = lenght of the edges not shared between C and t.
+		- l_in(c,t) = lenght of the edges shared between C and t.
+
+	- Combined metric:
+	  - Cost(c,t) = F(c,t)^alpha + C(c,t)^beta + P(c,t)^gamma
+	  - alpha = 1, beta = 0.7, gamma = 0.5
+
+	Our basic approach:
+	- Just one iteration of k-means?
+	- Avoid dijkstra by greedily growing charts until a threshold is met. Increase threshold and repeat until no faces left.
+	- If distortion metric is too high, split chart, add two seeds.
+	- If chart size is low, try removing chart.
+
+	Postprocess:
+	- If topology is not disk:
+	  - Fill holes, if new faces fit proxy.
+	  - Find best cut, otherwise.
+	- After parameterization:
+	  - If boundary self-intersects:
+		- cut chart along the closest two diametral boundary vertices, repeat parametrization.
+		- what if the overlap is on an appendix? How do we find that out and cut appropiately?
+		  - emphasize roundness metrics to prevent those cases.
+	  - If interior self-overlaps: preserve boundary parameterization and use mean-value map.
+	*/
+	void computeCharts(const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
+	{
+		Chart *vertexMap = NULL;
+		if (unchartedMaterialArray.size() != 0) {
+			vertexMap = new Chart();
+			vertexMap->buildVertexMap(m_mesh, unchartedMaterialArray);
+			if (vertexMap->faceCount() == 0) {
+				delete vertexMap;
+				vertexMap = NULL;
+			}
+		}
+		AtlasBuilder builder(m_mesh);
+		if (vertexMap != NULL) {
+			// Mark faces that do not need to be charted.
+			builder.markUnchartedFaces(vertexMap->faceArray());
+			m_chartArray.push_back(vertexMap);
+		}
+		if (builder.facesLeft != 0) {
+			// Tweak these values:
+			const float maxThreshold = 2;
+			const uint32_t growFaceCount = 32;
+			const uint32_t maxIterations = 4;
+			builder.settings = settings;
+			//builder.settings.proxyFitMetricWeight *= 0.75; // relax proxy fit weight during initial seed placement.
+			//builder.settings.roundnessMetricWeight = 0;
+			//builder.settings.straightnessMetricWeight = 0;
+			// This seems a reasonable estimate.
+			uint32_t maxSeedCount = std::max(6U, builder.facesLeft);
+			// Create initial charts greedely.
+			nvDebug("### Placing seeds\n");
+			builder.placeSeeds(maxThreshold, maxSeedCount);
+			nvDebug("###   Placed %d seeds (max = %d)\n", builder.chartCount(), maxSeedCount);
+			builder.updateProxies();
+			builder.mergeCharts();
+	#if 1
+			nvDebug("### Relocating seeds\n");
+			builder.relocateSeeds();
+			nvDebug("### Reset charts\n");
+			builder.resetCharts();
+			if (vertexMap != NULL) {
+				builder.markUnchartedFaces(vertexMap->faceArray());
+			}
+			builder.settings = settings;
+			nvDebug("### Growing charts\n");
+			// Restart process growing charts in parallel.
+			uint32_t iteration = 0;
+			while (true) {
+				if (!builder.growCharts(maxThreshold, growFaceCount)) {
+					nvDebug("### Can't grow anymore\n");
+					// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
+					nvDebug("### Filling holes\n");
+					builder.fillHoles(maxThreshold);
+					nvDebug("###   Using %d charts now\n", builder.chartCount());
+					builder.updateProxies();
+					nvDebug("### Merging charts\n");
+					builder.mergeCharts();
+					nvDebug("###   Using %d charts now\n", builder.chartCount());
+					nvDebug("### Reseeding\n");
+					if (!builder.relocateSeeds()) {
+						nvDebug("### Cannot relocate seeds anymore\n");
+						// Done!
+						break;
+					}
+					if (iteration == maxIterations) {
+						nvDebug("### Reached iteration limit\n");
+						break;
+					}
+					iteration++;
+					nvDebug("### Reset charts\n");
+					builder.resetCharts();
+					if (vertexMap != NULL) {
+						builder.markUnchartedFaces(vertexMap->faceArray());
+					}
+					nvDebug("### Growing charts\n");
+				}
+			};
+	#endif
+			// Make sure no holes are left!
+			nvDebugCheck(builder.facesLeft == 0);
+			const uint32_t chartCount = builder.chartArray.size();
+			for (uint32_t i = 0; i < chartCount; i++) {
+				Chart *chart = new Chart();
+				m_chartArray.push_back(chart);
+				chart->build(m_mesh, builder.chartFaces(i));
+			}
+		}
+		const uint32_t chartCount = m_chartArray.size();
+		// Build face indices.
+		m_faceChart.resize(m_mesh->faceCount());
+		m_faceIndex.resize(m_mesh->faceCount());
+		for (uint32_t i = 0; i < chartCount; i++) {
+			const Chart *chart = m_chartArray[i];
+			const uint32_t faceCount = chart->faceCount();
+			for (uint32_t f = 0; f < faceCount; f++) {
+				uint32_t idx = chart->faceAt(f);
+				m_faceChart[idx] = i;
+				m_faceIndex[idx] = f;
+			}
+		}
+		// Build an exclusive prefix sum of the chart vertex counts.
+		m_chartVertexCountPrefixSum.resize(chartCount);
+		if (chartCount > 0) {
+			m_chartVertexCountPrefixSum[0] = 0;
+			for (uint32_t i = 1; i < chartCount; i++) {
+				const Chart *chart = m_chartArray[i - 1];
+				m_chartVertexCountPrefixSum[i] = m_chartVertexCountPrefixSum[i - 1] + chart->vertexCount();
+			}
+			m_totalVertexCount = m_chartVertexCountPrefixSum[chartCount - 1] + m_chartArray[chartCount - 1]->vertexCount();
+		} else {
+			m_totalVertexCount = 0;
+		}
+	}
+
+	void parameterizeCharts()
+	{
+		ParameterizationQuality globalParameterizationQuality;
+		// Parameterize the charts.
+		uint32_t diskCount = 0;
+		const uint32_t chartCount = m_chartArray.size();
+		for (uint32_t i = 0; i < chartCount; i++)
+		{
+			Chart *chart = m_chartArray[i];
+
+			bool isValid = false;
+
+			if (chart->isVertexMapped())
+			{
+				continue;
+			}
+
+			if (chart->isDisk())
+			{
+				diskCount++;
+				ParameterizationQuality chartParameterizationQuality;
+				if (chart->faceCount() == 1) {
+					computeSingleFaceMap(chart->unifiedMesh());
+					chartParameterizationQuality = ParameterizationQuality(chart->unifiedMesh());
+				} else {
+					computeOrthogonalProjectionMap(chart->unifiedMesh());
+					ParameterizationQuality orthogonalQuality(chart->unifiedMesh());
+					computeLeastSquaresConformalMap(chart->unifiedMesh());
+					ParameterizationQuality lscmQuality(chart->unifiedMesh());
+					chartParameterizationQuality = lscmQuality;
+				}
+				isValid = chartParameterizationQuality.isValid();
+				if (!isValid) {
+					nvDebug("*** Invalid parameterization.\n");
+				}
+				// @@ Check that parameterization quality is above a certain threshold.
+				// @@ Detect boundary self-intersections.
+				globalParameterizationQuality += chartParameterizationQuality;
+			}
+
+			// Transfer parameterization from unified mesh to chart mesh.
+			chart->transferParameterization();
+
+		}
+		nvDebug("  Parameterized %d/%d charts.\n", diskCount, chartCount);
+		nvDebug("  RMS stretch metric: %f\n", globalParameterizationQuality.rmsStretchMetric());
+		nvDebug("  MAX stretch metric: %f\n", globalParameterizationQuality.maxStretchMetric());
+		nvDebug("  RMS conformal metric: %f\n", globalParameterizationQuality.rmsConformalMetric());
+		nvDebug("  RMS authalic metric: %f\n", globalParameterizationQuality.maxAuthalicMetric());
+	}
+
+	uint32_t faceChartAt(uint32_t i) const
+	{
+		return m_faceChart[i];
+	}
+	uint32_t faceIndexWithinChartAt(uint32_t i) const
+	{
+		return m_faceIndex[i];
+	}
+
+	uint32_t vertexCountBeforeChartAt(uint32_t i) const
+	{
+		return m_chartVertexCountPrefixSum[i];
+	}
+
+private:
+
+	const HalfEdge::Mesh *m_mesh;
+
+	std::vector<Chart *> m_chartArray;
+
+	std::vector<uint32_t> m_chartVertexCountPrefixSum;
+	uint32_t m_totalVertexCount;
+
+	std::vector<uint32_t> m_faceChart; // the chart of every face of the input mesh.
+	std::vector<uint32_t> m_faceIndex; // the index within the chart for every face of the input mesh.
+};
+
+struct AtlasPacker
+{
+	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_bitmap(256, 256), m_width(0), m_height(0) {}
+	void packCharts(int quality, float texelArea, bool blockAligned, bool conservative);
+
+	float computeAtlasUtilization() const
+	{
+		const uint32_t w = m_width;
+		const uint32_t h = m_height;
+		nvDebugCheck(w <= m_bitmap.width());
+		nvDebugCheck(h <= m_bitmap.height());
+		uint32_t count = 0;
+		for (uint32_t y = 0; y < h; y++) {
+			for (uint32_t x = 0; x < w; x++) {
+				count += m_bitmap.bitAt(x, y);
+			}
+		}
+		return float(count) / (w * h);
+	}
+
+private:
+	void findChartLocation(int quality, const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r);
+	void findChartLocation_bruteForce(const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r);
+	void findChartLocation_random(const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount);
+
+	void drawChartBitmapDilate(const Chart *chart, BitMap *bitmap, int padding);
+	void drawChartBitmap(const Chart *chart, BitMap *bitmap, const Vector2 &scale, const Vector2 &offset);
+
+	bool canAddChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	{
+		nvDebugCheck(r == 0 || r == 1);
+		// Check whether the two bitmaps overlap.
+		const int w = bitmap->width();
+		const int h = bitmap->height();
+		if (r == 0) {
+			for (int y = 0; y < h; y++) {
+				int yy = y + offset_y;
+				if (yy >= 0) {
+					for (int x = 0; x < w; x++) {
+						int xx = x + offset_x;
+						if (xx >= 0) {
+							if (bitmap->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									if (m_bitmap.bitAt(xx, yy)) return false;
+								}
+							}
+						}
+					}
+				}
+			}
+		} else if (r == 1) {
+			for (int y = 0; y < h; y++) {
+				int xx = y + offset_x;
+				if (xx >= 0) {
+					for (int x = 0; x < w; x++) {
+						int yy = x + offset_y;
+						if (yy >= 0) {
+							if (bitmap->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									if (m_bitmap.bitAt(xx, yy)) return false;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return true;
+	}
+
+	void addChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	{
+		nvDebugCheck(r == 0 || r == 1);
+		// Check whether the two bitmaps overlap.
+		const int w = bitmap->width();
+		const int h = bitmap->height();
+		if (r == 0) {
+			for (int y = 0; y < h; y++) {
+				int yy = y + offset_y;
+				if (yy >= 0) {
+					for (int x = 0; x < w; x++) {
+						int xx = x + offset_x;
+						if (xx >= 0) {
+							if (bitmap->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
+									m_bitmap.setBitAt(xx, yy);
+								}
+							}
+						}
+					}
+				}
+			}
+		} else if (r == 1) {
+			for (int y = 0; y < h; y++) {
+				int xx = y + offset_x;
+				if (xx >= 0) {
+					for (int x = 0; x < w; x++) {
+						int yy = x + offset_y;
+						if (yy >= 0) {
+							if (bitmap->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
+									m_bitmap.setBitAt(xx, yy);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	static bool checkBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float)
+	{
+		BitMap *bitmap = (BitMap * )param;
+		nvDebugCheck(bitmap->bitAt(x, y) == false);
+		return true;
+	}
+
+	static bool setBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float area)
+	{
+		BitMap *bitmap = (BitMap * )param;
+		if (area > 0.0) {
+			bitmap->setBitAt(x, y);
+		}
+		return true;
+	}
+
+	Atlas *m_atlas;
+	BitMap m_bitmap;
+	RadixSort m_radix;
+	uint32_t m_width;
+	uint32_t m_height;
+	MTRand m_rand;
+};
+
 } // namespace param
 
 } // namespace nv
