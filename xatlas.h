@@ -2112,21 +2112,208 @@ public:
 		m_faceArray.push_back(f);
 		return f;
 	}
-	//void addFaces(const Mesh * mesh);
 
 	// These functions disconnect the given element from the mesh and delete it.
-	void disconnect(Edge *edge);
 
-	void remove(Edge *edge);
-	void remove(Vertex *vertex);
-	void remove(Face *face);
+	// @@ We must always disconnect edge pairs simultaneously.
+	void disconnect(Edge *edge)
+	{
+		nvDebugCheck(edge != NULL);
+		// Remove from edge list.
+		if ((edge->id & 1) == 0) {
+			nvDebugCheck(m_edgeArray[edge->id / 2] == edge);
+			m_edgeArray[edge->id / 2] = NULL;
+		}
+		// Remove edge from map. @@ Store map key inside edge?
+		nvDebugCheck(edge->from() != NULL && edge->to() != NULL);
+		size_t removed = m_edgeMap.erase(Key(edge->from()->id, edge->to()->id));
+		nvDebugCheck(removed == 1);
+		// Disconnect from vertex.
+		if (edge->vertex != NULL) {
+			if (edge->vertex->edge == edge) {
+				if (edge->prev && edge->prev->pair) {
+					edge->vertex->edge = edge->prev->pair;
+				} else if (edge->pair && edge->pair->next) {
+					edge->vertex->edge = edge->pair->next;
+				} else {
+					edge->vertex->edge = NULL;
+					// @@ Remove disconnected vertex?
+				}
+			}
+			//edge->setVertex(NULL);
+		}
+		// Disconnect from face.
+		if (edge->face != NULL) {
+			if (edge->face->edge == edge) {
+				if (edge->next != NULL && edge->next != edge) {
+					edge->face->edge = edge->next;
+				} else if (edge->prev != NULL && edge->prev != edge) {
+					edge->face->edge = edge->prev;
+				} else {
+					edge->face->edge = NULL;
+					// @@ Remove disconnected face?
+				}
+			}
+			//edge->setFace(NULL);
+		}
+		// @@ Hack, we don't disconnect from pair, because pair needs us to remove itself from the map.
+		// Disconect from pair.
+		/*if (edge->pair != NULL) {
+			if (edge->pair->pair == edge) {
+				edge->pair->setPair(NULL);
+			}
+			//edge->setPair(NULL);
+		}*/
+		// Disconnect from previous.
+		if (edge->prev) {
+			if (edge->prev->next == edge) {
+				edge->prev->setNext(NULL);
+			}
+			//edge->setPrev(NULL);
+		}
+		// Disconnect from next.
+		if (edge->next) {
+			if (edge->next->prev == edge) {
+				edge->next->setPrev(NULL);
+			}
+			//edge->setNext(NULL);
+		}
+	}
+
+	void remove(Edge *edge)
+	{
+		nvDebugCheck(edge != NULL);
+		disconnect(edge);
+		delete edge;
+	}
+
+	void remove(Vertex *vertex)
+	{
+		nvDebugCheck(vertex != NULL);
+		// Remove from vertex list.
+		m_vertexArray[vertex->id] = NULL;
+		// Disconnect from colocals.
+		vertex->unlinkColocal();
+		// Disconnect from edges.
+		if (vertex->edge != NULL) {
+			// @@ Removing a connected vertex is asking for trouble...
+			if (vertex->edge->vertex == vertex) {
+				// @@ Connect edge to a colocal?
+				vertex->edge->vertex = NULL;
+			}
+			vertex->setEdge(NULL);
+		}
+		delete vertex;
+	}
+
+	void remove(Face *face)
+	{
+		nvDebugCheck(face != NULL);
+		// Remove from face list.
+		m_faceArray[face->id] = NULL;
+		// Disconnect from edges.
+		if (face->edge != NULL) {
+			nvDebugCheck(face->edge->face == face);
+			face->edge->face = NULL;
+			face->edge = NULL;
+		}
+		delete face;
+	}
 
 	// Remove holes from arrays and reassign indices.
-	void compactEdges();
-	void compactVertices();
-	void compactFaces();
+	void compactEdges()
+	{
+		const uint32_t edgeCount = m_edgeArray.size();
+		uint32_t c = 0;
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			if (m_edgeArray[i] != NULL) {
+				if (i != c) {
+					m_edgeArray[c] = m_edgeArray[i];
+					m_edgeArray[c]->id = 2 * c;
+					if (m_edgeArray[c]->pair != NULL) {
+						m_edgeArray[c]->pair->id = 2 * c + 1;
+					}
+				}
+				c++;
+			}
+		}
+		m_edgeArray.resize(c);
+	}
 
-	void triangulate();
+	void compactVertices()
+	{
+		const uint32_t vertexCount = m_vertexArray.size();
+		uint32_t c = 0;
+		for (uint32_t i = 0; i < vertexCount; i++) {
+			if (m_vertexArray[i] != NULL) {
+				if (i != c) {
+					m_vertexArray[c] = m_vertexArray[i];
+					m_vertexArray[c]->id = c;
+				}
+				c++;
+			}
+		}
+		m_vertexArray.resize(c);
+		// @@ Generate xref array for external attributes.
+	}
+
+	void compactFaces()
+	{
+		const uint32_t faceCount = m_faceArray.size();
+		uint32_t c = 0;
+		for (uint32_t i = 0; i < faceCount; i++) {
+			if (m_faceArray[i] != NULL) {
+				if (i != c) {
+					m_faceArray[c] = m_faceArray[i];
+					m_faceArray[c]->id = c;
+				}
+				c++;
+			}
+		}
+		m_faceArray.resize(c);
+	}
+
+	// Triangulate in place.
+	void triangulate()
+	{
+		bool all_triangles = true;
+		const uint32_t faceCount = m_faceArray.size();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			Face *face = m_faceArray[f];
+			if (face->edgeCount() != 3) {
+				all_triangles = false;
+				break;
+			}
+		}
+		if (all_triangles) {
+			return;
+		}
+		// Do not touch vertices, but rebuild edges and faces.
+		std::vector<Edge *> edgeArray;
+		std::vector<Face *> faceArray;
+		std::swap(edgeArray, m_edgeArray);
+		std::swap(faceArray, m_faceArray);
+		m_edgeMap.clear();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			Face *face = faceArray[f];
+			// Trivial fan-like triangulation.
+			const uint32_t v0 = face->edge->vertex->id;
+			uint32_t v2, v1 = -1;
+			for (Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				Edge *edge = it.current();
+				v2 = edge->to()->id;
+				if (v2 == v0) break;
+				if (v1 != -1) addFace(v0, v1, v2);
+				v1 = v2;
+			}
+		}
+		nvDebugCheck(m_faceArray.size() > faceCount); // triangle count > face count
+		linkBoundary();
+		for (size_t i = 0; i < edgeArray.size(); i++)
+			delete edgeArray[i];
+		for (size_t i = 0; i < faceArray.size(); i++)
+			delete faceArray[i];
+	}
 
 	/// Link boundary edges once the mesh has been created.
 	void linkBoundary()
@@ -2160,11 +2347,150 @@ public:
 		nvDebug("---   %d boundary edges.\n", num);
 	}
 
-	bool splitBoundaryEdges(); // Returns true if any split was made.
+	/*
+	Fixing T-junctions.
+
+	- Find T-junctions. Find  vertices that are on an edge.
+		- This test is approximate.
+		- Insert edges on a spatial index to speedup queries.
+		- Consider only open edges, that is edges that have no pairs.
+		- Consider only vertices on boundaries.
+	- Close T-junction.
+		- Split edge.
+
+	*/
+	bool splitBoundaryEdges() // Returns true if any split was made.
+	{
+		std::vector<Vertex *> boundaryVertices;
+		for (uint32_t i = 0; i < m_vertexArray.size(); i++) {
+			Vertex *v = m_vertexArray[i];
+			if (v->isBoundary()) {
+				boundaryVertices.push_back(v);
+			}
+		}
+		nvDebug("Fixing T-junctions:\n");
+		int splitCount = 0;
+		for (uint32_t v = 0; v < boundaryVertices.size(); v++) {
+			Vertex *vertex = boundaryVertices[v];
+			Vector3 x0 = vertex->pos;
+			// Find edges that this vertex overlaps with.
+			for (uint32_t e = 0; e < m_edgeArray.size(); e++) {
+				Edge *edge = m_edgeArray[e];
+				if (edge != NULL && edge->isBoundary()) {
+					if (edge->from() == vertex || edge->to() == vertex) {
+						continue;
+					}
+					Vector3 x1 = edge->from()->pos;
+					Vector3 x2 = edge->to()->pos;
+					Vector3 v01 = x0 - x1;
+					Vector3 v21 = x2 - x1;
+					float l = length(v21);
+					float d = length(cross(v01, v21)) / l;
+					if (isZero(d)) {
+						float t = dot(v01, v21) / (l * l);
+						// @@ Snap x0 to x1 or x2, if too close? No, do vertex snapping elsewhere.
+						/*if (equal(t, 0.0f, 0.01f)) {
+							//vertex->setPos(x1);
+						}
+						else if (equal(t, 1.0f, 0.01f)) {
+							//vertex->setPos(x2);
+						}
+						else*/
+						if (t > 0.0f + NV_EPSILON && t < 1.0f - NV_EPSILON) {
+							nvDebugCheck(equal(lerp(x1, x2, t), x0));
+							Vertex *splitVertex = splitBoundaryEdge(edge, t, x0);
+							vertex->linkColocal(splitVertex);   // @@ Should we do this here?
+							splitCount++;
+						}
+					}
+				}
+			}
+		}
+		nvDebug(" - %d edges split.\n", splitCount);
+		nvDebugCheck(isValid());
+		return splitCount != 0;
+	}
 
 	// Sew the boundary that starts at the given edge, returns one edge that still belongs to boundary, or NULL if boundary closed.
-	HalfEdge::Edge *sewBoundary(Edge *startEdge);
-
+	// For this to be effective, we have to fix the boundary junctions first.
+	HalfEdge::Edge *sewBoundary(Edge *startEdge)
+	{
+		nvDebugCheck(startEdge->face == NULL);
+		// @@ We may want to be more conservative linking colocals in order to preserve the input topology. One way of doing that is by linking colocals only
+		// if the vertices next to them are linked as well. That is, by sewing boundaries after detecting them. If any pair of consecutive edges have their first
+		// and last vertex in the same position, then it can be linked.
+		Edge *lastBoundarySeen = startEdge;
+		nvDebug("Sewing Boundary:\n");
+		int count = 0;
+		int sewnCount = 0;
+		Edge *edge = startEdge;
+		do {
+			nvDebugCheck(edge->face == NULL);
+			Edge *edge_a = edge;
+			Edge *edge_b = edge->prev;
+			Edge *pair_a = edge_a->pair;
+			Edge *pair_b = edge_b->pair;
+			Vertex *v0a = edge_a->to();
+			Vertex *v0b = edge_b->from();
+			Vertex *v1a = edge_a->from();
+			Vertex *v1b = edge_b->to();
+			nvDebugCheck(v1a->isColocal(v1b));
+			/*
+			v0b +      _+ v0a
+				 \     /
+				b \   / a
+				   \|/
+				v1b + v1a
+			*/
+			// @@ This should not happen while sewing, but it may be produced somewhere else.
+			nvDebugCheck(edge_a != edge_b);
+			if (v0a->pos == v0b->pos) {
+				// Link vertices.
+				v0a->linkColocal(v0b);
+				// Remove edges to be collapsed.
+				disconnect(edge_a);
+				disconnect(edge_b);
+				disconnect(pair_a);
+				disconnect(pair_b);
+				// Link new boundary edges.
+				Edge *prevBoundary = edge_b->prev;
+				Edge *nextBoundary = edge_a->next;
+				if (nextBoundary != NULL) {
+					nvDebugCheck(nextBoundary->face == NULL);
+					nvDebugCheck(prevBoundary->face == NULL);
+					nextBoundary->setPrev(prevBoundary);
+					// Make sure boundary vertex points to boundary edge.
+					v0a->setEdge(nextBoundary); // This updates all colocals.
+				}
+				lastBoundarySeen = prevBoundary;
+				// Creat new edge.
+				Edge *newEdge_a = addEdge(v0a->id, v1a->id);    // pair_a->from()->id, pair_a->to()->id
+				Edge *newEdge_b = addEdge(v1b->id, v0b->id);
+				newEdge_a->pair = newEdge_b;
+				newEdge_b->pair = newEdge_a;
+				newEdge_a->face = pair_a->face;
+				newEdge_b->face = pair_b->face;
+				newEdge_a->setNext(pair_a->next);
+				newEdge_a->setPrev(pair_a->prev);
+				newEdge_b->setNext(pair_b->next);
+				newEdge_b->setPrev(pair_b->prev);
+				delete edge_a;
+				delete edge_b;
+				delete pair_a;
+				delete pair_b;
+				edge = nextBoundary;    // If nextBoundary is NULL we have closed the loop.
+				sewnCount++;
+			} else {
+				edge = edge->next;
+			}
+			count++;
+		} while (edge != NULL && edge != lastBoundarySeen);
+		nvDebug(" - Sewn %d out of %d.\n", sewnCount, count);
+		if (lastBoundarySeen != NULL) {
+			nvDebugCheck(lastBoundarySeen->face == NULL);
+		}
+		return lastBoundarySeen;
+	}
 
 	// Vertices
 	uint32_t vertexCount() const
@@ -2389,7 +2715,31 @@ public:
 
 	// @@ Add half-edge iterator.
 
-	bool isValid() const;
+	bool isValid() const
+	{
+		// Make sure all edges are valid.
+		const uint32_t edgeCount = m_edgeArray.size();
+		for (uint32_t e = 0; e < edgeCount; e++) {
+			Edge *edge = m_edgeArray[e];
+			if (edge != NULL) {
+				if (edge->id != 2 * e) {
+					return false;
+				}
+				if (!edge->isValid()) {
+					return false;
+				}
+				if (edge->pair->id != 2 * e + 1) {
+					return false;
+				}
+				if (!edge->pair->isValid()) {
+					return false;
+				}
+			}
+		}
+		// @@ Make sure all faces are valid.
+		// @@ Make sure all vertices are valid.
+		return true;
+	}
 
 public:
 
@@ -2528,16 +2878,79 @@ private:
 		}
 	}
 
-	Vertex *splitBoundaryEdge(Edge *edge, float t, const Vector3 &pos);
-	void splitBoundaryEdge(Edge *edge, Vertex *vertex);
+	Vertex *splitBoundaryEdge(Edge *edge, float t, const Vector3 &pos)
+	{
+		/*
+		  We want to go from this configuration:
+
+				+   +
+				|   ^
+		   edge |<->|  pair
+				v   |
+				+   +
+
+		  To this one:
+
+				+   +
+				|   ^
+			 e0 |<->| p0
+				v   |
+		 vertex +   +
+				|   ^
+			 e1 |<->| p1
+				v   |
+				+   +
+
+		*/
+		Edge *pair = edge->pair;
+		// Make sure boundaries are linked.
+		nvDebugCheck(pair != NULL);
+		// Make sure edge is a boundary edge.
+		nvDebugCheck(pair->face == NULL);
+		// Add new vertex.
+		Vertex *vertex = addVertex(pos);
+		vertex->nor = lerp(edge->from()->nor, edge->to()->nor, t);
+		vertex->tex = lerp(edge->from()->tex, edge->to()->tex, t);
+		disconnect(edge);
+		disconnect(pair);
+		// Add edges.
+		Edge *e0 = addEdge(edge->from()->id, vertex->id);
+		Edge *p0 = addEdge(vertex->id, pair->to()->id);
+		Edge *e1 = addEdge(vertex->id, edge->to()->id);
+		Edge *p1 = addEdge(pair->from()->id, vertex->id);
+		// Link edges.
+		e0->setNext(e1);
+		p1->setNext(p0);
+		e0->setPrev(edge->prev);
+		e1->setNext(edge->next);
+		p1->setPrev(pair->prev);
+		p0->setNext(pair->next);
+		nvDebugCheck(e0->next == e1);
+		nvDebugCheck(e1->prev == e0);
+		nvDebugCheck(p1->next == p0);
+		nvDebugCheck(p0->prev == p1);
+		nvDebugCheck(p0->pair == e0);
+		nvDebugCheck(e0->pair == p0);
+		nvDebugCheck(p1->pair == e1);
+		nvDebugCheck(e1->pair == p1);
+		// Link faces.
+		e0->face = edge->face;
+		e1->face = edge->face;
+		// Link vertices.
+		edge->from()->setEdge(e0);
+		vertex->setEdge(e1);
+		delete edge;
+		delete pair;
+		return vertex;
+	}
 
 private:
-
 	std::vector<Vertex *> m_vertexArray;
 	std::vector<Edge *> m_edgeArray;
 	std::vector<Face *> m_faceArray;
 
-	struct Key {
+	struct Key
+	{
 		Key() {}
 		Key(const Key &k) : p0(k.p0), p1(k.p1) {}
 		Key(uint32_t v0, uint32_t v1) : p0(v0), p1(v1) {}
@@ -2554,12 +2967,10 @@ private:
 		uint32_t p0;
 		uint32_t p1;
 	};
+
 	friend struct Hash<Mesh::Key>;
-
 	std::unordered_map<Key, Edge *, Hash<Key>, Equal<Key> > m_edgeMap;
-
 	uint32_t m_colocalVertexCount;
-
 };
 
 class MeshTopology
@@ -7765,449 +8176,6 @@ float Edge::angle() const
 	Vector3 v0 = a - p;
 	Vector3 v1 = b - p;
 	return acosf(dot(v0, v1) / (nv::length(v0) * nv::length(v1)));
-}
-
-// Triangulate in place.
-void Mesh::triangulate()
-{
-	bool all_triangles = true;
-	const uint32_t faceCount = m_faceArray.size();
-	for (uint32_t f = 0; f < faceCount; f++) {
-		Face *face = m_faceArray[f];
-		if (face->edgeCount() != 3) {
-			all_triangles = false;
-			break;
-		}
-	}
-	if (all_triangles) {
-		return;
-	}
-	// Do not touch vertices, but rebuild edges and faces.
-	std::vector<Edge *> edgeArray;
-	std::vector<Face *> faceArray;
-	std::swap(edgeArray, m_edgeArray);
-	std::swap(faceArray, m_faceArray);
-	m_edgeMap.clear();
-	for (uint32_t f = 0; f < faceCount; f++) {
-		Face *face = faceArray[f];
-		// Trivial fan-like triangulation.
-		const uint32_t v0 = face->edge->vertex->id;
-		uint32_t v2, v1 = -1;
-		for (Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			Edge *edge = it.current();
-			v2 = edge->to()->id;
-			if (v2 == v0) break;
-			if (v1 != -1) addFace(v0, v1, v2);
-			v1 = v2;
-		}
-	}
-	nvDebugCheck(m_faceArray.size() > faceCount); // triangle count > face count
-	linkBoundary();
-	for (size_t i = 0; i < edgeArray.size(); i++)
-		delete edgeArray[i];
-	for (size_t i = 0; i < faceArray.size(); i++)
-		delete faceArray[i];
-}
-
-
-/*
-Fixing T-junctions.
-
-- Find T-junctions. Find  vertices that are on an edge.
-    - This test is approximate.
-    - Insert edges on a spatial index to speedup queries.
-    - Consider only open edges, that is edges that have no pairs.
-    - Consider only vertices on boundaries.
-- Close T-junction.
-    - Split edge.
-
-*/
-bool Mesh::splitBoundaryEdges()
-{
-	std::vector<Vertex *> boundaryVertices;
-	for (uint32_t i = 0; i < m_vertexArray.size(); i++) {
-		Vertex *v = m_vertexArray[i];
-		if (v->isBoundary()) {
-			boundaryVertices.push_back(v);
-		}
-	}
-	nvDebug("Fixing T-junctions:\n");
-	int splitCount = 0;
-	for (uint32_t v = 0; v < boundaryVertices.size(); v++) {
-		Vertex *vertex = boundaryVertices[v];
-		Vector3 x0 = vertex->pos;
-		// Find edges that this vertex overlaps with.
-		for (uint32_t e = 0; e < m_edgeArray.size(); e++) {
-			Edge *edge = m_edgeArray[e];
-			if (edge != NULL && edge->isBoundary()) {
-				if (edge->from() == vertex || edge->to() == vertex) {
-					continue;
-				}
-				Vector3 x1 = edge->from()->pos;
-				Vector3 x2 = edge->to()->pos;
-				Vector3 v01 = x0 - x1;
-				Vector3 v21 = x2 - x1;
-				float l = length(v21);
-				float d = length(cross(v01, v21)) / l;
-				if (isZero(d)) {
-					float t = dot(v01, v21) / (l * l);
-					// @@ Snap x0 to x1 or x2, if too close? No, do vertex snapping elsewhere.
-					/*if (equal(t, 0.0f, 0.01f)) {
-					    //vertex->setPos(x1);
-					}
-					else if (equal(t, 1.0f, 0.01f)) {
-					    //vertex->setPos(x2);
-					}
-					else*/
-					if (t > 0.0f + NV_EPSILON && t < 1.0f - NV_EPSILON) {
-						nvDebugCheck(equal(lerp(x1, x2, t), x0));
-						Vertex *splitVertex = splitBoundaryEdge(edge, t, x0);
-						vertex->linkColocal(splitVertex);   // @@ Should we do this here?
-						splitCount++;
-					}
-				}
-			}
-		}
-	}
-	nvDebug(" - %d edges split.\n", splitCount);
-	nvDebugCheck(isValid());
-	return splitCount != 0;
-}
-
-
-// For this to be effective, we have to fix the boundary junctions first.
-Edge *Mesh::sewBoundary(Edge *startEdge)
-{
-	nvDebugCheck(startEdge->face == NULL);
-	// @@ We may want to be more conservative linking colocals in order to preserve the input topology. One way of doing that is by linking colocals only
-	// if the vertices next to them are linked as well. That is, by sewing boundaries after detecting them. If any pair of consecutive edges have their first
-	// and last vertex in the same position, then it can be linked.
-	Edge *lastBoundarySeen = startEdge;
-	nvDebug("Sewing Boundary:\n");
-	int count = 0;
-	int sewnCount = 0;
-	Edge *edge = startEdge;
-	do {
-		nvDebugCheck(edge->face == NULL);
-		Edge *edge_a = edge;
-		Edge *edge_b = edge->prev;
-		Edge *pair_a = edge_a->pair;
-		Edge *pair_b = edge_b->pair;
-		Vertex *v0a = edge_a->to();
-		Vertex *v0b = edge_b->from();
-		Vertex *v1a = edge_a->from();
-		Vertex *v1b = edge_b->to();
-		nvDebugCheck(v1a->isColocal(v1b));
-		/*
-		v0b +      _+ v0a
-		     \     /
-		    b \   / a
-		       \|/
-		    v1b + v1a
-		*/
-		// @@ This should not happen while sewing, but it may be produced somewhere else.
-		nvDebugCheck(edge_a != edge_b);
-		if (v0a->pos == v0b->pos) {
-			// Link vertices.
-			v0a->linkColocal(v0b);
-			// Remove edges to be collapsed.
-			disconnect(edge_a);
-			disconnect(edge_b);
-			disconnect(pair_a);
-			disconnect(pair_b);
-			// Link new boundary edges.
-			Edge *prevBoundary = edge_b->prev;
-			Edge *nextBoundary = edge_a->next;
-			if (nextBoundary != NULL) {
-				nvDebugCheck(nextBoundary->face == NULL);
-				nvDebugCheck(prevBoundary->face == NULL);
-				nextBoundary->setPrev(prevBoundary);
-				// Make sure boundary vertex points to boundary edge.
-				v0a->setEdge(nextBoundary); // This updates all colocals.
-			}
-			lastBoundarySeen = prevBoundary;
-			// Creat new edge.
-			Edge *newEdge_a = addEdge(v0a->id, v1a->id);    // pair_a->from()->id, pair_a->to()->id
-			Edge *newEdge_b = addEdge(v1b->id, v0b->id);
-			newEdge_a->pair = newEdge_b;
-			newEdge_b->pair = newEdge_a;
-			newEdge_a->face = pair_a->face;
-			newEdge_b->face = pair_b->face;
-			newEdge_a->setNext(pair_a->next);
-			newEdge_a->setPrev(pair_a->prev);
-			newEdge_b->setNext(pair_b->next);
-			newEdge_b->setPrev(pair_b->prev);
-			delete edge_a;
-			delete edge_b;
-			delete pair_a;
-			delete pair_b;
-			edge = nextBoundary;    // If nextBoundary is NULL we have closed the loop.
-			sewnCount++;
-		} else {
-			edge = edge->next;
-		}
-		count++;
-	} while (edge != NULL && edge != lastBoundarySeen);
-	nvDebug(" - Sewn %d out of %d.\n", sewnCount, count);
-	if (lastBoundarySeen != NULL) {
-		nvDebugCheck(lastBoundarySeen->face == NULL);
-	}
-	return lastBoundarySeen;
-}
-
-
-// @@ We must always disconnect edge pairs simultaneously.
-void Mesh::disconnect(Edge *edge)
-{
-	nvDebugCheck(edge != NULL);
-	// Remove from edge list.
-	if ((edge->id & 1) == 0) {
-		nvDebugCheck(m_edgeArray[edge->id / 2] == edge);
-		m_edgeArray[edge->id / 2] = NULL;
-	}
-	// Remove edge from map. @@ Store map key inside edge?
-	nvDebugCheck(edge->from() != NULL && edge->to() != NULL);
-	size_t removed = m_edgeMap.erase(Key(edge->from()->id, edge->to()->id));
-	nvDebugCheck(removed == 1);
-	// Disconnect from vertex.
-	if (edge->vertex != NULL) {
-		if (edge->vertex->edge == edge) {
-			if (edge->prev && edge->prev->pair) {
-				edge->vertex->edge = edge->prev->pair;
-			} else if (edge->pair && edge->pair->next) {
-				edge->vertex->edge = edge->pair->next;
-			} else {
-				edge->vertex->edge = NULL;
-				// @@ Remove disconnected vertex?
-			}
-		}
-		//edge->setVertex(NULL);
-	}
-	// Disconnect from face.
-	if (edge->face != NULL) {
-		if (edge->face->edge == edge) {
-			if (edge->next != NULL && edge->next != edge) {
-				edge->face->edge = edge->next;
-			} else if (edge->prev != NULL && edge->prev != edge) {
-				edge->face->edge = edge->prev;
-			} else {
-				edge->face->edge = NULL;
-				// @@ Remove disconnected face?
-			}
-		}
-		//edge->setFace(NULL);
-	}
-	// @@ Hack, we don't disconnect from pair, because pair needs us to remove itself from the map.
-	// Disconect from pair.
-	/*if (edge->pair != NULL) {
-	    if (edge->pair->pair == edge) {
-	        edge->pair->setPair(NULL);
-	    }
-	    //edge->setPair(NULL);
-	}*/
-	// Disconnect from previous.
-	if (edge->prev) {
-		if (edge->prev->next == edge) {
-			edge->prev->setNext(NULL);
-		}
-		//edge->setPrev(NULL);
-	}
-	// Disconnect from next.
-	if (edge->next) {
-		if (edge->next->prev == edge) {
-			edge->next->setPrev(NULL);
-		}
-		//edge->setNext(NULL);
-	}
-}
-
-
-void Mesh::remove(Edge *edge)
-{
-	nvDebugCheck(edge != NULL);
-	disconnect(edge);
-	delete edge;
-}
-
-void Mesh::remove(Vertex *vertex)
-{
-	nvDebugCheck(vertex != NULL);
-	// Remove from vertex list.
-	m_vertexArray[vertex->id] = NULL;
-	// Disconnect from colocals.
-	vertex->unlinkColocal();
-	// Disconnect from edges.
-	if (vertex->edge != NULL) {
-		// @@ Removing a connected vertex is asking for trouble...
-		if (vertex->edge->vertex == vertex) {
-			// @@ Connect edge to a colocal?
-			vertex->edge->vertex = NULL;
-		}
-		vertex->setEdge(NULL);
-	}
-	delete vertex;
-}
-
-void Mesh::remove(Face *face)
-{
-	nvDebugCheck(face != NULL);
-	// Remove from face list.
-	m_faceArray[face->id] = NULL;
-	// Disconnect from edges.
-	if (face->edge != NULL) {
-		nvDebugCheck(face->edge->face == face);
-		face->edge->face = NULL;
-		face->edge = NULL;
-	}
-	delete face;
-}
-
-
-void Mesh::compactEdges()
-{
-	const uint32_t edgeCount = m_edgeArray.size();
-	uint32_t c = 0;
-	for (uint32_t i = 0; i < edgeCount; i++) {
-		if (m_edgeArray[i] != NULL) {
-			if (i != c) {
-				m_edgeArray[c] = m_edgeArray[i];
-				m_edgeArray[c]->id = 2 * c;
-				if (m_edgeArray[c]->pair != NULL) {
-					m_edgeArray[c]->pair->id = 2 * c + 1;
-				}
-			}
-			c++;
-		}
-	}
-	m_edgeArray.resize(c);
-}
-
-
-void Mesh::compactVertices()
-{
-	const uint32_t vertexCount = m_vertexArray.size();
-	uint32_t c = 0;
-	for (uint32_t i = 0; i < vertexCount; i++) {
-		if (m_vertexArray[i] != NULL) {
-			if (i != c) {
-				m_vertexArray[c] = m_vertexArray[i];
-				m_vertexArray[c]->id = c;
-			}
-			c++;
-		}
-	}
-	m_vertexArray.resize(c);
-	// @@ Generate xref array for external attributes.
-}
-
-
-void Mesh::compactFaces()
-{
-	const uint32_t faceCount = m_faceArray.size();
-	uint32_t c = 0;
-	for (uint32_t i = 0; i < faceCount; i++) {
-		if (m_faceArray[i] != NULL) {
-			if (i != c) {
-				m_faceArray[c] = m_faceArray[i];
-				m_faceArray[c]->id = c;
-			}
-			c++;
-		}
-	}
-	m_faceArray.resize(c);
-}
-
-
-Vertex *Mesh::splitBoundaryEdge(Edge *edge, float t, const Vector3 &pos)
-{
-	/*
-	  We want to go from this configuration:
-
-	        +   +
-	        |   ^
-	   edge |<->|  pair
-	        v   |
-	        +   +
-
-	  To this one:
-
-	        +   +
-	        |   ^
-	     e0 |<->| p0
-	        v   |
-	 vertex +   +
-	        |   ^
-	     e1 |<->| p1
-	        v   |
-	        +   +
-
-	*/
-	Edge *pair = edge->pair;
-	// Make sure boundaries are linked.
-	nvDebugCheck(pair != NULL);
-	// Make sure edge is a boundary edge.
-	nvDebugCheck(pair->face == NULL);
-	// Add new vertex.
-	Vertex *vertex = addVertex(pos);
-	vertex->nor = lerp(edge->from()->nor, edge->to()->nor, t);
-	vertex->tex = lerp(edge->from()->tex, edge->to()->tex, t);
-	disconnect(edge);
-	disconnect(pair);
-	// Add edges.
-	Edge *e0 = addEdge(edge->from()->id, vertex->id);
-	Edge *p0 = addEdge(vertex->id, pair->to()->id);
-	Edge *e1 = addEdge(vertex->id, edge->to()->id);
-	Edge *p1 = addEdge(pair->from()->id, vertex->id);
-	// Link edges.
-	e0->setNext(e1);
-	p1->setNext(p0);
-	e0->setPrev(edge->prev);
-	e1->setNext(edge->next);
-	p1->setPrev(pair->prev);
-	p0->setNext(pair->next);
-	nvDebugCheck(e0->next == e1);
-	nvDebugCheck(e1->prev == e0);
-	nvDebugCheck(p1->next == p0);
-	nvDebugCheck(p0->prev == p1);
-	nvDebugCheck(p0->pair == e0);
-	nvDebugCheck(e0->pair == p0);
-	nvDebugCheck(p1->pair == e1);
-	nvDebugCheck(e1->pair == p1);
-	// Link faces.
-	e0->face = edge->face;
-	e1->face = edge->face;
-	// Link vertices.
-	edge->from()->setEdge(e0);
-	vertex->setEdge(e1);
-	delete edge;
-	delete pair;
-	return vertex;
-}
-
-bool Mesh::isValid() const
-{
-	// Make sure all edges are valid.
-	const uint32_t edgeCount = m_edgeArray.size();
-	for (uint32_t e = 0; e < edgeCount; e++) {
-		Edge *edge = m_edgeArray[e];
-		if (edge != NULL) {
-			if (edge->id != 2 * e) {
-				return false;
-			}
-			if (!edge->isValid()) {
-				return false;
-			}
-			if (edge->pair->id != 2 * e + 1) {
-				return false;
-			}
-			if (!edge->pair->isValid()) {
-				return false;
-			}
-		}
-	}
-	// @@ Make sure all faces are valid.
-	// @@ Make sure all vertices are valid.
-	return true;
 }
 
 }
