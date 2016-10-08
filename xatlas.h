@@ -136,9 +136,9 @@ void atlas_free(Atlas_Output_Mesh * output);
 #define NV_FORCEINLINE  inline __attribute__((always_inline))
 #endif
 
-#define nvCheck(exp)     if (!(exp)) { nv::DebugPrint("%s %s %s\n", #exp, __FILE__, __LINE__); }
+#define nvCheck(exp)     if (!(exp)) { xatlas::internal::DebugPrint("%s %s %s\n", #exp, __FILE__, __LINE__); }
 #define nvDebugCheck(exp) assert(exp)
-#define nvDebug(...)    nv::DebugPrint(__VA_ARGS__)
+#define nvDebug(...)    xatlas::internal::DebugPrint(__VA_ARGS__)
 
 #define NV_UINT32_MAX   0xffffffff
 #define NV_FLOAT_MAX    3.402823466e+38F
@@ -150,8 +150,8 @@ void atlas_free(Atlas_Output_Mesh * output);
 #define NV_EPSILON          (0.0001f)
 #define NV_NORMAL_EPSILON   (0.001f)
 
-namespace nv
-{
+namespace xatlas {
+namespace internal {
 static void DebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)))
 {
 	va_list arg;
@@ -1332,7 +1332,7 @@ private:
 	std::vector<float> m_array;
 };
 
-namespace HalfEdge {
+namespace halfedge {
 class Face;
 class Vertex;
 
@@ -1693,7 +1693,7 @@ Vector3 Edge::midPoint() const
 
 float Edge::length() const
 {
-	return nv::length(to()->pos - from()->pos);
+	return internal::length(to()->pos - from()->pos);
 }
 
 float Edge::angle() const
@@ -1703,7 +1703,7 @@ float Edge::angle() const
 	Vector3 b = next->vertex->pos;
 	Vector3 v0 = a - p;
 	Vector3 v1 = b - p;
-	return acosf(dot(v0, v1) / (nv::length(v0) * nv::length(v1)));
+	return acosf(dot(v0, v1) / (internal::length(v0) * internal::length(v1)));
 }
 
 class Face
@@ -1752,8 +1752,8 @@ public:
 			if (vertex0 == NULL) {
 				vertex0 = edge->vertex;
 			} else if (edge->next->vertex != vertex0) {
-				const HalfEdge::Vertex *vertex1 = edge->from();
-				const HalfEdge::Vertex *vertex2 = edge->to();
+				const halfedge::Vertex *vertex1 = edge->from();
+				const halfedge::Vertex *vertex2 = edge->to();
 				const Vector3 &p0 = vertex0->pos;
 				const Vector3 &p1 = vertex1->pos;
 				const Vector3 &p2 = vertex2->pos;
@@ -2381,7 +2381,7 @@ public:
 
 	// Sew the boundary that starts at the given edge, returns one edge that still belongs to boundary, or NULL if boundary closed.
 	// For this to be effective, we have to fix the boundary junctions first.
-	HalfEdge::Edge *sewBoundary(Edge *startEdge)
+	halfedge::Edge *sewBoundary(Edge *startEdge)
 	{
 		nvDebugCheck(startEdge->face == NULL);
 		// @@ We may want to be more conservative linking colocals in order to preserve the input topology. One way of doing that is by linking colocals only
@@ -2529,7 +2529,7 @@ public:
 		}
 
 	private:
-		HalfEdge::Mesh *m_mesh;
+		halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
 	VertexIterator vertices()
@@ -2557,7 +2557,7 @@ public:
 		}
 
 	private:
-		const HalfEdge::Mesh *m_mesh;
+		const halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
 	ConstVertexIterator vertices() const
@@ -2587,7 +2587,7 @@ public:
 		}
 
 	private:
-		HalfEdge::Mesh *m_mesh;
+		halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
 	FaceIterator faces()
@@ -2615,7 +2615,7 @@ public:
 		}
 
 	private:
-		const HalfEdge::Mesh *m_mesh;
+		const halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
 	ConstFaceIterator faces() const
@@ -2645,7 +2645,7 @@ public:
 		}
 
 	private:
-		HalfEdge::Mesh *m_mesh;
+		halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
 	EdgeIterator edges()
@@ -2673,7 +2673,7 @@ public:
 		}
 
 	private:
-		const HalfEdge::Mesh *m_mesh;
+		const halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
 	ConstEdgeIterator edges() const
@@ -3048,22 +3048,22 @@ private:
 	int m_genus;
 };
 
-float computeSurfaceArea(const HalfEdge::Mesh *mesh)
+float computeSurfaceArea(const halfedge::Mesh *mesh)
 {
 	float area = 0;
-	for (HalfEdge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
-		const HalfEdge::Face *face = it.current();
+	for (halfedge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
+		const halfedge::Face *face = it.current();
 		area += face->area();
 	}
 	nvDebugCheck(area >= 0);
 	return area;
 }
 
-float computeParametricArea(const HalfEdge::Mesh *mesh)
+float computeParametricArea(const halfedge::Mesh *mesh)
 {
 	float area = 0;
-	for (HalfEdge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
-		const HalfEdge::Face *face = it.current();
+	for (halfedge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
+		const halfedge::Face *face = it.current();
 		area += face->parametricArea();
 	}
 	return area;
@@ -3226,7 +3226,7 @@ Mesh *triangulate(const Mesh *inputMesh)
 	return mesh;
 }
 
-} //  namespace HalfEdge
+} //  namespace halfedge
 
 /// Mersenne twister random number generator.
 class MTRand
@@ -4919,7 +4919,7 @@ class Atlas;
 class Chart;
 
 // Test all pairs of vertices in the boundary and check distance.
-static void findDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vertex **a, HalfEdge::Vertex **b)
+static void findDiameterVertices(halfedge::Mesh *mesh, halfedge::Vertex **a, halfedge::Vertex **b)
 {
 	nvDebugCheck(mesh != NULL);
 	nvDebugCheck(a != NULL);
@@ -4927,11 +4927,11 @@ static void findDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vertex **a, Hal
 	const uint32_t vertexCount = mesh->vertexCount();
 	float maxLength = 0.0f;
 	for (uint32_t v0 = 1; v0 < vertexCount; v0++) {
-		HalfEdge::Vertex *vertex0 = mesh->vertexAt(v0);
+		halfedge::Vertex *vertex0 = mesh->vertexAt(v0);
 		nvDebugCheck(vertex0 != NULL);
 		if (!vertex0->isBoundary()) continue;
 		for (uint32_t v1 = 0; v1 < v0; v1++) {
-			HalfEdge::Vertex *vertex1 = mesh->vertexAt(v1);
+			halfedge::Vertex *vertex1 = mesh->vertexAt(v1);
 			nvDebugCheck(vertex1 != NULL);
 			if (!vertex1->isBoundary()) continue;
 			float len = length(vertex0->pos - vertex1->pos);
@@ -4946,18 +4946,18 @@ static void findDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vertex **a, Hal
 }
 
 // Fast sweep in 3 directions
-static bool findApproximateDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vertex **a, HalfEdge::Vertex **b)
+static bool findApproximateDiameterVertices(halfedge::Mesh *mesh, halfedge::Vertex **a, halfedge::Vertex **b)
 {
 	nvDebugCheck(mesh != NULL);
 	nvDebugCheck(a != NULL);
 	nvDebugCheck(b != NULL);
 	const uint32_t vertexCount = mesh->vertexCount();
-	HalfEdge::Vertex *minVertex[3];
-	HalfEdge::Vertex *maxVertex[3];
+	halfedge::Vertex *minVertex[3];
+	halfedge::Vertex *maxVertex[3];
 	minVertex[0] = minVertex[1] = minVertex[2] = NULL;
 	maxVertex[0] = maxVertex[1] = maxVertex[2] = NULL;
 	for (uint32_t v = 1; v < vertexCount; v++) {
-		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+		halfedge::Vertex *vertex = mesh->vertexAt(v);
 		nvDebugCheck(vertex != NULL);
 		if (vertex->isBoundary()) {
 			minVertex[0] = minVertex[1] = minVertex[2] = vertex;
@@ -4970,7 +4970,7 @@ static bool findApproximateDiameterVertices(HalfEdge::Mesh *mesh, HalfEdge::Vert
 		return false;
 	}
 	for (uint32_t v = 1; v < vertexCount; v++) {
-		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+		halfedge::Vertex *vertex = mesh->vertexAt(v);
 		nvDebugCheck(vertex != NULL);
 		if (!vertex->isBoundary()) {
 			// Skip interior vertices.
@@ -5030,7 +5030,7 @@ static void project_triangle(Vector3::Arg p0, Vector3::Arg p1, Vector3::Arg p2, 
 //  makes it more numerically stable in
 //  the presence of degenerate triangles.
 
-static void setup_conformal_map_relations(sparse::Matrix &A, int row, const HalfEdge::Vertex *v0, const HalfEdge::Vertex *v1, const HalfEdge::Vertex *v2)
+static void setup_conformal_map_relations(sparse::Matrix &A, int row, const halfedge::Vertex *v0, const halfedge::Vertex *v1, const halfedge::Vertex *v2)
 {
 	int id0 = v0->id;
 	int id1 = v1->id;
@@ -5100,7 +5100,7 @@ static void triangle_cosines(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3, 
 	*a3 = vec_angle_cos(v2, v3, v1);
 }
 
-static void setup_abf_relations(sparse::Matrix &A, int row, const HalfEdge::Vertex *v0, const HalfEdge::Vertex *v1, const HalfEdge::Vertex *v2)
+static void setup_abf_relations(sparse::Matrix &A, int row, const halfedge::Vertex *v0, const halfedge::Vertex *v1, const halfedge::Vertex *v2)
 {
 	int id0 = v0->id;
 	int id1 = v1->id;
@@ -5157,14 +5157,14 @@ static void setup_abf_relations(sparse::Matrix &A, int row, const HalfEdge::Vert
 	A.setCoefficient(v2_id, 2 * row + 1, 1);
 }
 
-bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
+bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 {
 	nvDebugCheck(mesh != NULL);
 	// For this to work properly, mesh should not have colocals that have the same
 	// attributes, unless you want the vertices to actually have different texcoords.
 	const uint32_t vertexCount = mesh->vertexCount();
 	const uint32_t D = 2 * vertexCount;
-	const uint32_t N = 2 * HalfEdge::countMeshTriangles(mesh);
+	const uint32_t N = 2 * halfedge::countMeshTriangles(mesh);
 	// N is the number of equations (one per triangle)
 	// D is the number of variables (one per vertex; there are 2 pinned vertices).
 	if (N < D - 4) {
@@ -5176,8 +5176,8 @@ bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 	// Fill b:
 	b.fill(0.0f);
 	// Fill x:
-	HalfEdge::Vertex *v0;
-	HalfEdge::Vertex *v1;
+	halfedge::Vertex *v0;
+	halfedge::Vertex *v1;
 	if (!findApproximateDiameterVertices(mesh, &v0, &v1)) {
 		// Mesh has no boundaries.
 		return false;
@@ -5187,7 +5187,7 @@ bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 		return false;
 	}
 	for (uint32_t v = 0; v < vertexCount; v++) {
-		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+		halfedge::Vertex *vertex = mesh->vertexAt(v);
 		nvDebugCheck(vertex != NULL);
 		// Initial solution.
 		x[2 * v + 0] = vertex->tex.x;
@@ -5196,18 +5196,18 @@ bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 	// Fill A:
 	const uint32_t faceCount = mesh->faceCount();
 	for (uint32_t f = 0, t = 0; f < faceCount; f++) {
-		const HalfEdge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = mesh->faceAt(f);
 		nvDebugCheck(face != NULL);
 		nvDebugCheck(face->edgeCount() == 3);
-		const HalfEdge::Vertex *vertex0 = NULL;
-		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const HalfEdge::Edge *edge = it.current();
+		const halfedge::Vertex *vertex0 = NULL;
+		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const halfedge::Edge *edge = it.current();
 			nvCheck(edge != NULL);
 			if (vertex0 == NULL) {
 				vertex0 = edge->vertex;
 			} else if (edge->next->vertex != vertex0) {
-				const HalfEdge::Vertex *vertex1 = edge->from();
-				const HalfEdge::Vertex *vertex2 = edge->to();
+				const halfedge::Vertex *vertex1 = edge->from();
+				const halfedge::Vertex *vertex2 = edge->to();
 				setup_abf_relations(A, t, vertex0, vertex1, vertex2);
 				//setup_conformal_map_relations(A, t, vertex0, vertex1, vertex2);
 				t++;
@@ -5224,14 +5224,14 @@ bool computeLeastSquaresConformalMap(HalfEdge::Mesh *mesh)
 	Solver::LeastSquaresSolver(A, b, x, lockedParameters, 4, 0.000001f);
 	// Map x back to texcoords:
 	for (uint32_t v = 0; v < vertexCount; v++) {
-		HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+		halfedge::Vertex *vertex = mesh->vertexAt(v);
 		nvDebugCheck(vertex != NULL);
 		vertex->tex = Vector2(x[2 * v + 0], x[2 * v + 1]);
 	}
 	return true;
 }
 
-bool computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh)
+bool computeOrthogonalProjectionMap(halfedge::Mesh *mesh)
 {
 	Vector3 axis[2];
 	uint32_t vertexCount = mesh->vertexCount();
@@ -5248,25 +5248,25 @@ bool computeOrthogonalProjectionMap(HalfEdge::Mesh *mesh)
 	}
 	float eigenValues[3];
 	Vector3 eigenVectors[3];
-	if (!nv::Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors)) {
+	if (!Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors)) {
 		return false;
 	}
 	axis[0] = normalize(eigenVectors[0]);
 	axis[1] = normalize(eigenVectors[1]);
 	// Project vertices to plane.
-	for (HalfEdge::Mesh::VertexIterator it(mesh->vertices()); !it.isDone(); it.advance()) {
-		HalfEdge::Vertex *vertex = it.current();
+	for (halfedge::Mesh::VertexIterator it(mesh->vertices()); !it.isDone(); it.advance()) {
+		halfedge::Vertex *vertex = it.current();
 		vertex->tex.x = dot(axis[0], vertex->pos);
 		vertex->tex.y = dot(axis[1], vertex->pos);
 	}
 	return true;
 }
 
-void computeSingleFaceMap(HalfEdge::Mesh *mesh)
+void computeSingleFaceMap(halfedge::Mesh *mesh)
 {
 	nvDebugCheck(mesh != NULL);
 	nvDebugCheck(mesh->faceCount() == 1);
-	HalfEdge::Face *face = mesh->faceAt(0);
+	halfedge::Face *face = mesh->faceAt(0);
 	nvCheck(face != NULL);
 	Vector3 p0 = face->edge->from()->pos;
 	Vector3 p1 = face->edge->to()->pos;
@@ -5274,8 +5274,8 @@ void computeSingleFaceMap(HalfEdge::Mesh *mesh)
 	Vector3 Z = face->normal();
 	Vector3 Y = normalizeSafe(cross(Z, X), Vector3(0.0f), 0.0f);
 	uint32_t i = 0;
-	for (HalfEdge::Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance(), i++) {
-		HalfEdge::Vertex *vertex = it.vertex();
+	for (halfedge::Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance(), i++) {
+		halfedge::Vertex *vertex = it.vertex();
 		nvCheck(vertex != NULL);
 		if (i == 0) {
 			vertex->tex = Vector2(0);
@@ -5390,7 +5390,7 @@ struct ChartBuildData
 	Vector3 normalSum;
 	Vector3 centroidSum;
 
-	std::vector<uint32_t> seeds;  // @@ These could be a pointers to the HalfEdge faces directly.
+	std::vector<uint32_t> seeds;  // @@ These could be a pointers to the halfedge faces directly.
 	std::vector<uint32_t> faces;
 	PriorityQueue candidates;
 };
@@ -5421,7 +5421,7 @@ struct SegmentationSettings
 
 struct AtlasBuilder
 {
-	AtlasBuilder(const HalfEdge::Mesh *m) : mesh(m), facesLeft(m->faceCount())
+	AtlasBuilder(const halfedge::Mesh *m) : mesh(m), facesLeft(m->faceCount())
 	{
 		const uint32_t faceCount = m->faceCount();
 		faceChartArray.resize(faceCount, -1);
@@ -5470,12 +5470,12 @@ struct AtlasBuilder
 		// Fill edges:
 		for (uint32_t i = 0; i < faceCount; i++) {
 			shortestPaths[i * faceCount + i] = 0.0f;
-			const HalfEdge::Face *face_i = mesh->faceAt(i);
+			const halfedge::Face *face_i = mesh->faceAt(i);
 			Vector3 centroid_i = face_i->centroid();
-			for (HalfEdge::Face::ConstEdgeIterator it(face_i->edges()); !it.isDone(); it.advance()) {
-				const HalfEdge::Edge *edge = it.current();
+			for (halfedge::Face::ConstEdgeIterator it(face_i->edges()); !it.isDone(); it.advance()) {
+				const halfedge::Edge *edge = it.current();
 				if (!edge->isBoundary()) {
-					const HalfEdge::Face *face_j = edge->pair->face;
+					const halfedge::Face *face_j = edge->pair->face;
 					uint32_t j = face_j->id;
 					Vector3 centroid_j = face_j->centroid();
 					shortestPaths[i * faceCount + j] = shortestPaths[j * faceCount + i] = length(centroid_i - centroid_j);
@@ -5608,10 +5608,10 @@ struct AtlasBuilder
 
 	void updateCandidates(ChartBuildData *chart, uint32_t f)
 	{
-		const HalfEdge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = mesh->faceAt(f);
 		// Traverse neighboring faces, add the ones that do not belong to any chart yet.
-		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const HalfEdge::Edge *edge = it.current()->pair;
+		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const halfedge::Edge *edge = it.current()->pair;
 			if (!edge->isBoundary()) {
 				uint32_t f = edge->face->id;
 				if (faceChartArray[f] == -1) {
@@ -5664,7 +5664,7 @@ struct AtlasBuilder
 		float maxDistance = -1;
 		const uint32_t bestCount = bestTriangles.count();
 		for (uint32_t i = 0; i < bestCount; i++) {
-			const HalfEdge::Face *face = mesh->faceAt(bestTriangles.pairs[i].face);
+			const halfedge::Face *face = mesh->faceAt(bestTriangles.pairs[i].face);
 			Vector3 faceCentroid = face->triangleCenter();
 			float distance = length(centroid - faceCentroid);
 			if (distance > maxDistance) {
@@ -5737,7 +5737,7 @@ struct AtlasBuilder
 	// Returns a value in [0-1].
 	float evaluateProxyFitMetric(ChartBuildData *chart, uint32_t f)
 	{
-		const HalfEdge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = mesh->faceAt(f);
 		Vector3 faceNormal = face->triangleNormal();
 		// Use plane fitting metric for now:
 		return 1 - dot(faceNormal, chart->planeNormal); // @@ normal deviations should be weighted by face area
@@ -5759,9 +5759,9 @@ struct AtlasBuilder
 	{
 		float l_out = 0.0f;
 		float l_in = 0.0f;
-		const HalfEdge::Face *face = mesh->faceAt(f);
-		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const HalfEdge::Edge *edge = it.current();
+		const halfedge::Face *face = mesh->faceAt(f);
+		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const halfedge::Edge *edge = it.current();
 			float l = edgeLengths[edge->id / 2];
 			if (edge->isBoundary()) {
 				l_out += l;
@@ -5783,9 +5783,9 @@ struct AtlasBuilder
 	{
 		float seamFactor = 0.0f;
 		float totalLength = 0.0f;
-		const HalfEdge::Face *face = mesh->faceAt(f);
-		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const HalfEdge::Edge *edge = it.current();
+		const halfedge::Face *face = mesh->faceAt(f);
+		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const halfedge::Edge *edge = it.current();
 			if (edge->isBoundary()) {
 				continue;
 			}
@@ -5815,9 +5815,9 @@ struct AtlasBuilder
 	{
 		float seamLength = 0.0f;
 		float totalLength = 0.0f;
-		const HalfEdge::Face *face = mesh->faceAt(f);
-		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const HalfEdge::Edge *edge = it.current();
+		const halfedge::Face *face = mesh->faceAt(f);
+		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const halfedge::Edge *edge = it.current();
 			if (edge->isBoundary()) {
 				continue;
 			}
@@ -5847,9 +5847,9 @@ struct AtlasBuilder
 		float newSeamLength = 0.0f;
 		float oldSeamLength = 0.0f;
 		float totalLength = 0.0f;
-		const HalfEdge::Face *face = mesh->faceAt(f);
-		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const HalfEdge::Edge *edge = it.current();
+		const halfedge::Face *face = mesh->faceAt(f);
+		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const halfedge::Edge *edge = it.current();
 			//float l = edge->length();
 			float l = edgeLengths[edge->id / 2];
 			if (edge->isBoundary()) {
@@ -5871,7 +5871,7 @@ struct AtlasBuilder
 
 	float evaluateChartArea(ChartBuildData *chart, uint32_t f)
 	{
-		const HalfEdge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = mesh->faceAt(f);
 		return chart->area + faceAreas[face->id];
 	}
 
@@ -5879,9 +5879,9 @@ struct AtlasBuilder
 	{
 		float boundaryLength = chart->boundaryLength;
 		// Add new edges, subtract edges shared with the chart.
-		const HalfEdge::Face *face = mesh->faceAt(f);
-		for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const HalfEdge::Edge *edge = it.current();
+		const halfedge::Face *face = mesh->faceAt(f);
+		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			const halfedge::Edge *edge = it.current();
 			//float edgeLength = edge->length();
 			float edgeLength = edgeLengths[edge->id / 2];
 			if (edge->isBoundary()) {
@@ -5900,13 +5900,13 @@ struct AtlasBuilder
 
 	Vector3 evaluateChartNormalSum(ChartBuildData *chart, uint32_t f)
 	{
-		const HalfEdge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = mesh->faceAt(f);
 		return chart->normalSum + face->triangleNormalAreaScaled();
 	}
 
 	Vector3 evaluateChartCentroidSum(ChartBuildData *chart, uint32_t f)
 	{
-		const HalfEdge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = mesh->faceAt(f);
 		return chart->centroidSum + face->centroid();
 	}
 
@@ -5915,7 +5915,7 @@ struct AtlasBuilder
 		Vector3 centroid(0);
 		const uint32_t faceCount = chart->faces.size();
 		for (uint32_t i = 0; i < faceCount; i++) {
-			const HalfEdge::Face *face = mesh->faceAt(chart->faces[i]);
+			const halfedge::Face *face = mesh->faceAt(chart->faces[i]);
 			centroid += face->triangleCenter();
 		}
 		return centroid / float(faceCount);
@@ -5939,9 +5939,9 @@ struct AtlasBuilder
 			const uint32_t faceCount = chart->faces.size();
 			for (uint32_t i = 0; i < faceCount; i++) {
 				uint32_t f = chart->faces[i];
-				const HalfEdge::Face *face = mesh->faceAt(f);
-				for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-					const HalfEdge::Edge *edge = it.current();
+				const halfedge::Face *face = mesh->faceAt(f);
+				for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+					const halfedge::Edge *edge = it.current();
 					//float l = edge->length();
 					float l = edgeLengths[edge->id / 2];
 					if (edge->isBoundary()) {
@@ -6090,7 +6090,7 @@ struct AtlasBuilder
 	uint32_t chartCount() const { return chartArray.size(); }
 	const std::vector<uint32_t> &chartFaces(uint32_t i) const { return chartArray[i]->faces; }
 
-	const HalfEdge::Mesh *mesh;
+	const halfedge::Mesh *mesh;
 	uint32_t facesLeft;
 	std::vector<int> faceChartArray;
 	std::vector<ChartBuildData *> chartArray;
@@ -6109,23 +6109,23 @@ class Chart
 public:
 	Chart() : m_isDisk(false), m_isVertexMapped(false) {}
 
-	void build(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t> &faceArray)
+	void build(const halfedge::Mesh *originalMesh, const std::vector<uint32_t> &faceArray)
 	{
 		// Copy face indices.
 		m_faceArray = faceArray;
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
-		m_chartMesh.reset(new HalfEdge::Mesh());
-		m_unifiedMesh.reset(new HalfEdge::Mesh());
+		m_chartMesh.reset(new halfedge::Mesh());
+		m_unifiedMesh.reset(new halfedge::Mesh());
 		std::vector<uint32_t> chartMeshIndices(meshVertexCount, ~0);
 		std::vector<uint32_t> unifiedMeshIndices(meshVertexCount, ~0);
 		// Add vertices.
 		const uint32_t faceCount = faceArray.size();
 		for (uint32_t f = 0; f < faceCount; f++) {
-			const HalfEdge::Face *face = originalMesh->faceAt(faceArray[f]);
+			const halfedge::Face *face = originalMesh->faceAt(faceArray[f]);
 			nvDebugCheck(face != NULL);
-			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const HalfEdge::Vertex *vertex = it.current()->vertex;
-				const HalfEdge::Vertex *unifiedVertex = vertex->firstColocal();
+			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const halfedge::Vertex *vertex = it.current()->vertex;
+				const halfedge::Vertex *unifiedVertex = vertex->firstColocal();
 				if (unifiedMeshIndices[unifiedVertex->id] == ~0) {
 					unifiedMeshIndices[unifiedVertex->id] = m_unifiedMesh->vertexCount();
 					nvDebugCheck(vertex->pos == unifiedVertex->pos);
@@ -6135,7 +6135,7 @@ public:
 					chartMeshIndices[vertex->id] = m_chartMesh->vertexCount();
 					m_chartToOriginalMap.push_back(vertex->id);
 					m_chartToUnifiedMap.push_back(unifiedMeshIndices[unifiedVertex->id]);
-					HalfEdge::Vertex *v = m_chartMesh->addVertex(vertex->pos);
+					halfedge::Vertex *v = m_chartMesh->addVertex(vertex->pos);
 					v->nor = vertex->nor;
 					v->tex = vertex->tex;
 				}
@@ -6154,18 +6154,18 @@ public:
 		faceIndices.reserve(7);
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
-			const HalfEdge::Face *face = originalMesh->faceAt(faceArray[f]);
+			const halfedge::Face *face = originalMesh->faceAt(faceArray[f]);
 			nvDebugCheck(face != NULL);
 			faceIndices.clear();
-			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const HalfEdge::Vertex *vertex = it.current()->vertex;
+			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const halfedge::Vertex *vertex = it.current()->vertex;
 				nvDebugCheck(vertex != NULL);
 				faceIndices.push_back(chartMeshIndices[vertex->id]);
 			}
 			m_chartMesh->addFace(faceIndices);
 			faceIndices.clear();
-			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const HalfEdge::Vertex *vertex = it.current()->vertex;
+			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const halfedge::Vertex *vertex = it.current()->vertex;
 				nvDebugCheck(vertex != NULL);
 				vertex = vertex->firstColocal();
 				faceIndices.push_back(unifiedMeshIndices[vertex->id]);
@@ -6176,7 +6176,7 @@ public:
 		m_unifiedMesh->linkBoundary();
 		//exportMesh(m_unifiedMesh.ptr(), "debug_input.obj");
 		if (m_unifiedMesh->splitBoundaryEdges()) {
-			m_unifiedMesh.reset(HalfEdge::unifyVertices(m_unifiedMesh.get()));
+			m_unifiedMesh.reset(halfedge::unifyVertices(m_unifiedMesh.get()));
 		}
 		//exportMesh(m_unifiedMesh.ptr(), "debug_split.obj");
 		// Closing the holes is not always the best solution and does not fix all the problems.
@@ -6190,14 +6190,14 @@ public:
 			fileName.format("debug_hole_%d.obj", pieceCount++);
 			exportMesh(m_unifiedMesh.ptr(), fileName.str());*/
 		}
-		m_unifiedMesh.reset(HalfEdge::triangulate(m_unifiedMesh.get()));
+		m_unifiedMesh.reset(halfedge::triangulate(m_unifiedMesh.get()));
 		//exportMesh(m_unifiedMesh.ptr(), "debug_triangulated.obj");
 		// Analyze chart topology.
-		HalfEdge::MeshTopology topology(m_unifiedMesh.get());
+		halfedge::MeshTopology topology(m_unifiedMesh.get());
 		m_isDisk = topology.isDisk();
 	}
 
-	void buildVertexMap(const HalfEdge::Mesh *originalMesh, const std::vector<uint32_t> &unchartedMaterialArray)
+	void buildVertexMap(const halfedge::Mesh *originalMesh, const std::vector<uint32_t> &unchartedMaterialArray)
 	{
 		nvCheck(m_chartMesh.get() == NULL && m_unifiedMesh.get() == NULL);
 		m_isVertexMapped = true;
@@ -6205,7 +6205,7 @@ public:
 		m_faceArray.clear();
 		const uint32_t meshFaceCount = originalMesh->faceCount();
 		for (uint32_t f = 0; f < meshFaceCount; f++) {
-			const HalfEdge::Face *face = originalMesh->faceAt(f);
+			const halfedge::Face *face = originalMesh->faceAt(f);
 			if (std::find(unchartedMaterialArray.begin(), unchartedMaterialArray.end(), face->material) != unchartedMaterialArray.end()) {
 				m_faceArray.push_back(f);
 			}
@@ -6216,18 +6216,18 @@ public:
 		}
 		// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
-		m_chartMesh.reset(new HalfEdge::Mesh());
+		m_chartMesh.reset(new halfedge::Mesh());
 		std::vector<uint32_t> chartMeshIndices(meshVertexCount, ~0);
 		// Vertex map mesh only has disconnected vertices.
 		for (uint32_t f = 0; f < faceCount; f++) {
-			const HalfEdge::Face *face = originalMesh->faceAt(m_faceArray[f]);
+			const halfedge::Face *face = originalMesh->faceAt(m_faceArray[f]);
 			nvDebugCheck(face != NULL);
-			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const HalfEdge::Vertex *vertex = it.current()->vertex;
+			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const halfedge::Vertex *vertex = it.current()->vertex;
 				if (chartMeshIndices[vertex->id] == ~0) {
 					chartMeshIndices[vertex->id] = m_chartMesh->vertexCount();
 					m_chartToOriginalMap.push_back(vertex->id);
-					HalfEdge::Vertex *v = m_chartMesh->addVertex(vertex->pos);
+					halfedge::Vertex *v = m_chartMesh->addVertex(vertex->pos);
 					v->nor = vertex->nor;
 					v->tex = vertex->tex; // @@ Not necessary.
 				}
@@ -6239,16 +6239,16 @@ public:
 		faceIndices.reserve(7);
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
-			const HalfEdge::Face *face = originalMesh->faceAt(m_faceArray[f]);
+			const halfedge::Face *face = originalMesh->faceAt(m_faceArray[f]);
 			nvDebugCheck(face != NULL);
 			faceIndices.clear();
-			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const HalfEdge::Vertex *vertex = it.current()->vertex;
+			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const halfedge::Vertex *vertex = it.current()->vertex;
 				nvDebugCheck(vertex != NULL);
 				nvDebugCheck(chartMeshIndices[vertex->id] != ~0);
 				faceIndices.push_back(chartMeshIndices[vertex->id]);
 			}
-			HalfEdge::Face *new_face = m_chartMesh->addFace(faceIndices);
+			halfedge::Face *new_face = m_chartMesh->addFace(faceIndices);
 			nvDebugCheck(new_face != NULL);
 		}
 		m_chartMesh->linkBoundary();
@@ -6256,13 +6256,13 @@ public:
 		Box bounds;
 		bounds.clearBounds();
 		for (uint32_t i = 0; i < chartVertexCount; i++) {
-			HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(i);
+			halfedge::Vertex *vertex = m_chartMesh->vertexAt(i);
 			bounds.addPointToBounds(vertex->pos);
 		}
 		ProximityGrid grid;
 		grid.init(bounds, chartVertexCount);
 		for (uint32_t i = 0; i < chartVertexCount; i++) {
-			HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(i);
+			halfedge::Vertex *vertex = m_chartMesh->vertexAt(i);
 			grid.add(vertex->pos, i);
 		}
 		uint32_t texelCount = 0;
@@ -6280,7 +6280,7 @@ public:
 			const std::vector<uint32_t> &indexArray = grid.cellArray[cell].indexArray;
 			for (uint32_t i = 0; i < indexArray.size(); i++) {
 				uint32_t idx = indexArray[i];
-				HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(idx);
+				halfedge::Vertex *vertex = m_chartMesh->vertexAt(idx);
 				nvDebugCheck(vertexIndexArray[idx] == -1);
 				std::vector<uint32_t> neighbors;
 				grid.gather(vertex->pos, positionThreshold, /*ref*/neighbors);
@@ -6288,7 +6288,7 @@ public:
 				for (uint32_t j = 0; j < neighbors.size(); j++) {
 					uint32_t otherIdx = neighbors[j];
 					if (vertexIndexArray[otherIdx] != -1) {
-						HalfEdge::Vertex *otherVertex = m_chartMesh->vertexAt(otherIdx);
+						halfedge::Vertex *otherVertex = m_chartMesh->vertexAt(otherIdx);
 						if (distance(vertex->pos, otherVertex->pos) < positionThreshold &&
 								distance(vertex->nor, otherVertex->nor) < normalThreshold) {
 							vertexIndexArray[idx] = vertexIndexArray[otherIdx];
@@ -6325,7 +6325,7 @@ public:
 			texelCodes[i] = texelCode - 1;
 		}
 		for (uint32_t i = 0; i < chartVertexCount; i++) {
-			HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(i);
+			halfedge::Vertex *vertex = m_chartMesh->vertexAt(i);
 			int idx = vertexIndexArray[i];
 			if (idx != -1) {
 				uint32_t texelCode = texelCodes[idx];
@@ -6340,7 +6340,7 @@ public:
 	bool closeHoles()
 	{
 		nvDebugCheck(!m_isVertexMapped);
-		std::vector<HalfEdge::Edge *> boundaryEdges;
+		std::vector<halfedge::Edge *> boundaryEdges;
 		getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
 		uint32_t boundaryCount = boundaryEdges.size();
 		if (boundaryCount <= 1) {
@@ -6350,12 +6350,12 @@ public:
 		// Compute lengths and areas.
 		std::vector<float> boundaryLengths;
 		for (uint32_t i = 0; i < boundaryCount; i++) {
-			const HalfEdge::Edge *startEdge = boundaryEdges[i];
+			const halfedge::Edge *startEdge = boundaryEdges[i];
 			nvCheck(startEdge->face == NULL);
 			//float boundaryEdgeCount = 0;
 			float boundaryLength = 0.0f;
 			//Vector3 boundaryCentroid(zero);
-			const HalfEdge::Edge *edge = startEdge;
+			const halfedge::Edge *edge = startEdge;
 			do {
 				Vector3 t0 = edge->from()->pos;
 				Vector3 t1 = edge->to()->pos;
@@ -6382,14 +6382,14 @@ public:
 				// Skip disk boundary.
 				continue;
 			}
-			HalfEdge::Edge *startEdge = boundaryEdges[i];
+			halfedge::Edge *startEdge = boundaryEdges[i];
 			nvDebugCheck(startEdge != NULL);
 			nvDebugCheck(startEdge->face == NULL);
-			std::vector<HalfEdge::Vertex *> vertexLoop;
-			std::vector<HalfEdge::Edge *> edgeLoop;
-			HalfEdge::Edge *edge = startEdge;
+			std::vector<halfedge::Vertex *> vertexLoop;
+			std::vector<halfedge::Edge *> edgeLoop;
+			halfedge::Edge *edge = startEdge;
 			do {
-				HalfEdge::Vertex *vertex = edge->next->vertex;  // edge->to()
+				halfedge::Vertex *vertex = edge->next->vertex;  // edge->to()
 				uint32_t i;
 				for (i = 0; i < vertexLoop.size(); i++) {
 					if (vertex->isColocal(vertexLoop[i])) {
@@ -6398,8 +6398,8 @@ public:
 				}
 				bool isCrossing = (i != vertexLoop.size());
 				if (isCrossing) {
-					HalfEdge::Edge *prev = edgeLoop[i];     // Previous edge before the loop.
-					HalfEdge::Edge *next = edge->next;    // Next edge after the loop.
+					halfedge::Edge *prev = edgeLoop[i];     // Previous edge before the loop.
+					halfedge::Edge *next = edge->next;    // Next edge after the loop.
 					nvDebugCheck(prev->to()->isColocal(next->from()));
 					// Close loop.
 					edgeLoop.push_back(edge);
@@ -6452,19 +6452,19 @@ public:
 		return m_faceArray[i];
 	}
 
-	const HalfEdge::Mesh *chartMesh() const
+	const halfedge::Mesh *chartMesh() const
 	{
 		return m_chartMesh.get();
 	}
-	HalfEdge::Mesh *chartMesh()
+	halfedge::Mesh *chartMesh()
 	{
 		return m_chartMesh.get();
 	}
-	const HalfEdge::Mesh *unifiedMesh() const
+	const halfedge::Mesh *unifiedMesh() const
 	{
 		return m_unifiedMesh.get();
 	}
-	HalfEdge::Mesh *unifiedMesh()
+	halfedge::Mesh *unifiedMesh()
 	{
 		return m_unifiedMesh.get();
 	}
@@ -6491,15 +6491,15 @@ public:
 		nvDebugCheck(!m_isVertexMapped);
 		uint32_t vertexCount = m_chartMesh->vertexCount();
 		for (uint32_t v = 0; v < vertexCount; v++) {
-			HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(v);
-			HalfEdge::Vertex *unifiedVertex = m_unifiedMesh->vertexAt(mapChartVertexToUnifiedVertex(v));
+			halfedge::Vertex *vertex = m_chartMesh->vertexAt(v);
+			halfedge::Vertex *unifiedVertex = m_unifiedMesh->vertexAt(mapChartVertexToUnifiedVertex(v));
 			vertex->tex = unifiedVertex->tex;
 		}
 	}
 
 	float computeSurfaceArea() const
 	{
-		return HalfEdge::computeSurfaceArea(m_chartMesh.get()) * scale;
+		return halfedge::computeSurfaceArea(m_chartMesh.get()) * scale;
 	}
 
 	float computeParametricArea() const
@@ -6507,7 +6507,7 @@ public:
 		// This only makes sense in parameterized meshes.
 		nvDebugCheck(m_isDisk);
 		nvDebugCheck(!m_isVertexMapped);
-		return HalfEdge::computeParametricArea(m_chartMesh.get());
+		return halfedge::computeParametricArea(m_chartMesh.get());
 	}
 
 	Vector2 computeParametricBounds() const
@@ -6519,7 +6519,7 @@ public:
 		bounds.clearBounds();
 		uint32_t vertexCount = m_chartMesh->vertexCount();
 		for (uint32_t v = 0; v < vertexCount; v++) {
-			HalfEdge::Vertex *vertex = m_chartMesh->vertexAt(v);
+			halfedge::Vertex *vertex = m_chartMesh->vertexAt(v);
 			bounds.addPointToBounds(Vector3(vertex->tex, 0));
 		}
 		return bounds.extents().xy();
@@ -6530,7 +6530,7 @@ public:
 	uint32_t vertexMapHeight;
 
 private:
-	bool closeLoop(uint32_t start, const std::vector<HalfEdge::Edge *> &loop)
+	bool closeLoop(uint32_t start, const std::vector<halfedge::Edge *> &loop)
 	{
 		const uint32_t vertexCount = loop.size() - start;
 		nvDebugCheck(vertexCount >= 3);
@@ -6546,9 +6546,9 @@ private:
 		bool isPlanar = Fit::isPlanar(vertexCount, points.data());
 		if (isPlanar) {
 			// Add face and connect edges.
-			HalfEdge::Face *face = m_unifiedMesh->addFace();
+			halfedge::Face *face = m_unifiedMesh->addFace();
 			for (uint32_t i = 0; i < vertexCount; i++) {
-				HalfEdge::Edge *edge = loop[start + i];
+				halfedge::Edge *edge = loop[start + i];
 				edge->face = face;
 				edge->setNext(loop[start + (i + 1) % vertexCount]);
 			}
@@ -6562,17 +6562,17 @@ private:
 				centroidPos += points[i];
 			}
 			centroidPos *= (1.0f / vertexCount);
-			HalfEdge::Vertex *centroid = m_unifiedMesh->addVertex(centroidPos);
+			halfedge::Vertex *centroid = m_unifiedMesh->addVertex(centroidPos);
 			// Add one pair of edges for each boundary vertex.
 			for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
-				HalfEdge::Face *face = m_unifiedMesh->addFace(centroid->id, loop[start + j]->vertex->id, loop[start + i]->vertex->id);
+				halfedge::Face *face = m_unifiedMesh->addFace(centroid->id, loop[start + j]->vertex->id, loop[start + i]->vertex->id);
 				nvDebugCheck(face != NULL);
 			}
 		}
 		return true;
 	}
 
-	static void getBoundaryEdges(HalfEdge::Mesh *mesh, std::vector<HalfEdge::Edge *> &boundaryEdges)
+	static void getBoundaryEdges(halfedge::Mesh *mesh, std::vector<halfedge::Edge *> &boundaryEdges)
 	{
 		nvDebugCheck(mesh != NULL);
 		const uint32_t edgeCount = mesh->edgeCount();
@@ -6581,12 +6581,12 @@ private:
 		boundaryEdges.clear();
 		// Search for boundary edges. Mark all the edges that belong to the same boundary.
 		for (uint32_t e = 0; e < edgeCount; e++) {
-			HalfEdge::Edge *startEdge = mesh->edgeAt(e);
+			halfedge::Edge *startEdge = mesh->edgeAt(e);
 			if (startEdge != NULL && startEdge->isBoundary() && bitFlags.bitAt(e) == false) {
 				nvDebugCheck(startEdge->face != NULL);
 				nvDebugCheck(startEdge->pair->face == NULL);
 				startEdge = startEdge->pair;
-				const HalfEdge::Edge *edge = startEdge;
+				const halfedge::Edge *edge = startEdge;
 				do {
 					nvDebugCheck(edge->face == NULL);
 					nvDebugCheck(bitFlags.bitAt(edge->id / 2) == false);
@@ -6599,9 +6599,9 @@ private:
 	}
 
 	// Chart mesh.
-	std::auto_ptr<HalfEdge::Mesh> m_chartMesh;
+	std::auto_ptr<halfedge::Mesh> m_chartMesh;
 
-	std::auto_ptr<HalfEdge::Mesh> m_unifiedMesh;
+	std::auto_ptr<halfedge::Mesh> m_unifiedMesh;
 	bool m_isDisk;
 	bool m_isVertexMapped;
 	
@@ -6631,7 +6631,7 @@ public:
 		m_authalicMetric = 0.0f;
 	}
 
-	ParameterizationQuality(const HalfEdge::Mesh *mesh)
+	ParameterizationQuality(const halfedge::Mesh *mesh)
 	{
 		nvDebugCheck(mesh != NULL);
 		m_totalTriangleCount = 0;
@@ -6645,12 +6645,12 @@ public:
 		m_authalicMetric = 0.0f;
 		const uint32_t faceCount = mesh->faceCount();
 		for (uint32_t f = 0; f < faceCount; f++) {
-			const HalfEdge::Face *face = mesh->faceAt(f);
-			const HalfEdge::Vertex *vertex0 = NULL;
+			const halfedge::Face *face = mesh->faceAt(f);
+			const halfedge::Vertex *vertex0 = NULL;
 			Vector3 p[3];
 			Vector2 t[3];
-			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const HalfEdge::Edge *edge = it.current();
+			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				const halfedge::Edge *edge = it.current();
 				if (vertex0 == NULL) {
 					vertex0 = edge->vertex;
 					p[0] = vertex0->pos;
@@ -6787,7 +6787,7 @@ private:
 class MeshCharts
 {
 public:
-	MeshCharts(const HalfEdge::Mesh *mesh) : m_mesh(mesh) {}
+	MeshCharts(const halfedge::Mesh *mesh) : m_mesh(mesh) {}
 
 	~MeshCharts()
 	{
@@ -6830,15 +6830,15 @@ public:
 				queue.push_back(f);
 				bitFlags.setBitAt(f);
 				while (first != queue.size()) {
-					const HalfEdge::Face *face = m_mesh->faceAt(queue[first]);
+					const halfedge::Face *face = m_mesh->faceAt(queue[first]);
 					// Visit face neighbors of queue[first]
-					for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-						const HalfEdge::Edge *edge = it.current();
+					for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+						const halfedge::Edge *edge = it.current();
 						nvDebugCheck(edge->pair != NULL);
 						if (!edge->isBoundary() && /*!edge->isSeam()*/
 								//!(edge->from()->tex() != edge->pair()->to()->tex() || edge->to()->tex() != edge->pair()->from()->tex()))
 								!(edge->from() != edge->pair->to() || edge->to() != edge->pair->from())) { // Preserve existing seams (not just texture seams).
-							const HalfEdge::Face *neighborFace = edge->pair->face;
+							const halfedge::Face *neighborFace = edge->pair->face;
 							nvDebugCheck(neighborFace != NULL);
 							if (bitFlags.bitAt(neighborFace->id) == false) {
 								queue.push_back(neighborFace->id);
@@ -7095,7 +7095,7 @@ public:
 
 private:
 
-	const HalfEdge::Mesh *m_mesh;
+	const halfedge::Mesh *m_mesh;
 
 	std::vector<Chart *> m_chartArray;
 
@@ -7171,14 +7171,14 @@ public:
 		m_meshChartsArray.push_back(meshCharts);
 	}
 
-	void extractCharts(const HalfEdge::Mesh *mesh)
+	void extractCharts(const halfedge::Mesh *mesh)
 	{
 		MeshCharts *meshCharts = new MeshCharts(mesh);
 		meshCharts->extractCharts();
 		addMeshCharts(meshCharts);
 	}
 
-	void computeCharts(const HalfEdge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
+	void computeCharts(const halfedge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
 	{
 		MeshCharts *meshCharts = new MeshCharts(mesh);
 		meshCharts->computeCharts(settings, unchartedMaterialArray);
@@ -7244,10 +7244,10 @@ struct AtlasPacker
 				// Sort charts by perimeter. @@ This is sometimes producing somewhat unexpected results. Is this right?
 				//chartOrderArray[c] = ((end.x - origin.x) + (end.y - origin.y)) * scale;
 				// Translate, rotate and scale vertices. Compute extents.
-				HalfEdge::Mesh *mesh = chart->chartMesh();
+				halfedge::Mesh *mesh = chart->chartMesh();
 				const uint32_t vertexCount = mesh->vertexCount();
 				for (uint32_t i = 0; i < vertexCount; i++) {
-					HalfEdge::Vertex *vertex = mesh->vertexAt(i);
+					halfedge::Vertex *vertex = mesh->vertexAt(i);
 					//Vector2 t = vertex->tex - origin;
 					Vector2 tmp;
 					tmp.x = dot(vertex->tex, majorAxis);
@@ -7273,7 +7273,7 @@ struct AtlasPacker
 					float limit = std::max(extents.x, extents.y);
 					scale = 1024 / (limit + 1);
 					for (uint32_t i = 0; i < vertexCount; i++) {
-						HalfEdge::Vertex *vertex = mesh->vertexAt(i);
+						halfedge::Vertex *vertex = mesh->vertexAt(i);
 						vertex->tex *= scale;
 					}
 					extents *= scale;
@@ -7314,7 +7314,7 @@ struct AtlasPacker
 					extents.y = float(ch);
 				}
 				for (uint32_t v = 0; v < vertexCount; v++) {
-					HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+					halfedge::Vertex *vertex = mesh->vertexAt(v);
 					vertex->tex.x /= divide_x;
 					vertex->tex.y /= divide_y;
 					vertex->tex.x *= scale_x;
@@ -7403,10 +7403,10 @@ struct AtlasPacker
 			addChart(&chart_bitmap, w, h, best_x, best_y, best_r);
 			//float best_angle = 2 * PI * best_r;
 			// Translate and rotate chart texture coordinates.
-			HalfEdge::Mesh *mesh = chart->chartMesh();
+			halfedge::Mesh *mesh = chart->chartMesh();
 			const uint32_t vertexCount = mesh->vertexCount();
 			for (uint32_t v = 0; v < vertexCount; v++) {
-				HalfEdge::Vertex *vertex = mesh->vertexAt(v);
+				halfedge::Vertex *vertex = mesh->vertexAt(v);
 				Vector2 t = vertex->tex;
 				if (best_r) std::swap(t.x, t.y);
 				//vertex->tex.x = best_x + t.x * cosf(best_angle) - t.y * sinf(best_angle);
@@ -7549,10 +7549,10 @@ private:
 		// Rasterize chart faces, check that all bits are not set.
 		const uint32_t faceCount = chart->faceCount();
 		for (uint32_t f = 0; f < faceCount; f++) {
-			const HalfEdge::Face *face = chart->chartMesh()->faceAt(f);
+			const halfedge::Face *face = chart->chartMesh()->faceAt(f);
 			Vector2 vertices[4];
 			uint32_t edgeCount = 0;
-			for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				if (edgeCount < 4) {
 					vertices[edgeCount] = it.vertex()->tex + Vector2(0.5) + Vector2(float(padding), float(padding));
 				}
@@ -7608,10 +7608,10 @@ private:
 			// Rasterize chart faces, check that all bits are not set.
 			const uint32_t faceCount = chart->chartMesh()->faceCount();
 			for (uint32_t f = 0; f < faceCount; f++) {
-				const HalfEdge::Face *face = chart->chartMesh()->faceAt(f);
+				const halfedge::Face *face = chart->chartMesh()->faceAt(f);
 				Vector2 vertices[4];
 				uint32_t edgeCount = 0;
-				for (HalfEdge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+				for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 					if (edgeCount < 4) {
 						vertices[edgeCount] = it.vertex()->tex * scale + offset + pad[i];
 						nvCheck(ftoi_ceil(vertices[edgeCount].x) >= 0);
@@ -7826,10 +7826,10 @@ private:
 		// Compute list of boundary points.
 		std::vector<Vector2> points;
 		points.reserve(16);
-		HalfEdge::Mesh *mesh = chart->chartMesh();
+		halfedge::Mesh *mesh = chart->chartMesh();
 		const uint32_t vertexCount = mesh->vertexCount();
 		for (uint32_t i = 0; i < vertexCount; i++) {
-			HalfEdge::Vertex *vertex = mesh->vertexAt(i);
+			halfedge::Vertex *vertex = mesh->vertexAt(i);
 			if (vertex->isBoundary()) {
 				points.push_back(vertex->tex);
 			}
@@ -7871,7 +7871,7 @@ private:
 		}
 		// Consider all points, not only boundary points, in case the input chart is malformed.
 		for (uint32_t i = 0; i < vertexCount; i++) {
-			HalfEdge::Vertex *vertex = mesh->vertexAt(i);
+			halfedge::Vertex *vertex = mesh->vertexAt(i);
 			Vector2 point = vertex->tex;
 			float x = dot(best_axis, point);
 			if (x < best_min.x) best_min.x = x;
@@ -7895,17 +7895,15 @@ private:
 };
 
 } // namespace param
+} // namespace internal
 
-} // namespace nv
-
-namespace xatlas {
 static Atlas_Output_Mesh *set_error(Atlas_Error *error, Atlas_Error code)
 {
 	if (error) *error = code;
 	return NULL;
 }
 
-static void input_to_mesh(const Atlas_Input_Mesh *input, nv::HalfEdge::Mesh *mesh, Atlas_Error *error)
+static void input_to_mesh(const Atlas_Input_Mesh *input, internal::halfedge::Mesh *mesh, Atlas_Error *error)
 {
 	std::vector<uint32_t> canonicalMap;
 	canonicalMap.reserve(input->vertex_count);
@@ -7914,7 +7912,7 @@ static void input_to_mesh(const Atlas_Input_Mesh *input, nv::HalfEdge::Mesh *mes
 		const float *pos = input_vertex.position;
 		const float *nor = input_vertex.normal;
 		const float *tex = input_vertex.uv;
-		nv::HalfEdge::Vertex *vertex = mesh->addVertex(nv::Vector3(pos[0], pos[1], pos[2]));
+		internal::halfedge::Vertex *vertex = mesh->addVertex(internal::Vector3(pos[0], pos[1], pos[2]));
 		vertex->nor.set(nor[0], nor[1], nor[2]);
 		vertex->tex.set(tex[0], tex[1]);
 		canonicalMap.push_back(input_vertex.first_colocal);
@@ -7927,7 +7925,7 @@ static void input_to_mesh(const Atlas_Input_Mesh *input, nv::HalfEdge::Mesh *mes
 		int v0 = input_face.vertex_index[0];
 		int v1 = input_face.vertex_index[1];
 		int v2 = input_face.vertex_index[2];
-		nv::HalfEdge::Face *face = mesh->addFace(v0, v1, v2);
+		internal::halfedge::Face *face = mesh->addFace(v0, v1, v2);
 		if (face != NULL) {
 			face->material = input_face.material_index;
 		} else {
@@ -7940,10 +7938,10 @@ static void input_to_mesh(const Atlas_Input_Mesh *input, nv::HalfEdge::Mesh *mes
 	}
 }
 
-static Atlas_Output_Mesh *mesh_atlas_to_output(const nv::HalfEdge::Mesh *mesh, const nv::param::Atlas &atlas, Atlas_Error *error)
+static Atlas_Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, const internal::param::Atlas &atlas, Atlas_Error *error)
 {
 	Atlas_Output_Mesh *output = new Atlas_Output_Mesh;
-	const nv::param::MeshCharts *charts = atlas.meshAt(0);
+	const internal::param::MeshCharts *charts = atlas.meshAt(0);
 	// Allocate vertices.
 	const int vertex_count = charts->vertexCount();
 	output->vertex_count = vertex_count;
@@ -7953,18 +7951,18 @@ static Atlas_Output_Mesh *mesh_atlas_to_output(const nv::HalfEdge::Mesh *mesh, c
 	// Output vertices.
 	const int chart_count = charts->chartCount();
 	for (int i = 0; i < chart_count; i++) {
-		const nv::param::Chart *chart = charts->chartAt(i);
+		const internal::param::Chart *chart = charts->chartAt(i);
 		uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
 		const uint32_t chart_vertex_count = chart->vertexCount();
 		for (uint32_t v = 0; v < chart_vertex_count; v++) {
 			Atlas_Output_Vertex &output_vertex = output->vertex_array[vertexOffset + v];
 			uint32_t original_vertex = chart->mapChartVertexToOriginalVertex(v);
 			output_vertex.xref = original_vertex;
-			nv::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
+			internal::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
 			output_vertex.uv[0] = uv.x;
 			output_vertex.uv[1] = uv.y;
-			w = std::max(w, nv::ftoi_ceil(uv.x));
-			h = std::max(h, nv::ftoi_ceil(uv.y));
+			w = std::max(w, internal::ftoi_ceil(uv.x));
+			h = std::max(h, internal::ftoi_ceil(uv.y));
 		}
 	}
 	const int face_count = mesh->faceCount();
@@ -7975,10 +7973,10 @@ static Atlas_Output_Mesh *mesh_atlas_to_output(const nv::HalfEdge::Mesh *mesh, c
 		uint32_t c = charts->faceChartAt(f);
 		uint32_t i = charts->faceIndexWithinChartAt(f);
 		uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
-		const nv::param::Chart *chart = charts->chartAt(c);
+		const internal::param::Chart *chart = charts->chartAt(c);
 		nvDebugCheck(chart->faceAt(i) == f);
-		const nv::HalfEdge::Face *face = chart->chartMesh()->faceAt(i);
-		const nv::HalfEdge::Edge *edge = face->edge;
+		const internal::halfedge::Face *face = chart->chartMesh()->faceAt(i);
+		const internal::halfedge::Edge *edge = face->edge;
 		output->index_array[3 * f + 0] = vertexOffset + edge->vertex->id;
 		output->index_array[3 * f + 1] = vertexOffset + edge->next->vertex->id;
 		output->index_array[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
@@ -8045,17 +8043,17 @@ static Atlas_Output_Mesh *atlas_generate(const Atlas_Input_Mesh *input, const At
 		}
 	}
 	// Build half edge mesh.
-	std::auto_ptr<nv::HalfEdge::Mesh> mesh(new nv::HalfEdge::Mesh);
+	std::auto_ptr<internal::halfedge::Mesh> mesh(new internal::halfedge::Mesh);
 	input_to_mesh(input, mesh.get(), error);
 	if (*error == Atlas_Error_Invalid_Mesh) {
 		return NULL;
 	}
-	nv::param::Atlas atlas;
+	internal::param::Atlas atlas;
 	// Charter.
 	if (options->charter == Atlas_Charter_Extract) {
 		return set_error(error, Atlas_Error_Not_Implemented);
 	} else if (options->charter == Atlas_Charter_Witness) {
-		nv::param::SegmentationSettings segmentation_settings;
+		internal::param::SegmentationSettings segmentation_settings;
 		segmentation_settings.proxyFitMetricWeight = options->charter_options.witness.proxy_fit_metric_weight;
 		segmentation_settings.roundnessMetricWeight = options->charter_options.witness.roundness_metric_weight;
 		segmentation_settings.straightnessMetricWeight = options->charter_options.witness.straightness_metric_weight;
@@ -8076,7 +8074,7 @@ static Atlas_Output_Mesh *atlas_generate(const Atlas_Input_Mesh *input, const At
 		float texel_area = options->packer_options.witness.texel_area;
 		bool block_align = options->packer_options.witness.block_align;
 		bool conservative = options->packer_options.witness.conservative;
-		nv::param::AtlasPacker packer(&atlas);
+		internal::param::AtlasPacker packer(&atlas);
 		packer.packCharts(packing_quality, texel_area, block_align, conservative);
 		//float utilization = return packer.computeAtlasUtilization();
 	}

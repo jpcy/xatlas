@@ -11,7 +11,7 @@
 xatlas::Atlas_Output_Mesh *output_mesh;
 static uint8_t *output_image;
 
-bool RasterCallback(void *param, int x, int y, nv::Vector3::Arg bar, nv::Vector3::Arg dx, nv::Vector3::Arg dy, float coverage)
+bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3::Arg bar, xatlas::internal::Vector3::Arg dx, xatlas::internal::Vector3::Arg dy, float coverage)
 {
 	uint8_t *color = (uint8_t *)param;
 	uint8_t *rgba = &output_image[(x + y * output_mesh->atlas_width) * 4];
@@ -61,16 +61,16 @@ int main(int argc, char *argv[])
 		v[0] = &output_mesh->vertex_array[output_mesh->index_array[i + 0]];
 		v[1] = &output_mesh->vertex_array[output_mesh->index_array[i + 1]];
 		v[2] = &output_mesh->vertex_array[output_mesh->index_array[i + 2]];
-		nv::Vector2 verts[3];
+		xatlas::internal::Vector2 verts[3];
 		for (int j = 0; j < 3; j++) {
 			//normalizedVerts[j] = nv::Vector2(v[j].uv[0] * output_mesh->atlas_width, v[j].uv[1] * output_mesh->atlas_height);
-			verts[j] = nv::Vector2(v[j]->uv[0], v[j]->uv[1]);
+			verts[j] = xatlas::internal::Vector2(v[j]->uv[0], v[j]->uv[1]);
 		}
 		uint8_t color[3];
 		color[0] = rand() % 255;
 		color[1] = rand() % 255;
 		color[2] = rand() % 255;
-		nv::raster::drawTriangle(nv::raster::Mode_Nearest, nv::Vector2((float)output_mesh->atlas_width, (float)output_mesh->atlas_height), true, verts, RasterCallback, color);
+		xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)output_mesh->atlas_width, (float)output_mesh->atlas_height), true, verts, RasterCallback, color);
 	}
 	stbi_write_tga("debug_packer_final.tga", output_mesh->atlas_width, output_mesh->atlas_height, 4, output_image);
 	printf("Produced debug_packer_final.tga\n");
