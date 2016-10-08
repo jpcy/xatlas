@@ -136,9 +136,9 @@ void atlas_free(Atlas_Output_Mesh * output);
 #define NV_FORCEINLINE  inline __attribute__((always_inline))
 #endif
 
-#define nvCheck(exp)     if (!(exp)) { xatlas::internal::DebugPrint("%s %s %s\n", #exp, __FILE__, __LINE__); }
-#define nvDebugCheck(exp) assert(exp)
-#define nvDebug(...)    xatlas::internal::DebugPrint(__VA_ARGS__)
+#define xaAssert(exp)     if (!(exp)) { xatlas::internal::Print("%s %s %s\n", #exp, __FILE__, __LINE__); }
+#define xaDebugAssert(exp) assert(exp)
+#define xaPrint(...)    xatlas::internal::Print(__VA_ARGS__)
 
 #define NV_UINT32_MAX   0xffffffff
 #define NV_FLOAT_MAX    3.402823466e+38F
@@ -152,7 +152,7 @@ void atlas_free(Atlas_Output_Mesh * output);
 
 namespace xatlas {
 namespace internal {
-static void DebugPrint( const char *msg, ... ) __attribute__((format (printf, 1, 2)))
+static void Print( const char *msg, ... ) __attribute__((format (printf, 1, 2)))
 {
 	va_list arg;
 	va_start(arg, msg);
@@ -248,7 +248,7 @@ inline static int square(int i)
 */
 inline static uint32_t nextPowerOfTwo(uint32_t x)
 {
-	nvDebugCheck( x != 0 );
+	xaDebugAssert( x != 0 );
 	// On modern CPUs this is supposed to be as fast as using the bsr instruction.
 	x--;
 	x |= x >> 1;
@@ -261,7 +261,7 @@ inline static uint32_t nextPowerOfTwo(uint32_t x)
 
 inline static uint64_t nextPowerOfTwo(uint64_t x)
 {
-	nvDebugCheck(x != 0);
+	xaDebugAssert(x != 0);
 	uint32_t p = 1;
 	while (x > p) {
 		p += p;
@@ -594,9 +594,9 @@ inline bool isNormalized(Vector2::Arg v, float epsilon = NV_NORMAL_EPSILON)
 inline Vector2 normalize(Vector2::Arg v, float epsilon = NV_EPSILON)
 {
 	float l = length(v);
-	nvDebugCheck(!isZero(l, epsilon));
+	xaDebugAssert(!isZero(l, epsilon));
 	Vector2 n = v * (1.0f / l);
-	nvDebugCheck(isNormalized(n));
+	xaDebugAssert(isNormalized(n));
 	return n;
 }
 
@@ -756,9 +756,9 @@ inline bool isNormalized(Vector3::Arg v, float epsilon = NV_NORMAL_EPSILON)
 inline Vector3 normalize(Vector3::Arg v, float epsilon = NV_EPSILON)
 {
 	float l = length(v);
-	nvDebugCheck(!isZero(l, epsilon));
+	xaDebugAssert(!isZero(l, epsilon));
 	Vector3 n = v * (1.0f / l);
-	nvDebugCheck(isNormalized(n));
+	xaDebugAssert(isNormalized(n));
 	return n;
 }
 
@@ -827,7 +827,7 @@ public:
 
 	void buildFrameForDirection(Vector3::Arg d, float angle = 0)
 	{
-		nvCheck(isNormalized(d));
+		xaAssert(isNormalized(d));
 		normal = d;
 		// Choose minimum axis.
 		if (fabsf(normal.x) < fabsf(normal.y) && fabsf(normal.x) < fabsf(normal.z)) {
@@ -885,30 +885,30 @@ public:
 	/// Get bit.
 	bool bitAt(uint32_t b) const
 	{
-		nvDebugCheck( b < m_size );
+		xaDebugAssert( b < m_size );
 		return (m_wordArray[b >> 5] & (1 << (b & 31))) != 0;
 	}
 
 	// Set a bit.
 	void setBitAt(uint32_t idx)
 	{
-		nvDebugCheck(idx < m_size);
+		xaDebugAssert(idx < m_size);
 		m_wordArray[idx >> 5] |=  (1 << (idx & 31));
 	}
 
 	// Toggle a bit.
 	void toggleBitAt(uint32_t idx)
 	{
-		nvDebugCheck(idx < m_size);
+		xaDebugAssert(idx < m_size);
 		m_wordArray[idx >> 5] ^= (1 << (idx & 31));
 	}
 
 	// Set a bit to the given value. @@ Rename modifyBitAt?
 	void setBitAt(uint32_t idx, bool b)
 	{
-		nvDebugCheck(idx < m_size);
+		xaDebugAssert(idx < m_size);
 		m_wordArray[idx >> 5] = setBits(m_wordArray[idx >> 5], 1 << (idx & 31), b);
-		nvDebugCheck(bitAt(idx) == b);
+		xaDebugAssert(bitAt(idx) == b);
 	}
 
 	// Clear all the bits.
@@ -972,13 +972,13 @@ public:
 
 	bool bitAt(uint32_t x, uint32_t y) const
 	{
-		nvDebugCheck(x < m_width && y < m_height);
+		xaDebugAssert(x < m_width && y < m_height);
 		return m_bitArray.bitAt(y * m_width + x);
 	}
 
 	void setBitAt(uint32_t x, uint32_t y)
 	{
-		nvDebugCheck(x < m_width && y < m_height);
+		xaDebugAssert(x < m_width && y < m_height);
 		m_bitArray.setBitAt(y * m_width + x);
 	}
 
@@ -1093,7 +1093,7 @@ public:
 	// Seems to be based on the code from Numerical Recipes in C.
 	static bool eigenSolveSymmetric3(const float matrix[6], float eigenValues[3], Vector3 eigenVectors[3])
 	{
-		nvDebugCheck(matrix != NULL && eigenValues != NULL && eigenVectors != NULL);
+		xaDebugAssert(matrix != NULL && eigenValues != NULL && eigenVectors != NULL);
 		float subd[3];
 		float diag[3];
 		float work[3][3];
@@ -1133,8 +1133,8 @@ public:
 			std::swap(eigenValues[1], eigenValues[2]);
 			std::swap(eigenVectors[1], eigenVectors[2]);
 		}
-		nvDebugCheck(eigenValues[0] >= eigenValues[1] && eigenValues[0] >= eigenValues[2]);
-		nvDebugCheck(eigenValues[1] >= eigenValues[2]);
+		xaDebugAssert(eigenValues[0] >= eigenValues[1] && eigenValues[0] >= eigenValues[2]);
+		xaDebugAssert(eigenValues[1] >= eigenValues[2]);
 		return true;
 	}
 
@@ -1260,7 +1260,7 @@ public:
 
 	const FullVector &operator=(const FullVector &v)
 	{
-		nvCheck(dimension() == v.dimension());
+		xaAssert(dimension() == v.dimension());
 		m_array = v.m_array;
 		return *this;
 	}
@@ -1279,7 +1279,7 @@ public:
 
 	void operator+=(const FullVector &v)
 	{
-		nvDebugCheck(dimension() == v.dimension());
+		xaDebugAssert(dimension() == v.dimension());
 		const uint32_t dim = dimension();
 		for (uint32_t i = 0; i < dim; i++) {
 			m_array[i] += v.m_array[i];
@@ -1288,7 +1288,7 @@ public:
 
 	void operator-=(const FullVector &v)
 	{
-		nvDebugCheck(dimension() == v.dimension());
+		xaDebugAssert(dimension() == v.dimension());
 		const uint32_t dim = dimension();
 		for (uint32_t i = 0; i < dim; i++) {
 			m_array[i] -= v.m_array[i];
@@ -1297,7 +1297,7 @@ public:
 
 	void operator*=(const FullVector &v)
 	{
-		nvDebugCheck(dimension() == v.dimension());
+		xaDebugAssert(dimension() == v.dimension());
 		const uint32_t dim = dimension();
 		for (uint32_t i = 0; i < dim; i++) {
 			m_array[i] *= v.m_array[i];
@@ -1748,7 +1748,7 @@ public:
 		const Vertex *vertex0 = NULL;
 		for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
 			const Edge *edge = it.current();
-			nvCheck(edge != NULL);
+			xaAssert(edge != NULL);
 			if (vertex0 == NULL) {
 				vertex0 = edge->vertex;
 			} else if (edge->next->vertex != vertex0) {
@@ -1881,7 +1881,7 @@ public:
 	}
 	EdgeIterator edges(Edge *e)
 	{
-		nvDebugCheck(contains(e));
+		xaDebugAssert(contains(e));
 		return EdgeIterator(e);
 	}
 
@@ -1922,7 +1922,7 @@ public:
 	}
 	ConstEdgeIterator edges(const Edge *e) const
 	{
-		nvDebugCheck(contains(e));
+		xaDebugAssert(contains(e));
 		return ConstEdgeIterator(e);
 	}
 };
@@ -1941,7 +1941,7 @@ public:
 		m_vertexArray.resize(vertexCount);
 		for (uint32_t v = 0; v < vertexCount; v++) {
 			const Vertex *vertex = mesh->vertexAt(v);
-			nvDebugCheck(vertex->id == v);
+			xaDebugAssert(vertex->id == v);
 			m_vertexArray[v] = new Vertex(v);
 			m_vertexArray[v]->pos = vertex->pos;
 			m_vertexArray[v]->nor = vertex->nor;
@@ -1984,7 +1984,7 @@ public:
 
 	Vertex *addVertex(const Vector3 &pos)
 	{
-		nvDebugCheck(isFinite(pos));
+		xaDebugAssert(isFinite(pos));
 		Vertex *v = new Vertex(m_vertexArray.size());
 		v->pos = pos;
 		m_vertexArray.push_back(v);
@@ -1994,7 +1994,7 @@ public:
 	/// Link colocal vertices based on geometric location only.
 	void linkColocals()
 	{
-		nvDebug("--- Linking colocals:\n");
+		xaPrint("--- Linking colocals:\n");
 		const uint32_t vertexCount = this->vertexCount();
 		std::unordered_map<Vector3, Vertex *, Hash<Vector3>, Equal<Vector3> > vertexMap;
 		vertexMap.reserve(vertexCount);
@@ -2008,13 +2008,13 @@ public:
 			}
 		}
 		m_colocalVertexCount = vertexMap.size();
-		nvDebug("---   %d vertex positions.\n", m_colocalVertexCount);
+		xaPrint("---   %d vertex positions.\n", m_colocalVertexCount);
 		// @@ Remove duplicated vertices? or just leave them as colocals?
 	}
 
 	void linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMap)
 	{
-		nvDebug("--- Linking colocals:\n");
+		xaPrint("--- Linking colocals:\n");
 		uint32_t vertexMapSize = 0;
 		for (uint32_t i = 0; i < canonicalMap.size(); i++) {
 			vertexMapSize = std::max(vertexMapSize, canonicalMap[i] + 1);
@@ -2027,14 +2027,14 @@ public:
 			Vertex *vertex = vertexAt(v);
 			Vertex *colocal = vertexMap[canonicalMap[v]];
 			if (colocal != NULL) {
-				nvDebugCheck(vertex->pos == colocal->pos);
+				xaDebugAssert(vertex->pos == colocal->pos);
 				colocal->linkColocal(vertex);
 			} else {
 				vertexMap[canonicalMap[v]] = vertex;
 				m_colocalVertexCount++;
 			}
 		}
-		nvDebug("---   %d vertex positions.\n", m_colocalVertexCount);
+		xaPrint("---   %d vertex positions.\n", m_colocalVertexCount);
 	}
 
 	Face *addFace()
@@ -2070,9 +2070,9 @@ public:
 
 	Face *addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num)
 	{
-		nvDebugCheck(first < indexArray.size());
-		nvDebugCheck(num <= indexArray.size() - first);
-		nvDebugCheck(num > 2);
+		xaDebugAssert(first < indexArray.size());
+		xaDebugAssert(num <= indexArray.size() - first);
+		xaDebugAssert(num > 2);
 		if (!canAddFace(indexArray, first, num)) {
 			errorCount++;
 			return NULL;
@@ -2083,14 +2083,14 @@ public:
 		Edge *current = NULL;
 		for (uint32_t i = 0; i < num - 1; i++) {
 			current = addEdge(indexArray[first + i], indexArray[first + i + 1]);
-			nvCheck(current != NULL && current->face == NULL);
+			xaAssert(current != NULL && current->face == NULL);
 			current->face = f;
 			if (last != NULL) last->setNext(current);
 			else firstEdge = current;
 			last = current;
 		}
 		current = addEdge(indexArray[first + num - 1], indexArray[first]);
-		nvCheck(current != NULL && current->face == NULL);
+		xaAssert(current != NULL && current->face == NULL);
 		current->face = f;
 		last->setNext(current);
 		current->setNext(firstEdge);
@@ -2104,16 +2104,16 @@ public:
 	// @@ We must always disconnect edge pairs simultaneously.
 	void disconnect(Edge *edge)
 	{
-		nvDebugCheck(edge != NULL);
+		xaDebugAssert(edge != NULL);
 		// Remove from edge list.
 		if ((edge->id & 1) == 0) {
-			nvDebugCheck(m_edgeArray[edge->id / 2] == edge);
+			xaDebugAssert(m_edgeArray[edge->id / 2] == edge);
 			m_edgeArray[edge->id / 2] = NULL;
 		}
 		// Remove edge from map. @@ Store map key inside edge?
-		nvDebugCheck(edge->from() != NULL && edge->to() != NULL);
+		xaDebugAssert(edge->from() != NULL && edge->to() != NULL);
 		size_t removed = m_edgeMap.erase(Key(edge->from()->id, edge->to()->id));
-		nvDebugCheck(removed == 1);
+		xaDebugAssert(removed == 1);
 		// Disconnect from vertex.
 		if (edge->vertex != NULL) {
 			if (edge->vertex->edge == edge) {
@@ -2158,14 +2158,14 @@ public:
 
 	void remove(Edge *edge)
 	{
-		nvDebugCheck(edge != NULL);
+		xaDebugAssert(edge != NULL);
 		disconnect(edge);
 		delete edge;
 	}
 
 	void remove(Vertex *vertex)
 	{
-		nvDebugCheck(vertex != NULL);
+		xaDebugAssert(vertex != NULL);
 		// Remove from vertex list.
 		m_vertexArray[vertex->id] = NULL;
 		// Disconnect from colocals.
@@ -2184,12 +2184,12 @@ public:
 
 	void remove(Face *face)
 	{
-		nvDebugCheck(face != NULL);
+		xaDebugAssert(face != NULL);
 		// Remove from face list.
 		m_faceArray[face->id] = NULL;
 		// Disconnect from edges.
 		if (face->edge != NULL) {
-			nvDebugCheck(face->edge->face == face);
+			xaDebugAssert(face->edge->face == face);
 			face->edge->face = NULL;
 			face->edge = NULL;
 		}
@@ -2283,7 +2283,7 @@ public:
 				v1 = v2;
 			}
 		}
-		nvDebugCheck(m_faceArray.size() > faceCount); // triangle count > face count
+		xaDebugAssert(m_faceArray.size() > faceCount); // triangle count > face count
 		linkBoundary();
 		for (size_t i = 0; i < edgeArray.size(); i++)
 			delete edgeArray[i];
@@ -2294,7 +2294,7 @@ public:
 	/// Link boundary edges once the mesh has been created.
 	void linkBoundary()
 	{
-		nvDebug("--- Linking boundaries:\n");
+		xaPrint("--- Linking boundaries:\n");
 		int num = 0;
 		// Create boundary edges.
 		uint32_t edgeCount = this->edgeCount();
@@ -2305,7 +2305,7 @@ public:
 				uint32_t i = edge->from()->id;
 				uint32_t j = edge->next->from()->id;
 				Key key(j, i);
-				nvCheck(m_edgeMap.find(key) == m_edgeMap.end());
+				xaAssert(m_edgeMap.find(key) == m_edgeMap.end());
 				pair->vertex = m_vertexArray[j];
 				m_edgeMap[key] = pair;
 				edge->pair = pair;
@@ -2320,7 +2320,7 @@ public:
 				linkBoundaryEdge(edge->pair);
 			}
 		}
-		nvDebug("---   %d boundary edges.\n", num);
+		xaPrint("---   %d boundary edges.\n", num);
 	}
 
 	/*
@@ -2344,7 +2344,7 @@ public:
 				boundaryVertices.push_back(v);
 			}
 		}
-		nvDebug("Fixing T-junctions:\n");
+		xaPrint("Fixing T-junctions:\n");
 		int splitCount = 0;
 		for (uint32_t v = 0; v < boundaryVertices.size(); v++) {
 			Vertex *vertex = boundaryVertices[v];
@@ -2365,7 +2365,7 @@ public:
 					if (isZero(d)) {
 						float t = dot(v01, v21) / (l * l);
 						if (t > 0.0f + NV_EPSILON && t < 1.0f - NV_EPSILON) {
-							nvDebugCheck(equal(lerp(x1, x2, t), x0));
+							xaDebugAssert(equal(lerp(x1, x2, t), x0));
 							Vertex *splitVertex = splitBoundaryEdge(edge, t, x0);
 							vertex->linkColocal(splitVertex);   // @@ Should we do this here?
 							splitCount++;
@@ -2374,8 +2374,8 @@ public:
 				}
 			}
 		}
-		nvDebug(" - %d edges split.\n", splitCount);
-		nvDebugCheck(isValid());
+		xaPrint(" - %d edges split.\n", splitCount);
+		xaDebugAssert(isValid());
 		return splitCount != 0;
 	}
 
@@ -2383,17 +2383,17 @@ public:
 	// For this to be effective, we have to fix the boundary junctions first.
 	halfedge::Edge *sewBoundary(Edge *startEdge)
 	{
-		nvDebugCheck(startEdge->face == NULL);
+		xaDebugAssert(startEdge->face == NULL);
 		// @@ We may want to be more conservative linking colocals in order to preserve the input topology. One way of doing that is by linking colocals only
 		// if the vertices next to them are linked as well. That is, by sewing boundaries after detecting them. If any pair of consecutive edges have their first
 		// and last vertex in the same position, then it can be linked.
 		Edge *lastBoundarySeen = startEdge;
-		nvDebug("Sewing Boundary:\n");
+		xaPrint("Sewing Boundary:\n");
 		int count = 0;
 		int sewnCount = 0;
 		Edge *edge = startEdge;
 		do {
-			nvDebugCheck(edge->face == NULL);
+			xaDebugAssert(edge->face == NULL);
 			Edge *edge_a = edge;
 			Edge *edge_b = edge->prev;
 			Edge *pair_a = edge_a->pair;
@@ -2402,7 +2402,7 @@ public:
 			Vertex *v0b = edge_b->from();
 			Vertex *v1a = edge_a->from();
 			Vertex *v1b = edge_b->to();
-			nvDebugCheck(v1a->isColocal(v1b));
+			xaDebugAssert(v1a->isColocal(v1b));
 			/*
 			v0b +      _+ v0a
 				 \     /
@@ -2411,7 +2411,7 @@ public:
 				v1b + v1a
 			*/
 			// @@ This should not happen while sewing, but it may be produced somewhere else.
-			nvDebugCheck(edge_a != edge_b);
+			xaDebugAssert(edge_a != edge_b);
 			if (v0a->pos == v0b->pos) {
 				// Link vertices.
 				v0a->linkColocal(v0b);
@@ -2424,8 +2424,8 @@ public:
 				Edge *prevBoundary = edge_b->prev;
 				Edge *nextBoundary = edge_a->next;
 				if (nextBoundary != NULL) {
-					nvDebugCheck(nextBoundary->face == NULL);
-					nvDebugCheck(prevBoundary->face == NULL);
+					xaDebugAssert(nextBoundary->face == NULL);
+					xaDebugAssert(prevBoundary->face == NULL);
 					nextBoundary->setPrev(prevBoundary);
 					// Make sure boundary vertex points to boundary edge.
 					v0a->setEdge(nextBoundary); // This updates all colocals.
@@ -2453,9 +2453,9 @@ public:
 			}
 			count++;
 		} while (edge != NULL && edge != lastBoundarySeen);
-		nvDebug(" - Sewn %d out of %d.\n", sewnCount, count);
+		xaPrint(" - Sewn %d out of %d.\n", sewnCount, count);
 		if (lastBoundarySeen != NULL) {
-			nvDebugCheck(lastBoundarySeen->face == NULL);
+			xaDebugAssert(lastBoundarySeen->face == NULL);
 		}
 		return lastBoundarySeen;
 	}
@@ -2763,11 +2763,11 @@ private:
 
 	Edge *addEdge(uint32_t i, uint32_t j)
 	{
-		nvCheck(i != j);
+		xaAssert(i != j);
 		Edge *edge = findEdge(i, j);
 		if (edge != NULL) {
 			// Edge may already exist, but its face must not be set.
-			nvDebugCheck(edge->face == NULL);
+			xaDebugAssert(edge->face == NULL);
 			// Nothing else to do!
 		} else {
 			// Add new edge.
@@ -2813,7 +2813,7 @@ private:
 	#endif
 				} else {
 					// Make sure that only one edge is found.
-					nvDebugCheck(m_edgeMap.find(key) == m_edgeMap.end());
+					xaDebugAssert(m_edgeMap.find(key) == m_edgeMap.end());
 				}
 			}
 		}
@@ -2823,7 +2823,7 @@ private:
 	/// Link this boundary edge.
 	void linkBoundaryEdge(Edge *edge)
 	{
-		nvCheck(edge->face == NULL);
+		xaAssert(edge->face == NULL);
 		// Make sure next pointer has not been set. @@ We want to be able to relink boundary edges after mesh changes.
 		Edge *next = edge;
 		while (next->pair->face != NULL) {
@@ -2868,9 +2868,9 @@ private:
 		*/
 		Edge *pair = edge->pair;
 		// Make sure boundaries are linked.
-		nvDebugCheck(pair != NULL);
+		xaDebugAssert(pair != NULL);
 		// Make sure edge is a boundary edge.
-		nvDebugCheck(pair->face == NULL);
+		xaDebugAssert(pair->face == NULL);
 		// Add new vertex.
 		Vertex *vertex = addVertex(pos);
 		vertex->nor = lerp(edge->from()->nor, edge->to()->nor, t);
@@ -2889,14 +2889,14 @@ private:
 		e1->setNext(edge->next);
 		p1->setPrev(pair->prev);
 		p0->setNext(pair->next);
-		nvDebugCheck(e0->next == e1);
-		nvDebugCheck(e1->prev == e0);
-		nvDebugCheck(p1->next == p0);
-		nvDebugCheck(p0->prev == p1);
-		nvDebugCheck(p0->pair == e0);
-		nvDebugCheck(e0->pair == p0);
-		nvDebugCheck(p1->pair == e1);
-		nvDebugCheck(e1->pair == p1);
+		xaDebugAssert(e0->next == e1);
+		xaDebugAssert(e1->prev == e0);
+		xaDebugAssert(p1->next == p0);
+		xaDebugAssert(p0->prev == p1);
+		xaDebugAssert(p0->pair == e0);
+		xaDebugAssert(e0->pair == p0);
+		xaDebugAssert(p1->pair == e1);
+		xaDebugAssert(e1->pair == p1);
 		// Link faces.
 		e0->face = edge->face;
 		e1->face = edge->face;
@@ -2969,12 +2969,12 @@ private:
 		const uint32_t vertexCount = mesh->colocalVertexCount();
 		const uint32_t faceCount = mesh->faceCount();
 		const uint32_t edgeCount = mesh->edgeCount();
-		nvDebug( "--- Building mesh topology:\n" );
+		xaPrint( "--- Building mesh topology:\n" );
 		std::vector<uint32_t> stack(faceCount);
 		BitArray bitFlags(faceCount);
 		bitFlags.clearAll();
 		// Compute connectivity.
-		nvDebug( "---   Computing connectivity.\n" );
+		xaPrint( "---   Computing connectivity.\n" );
 		m_connectedCount = 0;
 		for (uint32_t f = 0; f < faceCount; f++ ) {
 			if ( bitFlags.bitAt(f) == false ) {
@@ -2982,7 +2982,7 @@ private:
 				stack.push_back( f );
 				while ( !stack.empty() ) {
 					const uint32_t top = stack.back();
-					nvCheck(top != uint32_t(~0));
+					xaAssert(top != uint32_t(~0));
 					stack.pop_back();
 					if ( bitFlags.bitAt(top) == false ) {
 						bitFlags.setBitAt(top);
@@ -3000,10 +3000,10 @@ private:
 				}
 			}
 		}
-		nvCheck(stack.empty());
-		nvDebug( "---   %d connected components.\n", m_connectedCount );
+		xaAssert(stack.empty());
+		xaPrint( "---   %d connected components.\n", m_connectedCount );
 		// Count boundary loops.
-		nvDebug( "---   Counting boundary loops.\n" );
+		xaPrint( "---   Counting boundary loops.\n" );
 		m_boundaryCount = 0;
 		bitFlags.resize(edgeCount);
 		bitFlags.clearAll();
@@ -3011,8 +3011,8 @@ private:
 		for (uint32_t e = 0; e < edgeCount; e++) {
 			const Edge *startEdge = mesh->edgeAt(e);
 			if (startEdge != NULL && startEdge->isBoundary() && bitFlags.bitAt(e) == false) {
-				nvDebugCheck(startEdge->face != NULL);
-				nvDebugCheck(startEdge->pair->face == NULL);
+				xaDebugAssert(startEdge->face != NULL);
+				xaDebugAssert(startEdge->pair->face == NULL);
 				startEdge = startEdge->pair;
 				m_boundaryCount++;
 				const Edge *edge = startEdge;
@@ -3022,15 +3022,15 @@ private:
 				} while (startEdge != edge);
 			}
 		}
-		nvDebug("---   %d boundary loops found.\n", m_boundaryCount );
+		xaPrint("---   %d boundary loops found.\n", m_boundaryCount );
 		// Compute euler number.
 		m_eulerNumber = vertexCount - edgeCount + faceCount;
-		nvDebug("---   Euler number: %d.\n", m_eulerNumber);
+		xaPrint("---   Euler number: %d.\n", m_eulerNumber);
 		// Compute genus. (only valid on closed connected surfaces)
 		m_genus = -1;
 		if ( isClosed() && isConnected() ) {
 			m_genus = (2 - m_eulerNumber) / 2;
-			nvDebug("---   Genus: %d.\n", m_genus);
+			xaPrint("---   Genus: %d.\n", m_genus);
 		}
 	}
 
@@ -3055,7 +3055,7 @@ float computeSurfaceArea(const halfedge::Mesh *mesh)
 		const halfedge::Face *face = it.current();
 		area += face->area();
 	}
-	nvDebugCheck(area >= 0);
+	xaDebugAssert(area >= 0);
 	return area;
 }
 
@@ -3076,7 +3076,7 @@ uint32_t countMeshTriangles(const Mesh *mesh)
 	for (uint32_t f = 0; f < faceCount; f++) {
 		const Face *face = mesh->faceAt(f);
 		uint32_t edgeCount = face->edgeCount();
-		nvDebugCheck(edgeCount > 2);
+		xaDebugAssert(edgeCount > 2);
 		triangleCount += edgeCount - 2;
 	}
 	return triangleCount;
@@ -3134,9 +3134,9 @@ Mesh *triangulate(const Mesh *inputMesh)
 	const uint32_t faceCount = inputMesh->faceCount();
 	for (uint32_t f = 0; f < faceCount; f++) {
 		const Face *face = inputMesh->faceAt(f);
-		nvDebugCheck(face != NULL);
+		xaDebugAssert(face != NULL);
 		const uint32_t edgeCount = face->edgeCount();
-		nvDebugCheck(edgeCount >= 3);
+		xaDebugAssert(edgeCount >= 3);
 		polygonVertices.clear();
 		polygonVertices.reserve(edgeCount);
 		if (edgeCount == 3) {
@@ -3207,7 +3207,7 @@ Mesh *triangulate(const Mesh *inputMesh)
 						}
 					}
 				}
-				nvDebugCheck(minAngle <= 2 * PI);
+				xaDebugAssert(minAngle <= 2 * PI);
 				// Clip best ear:
 				uint32_t i0 = (bestEar + size - 1) % size;
 				uint32_t i1 = (bestEar + 0) % size;
@@ -3426,7 +3426,7 @@ struct ProximityGrid
 			float cellVolume = volume / count;
 			cellWidth = powf(cellVolume, 1.0f / 3.0f);
 		}
-		nvDebugCheck(cellWidth != 0);
+		xaDebugAssert(cellWidth != 0);
 		sx = std::max(1, ftoi_ceil(diagonal.x / cellWidth));
 		sy = std::max(1, ftoi_ceil(diagonal.y / cellWidth));
 		sz = std::max(1, ftoi_ceil(diagonal.z / cellWidth));
@@ -3454,11 +3454,11 @@ struct ProximityGrid
 
 	inline int index(int x, int y, int z) const
 	{
-		nvDebugCheck(x >= 0 && x < sx);
-		nvDebugCheck(y >= 0 && y < sy);
-		nvDebugCheck(z >= 0 && z < sz);
+		xaDebugAssert(x >= 0 && x < sx);
+		xaDebugAssert(y >= 0 && y < sy);
+		xaDebugAssert(z >= 0 && z < sz);
 		int idx = (z * sy + y) * sx + x;
-		nvDebugCheck(idx >= 0 && uint32_t(idx) < cellArray.size());
+		xaDebugAssert(idx >= 0 && uint32_t(idx) < cellArray.size());
 		return idx;
 	}
 
@@ -3595,12 +3595,12 @@ public:
 	// Access to results. m_ranks is a list of indices in sorted order, i.e. in the order you may further process your data
 	inline const uint32_t *ranks() const
 	{
-		nvDebugCheck(m_validRanks);
+		xaDebugAssert(m_validRanks);
 		return m_ranks;
 	}
 	inline uint32_t *ranks()
 	{
-		nvDebugCheck(m_validRanks);
+		xaDebugAssert(m_validRanks);
 		return m_ranks;
 	}
 
@@ -3940,8 +3940,8 @@ struct Triangle
 		// Block size, standard 8x8 (must be power of two)
 		const int q = 8;
 		// @@ This won't work when minx,miny are negative. This code path is not used. Leaving as is for now.
-		nvCheck(minx >= 0);
-		nvCheck(miny >= 0);
+		xaAssert(minx >= 0);
+		xaAssert(miny >= 0);
 		// Start in corner of 8x8 block
 		minx &= ~(q - 1);
 		miny &= ~(q - 1);
@@ -4113,9 +4113,9 @@ struct Triangle
 								float area = ct.area();
 								if (area > 0.0f) {
 									Vector3 texCent = tex - dx * centroid.x - dy * centroid.y;
-									//nvCheck(texCent.x >= -0.1f && texCent.x <= 1.1f); // @@ Centroid is not very exact...
-									//nvCheck(texCent.y >= -0.1f && texCent.y <= 1.1f);
-									//nvCheck(texCent.z >= -0.1f && texCent.z <= 1.1f);
+									//xaAssert(texCent.x >= -0.1f && texCent.x <= 1.1f); // @@ Centroid is not very exact...
+									//xaAssert(texCent.y >= -0.1f && texCent.y <= 1.1f);
+									//xaAssert(texCent.z >= -0.1f && texCent.z <= 1.1f);
 									//Vector3 texCent2 = t1 + dx * (x - v1.x) + dy * (y - v1.y);
 									if (!cb(param, (int)x, (int)y, texCent, dx, dy, area)) {
 										return false;
@@ -4264,8 +4264,8 @@ public:
 
 	const Matrix &operator=(const Matrix &m)
 	{
-		nvCheck(width() == m.width());
-		nvCheck(height() == m.height());
+		xaAssert(width() == m.width());
+		xaAssert(height() == m.height());
 		m_array = m.m_array;
 		return *this;
 	}
@@ -4277,8 +4277,8 @@ public:
 	// x is column, y is row
 	float getCoefficient(uint32_t x, uint32_t y) const
 	{
-		nvDebugCheck( x < width() );
-		nvDebugCheck( y < height() );
+		xaDebugAssert( x < width() );
+		xaDebugAssert( y < height() );
 		const uint32_t count = m_array[y].size();
 		for (uint32_t i = 0; i < count; i++) {
 			if (m_array[y][i].x == x) return m_array[y][i].v;
@@ -4288,8 +4288,8 @@ public:
 
 	void setCoefficient(uint32_t x, uint32_t y, float f)
 	{
-		nvDebugCheck( x < width() );
-		nvDebugCheck( y < height() );
+		xaDebugAssert( x < width() );
+		xaDebugAssert( y < height() );
 		const uint32_t count = m_array[y].size();
 		for (uint32_t i = 0; i < count; i++) {
 			if (m_array[y][i].x == x) {
@@ -4305,8 +4305,8 @@ public:
 
 	void addCoefficient(uint32_t x, uint32_t y, float f)
 	{
-		nvDebugCheck( x < width() );
-		nvDebugCheck( y < height() );
+		xaDebugAssert( x < width() );
+		xaDebugAssert( y < height() );
 		if (f != 0.0f) {
 			const uint32_t count = m_array[y].size();
 			for (uint32_t i = 0; i < count; i++) {
@@ -4322,8 +4322,8 @@ public:
 
 	void mulCoefficient(uint32_t x, uint32_t y, float f)
 	{
-		nvDebugCheck( x < width() );
-		nvDebugCheck( y < height() );
+		xaDebugAssert( x < width() );
+		xaDebugAssert( y < height() );
 		const uint32_t count = m_array[y].size();
 		for (uint32_t i = 0; i < count; i++) {
 			if (m_array[y][i].x == x) {
@@ -4339,7 +4339,7 @@ public:
 
 	float sumRow(uint32_t y) const
 	{
-		nvDebugCheck( y < height() );
+		xaDebugAssert( y < height() );
 		const uint32_t count = m_array[y].size();
 		float sum = 0;
 		for (uint32_t i = 0; i < count; i++) {
@@ -4350,7 +4350,7 @@ public:
 
 	float dotRow(uint32_t y, const FullVector &v) const
 	{
-		nvDebugCheck( y < height() );
+		xaDebugAssert( y < height() );
 		const uint32_t count = m_array[y].size();
 		float sum = 0;
 		for (uint32_t i = 0; i < count; i++) {
@@ -4361,7 +4361,7 @@ public:
 
 	void madRow(uint32_t y, float alpha, FullVector &v) const
 	{
-		nvDebugCheck(y < height());
+		xaDebugAssert(y < height());
 		const uint32_t count = m_array[y].size();
 		for (uint32_t i = 0; i < count; i++) {
 			v[m_array[y][i].x] += alpha * m_array[y][i].v;
@@ -4370,13 +4370,13 @@ public:
 
 	void clearRow(uint32_t y)
 	{
-		nvDebugCheck( y < height() );
+		xaDebugAssert( y < height() );
 		m_array[y].clear();
 	}
 
 	void scaleRow(uint32_t y, float f)
 	{
-		nvDebugCheck( y < height() );
+		xaDebugAssert( y < height() );
 		const uint32_t count = m_array[y].size();
 		for (uint32_t i = 0; i < count; i++) {
 			m_array[y][i].v *= f;
@@ -4385,7 +4385,7 @@ public:
 
 	void normalizeRow(uint32_t y)
 	{
-		nvDebugCheck( y < height() );
+		xaDebugAssert( y < height() );
 		float norm = 0.0f;
 		const uint32_t count = m_array[y].size();
 		for (uint32_t i = 0; i < count; i++) {
@@ -4397,7 +4397,7 @@ public:
 
 	void clearColumn(uint32_t x)
 	{
-		nvDebugCheck(x < width());
+		xaDebugAssert(x < width());
 		for (uint32_t y = 0; y < height(); y++) {
 			const uint32_t count = m_array[y].size();
 			for (uint32_t e = 0; e < count; e++) {
@@ -4411,7 +4411,7 @@ public:
 
 	void scaleColumn(uint32_t x, float f)
 	{
-		nvDebugCheck(x < width());
+		xaDebugAssert(x < width());
 		for (uint32_t y = 0; y < height(); y++) {
 			const uint32_t count = m_array[y].size();
 			for (uint32_t e = 0; e < count; e++) {
@@ -4453,7 +4453,7 @@ private:
 // y = a * x + y
 static void saxpy(float a, const FullVector &x, FullVector &y)
 {
-	nvDebugCheck(x.dimension() == y.dimension());
+	xaDebugAssert(x.dimension() == y.dimension());
 	const uint32_t dim = x.dimension();
 	for (uint32_t i = 0; i < dim; i++) {
 		y[i] += a * x[i];
@@ -4462,7 +4462,7 @@ static void saxpy(float a, const FullVector &x, FullVector &y)
 
 static void copy(const FullVector &x, FullVector &y)
 {
-	nvDebugCheck(x.dimension() == y.dimension());
+	xaDebugAssert(x.dimension() == y.dimension());
 	const uint32_t dim = x.dimension();
 	for (uint32_t i = 0; i < dim; i++) {
 		y[i] = x[i];
@@ -4479,7 +4479,7 @@ static void scal(float a, FullVector &x)
 
 static float dot(const FullVector &x, const FullVector &y)
 {
-	nvDebugCheck(x.dimension() == y.dimension());
+	xaDebugAssert(x.dimension() == y.dimension());
 	const uint32_t dim = x.dimension();
 	float sum = 0;
 	for (uint32_t i = 0; i < dim; i++) {
@@ -4493,15 +4493,15 @@ static void mult(Transpose TM, const Matrix &M, const FullVector &x, FullVector 
 	const uint32_t w = M.width();
 	const uint32_t h = M.height();
 	if (TM == Transposed) {
-		nvDebugCheck( h == x.dimension() );
-		nvDebugCheck( w == y.dimension() );
+		xaDebugAssert( h == x.dimension() );
+		xaDebugAssert( w == y.dimension() );
 		y.fill(0.0f);
 		for (uint32_t i = 0; i < h; i++) {
 			M.madRow(i, x[i], y);
 		}
 	} else {
-		nvDebugCheck( w == x.dimension() );
-		nvDebugCheck( h == y.dimension() );
+		xaDebugAssert( w == x.dimension() );
+		xaDebugAssert( h == y.dimension() );
 		for (uint32_t i = 0; i < h; i++) {
 			y[i] = M.dotRow(i, x);
 		}
@@ -4519,14 +4519,14 @@ static void sgemv(float alpha, Transpose TA, const Matrix &A, const FullVector &
 	const uint32_t w = A.width();
 	const uint32_t h = A.height();
 	if (TA == Transposed) {
-		nvDebugCheck( h == x.dimension() );
-		nvDebugCheck( w == y.dimension() );
+		xaDebugAssert( h == x.dimension() );
+		xaDebugAssert( w == y.dimension() );
 		for (uint32_t i = 0; i < h; i++) {
 			A.madRow(i, alpha * x[i], y);
 		}
 	} else {
-		nvDebugCheck( w == x.dimension() );
-		nvDebugCheck( h == y.dimension() );
+		xaDebugAssert( w == x.dimension() );
+		xaDebugAssert( h == y.dimension() );
 		for (uint32_t i = 0; i < h; i++) {
 			y[i] = alpha * A.dotRow(i, x) + beta * y[i];
 		}
@@ -4568,7 +4568,7 @@ static float dotRowRow(int y, const Matrix &A, int x, const Matrix &B)
 // dot y-column of A by x-column of B
 static float dotColumnColumn(int y, const Matrix &A, int x, const Matrix &B)
 {
-	nvDebugCheck(A.height() == B.height());
+	xaDebugAssert(A.height() == B.height());
 	const uint32_t h = A.height();
 	float sum = 0.0f;
 	for (uint32_t i = 0; i < h; i++) {
@@ -4579,8 +4579,8 @@ static float dotColumnColumn(int y, const Matrix &A, int x, const Matrix &B)
 
 static void transpose(const Matrix &A, Matrix &B)
 {
-	nvDebugCheck(A.width() == B.height());
-	nvDebugCheck(B.width() == A.height());
+	xaDebugAssert(A.width() == B.height());
+	xaDebugAssert(B.width() == A.height());
 	const uint32_t w = A.width();
 	for (uint32_t x = 0; x < w; x++) {
 		B.clearRow(x);
@@ -4591,7 +4591,7 @@ static void transpose(const Matrix &A, Matrix &B)
 		const uint32_t count = row.size();
 		for (uint32_t i = 0; i < count; i++) {
 			const Matrix::Coefficient &c = row[i];
-			nvDebugCheck(c.x < w);
+			xaDebugAssert(c.x < w);
 			B.setCoefficient(y, c.x, c.v);
 		}
 	}
@@ -4605,10 +4605,10 @@ static void sgemm(float alpha, Transpose TA, const Matrix &A, Transpose TB, cons
 	uint32_t ah = (TA == NoTransposed) ? A.height() : A.width();
 	uint32_t bw = (TB == NoTransposed) ? B.width() : B.height();
 	uint32_t bh = (TB == NoTransposed) ? B.height() : B.width();
-	nvDebugCheck(aw == bh);
-	nvDebugCheck(bw == ah);
-	nvDebugCheck(w == bw);
-	nvDebugCheck(h == ah);
+	xaDebugAssert(aw == bh);
+	xaDebugAssert(bw == ah);
+	xaDebugAssert(w == bw);
+	xaDebugAssert(h == ah);
 	for (uint32_t y = 0; y < h; y++) {
 		for (uint32_t x = 0; x < w; x++) {
 			float c = beta * C.getCoefficient(x, y);
@@ -4654,10 +4654,10 @@ class JacobiPreconditioner
 public:
 	JacobiPreconditioner(const sparse::Matrix &M, bool symmetric) : m_inverseDiagonal(M.width())
 	{
-		nvCheck(M.isSquare());
+		xaAssert(M.isSquare());
 		for (uint32_t x = 0; x < M.width(); x++) {
 			float elem = M.getCoefficient(x, x);
-			//nvDebugCheck( elem != 0.0f ); // This can be zero in the presence of zero area triangles.
+			//xaDebugAssert( elem != 0.0f ); // This can be zero in the presence of zero area triangles.
 			if (symmetric) {
 				m_inverseDiagonal[x] = (elem != 0) ? 1.0f / sqrtf(fabsf(elem)) : 1.0f;
 			} else {
@@ -4668,8 +4668,8 @@ public:
 
 	void apply(const FullVector &x, FullVector &y) const
 	{
-		nvDebugCheck(x.dimension() == m_inverseDiagonal.dimension());
-		nvDebugCheck(y.dimension() == m_inverseDiagonal.dimension());
+		xaDebugAssert(x.dimension() == m_inverseDiagonal.dimension());
+		xaDebugAssert(y.dimension() == m_inverseDiagonal.dimension());
 		// @@ Wrap vector component-wise product into a separate function.
 		const uint32_t D = x.dimension();
 		for (uint32_t i = 0; i < D; i++) {
@@ -4688,9 +4688,9 @@ public:
 	// Solve the symmetric system: At·A·x = At·b
 	static bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon = 1e-5f)
 	{
-		nvDebugCheck(A.width() == x.dimension());
-		nvDebugCheck(A.height() == b.dimension());
-		nvDebugCheck(A.height() >= A.width()); // @@ If height == width we could solve it directly...
+		xaDebugAssert(A.width() == x.dimension());
+		xaDebugAssert(A.height() == b.dimension());
+		xaDebugAssert(A.height() >= A.width()); // @@ If height == width we could solve it directly...
 		const uint32_t D = A.width();
 		sparse::Matrix At(A.height(), A.width());
 		sparse::transpose(A, At);
@@ -4704,12 +4704,12 @@ public:
 	// See section 10.4.3 in: Mesh Parameterization: Theory and Practice, Siggraph Course Notes, August 2007
 	static bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon = 1e-5f)
 	{
-		nvDebugCheck(A.width() == x.dimension());
-		nvDebugCheck(A.height() == b.dimension());
-		nvDebugCheck(A.height() >= A.width() - lockedCount);
+		xaDebugAssert(A.width() == x.dimension());
+		xaDebugAssert(A.height() == b.dimension());
+		xaDebugAssert(A.height() >= A.width() - lockedCount);
 		// @@ This is not the most efficient way of building a system with reduced degrees of freedom. It would be faster to do it on the fly.
 		const uint32_t D = A.width() - lockedCount;
-		nvDebugCheck(D > 0);
+		xaDebugAssert(D > 0);
 		// Compute: b - Al * xl
 		FullVector b_Alxl(b);
 		for (uint32_t y = 0; y < A.height(); y++) {
@@ -4803,9 +4803,9 @@ private:
 	**/
 	static bool ConjugateGradientSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon)
 	{
-		nvDebugCheck( A.isSquare() );
-		nvDebugCheck( A.width() == b.dimension() );
-		nvDebugCheck( A.width() == x.dimension() );
+		xaDebugAssert( A.isSquare() );
+		xaDebugAssert( A.width() == b.dimension() );
+		xaDebugAssert( A.width() == x.dimension() );
 		int i = 0;
 		const int D = A.width();
 		const int i_max = 4 * D;   // Convergence should be linear, but in some cases, it's not.
@@ -4854,9 +4854,9 @@ private:
 	// Conjugate gradient with preconditioner.
 	static bool ConjugateGradientSolver(const JacobiPreconditioner &preconditioner, const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon)
 	{
-		nvDebugCheck( A.isSquare() );
-		nvDebugCheck( A.width() == b.dimension() );
-		nvDebugCheck( A.width() == x.dimension() );
+		xaDebugAssert( A.isSquare() );
+		xaDebugAssert( A.width() == b.dimension() );
+		xaDebugAssert( A.width() == x.dimension() );
 		int i = 0;
 		const int D = A.width();
 		const int i_max = 4 * D;   // Convergence should be linear, but in some cases, it's not.
@@ -4906,9 +4906,9 @@ private:
 
 	static bool SymmetricSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon = 1e-5f)
 	{
-		nvDebugCheck(A.height() == A.width());
-		nvDebugCheck(A.height() == b.dimension());
-		nvDebugCheck(b.dimension() == x.dimension());
+		xaDebugAssert(A.height() == A.width());
+		xaDebugAssert(A.height() == b.dimension());
+		xaDebugAssert(b.dimension() == x.dimension());
 		JacobiPreconditioner jacobi(A, true);
 		return ConjugateGradientSolver(jacobi, A, b, x, epsilon);
 	}
@@ -4921,18 +4921,18 @@ class Chart;
 // Test all pairs of vertices in the boundary and check distance.
 static void findDiameterVertices(halfedge::Mesh *mesh, halfedge::Vertex **a, halfedge::Vertex **b)
 {
-	nvDebugCheck(mesh != NULL);
-	nvDebugCheck(a != NULL);
-	nvDebugCheck(b != NULL);
+	xaDebugAssert(mesh != NULL);
+	xaDebugAssert(a != NULL);
+	xaDebugAssert(b != NULL);
 	const uint32_t vertexCount = mesh->vertexCount();
 	float maxLength = 0.0f;
 	for (uint32_t v0 = 1; v0 < vertexCount; v0++) {
 		halfedge::Vertex *vertex0 = mesh->vertexAt(v0);
-		nvDebugCheck(vertex0 != NULL);
+		xaDebugAssert(vertex0 != NULL);
 		if (!vertex0->isBoundary()) continue;
 		for (uint32_t v1 = 0; v1 < v0; v1++) {
 			halfedge::Vertex *vertex1 = mesh->vertexAt(v1);
-			nvDebugCheck(vertex1 != NULL);
+			xaDebugAssert(vertex1 != NULL);
 			if (!vertex1->isBoundary()) continue;
 			float len = length(vertex0->pos - vertex1->pos);
 			if (len > maxLength) {
@@ -4942,15 +4942,15 @@ static void findDiameterVertices(halfedge::Mesh *mesh, halfedge::Vertex **a, hal
 			}
 		}
 	}
-	nvDebugCheck(*a != NULL && *b != NULL);
+	xaDebugAssert(*a != NULL && *b != NULL);
 }
 
 // Fast sweep in 3 directions
 static bool findApproximateDiameterVertices(halfedge::Mesh *mesh, halfedge::Vertex **a, halfedge::Vertex **b)
 {
-	nvDebugCheck(mesh != NULL);
-	nvDebugCheck(a != NULL);
-	nvDebugCheck(b != NULL);
+	xaDebugAssert(mesh != NULL);
+	xaDebugAssert(a != NULL);
+	xaDebugAssert(b != NULL);
 	const uint32_t vertexCount = mesh->vertexCount();
 	halfedge::Vertex *minVertex[3];
 	halfedge::Vertex *maxVertex[3];
@@ -4958,7 +4958,7 @@ static bool findApproximateDiameterVertices(halfedge::Mesh *mesh, halfedge::Vert
 	maxVertex[0] = maxVertex[1] = maxVertex[2] = NULL;
 	for (uint32_t v = 1; v < vertexCount; v++) {
 		halfedge::Vertex *vertex = mesh->vertexAt(v);
-		nvDebugCheck(vertex != NULL);
+		xaDebugAssert(vertex != NULL);
 		if (vertex->isBoundary()) {
 			minVertex[0] = minVertex[1] = minVertex[2] = vertex;
 			maxVertex[0] = maxVertex[1] = maxVertex[2] = vertex;
@@ -4971,7 +4971,7 @@ static bool findApproximateDiameterVertices(halfedge::Mesh *mesh, halfedge::Vert
 	}
 	for (uint32_t v = 1; v < vertexCount; v++) {
 		halfedge::Vertex *vertex = mesh->vertexAt(v);
-		nvDebugCheck(vertex != NULL);
+		xaDebugAssert(vertex != NULL);
 		if (!vertex->isBoundary()) {
 			// Skip interior vertices.
 			continue;
@@ -5046,7 +5046,7 @@ static void setup_conformal_map_relations(sparse::Matrix &A, int row, const half
 	float b = z01.y;
 	float c = z02.x;
 	float d = z02.y;
-	nvCheck(b == 0.0f);
+	xaAssert(b == 0.0f);
 	// Note  : 2*id + 0 --> u
 	//         2*id + 1 --> v
 	int u0_id = 2 * id0 + 0;
@@ -5159,7 +5159,7 @@ static void setup_abf_relations(sparse::Matrix &A, int row, const halfedge::Vert
 
 bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 {
-	nvDebugCheck(mesh != NULL);
+	xaDebugAssert(mesh != NULL);
 	// For this to work properly, mesh should not have colocals that have the same
 	// attributes, unless you want the vertices to actually have different texcoords.
 	const uint32_t vertexCount = mesh->vertexCount();
@@ -5188,7 +5188,7 @@ bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 	}
 	for (uint32_t v = 0; v < vertexCount; v++) {
 		halfedge::Vertex *vertex = mesh->vertexAt(v);
-		nvDebugCheck(vertex != NULL);
+		xaDebugAssert(vertex != NULL);
 		// Initial solution.
 		x[2 * v + 0] = vertex->tex.x;
 		x[2 * v + 1] = vertex->tex.y;
@@ -5197,12 +5197,12 @@ bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 	const uint32_t faceCount = mesh->faceCount();
 	for (uint32_t f = 0, t = 0; f < faceCount; f++) {
 		const halfedge::Face *face = mesh->faceAt(f);
-		nvDebugCheck(face != NULL);
-		nvDebugCheck(face->edgeCount() == 3);
+		xaDebugAssert(face != NULL);
+		xaDebugAssert(face->edgeCount() == 3);
 		const halfedge::Vertex *vertex0 = NULL;
 		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const halfedge::Edge *edge = it.current();
-			nvCheck(edge != NULL);
+			xaAssert(edge != NULL);
 			if (vertex0 == NULL) {
 				vertex0 = edge->vertex;
 			} else if (edge->next->vertex != vertex0) {
@@ -5225,7 +5225,7 @@ bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 	// Map x back to texcoords:
 	for (uint32_t v = 0; v < vertexCount; v++) {
 		halfedge::Vertex *vertex = mesh->vertexAt(v);
-		nvDebugCheck(vertex != NULL);
+		xaDebugAssert(vertex != NULL);
 		vertex->tex = Vector2(x[2 * v + 0], x[2 * v + 1]);
 	}
 	return true;
@@ -5264,10 +5264,10 @@ bool computeOrthogonalProjectionMap(halfedge::Mesh *mesh)
 
 void computeSingleFaceMap(halfedge::Mesh *mesh)
 {
-	nvDebugCheck(mesh != NULL);
-	nvDebugCheck(mesh->faceCount() == 1);
+	xaDebugAssert(mesh != NULL);
+	xaDebugAssert(mesh->faceCount() == 1);
 	halfedge::Face *face = mesh->faceAt(0);
-	nvCheck(face != NULL);
+	xaAssert(face != NULL);
 	Vector3 p0 = face->edge->from()->pos;
 	Vector3 p1 = face->edge->to()->pos;
 	Vector3 X = normalizeSafe(p1 - p0, Vector3(0.0f), 0.0f);
@@ -5276,7 +5276,7 @@ void computeSingleFaceMap(halfedge::Mesh *mesh)
 	uint32_t i = 0;
 	for (halfedge::Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance(), i++) {
 		halfedge::Vertex *vertex = it.vertex();
-		nvCheck(vertex != NULL);
+		xaAssert(vertex != NULL);
 		if (i == 0) {
 			vertex->tex = Vector2(0);
 		} else {
@@ -5433,7 +5433,7 @@ struct AtlasBuilder
 		edgeLengths.resize(edgeCount);
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			uint32_t id = m->edgeAt(i)->id;
-			nvDebugCheck(id / 2 == i);
+			xaDebugAssert(id / 2 == i);
 			edgeLengths[i] = m->edgeAt(i)->length();
 		}
 		faceAreas.resize(faceCount);
@@ -5459,7 +5459,7 @@ struct AtlasBuilder
 			//faceCandidateArray[f] = -2; // @@ ?
 			removeCandidate(f);
 		}
-		nvDebugCheck(facesLeft >= unchartedFaceCount);
+		xaDebugAssert(facesLeft >= unchartedFaceCount);
 		facesLeft -= unchartedFaceCount;
 	}
 
@@ -5531,7 +5531,7 @@ struct AtlasBuilder
 	{
 		// Add face to chart.
 		chart->faces.push_back(f);
-		nvDebugCheck(faceChartArray[f] == -1);
+		xaDebugAssert(faceChartArray[f] == -1);
 		faceChartArray[f] = chart->id;
 		facesLeft--;
 		// Update area and boundary length.
@@ -5672,7 +5672,7 @@ struct AtlasBuilder
 				mostCentral = bestTriangles.pairs[i].face;
 			}
 		}
-		nvDebugCheck(maxDistance >= 0);
+		xaDebugAssert(maxDistance >= 0);
 		// In order to prevent k-means cyles we record all the previously chosen seeds.
 		uint32_t index = std::find(chart->seeds.begin(), chart->seeds.end(), mostCentral) - chart->seeds.begin();
 		if (index < chart->seeds.size()) {
@@ -5730,7 +5730,7 @@ struct AtlasBuilder
 		if (newBoundaryLength > settings.maxBoundaryLength) cost = FLT_MAX;
 		// Make sure normal seams are fully respected:
 		if (settings.normalSeamMetricWeight >= 1000 && N != 0) cost = FLT_MAX;
-		nvCheck(std::isfinite(cost));
+		xaAssert(std::isfinite(cost));
 		return cost;
 	}
 
@@ -5774,7 +5774,7 @@ struct AtlasBuilder
 				}
 			}
 		}
-		nvDebugCheck(l_in != 0.0f); // Candidate face must be adjacent to chart. @@ This is not true if the input mesh has zero-length edges.
+		xaDebugAssert(l_in != 0.0f); // Candidate face must be adjacent to chart. @@ This is not true if the input mesh has zero-length edges.
 		float ratio = (l_out - l_in) / (l_out + l_in);
 		return std::min(ratio, 0.0f); // Only use the straightness metric to close gaps.
 	}
@@ -5994,9 +5994,9 @@ struct AtlasBuilder
 				// Update faceChartArray.
 				const uint32_t faceCount = faceChartArray.size();
 				for (uint32_t i = 0; i < faceCount; i++) {
-					nvDebugCheck (faceChartArray[i] != -1);
-					nvDebugCheck (faceChartArray[i] != c);
-					nvDebugCheck (faceChartArray[i] <= int32_t(chartArray.size()));
+					xaDebugAssert (faceChartArray[i] != -1);
+					xaDebugAssert (faceChartArray[i] != c);
+					xaDebugAssert (faceChartArray[i] <= int32_t(chartArray.size()));
 					if (faceChartArray[i] > c) {
 						faceChartArray[i]--;
 					}
@@ -6021,7 +6021,7 @@ struct AtlasBuilder
 		uint32_t best = 0;
 		float bestCandidateMetric = FLT_MAX;
 		const uint32_t candidateCount = candidateArray.size();
-		nvCheck(candidateCount > 0);
+		xaAssert(candidateCount > 0);
 		for (uint32_t i = 0; i < candidateCount; i++) {
 			const Candidate &candidate = candidateArray[i];
 			if (candidate.metric < bestCandidateMetric) {
@@ -6059,9 +6059,9 @@ struct AtlasBuilder
 			candidateArray[index].metric = metric;
 		} else {
 			int c = faceCandidateArray[f];
-			nvDebugCheck(c != -1);
+			xaDebugAssert(c != -1);
 			Candidate &candidate = candidateArray[c];
-			nvDebugCheck(candidate.face == f);
+			xaDebugAssert(candidate.face == f);
 			if (metric < candidate.metric || chart == candidate.chart) {
 				candidate.metric = metric;
 				candidate.chart = chart;
@@ -6074,7 +6074,7 @@ struct AtlasBuilder
 		const uint32_t faceCount = chart->faces.size();
 		for (uint32_t i = 0; i < faceCount; i++) {
 			uint32_t f = chart->faces[i];
-			nvDebugCheck(faceChartArray[f] == chart->id);
+			xaDebugAssert(faceChartArray[f] == chart->id);
 			faceChartArray[f] = owner->id;
 			owner->faces.push_back(f);
 		}
@@ -6122,13 +6122,13 @@ public:
 		const uint32_t faceCount = faceArray.size();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const halfedge::Face *face = originalMesh->faceAt(faceArray[f]);
-			nvDebugCheck(face != NULL);
+			xaDebugAssert(face != NULL);
 			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				const halfedge::Vertex *vertex = it.current()->vertex;
 				const halfedge::Vertex *unifiedVertex = vertex->firstColocal();
 				if (unifiedMeshIndices[unifiedVertex->id] == ~0) {
 					unifiedMeshIndices[unifiedVertex->id] = m_unifiedMesh->vertexCount();
-					nvDebugCheck(vertex->pos == unifiedVertex->pos);
+					xaDebugAssert(vertex->pos == unifiedVertex->pos);
 					m_unifiedMesh->addVertex(vertex->pos);
 				}
 				if (chartMeshIndices[vertex->id] == ~0) {
@@ -6148,25 +6148,25 @@ public:
 		// This check is not valid anymore, if the original mesh vertices were linked with a canonical map, then it might have
 		// some colocal vertices that were unlinked. So, the unified mesh might have some duplicate vertices, because firstColocal()
 		// is not guaranteed to return the same vertex for two colocal vertices.
-		//nvCheck(m_chartMesh->colocalVertexCount() == m_unifiedMesh->vertexCount());
+		//xaAssert(m_chartMesh->colocalVertexCount() == m_unifiedMesh->vertexCount());
 		// Is that OK? What happens in meshes were that happens? Does anything break? Apparently not...
 		std::vector<uint32_t> faceIndices;
 		faceIndices.reserve(7);
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const halfedge::Face *face = originalMesh->faceAt(faceArray[f]);
-			nvDebugCheck(face != NULL);
+			xaDebugAssert(face != NULL);
 			faceIndices.clear();
 			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				const halfedge::Vertex *vertex = it.current()->vertex;
-				nvDebugCheck(vertex != NULL);
+				xaDebugAssert(vertex != NULL);
 				faceIndices.push_back(chartMeshIndices[vertex->id]);
 			}
 			m_chartMesh->addFace(faceIndices);
 			faceIndices.clear();
 			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				const halfedge::Vertex *vertex = it.current()->vertex;
-				nvDebugCheck(vertex != NULL);
+				xaDebugAssert(vertex != NULL);
 				vertex = vertex->firstColocal();
 				faceIndices.push_back(unifiedMeshIndices[vertex->id]);
 			}
@@ -6199,7 +6199,7 @@ public:
 
 	void buildVertexMap(const halfedge::Mesh *originalMesh, const std::vector<uint32_t> &unchartedMaterialArray)
 	{
-		nvCheck(m_chartMesh.get() == NULL && m_unifiedMesh.get() == NULL);
+		xaAssert(m_chartMesh.get() == NULL && m_unifiedMesh.get() == NULL);
 		m_isVertexMapped = true;
 		// Build face indices.
 		m_faceArray.clear();
@@ -6221,7 +6221,7 @@ public:
 		// Vertex map mesh only has disconnected vertices.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const halfedge::Face *face = originalMesh->faceAt(m_faceArray[f]);
-			nvDebugCheck(face != NULL);
+			xaDebugAssert(face != NULL);
 			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				const halfedge::Vertex *vertex = it.current()->vertex;
 				if (chartMeshIndices[vertex->id] == ~0) {
@@ -6240,16 +6240,16 @@ public:
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const halfedge::Face *face = originalMesh->faceAt(m_faceArray[f]);
-			nvDebugCheck(face != NULL);
+			xaDebugAssert(face != NULL);
 			faceIndices.clear();
 			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				const halfedge::Vertex *vertex = it.current()->vertex;
-				nvDebugCheck(vertex != NULL);
-				nvDebugCheck(chartMeshIndices[vertex->id] != ~0);
+				xaDebugAssert(vertex != NULL);
+				xaDebugAssert(chartMeshIndices[vertex->id] != ~0);
 				faceIndices.push_back(chartMeshIndices[vertex->id]);
 			}
 			halfedge::Face *new_face = m_chartMesh->addFace(faceIndices);
-			nvDebugCheck(new_face != NULL);
+			xaDebugAssert(new_face != NULL);
 		}
 		m_chartMesh->linkBoundary();
 		const uint32_t chartVertexCount = m_chartMesh->vertexCount();
@@ -6281,7 +6281,7 @@ public:
 			for (uint32_t i = 0; i < indexArray.size(); i++) {
 				uint32_t idx = indexArray[i];
 				halfedge::Vertex *vertex = m_chartMesh->vertexAt(idx);
-				nvDebugCheck(vertexIndexArray[idx] == -1);
+				xaDebugAssert(vertexIndexArray[idx] == -1);
 				std::vector<uint32_t> neighbors;
 				grid.gather(vertex->pos, positionThreshold, /*ref*/neighbors);
 				// Compare against all nearby vertices, cluster greedily.
@@ -6303,14 +6303,14 @@ public:
 				verticesVisited++;
 			}
 		}
-		nvDebugCheck(cellsVisited == grid.cellArray.size());
-		nvDebugCheck(verticesVisited == chartVertexCount);
+		xaDebugAssert(cellsVisited == grid.cellArray.size());
+		xaDebugAssert(verticesVisited == chartVertexCount);
 		vertexMapWidth = ftoi_ceil(sqrtf(float(texelCount)));
 		vertexMapWidth = (vertexMapWidth + 3) & ~3;                             // Width aligned to 4.
 		vertexMapHeight = vertexMapWidth == 0 ? 0 : (texelCount + vertexMapWidth - 1) / vertexMapWidth;
 		//vertexMapHeight = (vertexMapHeight + 3) & ~3;                           // Height aligned to 4.
-		nvDebugCheck(vertexMapWidth >= vertexMapHeight);
-		nvDebug("Reduced vertex count from %d to %d.\n", chartVertexCount, texelCount);
+		xaDebugAssert(vertexMapWidth >= vertexMapHeight);
+		xaPrint("Reduced vertex count from %d to %d.\n", chartVertexCount, texelCount);
 		// Lay down the clustered vertices in morton order.
 		std::vector<uint32_t> texelCodes(texelCount);
 		// For each texel, assign one morton code.
@@ -6339,7 +6339,7 @@ public:
 
 	bool closeHoles()
 	{
-		nvDebugCheck(!m_isVertexMapped);
+		xaDebugAssert(!m_isVertexMapped);
 		std::vector<halfedge::Edge *> boundaryEdges;
 		getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
 		uint32_t boundaryCount = boundaryEdges.size();
@@ -6351,7 +6351,7 @@ public:
 		std::vector<float> boundaryLengths;
 		for (uint32_t i = 0; i < boundaryCount; i++) {
 			const halfedge::Edge *startEdge = boundaryEdges[i];
-			nvCheck(startEdge->face == NULL);
+			xaAssert(startEdge->face == NULL);
 			//float boundaryEdgeCount = 0;
 			float boundaryLength = 0.0f;
 			//Vector3 boundaryCentroid(zero);
@@ -6383,8 +6383,8 @@ public:
 				continue;
 			}
 			halfedge::Edge *startEdge = boundaryEdges[i];
-			nvDebugCheck(startEdge != NULL);
-			nvDebugCheck(startEdge->face == NULL);
+			xaDebugAssert(startEdge != NULL);
+			xaDebugAssert(startEdge->face == NULL);
 			std::vector<halfedge::Vertex *> vertexLoop;
 			std::vector<halfedge::Edge *> edgeLoop;
 			halfedge::Edge *edge = startEdge;
@@ -6400,7 +6400,7 @@ public:
 				if (isCrossing) {
 					halfedge::Edge *prev = edgeLoop[i];     // Previous edge before the loop.
 					halfedge::Edge *next = edge->next;    // Next edge after the loop.
-					nvDebugCheck(prev->to()->isColocal(next->from()));
+					xaDebugAssert(prev->to()->isColocal(next->from()));
 					// Close loop.
 					edgeLoop.push_back(edge);
 					closeLoop(i + 1, edgeLoop);
@@ -6421,7 +6421,7 @@ public:
 		}
 		getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
 		boundaryCount = boundaryEdges.size();
-		nvDebugCheck(boundaryCount == 1);
+		xaDebugAssert(boundaryCount == 1);
 		return boundaryCount == 1;
 	}
 
@@ -6488,7 +6488,7 @@ public:
 	// Transfer parameterization from unified mesh to chart mesh.
 	void transferParameterization()
 	{
-		nvDebugCheck(!m_isVertexMapped);
+		xaDebugAssert(!m_isVertexMapped);
 		uint32_t vertexCount = m_chartMesh->vertexCount();
 		for (uint32_t v = 0; v < vertexCount; v++) {
 			halfedge::Vertex *vertex = m_chartMesh->vertexAt(v);
@@ -6505,16 +6505,16 @@ public:
 	float computeParametricArea() const
 	{
 		// This only makes sense in parameterized meshes.
-		nvDebugCheck(m_isDisk);
-		nvDebugCheck(!m_isVertexMapped);
+		xaDebugAssert(m_isDisk);
+		xaDebugAssert(!m_isVertexMapped);
 		return halfedge::computeParametricArea(m_chartMesh.get());
 	}
 
 	Vector2 computeParametricBounds() const
 	{
 		// This only makes sense in parameterized meshes.
-		nvDebugCheck(m_isDisk);
-		nvDebugCheck(!m_isVertexMapped);
+		xaDebugAssert(m_isDisk);
+		xaDebugAssert(!m_isVertexMapped);
 		Box bounds;
 		bounds.clearBounds();
 		uint32_t vertexCount = m_chartMesh->vertexCount();
@@ -6533,9 +6533,9 @@ private:
 	bool closeLoop(uint32_t start, const std::vector<halfedge::Edge *> &loop)
 	{
 		const uint32_t vertexCount = loop.size() - start;
-		nvDebugCheck(vertexCount >= 3);
+		xaDebugAssert(vertexCount >= 3);
 		if (vertexCount < 3) return false;
-		nvDebugCheck(loop[start]->vertex->isColocal(loop[start + vertexCount - 1]->to()));
+		xaDebugAssert(loop[start]->vertex->isColocal(loop[start + vertexCount - 1]->to()));
 		// If the hole is planar, then we add a single face that will be properly triangulated later.
 		// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
 		// This is still a bit of a hack. There surely are better hole filling algorithms out there.
@@ -6553,7 +6553,7 @@ private:
 				edge->setNext(loop[start + (i + 1) % vertexCount]);
 			}
 			face->edge = loop[start];
-			nvDebugCheck(face->isValid());
+			xaDebugAssert(face->isValid());
 		} else {
 			// If the polygon is not planar, we just cross our fingers, and hope this will work:
 			// Compute boundary centroid:
@@ -6566,7 +6566,7 @@ private:
 			// Add one pair of edges for each boundary vertex.
 			for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
 				halfedge::Face *face = m_unifiedMesh->addFace(centroid->id, loop[start + j]->vertex->id, loop[start + i]->vertex->id);
-				nvDebugCheck(face != NULL);
+				xaDebugAssert(face != NULL);
 			}
 		}
 		return true;
@@ -6574,7 +6574,7 @@ private:
 
 	static void getBoundaryEdges(halfedge::Mesh *mesh, std::vector<halfedge::Edge *> &boundaryEdges)
 	{
-		nvDebugCheck(mesh != NULL);
+		xaDebugAssert(mesh != NULL);
 		const uint32_t edgeCount = mesh->edgeCount();
 		BitArray bitFlags(edgeCount);
 		bitFlags.clearAll();
@@ -6583,13 +6583,13 @@ private:
 		for (uint32_t e = 0; e < edgeCount; e++) {
 			halfedge::Edge *startEdge = mesh->edgeAt(e);
 			if (startEdge != NULL && startEdge->isBoundary() && bitFlags.bitAt(e) == false) {
-				nvDebugCheck(startEdge->face != NULL);
-				nvDebugCheck(startEdge->pair->face == NULL);
+				xaDebugAssert(startEdge->face != NULL);
+				xaDebugAssert(startEdge->pair->face == NULL);
 				startEdge = startEdge->pair;
 				const halfedge::Edge *edge = startEdge;
 				do {
-					nvDebugCheck(edge->face == NULL);
-					nvDebugCheck(bitFlags.bitAt(edge->id / 2) == false);
+					xaDebugAssert(edge->face == NULL);
+					xaDebugAssert(bitFlags.bitAt(edge->id / 2) == false);
 					bitFlags.setBitAt(edge->id / 2);
 					edge = edge->next;
 				} while (startEdge != edge);
@@ -6633,7 +6633,7 @@ public:
 
 	ParameterizationQuality(const halfedge::Mesh *mesh)
 	{
-		nvDebugCheck(mesh != NULL);
+		xaDebugAssert(mesh != NULL);
 		m_totalTriangleCount = 0;
 		m_flippedTriangleCount = 0;
 		m_zeroAreaTriangleCount = 0;
@@ -6668,12 +6668,12 @@ public:
 			// If all triangles are flipped, then none is.
 			m_flippedTriangleCount = 0;
 		}
-		nvDebugCheck(std::isfinite(m_parametricArea) && m_parametricArea >= 0);
-		nvDebugCheck(std::isfinite(m_geometricArea) && m_geometricArea >= 0);
-		nvDebugCheck(std::isfinite(m_stretchMetric));
-		nvDebugCheck(std::isfinite(m_maxStretchMetric));
-		nvDebugCheck(std::isfinite(m_conformalMetric));
-		nvDebugCheck(std::isfinite(m_authalicMetric));
+		xaDebugAssert(std::isfinite(m_parametricArea) && m_parametricArea >= 0);
+		xaDebugAssert(std::isfinite(m_geometricArea) && m_geometricArea >= 0);
+		xaDebugAssert(std::isfinite(m_stretchMetric));
+		xaDebugAssert(std::isfinite(m_maxStretchMetric));
+		xaDebugAssert(std::isfinite(m_conformalMetric));
+		xaDebugAssert(std::isfinite(m_authalicMetric));
 	}
 
 	bool isValid() const
@@ -6747,13 +6747,13 @@ private:
 		// Compute eigen-values of the first fundamental form:
 		float sigma1 = sqrtf(0.5f * std::max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
 		float sigma2 = sqrtf(0.5f * std::max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
-		nvCheck(sigma2 >= sigma1);
+		xaAssert(sigma2 >= sigma1);
 		// isometric: sigma1 = sigma2 = 1
 		// conformal: sigma1 / sigma2 = 1
 		// authalic: sigma1 * sigma2 = 1
 		float rmsStretch = sqrtf((a + c) * 0.5f);
 		float rmsStretch2 = sqrtf((square(sigma1) + square(sigma2)) * 0.5f);
-		nvDebugCheck(equal(rmsStretch, rmsStretch2, 0.01f));
+		xaDebugAssert(equal(rmsStretch, rmsStretch2, 0.01f));
 		if (parametricArea < 0.0f) {
 			// Count flipped triangles.
 			m_flippedTriangleCount++;
@@ -6834,12 +6834,12 @@ public:
 					// Visit face neighbors of queue[first]
 					for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 						const halfedge::Edge *edge = it.current();
-						nvDebugCheck(edge->pair != NULL);
+						xaDebugAssert(edge->pair != NULL);
 						if (!edge->isBoundary() && /*!edge->isSeam()*/
 								//!(edge->from()->tex() != edge->pair()->to()->tex() || edge->to()->tex() != edge->pair()->from()->tex()))
 								!(edge->from() != edge->pair->to() || edge->to() != edge->pair->from())) { // Preserve existing seams (not just texture seams).
 							const halfedge::Face *neighborFace = edge->pair->face;
-							nvDebugCheck(neighborFace != NULL);
+							xaDebugAssert(neighborFace != NULL);
 							if (bitFlags.bitAt(neighborFace->id) == false) {
 								queue.push_back(neighborFace->id);
 								bitFlags.setBitAt(neighborFace->id);
@@ -6944,56 +6944,56 @@ public:
 			// This seems a reasonable estimate.
 			uint32_t maxSeedCount = std::max(6U, builder.facesLeft);
 			// Create initial charts greedely.
-			nvDebug("### Placing seeds\n");
+			xaPrint("### Placing seeds\n");
 			builder.placeSeeds(maxThreshold, maxSeedCount);
-			nvDebug("###   Placed %d seeds (max = %d)\n", builder.chartCount(), maxSeedCount);
+			xaPrint("###   Placed %d seeds (max = %d)\n", builder.chartCount(), maxSeedCount);
 			builder.updateProxies();
 			builder.mergeCharts();
 	#if 1
-			nvDebug("### Relocating seeds\n");
+			xaPrint("### Relocating seeds\n");
 			builder.relocateSeeds();
-			nvDebug("### Reset charts\n");
+			xaPrint("### Reset charts\n");
 			builder.resetCharts();
 			if (vertexMap != NULL) {
 				builder.markUnchartedFaces(vertexMap->faceArray());
 			}
 			builder.settings = settings;
-			nvDebug("### Growing charts\n");
+			xaPrint("### Growing charts\n");
 			// Restart process growing charts in parallel.
 			uint32_t iteration = 0;
 			while (true) {
 				if (!builder.growCharts(maxThreshold, growFaceCount)) {
-					nvDebug("### Can't grow anymore\n");
+					xaPrint("### Can't grow anymore\n");
 					// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
-					nvDebug("### Filling holes\n");
+					xaPrint("### Filling holes\n");
 					builder.fillHoles(maxThreshold);
-					nvDebug("###   Using %d charts now\n", builder.chartCount());
+					xaPrint("###   Using %d charts now\n", builder.chartCount());
 					builder.updateProxies();
-					nvDebug("### Merging charts\n");
+					xaPrint("### Merging charts\n");
 					builder.mergeCharts();
-					nvDebug("###   Using %d charts now\n", builder.chartCount());
-					nvDebug("### Reseeding\n");
+					xaPrint("###   Using %d charts now\n", builder.chartCount());
+					xaPrint("### Reseeding\n");
 					if (!builder.relocateSeeds()) {
-						nvDebug("### Cannot relocate seeds anymore\n");
+						xaPrint("### Cannot relocate seeds anymore\n");
 						// Done!
 						break;
 					}
 					if (iteration == maxIterations) {
-						nvDebug("### Reached iteration limit\n");
+						xaPrint("### Reached iteration limit\n");
 						break;
 					}
 					iteration++;
-					nvDebug("### Reset charts\n");
+					xaPrint("### Reset charts\n");
 					builder.resetCharts();
 					if (vertexMap != NULL) {
 						builder.markUnchartedFaces(vertexMap->faceArray());
 					}
-					nvDebug("### Growing charts\n");
+					xaPrint("### Growing charts\n");
 				}
 			};
 	#endif
 			// Make sure no holes are left!
-			nvDebugCheck(builder.facesLeft == 0);
+			xaDebugAssert(builder.facesLeft == 0);
 			const uint32_t chartCount = builder.chartArray.size();
 			for (uint32_t i = 0; i < chartCount; i++) {
 				Chart *chart = new Chart();
@@ -7061,7 +7061,7 @@ public:
 				}
 				isValid = chartParameterizationQuality.isValid();
 				if (!isValid) {
-					nvDebug("*** Invalid parameterization.\n");
+					xaPrint("*** Invalid parameterization.\n");
 				}
 				// @@ Check that parameterization quality is above a certain threshold.
 				// @@ Detect boundary self-intersections.
@@ -7072,11 +7072,11 @@ public:
 			chart->transferParameterization();
 
 		}
-		nvDebug("  Parameterized %d/%d charts.\n", diskCount, chartCount);
-		nvDebug("  RMS stretch metric: %f\n", globalParameterizationQuality.rmsStretchMetric());
-		nvDebug("  MAX stretch metric: %f\n", globalParameterizationQuality.maxStretchMetric());
-		nvDebug("  RMS conformal metric: %f\n", globalParameterizationQuality.rmsConformalMetric());
-		nvDebug("  RMS authalic metric: %f\n", globalParameterizationQuality.maxAuthalicMetric());
+		xaPrint("  Parameterized %d/%d charts.\n", diskCount, chartCount);
+		xaPrint("  RMS stretch metric: %f\n", globalParameterizationQuality.rmsStretchMetric());
+		xaPrint("  MAX stretch metric: %f\n", globalParameterizationQuality.maxStretchMetric());
+		xaPrint("  RMS conformal metric: %f\n", globalParameterizationQuality.rmsConformalMetric());
+		xaPrint("  RMS authalic metric: %f\n", globalParameterizationQuality.maxAuthalicMetric());
 	}
 
 	uint32_t faceChartAt(uint32_t i) const
@@ -7236,11 +7236,11 @@ struct AtlasPacker
 				if (parametricArea == 0) { // < NV_EPSILON)
 					scale = 0;
 				}
-				nvCheck(std::isfinite(scale));
+				xaAssert(std::isfinite(scale));
 				// Compute bounding box of chart.
 				Vector2 majorAxis, minorAxis, origin, end;
 				computeBoundingBox(chart, &majorAxis, &minorAxis, &origin, &end);
-				nvCheck(isFinite(majorAxis) && isFinite(minorAxis) && isFinite(origin));
+				xaAssert(isFinite(majorAxis) && isFinite(minorAxis) && isFinite(origin));
 				// Sort charts by perimeter. @@ This is sometimes producing somewhat unexpected results. Is this right?
 				//chartOrderArray[c] = ((end.x - origin.x) + (end.y - origin.y)) * scale;
 				// Translate, rotate and scale vertices. Compute extents.
@@ -7255,19 +7255,19 @@ struct AtlasPacker
 					tmp -= origin;
 					tmp *= scale;
 					if (tmp.x < 0 || tmp.y < 0) {
-						nvDebug("tmp: %f %f\n", tmp.x, tmp.y);
-						nvDebug("scale: %f\n", scale);
-						nvDebug("origin: %f %f\n", origin.x, origin.y);
-						nvDebug("majorAxis: %f %f\n", majorAxis.x, majorAxis.y);
-						nvDebug("minorAxis: %f %f\n", minorAxis.x, minorAxis.y);
-						nvDebugCheck(false);
+						xaPrint("tmp: %f %f\n", tmp.x, tmp.y);
+						xaPrint("scale: %f\n", scale);
+						xaPrint("origin: %f %f\n", origin.x, origin.y);
+						xaPrint("majorAxis: %f %f\n", majorAxis.x, majorAxis.y);
+						xaPrint("minorAxis: %f %f\n", minorAxis.x, minorAxis.y);
+						xaDebugAssert(false);
 					}
-					//nvCheck(tmp.x >= 0 && tmp.y >= 0);
+					//xaAssert(tmp.x >= 0 && tmp.y >= 0);
 					vertex->tex = tmp;
-					nvCheck(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
+					xaAssert(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
 					extents = max(extents, tmp);
 				}
-				nvDebugCheck(extents.x >= 0 && extents.y >= 0);
+				xaDebugAssert(extents.x >= 0 && extents.y >= 0);
 				// Limit chart size.
 				if (extents.x > 1024 || extents.y > 1024) {
 					float limit = std::max(extents.x, extents.y);
@@ -7277,7 +7277,7 @@ struct AtlasPacker
 						vertex->tex *= scale;
 					}
 					extents *= scale;
-					nvDebugCheck(extents.x <= 1024 && extents.y <= 1024);
+					xaDebugAssert(extents.x <= 1024 && extents.y <= 1024);
 				}
 				// Scale the charts to use the entire texel area available. So, if the width is 0.1 we could scale it to 1 without increasing the lightmap usage and making a better
 				// use of it. In many cases this also improves the look of the seams, since vertices on the chart boundaries have more chances of being aligned with the texel centers.
@@ -7319,7 +7319,7 @@ struct AtlasPacker
 					vertex->tex.y /= divide_y;
 					vertex->tex.x *= scale_x;
 					vertex->tex.y *= scale_y;
-					nvCheck(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
+					xaAssert(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
 				}
 			}
 			chartExtents[c] = extents;
@@ -7329,7 +7329,7 @@ struct AtlasPacker
 		// @@ We can try to improve compression of small charts by sorting them by proximity like we do with vertex samples.
 		// @@ How to do that? One idea: compute chart centroid, insert into grid, compute morton index of the cell, sort based on morton index.
 		// @@ We would sort by morton index, first, then quantize the chart sizes, so that all small charts have the same size, and sort by size preserving the morton order.
-		//nvDebug("Sorting charts.\n");
+		//xaPrint("Sorting charts.\n");
 		// Sort charts by area.
 		m_radix.sort(chartOrderArray);
 		const uint32_t *ranks = m_radix.ranks();
@@ -7387,7 +7387,7 @@ struct AtlasPacker
 			findChartLocation(quality, &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r);
 			/*if (w < best_x + best_cw || h < best_y + best_ch)
 			{
-				nvDebug("Resize extents to (%d, %d).\n", best_x + best_cw, best_y + best_ch);
+				xaPrint("Resize extents to (%d, %d).\n", best_x + best_cw, best_y + best_ch);
 			}*/
 			// Update parametric extents.
 			w = std::max(w, best_x + best_cw);
@@ -7396,10 +7396,10 @@ struct AtlasPacker
 			h = align(h, 4);
 			// Resize bitmap if necessary.
 			if (uint32_t(w) > m_bitmap.width() || uint32_t(h) > m_bitmap.height()) {
-				//nvDebug("Resize bitmap (%d, %d).\n", nextPowerOfTwo(w), nextPowerOfTwo(h));
+				//xaPrint("Resize bitmap (%d, %d).\n", nextPowerOfTwo(w), nextPowerOfTwo(h));
 				m_bitmap.resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
 			}
-			//nvDebug("Add chart at (%d, %d).\n", best_x, best_y);
+			//xaPrint("Add chart at (%d, %d).\n", best_x, best_y);
 			addChart(&chart_bitmap, w, h, best_x, best_y, best_r);
 			//float best_angle = 2 * PI * best_r;
 			// Translate and rotate chart texture coordinates.
@@ -7413,24 +7413,24 @@ struct AtlasPacker
 				//vertex->tex.y = best_y + t.x * sinf(best_angle) + t.y * cosf(best_angle);
 				vertex->tex.x = best_x + t.x + 0.5f;
 				vertex->tex.y = best_y + t.y + 0.5f;
-				nvCheck(vertex->tex.x >= 0 && vertex->tex.y >= 0);
-				nvCheck(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
+				xaAssert(vertex->tex.x >= 0 && vertex->tex.y >= 0);
+				xaAssert(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
 			}
 		}
 		//w -= padding - 1; // Leave one pixel border!
 		//h -= padding - 1;
 		m_width = std::max(0, w);
 		m_height = std::max(0, h);
-		nvCheck(isAligned(m_width, 4));
-		nvCheck(isAligned(m_height, 4));
+		xaAssert(isAligned(m_width, 4));
+		xaAssert(isAligned(m_height, 4));
 	}
 
 	float computeAtlasUtilization() const
 	{
 		const uint32_t w = m_width;
 		const uint32_t h = m_height;
-		nvDebugCheck(w <= m_bitmap.width());
-		nvDebugCheck(h <= m_bitmap.height());
+		xaDebugAssert(w <= m_bitmap.width());
+		xaDebugAssert(h <= m_bitmap.height());
 		uint32_t count = 0;
 		for (uint32_t y = 0; y < h; y++) {
 			for (uint32_t x = 0; x < w; x++) {
@@ -7498,7 +7498,7 @@ private:
 			}
 		}
 	done:
-		nvDebugCheck (best_metric != INT_MAX);
+		xaDebugAssert (best_metric != INT_MAX);
 	}
 
 	void findChartLocation_random(const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount)
@@ -7614,10 +7614,10 @@ private:
 				for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 					if (edgeCount < 4) {
 						vertices[edgeCount] = it.vertex()->tex * scale + offset + pad[i];
-						nvCheck(ftoi_ceil(vertices[edgeCount].x) >= 0);
-						nvCheck(ftoi_ceil(vertices[edgeCount].y) >= 0);
-						nvCheck(ftoi_ceil(vertices[edgeCount].x) <= w);
-						nvCheck(ftoi_ceil(vertices[edgeCount].y) <= h);
+						xaAssert(ftoi_ceil(vertices[edgeCount].x) >= 0);
+						xaAssert(ftoi_ceil(vertices[edgeCount].y) >= 0);
+						xaAssert(ftoi_ceil(vertices[edgeCount].x) <= w);
+						xaAssert(ftoi_ceil(vertices[edgeCount].y) <= h);
 					}
 					edgeCount++;
 				}
@@ -7656,7 +7656,7 @@ private:
 
 	bool canAddChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
-		nvDebugCheck(r == 0 || r == 1);
+		xaDebugAssert(r == 0 || r == 1);
 		// Check whether the two bitmaps overlap.
 		const int w = bitmap->width();
 		const int h = bitmap->height();
@@ -7698,7 +7698,7 @@ private:
 
 	void addChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
-		nvDebugCheck(r == 0 || r == 1);
+		xaDebugAssert(r == 0 || r == 1);
 		// Check whether the two bitmaps overlap.
 		const int w = bitmap->width();
 		const int h = bitmap->height();
@@ -7711,7 +7711,7 @@ private:
 						if (xx >= 0) {
 							if (bitmap->bitAt(x, y)) {
 								if (xx < atlas_w && yy < atlas_h) {
-									nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
+									xaDebugAssert(m_bitmap.bitAt(xx, yy) == false);
 									m_bitmap.setBitAt(xx, yy);
 								}
 							}
@@ -7728,7 +7728,7 @@ private:
 						if (yy >= 0) {
 							if (bitmap->bitAt(x, y)) {
 								if (xx < atlas_w && yy < atlas_h) {
-									nvDebugCheck(m_bitmap.bitAt(xx, yy) == false);
+									xaDebugAssert(m_bitmap.bitAt(xx, yy) == false);
 									m_bitmap.setBitAt(xx, yy);
 								}
 							}
@@ -7742,7 +7742,7 @@ private:
 	static bool checkBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float)
 	{
 		BitMap *bitmap = (BitMap * )param;
-		nvDebugCheck(bitmap->bitAt(x, y) == false);
+		xaDebugAssert(bitmap->bitAt(x, y) == false);
 		return true;
 	}
 
@@ -7816,7 +7816,7 @@ private:
 			}
 		}
 		// Remove duplicate element.
-		nvDebugCheck(output.front() == output.back());
+		xaDebugAssert(output.front() == output.back());
 		output.pop_back();
 	}
 
@@ -7847,7 +7847,7 @@ private:
 				continue;
 			}
 			Vector2 axis = normalize(hull[i] - hull[j], 0.0f);
-			nvDebugCheck(isFinite(axis));
+			xaDebugAssert(isFinite(axis));
 			// Compute bounding box.
 			Vector2 box_min(FLT_MAX, FLT_MAX);
 			Vector2 box_max(-FLT_MAX, -FLT_MAX);
@@ -7974,7 +7974,7 @@ static Atlas_Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *m
 		uint32_t i = charts->faceIndexWithinChartAt(f);
 		uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
 		const internal::param::Chart *chart = charts->chartAt(c);
-		nvDebugCheck(chart->faceAt(i) == f);
+		xaDebugAssert(chart->faceAt(i) == f);
 		const internal::halfedge::Face *face = chart->chartMesh()->faceAt(i);
 		const internal::halfedge::Edge *edge = face->edge;
 		output->index_array[3 * f + 0] = vertexOffset + edge->vertex->id;
