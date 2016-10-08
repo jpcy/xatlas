@@ -140,10 +140,6 @@ void atlas_free(Atlas_Output_Mesh * output);
 #define nvDebugCheck(exp) assert(exp)
 #define nvDebug(...)    nv::DebugPrint(__VA_ARGS__)
 
-// Just in case. Grrr.
-#undef min
-#undef max
-
 #define NV_UINT32_MAX   0xffffffff
 #define NV_FLOAT_MAX    3.402823466e+38F
 
@@ -164,85 +160,82 @@ static void DebugPrint( const char *msg, ... ) __attribute__((format (printf, 1,
 	va_end(arg);
 }
 
-inline int align(int x, int a)
+inline static int align(int x, int a)
 {
 	return (x + a - 1) & ~(a - 1);
 }
 
-inline bool isAligned(int x, int a)
+inline static bool isAligned(int x, int a)
 {
 	return (x & (a - 1)) == 0;
 }
 
 /// Return the maximum of the three arguments.
 template <typename T>
-//inline const T & max3(const T & a, const T & b, const T & c)
-inline T max3(const T &a, const T &b, const T &c)
+inline static T max3(const T &a, const T &b, const T &c)
 {
 	return std::max(a, std::max(b, c));
 }
 
 /// Return the maximum of the three arguments.
 template <typename T>
-//inline const T & min3(const T & a, const T & b, const T & c)
-inline T min3(const T &a, const T &b, const T &c)
+inline static T min3(const T &a, const T &b, const T &c)
 {
 	return std::min(a, std::min(b, c));
 }
 
 /// Clamp between two values.
 template <typename T>
-//inline const T & clamp(const T & x, const T & a, const T & b)
-inline T clamp(const T &x, const T &a, const T &b)
+inline static T clamp(const T &x, const T &a, const T &b)
 {
 	return std::min(std::max(x, a), b);
 }
 
-inline float saturate(float f)
+inline static float saturate(float f)
 {
 	return clamp(f, 0.0f, 1.0f);
 }
 
 // Robust floating point comparisons:
 // http://realtimecollisiondetection.net/blog/?p=89
-inline bool equal(const float f0, const float f1, const float epsilon = NV_EPSILON)
+inline static bool equal(const float f0, const float f1, const float epsilon = NV_EPSILON)
 {
 	//return fabs(f0-f1) <= epsilon;
 	return fabs(f0 - f1) <= epsilon * max3(1.0f, fabsf(f0), fabsf(f1));
 }
 
-NV_FORCEINLINE int ftoi_floor(float val)
+NV_FORCEINLINE static int ftoi_floor(float val)
 {
 	return (int)val;
 }
 
-NV_FORCEINLINE int ftoi_ceil(float val)
+NV_FORCEINLINE static int ftoi_ceil(float val)
 {
 	return (int)ceilf(val);
 }
 
-NV_FORCEINLINE int ftoi_round(float f)
+NV_FORCEINLINE static int ftoi_round(float f)
 {
 	return int(floorf(f + 0.5f));
 }
 
-inline bool isZero(const float f, const float epsilon = NV_EPSILON)
+inline static bool isZero(const float f, const float epsilon = NV_EPSILON)
 {
 	return fabs(f) <= epsilon;
 }
 
-inline float lerp(float f0, float f1, float t)
+inline static float lerp(float f0, float f1, float t)
 {
 	const float s = 1.0f - t;
 	return f0 * s + f1 * t;
 }
 
-inline float square(float f)
+inline static float square(float f)
 {
 	return f * f;
 }
 
-inline int square(int i)
+inline static int square(int i)
 {
 	return i * i;
 }
@@ -253,10 +246,10 @@ inline int square(int i)
 * @note isPowerOfTwo(x) == true -> nextPowerOfTwo(x) == x
 * @note nextPowerOfTwo(x) = 2 << log2(x-1)
 */
-inline uint32_t nextPowerOfTwo(uint32_t x)
+inline static uint32_t nextPowerOfTwo(uint32_t x)
 {
 	nvDebugCheck( x != 0 );
-#if 1	// On modern CPUs this is supposed to be as fast as using the bsr instruction.
+	// On modern CPUs this is supposed to be as fast as using the bsr instruction.
 	x--;
 	x |= x >> 1;
 	x |= x >> 2;
@@ -264,16 +257,9 @@ inline uint32_t nextPowerOfTwo(uint32_t x)
 	x |= x >> 8;
 	x |= x >> 16;
 	return x + 1;
-#else
-	uint32_t p = 1;
-	while ( x > p ) {
-		p += p;
-	}
-	return p;
-#endif
 }
 
-inline uint64_t nextPowerOfTwo(uint64_t x)
+inline static uint64_t nextPowerOfTwo(uint64_t x)
 {
 	nvDebugCheck(x != 0);
 	uint32_t p = 1;
@@ -283,7 +269,7 @@ inline uint64_t nextPowerOfTwo(uint64_t x)
 	return p;
 }
 
-inline uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
+inline static uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
 {
 	const uint8_t *data = (const uint8_t *) data_in;
 	uint32_t i = 0;
@@ -294,7 +280,7 @@ inline uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
 }
 
 // Note that this hash does not handle NaN properly.
-inline uint32_t sdbmFloatHash(const float *f, uint32_t count, uint32_t h = 5381)
+inline static uint32_t sdbmFloatHash(const float *f, uint32_t count, uint32_t h = 5381)
 {
 	for (uint32_t i = 0; i < count; i++) {
 		union {
@@ -308,13 +294,13 @@ inline uint32_t sdbmFloatHash(const float *f, uint32_t count, uint32_t h = 5381)
 }
 
 template <typename T>
-inline uint32_t hash(const T &t, uint32_t h = 5381)
+inline static uint32_t hash(const T &t, uint32_t h = 5381)
 {
 	return sdbmHash(&t, sizeof(T), h);
 }
 
 template <>
-inline uint32_t hash(const float &f, uint32_t h)
+inline static uint32_t hash(const float &f, uint32_t h)
 {
 	return sdbmFloatHash(&f, 1, h);
 }
@@ -322,18 +308,12 @@ inline uint32_t hash(const float &f, uint32_t h)
 // Functors for hash table:
 template <typename Key> struct Hash
 {
-	uint32_t operator()(const Key &k) const
-	{
-		return hash(k);
-	}
+	uint32_t operator()(const Key &k) const { return hash(k); }
 };
 
 template <typename Key> struct Equal
 {
-	bool operator()(const Key &k0, const Key &k1) const
-	{
-		return k0 == k1;
-	}
+	bool operator()(const Key &k0, const Key &k1) const { return k0 == k1; }
 };
 
 class Vector2
@@ -345,29 +325,24 @@ public:
 	explicit Vector2(float f);
 	Vector2(float x, float y);
 	Vector2(Vector2::Arg v);
-
-	//template <typename T> explicit Vector2(const T & v) : x(v.x), y(v.y) {}
-	//template <typename T> operator T() const { return T(x, y); }
-
 	const Vector2 &operator=(Vector2::Arg v);
-
 	const float *ptr() const;
-
 	void set(float x, float y);
-
 	Vector2 operator-() const;
 	void operator+=(Vector2::Arg v);
 	void operator-=(Vector2::Arg v);
 	void operator*=(float s);
 	void operator*=(Vector2::Arg v);
-
 	friend bool operator==(Vector2::Arg a, Vector2::Arg b);
 	friend bool operator!=(Vector2::Arg a, Vector2::Arg b);
 
-	union {
-		struct {
+	union
+	{
+		struct
+		{
 			float x, y;
 		};
+
 		float component[2];
 	};
 };
@@ -379,22 +354,13 @@ public:
 
 	Vector3();
 	explicit Vector3(float x);
-	//explicit Vector3(int x) : x(float(x)), y(float(x)), z(float(x)) {}
 	Vector3(float x, float y, float z);
 	Vector3(Vector2::Arg v, float z);
 	Vector3(Vector3::Arg v);
-
-	//template <typename T> explicit Vector3(const T & v) : x(v.x), y(v.y), z(v.z) {}
-	//template <typename T> operator T() const { return T(x, y, z); }
-
 	const Vector3 &operator=(Vector3::Arg v);
-
 	Vector2 xy() const;
-
 	const float *ptr() const;
-
 	void set(float x, float y, float z);
-
 	Vector3 operator-() const;
 	void operator+=(Vector3::Arg v);
 	void operator-=(Vector3::Arg v);
@@ -402,14 +368,16 @@ public:
 	void operator/=(float s);
 	void operator*=(Vector3::Arg v);
 	void operator/=(Vector3::Arg v);
-
 	friend bool operator==(Vector3::Arg a, Vector3::Arg b);
 	friend bool operator!=(Vector3::Arg a, Vector3::Arg b);
 
-	union {
-		struct {
+	union
+	{
+		struct
+		{
 			float x, y, z;
 		};
+
 		float component[3];
 	};
 };
@@ -476,7 +444,6 @@ inline bool operator!=(Vector2::Arg a, Vector2::Arg b)
 	return a.x != b.x || a.y != b.y;
 }
 
-
 // Vector3
 inline Vector3::Vector3() {}
 inline Vector3::Vector3(float f) : x(f), y(f), z(f) {}
@@ -491,7 +458,6 @@ inline const Vector3 &Vector3::operator=(Vector3::Arg v)
 	z = v.z;
 	return *this;
 }
-
 
 inline Vector2 Vector3::xy() const
 {
@@ -566,9 +532,6 @@ inline bool operator!=(Vector3::Arg a, Vector3::Arg b)
 {
 	return a.x != b.x || a.y != b.y || a.z != b.z;
 }
-
-// Functions
-
 
 // Vector2
 
@@ -685,12 +648,10 @@ inline float triangleArea2(Vector2::Arg v1, Vector2::Arg v2, Vector2::Arg v3)
 }
 
 template <>
-inline uint32_t hash(const Vector2 &v, uint32_t h)
+inline static uint32_t hash(const Vector2 &v, uint32_t h)
 {
 	return sdbmFloatHash(v.component, 2, h);
 }
-
-
 
 // Vector3
 
@@ -715,14 +676,17 @@ inline Vector3 sub(Vector3::Arg a, Vector3::Arg b)
 {
 	return Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
+
 inline Vector3 sub(Vector3::Arg a, float b)
 {
 	return Vector3(a.x - b, a.y - b, a.z - b);
 }
+
 inline Vector3 operator-(Vector3::Arg a, Vector3::Arg b)
 {
 	return sub(a, b);
 }
+
 inline Vector3 operator-(Vector3::Arg a, float b)
 {
 	return sub(a, b);
@@ -848,7 +812,7 @@ inline bool isFinite(Vector3::Arg v)
 }
 
 template <>
-inline uint32_t hash(const Vector3 &v, uint32_t h)
+inline static uint32_t hash(const Vector3 &v, uint32_t h)
 {
 	return sdbmFloatHash(v.component, 3, h);
 }
@@ -858,7 +822,6 @@ inline uint32_t hash(const Vector3 &v, uint32_t h)
 class Basis
 {
 public:
-
 	/// Create a null basis.
 	Basis() : tangent(0, 0, 0), bitangent(0, 0, 0), normal(0, 0, 0) {}
 
@@ -888,7 +851,6 @@ public:
 		}
 	}
 
-
 	Vector3 tangent;
 	Vector3 bitangent;
 	Vector3 normal;
@@ -898,7 +860,6 @@ public:
 class BitArray
 {
 public:
-
 	BitArray() {}
 	BitArray(uint32_t sz)
 	{
@@ -909,6 +870,7 @@ public:
 	{
 		return m_size;
 	}
+
 	void clear()
 	{
 		resize(0);
@@ -1008,7 +970,6 @@ public:
 		m_height = h;
 	}
 
-
 	bool bitAt(uint32_t x, uint32_t y) const
 	{
 		nvDebugCheck(x < m_width && y < m_height);
@@ -1036,7 +997,6 @@ private:
 class Box
 {
 public:
-
 	inline Box() {}
 	inline Box(const Box &b) : minCorner(b.minCorner), maxCorner(b.maxCorner) {}
 	inline Box(const Vector3 &mins, const Vector3 &maxs) : minCorner(mins), maxCorner(maxs) {}
@@ -1387,9 +1347,7 @@ public:
 	Face *face;
 
 	// Default constructor.
-	Edge(uint32_t id) : id(id), next(NULL), prev(NULL), pair(NULL), vertex(NULL), face(NULL)
-	{
-	}
+	Edge(uint32_t id) : id(id), next(NULL), prev(NULL), pair(NULL), vertex(NULL), face(NULL) {}
 
 	// Vertex queries.
 	const Vertex *from() const
@@ -1973,7 +1931,6 @@ public:
 class Mesh
 {
 public:
-
 	Mesh() : m_colocalVertexCount(0), errorCount(0) {}
 
 	Mesh(const Mesh *mesh)
@@ -2169,7 +2126,6 @@ public:
 					// @@ Remove disconnected vertex?
 				}
 			}
-			//edge->setVertex(NULL);
 		}
 		// Disconnect from face.
 		if (edge->face != NULL) {
@@ -2183,16 +2139,7 @@ public:
 					// @@ Remove disconnected face?
 				}
 			}
-			//edge->setFace(NULL);
 		}
-		// @@ Hack, we don't disconnect from pair, because pair needs us to remove itself from the map.
-		// Disconect from pair.
-		/*if (edge->pair != NULL) {
-			if (edge->pair->pair == edge) {
-				edge->pair->setPair(NULL);
-			}
-			//edge->setPair(NULL);
-		}*/
 		// Disconnect from previous.
 		if (edge->prev) {
 			if (edge->prev->next == edge) {
@@ -2417,14 +2364,6 @@ public:
 					float d = length(cross(v01, v21)) / l;
 					if (isZero(d)) {
 						float t = dot(v01, v21) / (l * l);
-						// @@ Snap x0 to x1 or x2, if too close? No, do vertex snapping elsewhere.
-						/*if (equal(t, 0.0f, 0.01f)) {
-							//vertex->setPos(x1);
-						}
-						else if (equal(t, 1.0f, 0.01f)) {
-							//vertex->setPos(x2);
-						}
-						else*/
 						if (t > 0.0f + NV_EPSILON && t < 1.0f - NV_EPSILON) {
 							nvDebugCheck(equal(lerp(x1, x2, t), x0));
 							Vertex *splitVertex = splitBoundaryEdge(edge, t, x0);
@@ -2770,8 +2709,6 @@ public:
 		return true;
 	}
 
-public:
-
 	// Error status:
 	mutable uint32_t errorCount;
 	mutable uint32_t errorIndex0;
@@ -2888,7 +2825,6 @@ private:
 	{
 		nvCheck(edge->face == NULL);
 		// Make sure next pointer has not been set. @@ We want to be able to relink boundary edges after mesh changes.
-		//nvCheck(edge->next() == NULL);
 		Edge *next = edge;
 		while (next->pair->face != NULL) {
 			// Get pair prev
@@ -2902,7 +2838,6 @@ private:
 		// Adjust vertex edge, so that it's the boundary edge. (required for isBoundary())
 		if (edge->vertex->edge != edge) {
 			// Multiple boundaries in the same edge.
-			//nvCheck( edge->vertex()->edge() == NULL || edge->vertex()->edge()->face() != NULL );
 			edge->vertex->edge = edge;
 		}
 	}
@@ -3100,7 +3035,6 @@ private:
 	}
 
 private:
-
 	///< Number of boundary loops.
 	int m_boundaryCount;
 
@@ -3298,7 +3232,6 @@ Mesh *triangulate(const Mesh *inputMesh)
 class MTRand
 {
 public:
-
 	enum time_e { Time };
 	enum { N = 624 };       // length of state vector
 	enum { M = 397 };
@@ -3353,9 +3286,7 @@ public:
 		return n;
 	}
 
-
 private:
-
 	void initialize( uint32_t seed )
 	{
 		// Initialize generator state with seed
@@ -3407,12 +3338,9 @@ private:
 		return m ^ (mixBits(s0, s1) >> 1) ^ ((~loBit(s1) + 1) & 0x9908b0dfU);
 	}
 
-private:
-
 	uint32_t state[N];	// internal state
 	uint32_t *next;	// next value to get from state
 	int left;		// number of values left before reload needed
-
 };
 
 namespace morton {
@@ -8155,7 +8083,6 @@ static Atlas_Output_Mesh *atlas_generate(const Atlas_Input_Mesh *input, const At
 	// Build output mesh.
 	return mesh_atlas_to_output(mesh.get(), atlas, error);
 }
-
 
 static void atlas_free(Atlas_Output_Mesh *output)
 {
