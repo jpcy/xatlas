@@ -7895,7 +7895,6 @@ private:
 };
 
 } // namespace param
-} // namespace internal
 
 static Atlas_Output_Mesh *set_error(Atlas_Error *error, Atlas_Error code)
 {
@@ -7987,7 +7986,9 @@ static Atlas_Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *m
 	return output;
 }
 
-static void atlas_set_default_options(Atlas_Options *options)
+} // namespace internal
+
+void atlas_set_default_options(Atlas_Options *options)
 {
 	if (options != NULL) {
 		// These are the default values we use on The Witness.
@@ -8008,25 +8009,25 @@ static void atlas_set_default_options(Atlas_Options *options)
 	}
 }
 
-static Atlas_Output_Mesh *atlas_generate(const Atlas_Input_Mesh *input, const Atlas_Options *options, Atlas_Error *error)
+Atlas_Output_Mesh *atlas_generate(const Atlas_Input_Mesh *input, const Atlas_Options *options, Atlas_Error *error)
 {
 	// Validate args.
-	if (input == NULL || options == NULL || error == NULL) return set_error(error, Atlas_Error_Invalid_Args);
+	if (input == NULL || options == NULL || error == NULL) return internal::set_error(error, Atlas_Error_Invalid_Args);
 	// Validate options.
 	if (options->charter != Atlas_Charter_Witness) {
-		return set_error(error, Atlas_Error_Invalid_Options);
+		return internal::set_error(error, Atlas_Error_Invalid_Options);
 	}
 	if (options->charter == Atlas_Charter_Witness) {
 		// @@ Validate input options!
 	}
 	if (options->mapper != Atlas_Mapper_LSCM) {
-		return set_error(error, Atlas_Error_Invalid_Options);
+		return internal::set_error(error, Atlas_Error_Invalid_Options);
 	}
 	if (options->mapper == Atlas_Mapper_LSCM) {
 		// No options.
 	}
 	if (options->packer != Atlas_Packer_Witness) {
-		return set_error(error, Atlas_Error_Invalid_Options);
+		return internal::set_error(error, Atlas_Error_Invalid_Options);
 	}
 	if (options->packer == Atlas_Packer_Witness) {
 		// @@ Validate input options!
@@ -8039,19 +8040,19 @@ static Atlas_Output_Mesh *atlas_generate(const Atlas_Input_Mesh *input, const At
 		if (v0 < 0 || v0 >= input->vertex_count ||
 		        v1 < 0 || v1 >= input->vertex_count ||
 		        v2 < 0 || v2 >= input->vertex_count) {
-			return set_error(error, Atlas_Error_Invalid_Mesh);
+			return internal::set_error(error, Atlas_Error_Invalid_Mesh);
 		}
 	}
 	// Build half edge mesh.
 	std::auto_ptr<internal::halfedge::Mesh> mesh(new internal::halfedge::Mesh);
-	input_to_mesh(input, mesh.get(), error);
+	internal::input_to_mesh(input, mesh.get(), error);
 	if (*error == Atlas_Error_Invalid_Mesh) {
 		return NULL;
 	}
 	internal::param::Atlas atlas;
 	// Charter.
 	if (options->charter == Atlas_Charter_Extract) {
-		return set_error(error, Atlas_Error_Not_Implemented);
+		return internal::set_error(error, Atlas_Error_Not_Implemented);
 	} else if (options->charter == Atlas_Charter_Witness) {
 		internal::param::SegmentationSettings segmentation_settings;
 		segmentation_settings.proxyFitMetricWeight = options->charter_options.witness.proxy_fit_metric_weight;
@@ -8079,10 +8080,10 @@ static Atlas_Output_Mesh *atlas_generate(const Atlas_Input_Mesh *input, const At
 		//float utilization = return packer.computeAtlasUtilization();
 	}
 	// Build output mesh.
-	return mesh_atlas_to_output(mesh.get(), atlas, error);
+	return internal::mesh_atlas_to_output(mesh.get(), atlas, error);
 }
 
-static void atlas_free(Atlas_Output_Mesh *output)
+void atlas_free(Atlas_Output_Mesh *output)
 {
 	if (output != NULL) {
 		delete [] output->vertex_array;
