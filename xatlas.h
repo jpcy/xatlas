@@ -82,8 +82,6 @@ struct Output_Vertex
 
 struct Output_Mesh
 {
-    int atlas_width;
-    int atlas_height;
     int vertex_count;
     int index_count;
     Output_Vertex * vertex_array;
@@ -100,9 +98,18 @@ enum Error
     Error_Not_Implemented,
 };
 
+struct Atlas
+{
+	Error error;
+	int width;
+	int height;
+	int nMeshes;
+	Output_Mesh **meshes;
+};
+
 void set_default_options(Options * options);
-Error atlas_generate(const Input_Mesh *input, const Options *options, std::vector<Output_Mesh *> &outputMeshes);
-void atlas_free(Output_Mesh * output);
+Atlas atlas_generate(const Input_Mesh *input, const Options *options);
+void atlas_free(Atlas atlas);
 } // namespace xatlas
 
 #ifdef XATLAS_IMPLEMENTATION
@@ -7923,7 +7930,7 @@ static void input_to_mesh(const Input_Mesh *input, internal::halfedge::Mesh *mes
 	}
 }
 
-static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, const internal::param::Atlas &atlas, Error *error)
+static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, const internal::param::Atlas &atlas, int *width, int *height, Error *error)
 {
 	Output_Mesh *output = new Output_Mesh;
 	const internal::param::MeshCharts *charts = atlas.meshAt(0);
@@ -7931,8 +7938,6 @@ static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, c
 	const int vertex_count = charts->vertexCount();
 	output->vertex_count = vertex_count;
 	output->vertex_array = new Output_Vertex[vertex_count];
-	int w = 0;
-	int h = 0;
 	// Output vertices.
 	const int chart_count = charts->chartCount();
 	for (int i = 0; i < chart_count; i++) {
@@ -7946,8 +7951,8 @@ static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, c
 			internal::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
 			output_vertex.uv[0] = uv.x;
 			output_vertex.uv[1] = uv.y;
-			w = std::max(w, internal::ftoi_ceil(uv.x));
-			h = std::max(h, internal::ftoi_ceil(uv.y));
+			*width = std::max(*width, internal::ftoi_ceil(uv.x));
+			*height = std::max(*height, internal::ftoi_ceil(uv.y));
 		}
 	}
 	const int face_count = mesh->faceCount();
@@ -7967,8 +7972,6 @@ static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, c
 		output->index_array[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
 	}
 	*error = Error_Success;
-	output->atlas_width = w;
-	output->atlas_height = h;
 	return output;
 }
 
@@ -7995,29 +7998,11 @@ void set_default_options(Options *options)
 	}
 }
 
-Error atlas_generate(const Input_Mesh *input, const Options *options, std::vector<Output_Mesh *> &outputMeshes)
+Atlas atlas_generate(const Input_Mesh *input, const Options *options)
 {
-	// Validate args.
-	if (input == NULL || options == NULL) return Error_Invalid_Args;
-	// Validate options.
-	if (options->charter != Charter_Witness) {
-		return Error_Invalid_Options;
-	}
-	if (options->charter == Charter_Witness) {
-		// @@ Validate input options!
-	}
-	if (options->mapper != Mapper_LSCM) {
-		return Error_Invalid_Options;
-	}
-	if (options->mapper == Mapper_LSCM) {
-		// No options.
-	}
-	if (options->packer != Packer_Witness) {
-		return Error_Invalid_Options;
-	}
-	if (options->packer == Packer_Witness) {
-		// @@ Validate input options!
-	}
+	Atlas result;
+	result.error = Error_Success;
+
 	// Validate input mesh.
 	for (int i = 0; i < input->face_count; i++) {
 		int v0 = input->face_array[i].vertex_index[0];
@@ -8026,21 +8011,18 @@ Error atlas_generate(const Input_Mesh *input, const Options *options, std::vecto
 		if (v0 < 0 || v0 >= input->vertex_count ||
 		        v1 < 0 || v1 >= input->vertex_count ||
 		        v2 < 0 || v2 >= input->vertex_count) {
-			return Error_Invalid_Mesh;
+			result.error = Error_Invalid_Mesh;
+			return result;
 		}
 	}
 	// Build half edge mesh.
 	std::auto_ptr<internal::halfedge::Mesh> mesh(new internal::halfedge::Mesh);
-	Error error = Error_Success;
-	internal::input_to_mesh(input, mesh.get(), &error);
-	if (error != Error_Success) {
-		return error;
+	internal::input_to_mesh(input, mesh.get(), &result.error);
+	if (result.error != Error_Success) {
+		return result;
 	}
 	internal::param::Atlas atlas;
-	// Charter.
-	if (options->charter == Charter_Extract) {
-		return Error_Not_Implemented;
-	} else if (options->charter == Charter_Witness) {
+	if (options->charter == Charter_Witness) {
 		internal::param::SegmentationSettings segmentation_settings;
 		segmentation_settings.proxyFitMetricWeight = options->charter_options.proxy_fit_metric_weight;
 		segmentation_settings.roundnessMetricWeight = options->charter_options.roundness_metric_weight;
@@ -8052,11 +8034,9 @@ Error atlas_generate(const Input_Mesh *input, const Options *options, std::vecto
 		std::vector<uint32_t> uncharted_materials;
 		atlas.computeCharts(mesh.get(), segmentation_settings, uncharted_materials);
 	}
-	// Mapper.
 	if (options->mapper == Mapper_LSCM) {
 		atlas.parameterizeCharts();
 	}
-	// Packer.
 	if (options->packer == Packer_Witness) {
 		int packing_quality = options->packer_options.packing_quality;
 		float texel_area = options->packer_options.texel_area;
@@ -8067,17 +8047,21 @@ Error atlas_generate(const Input_Mesh *input, const Options *options, std::vecto
 		//float utilization = return packer.computeAtlasUtilization();
 	}
 	// Build output mesh.
-	outputMeshes.push_back(internal::mesh_atlas_to_output(mesh.get(), atlas, &error));
-	return error;
+	result.width = result.height = 0;
+	result.nMeshes = 1;
+	result.meshes = new Output_Mesh *[result.nMeshes];
+	result.meshes[0] = internal::mesh_atlas_to_output(mesh.get(), atlas, &result.width, &result.height, &result.error);
+	return result;
 }
 
-void atlas_free(Output_Mesh *output)
+void atlas_free(Atlas atlas)
 {
-	if (output != NULL) {
-		delete [] output->vertex_array;
-		delete [] output->index_array;
-		delete output;
+	for (int i = 0; i < atlas.nMeshes; i++) {
+		delete [] atlas.meshes[i]->vertex_array;
+		delete [] atlas.meshes[i]->index_array;
+		delete atlas.meshes[i];
 	}
+	delete [] atlas.meshes;
 }
 } // namespace xatlas
 

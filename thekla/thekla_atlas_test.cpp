@@ -98,16 +98,20 @@ void obj_mesh_free(Obj_Mesh *mesh)
 	}
 }
 
-static xatlas::Output_Mesh *output_mesh;
-static uint8_t *output_image;
+struct RasterParam
+{
+	xatlas::Atlas *atlas;
+	uint8_t color[3];
+	uint8_t *output_image;
+};
 
 bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3::Arg bar, xatlas::internal::Vector3::Arg dx, xatlas::internal::Vector3::Arg dy, float coverage)
 {
-	uint8_t *color = (uint8_t *)param;
-	uint8_t *rgba = &output_image[(x + y * output_mesh->atlas_width) * 4];
-	rgba[0] = color[0];
-	rgba[1] = color[1];
-	rgba[2] = color[2];
+	RasterParam *data = (RasterParam *)param;
+	uint8_t *rgba = &data->output_image[(x + y * data->atlas->width) * 4];
+	rgba[0] = data->color[0];
+	rgba[1] = data->color[1];
+	rgba[2] = data->color[2];
 	rgba[3] = 255;
 	return true;
 }
@@ -140,14 +144,13 @@ int main(int argc, char *argv[])
 	// Avoid brute force packing, since it can be unusably slow in some situations.
 	atlas_options.packer_options.packing_quality = 1;
 	atlas_options.packer_options.texel_area = 256;
-	std::vector<xatlas::Output_Mesh *> outputMeshes;
-	xatlas::Error error = xatlas::atlas_generate(&input_mesh, &atlas_options, outputMeshes);
-	printf("%d output meshes\n", (int)outputMeshes.size());
-	for (int i = 0; i < (int)outputMeshes.size(); i++) {
-		output_mesh = outputMeshes[i];
+	xatlas::Atlas atlas = xatlas::atlas_generate(&input_mesh, &atlas_options);
+	printf("%d output meshes\n", atlas.nMeshes);
+	uint8_t *output_image = new uint8_t[atlas.width * atlas.height * 4];
+	memset(output_image, 0, atlas.width * atlas.height * 4);
+	for (int i = 0; i < atlas.nMeshes; i++) {
+		xatlas::Output_Mesh *output_mesh = atlas.meshes[i];
 		printf("Output mesh %d has %d verts, %d triangles\n", i, output_mesh->vertex_count, output_mesh->index_count / 3);
-		output_image = new uint8_t[output_mesh->atlas_width * output_mesh->atlas_height * 4];
-		memset(output_image, 0, output_mesh->atlas_width * output_mesh->atlas_height * 4);
 		for (int j = 0; j < output_mesh->index_count; j += 3) {
 			const xatlas::Output_Vertex *v[3];
 			v[0] = &output_mesh->vertex_array[output_mesh->index_array[j + 0]];
@@ -155,20 +158,23 @@ int main(int argc, char *argv[])
 			v[2] = &output_mesh->vertex_array[output_mesh->index_array[j + 2]];
 			xatlas::internal::Vector2 verts[3];
 			for (int k = 0; k < 3; k++) {
-				//normalizedVerts[j] = nv::Vector2(v[j].uv[0] * output_mesh->atlas_width, v[j].uv[1] * output_mesh->atlas_height);
+				//normalizedVerts[j] = nv::Vector2(v[j].uv[0] * atlas.width, v[j].uv[1] * atlas.height);
 				verts[k] = xatlas::internal::Vector2(v[k]->uv[0], v[k]->uv[1]);
 			}
-			uint8_t color[3];
-			color[0] = rand() % 255;
-			color[1] = rand() % 255;
-			color[2] = rand() % 255;
-			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)output_mesh->atlas_width, (float)output_mesh->atlas_height), true, verts, RasterCallback, color);
+			RasterParam raster;
+			raster.atlas = &atlas;
+			raster.color[0] = rand() % 255;
+			raster.color[1] = rand() % 255;
+			raster.color[2] = rand() % 255;
+			raster.output_image = output_image;
+			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)atlas.width, (float)atlas.height), true, verts, RasterCallback, &raster);
 		}
 	}
-	stbi_write_tga("debug_packer_final.tga", output_mesh->atlas_width, output_mesh->atlas_height, 4, output_image);
+	stbi_write_tga("debug_packer_final.tga", atlas.width, atlas.height, 4, output_image);
+	delete [] output_image;
 	printf("Produced debug_packer_final.tga\n");
 	// Free meshes.
 	obj_mesh_free(obj_mesh);
-	xatlas::atlas_free(output_mesh);
+	xatlas::atlas_free(atlas);
 	return 0;
 }
