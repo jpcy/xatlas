@@ -4,29 +4,8 @@
 #define XATLAS_H
 
 namespace xatlas {
-enum Charter
-{
-    Charter_Witness,  // Options: threshold
-    Charter_Extract,  // Options: ---
-    Charter_Default = Charter_Witness
-};
-
-enum Mapper
-{
-    Mapper_LSCM,      // Options: ---
-    Mapper_Default = Mapper_LSCM
-};
-
-enum Packer
-{
-    Packer_Witness,   // Options: texel_area
-    Packer_Default = Packer_Witness
-};
-
 struct Options
 {
-    Charter charter;
-    
 	struct
 	{
         float proxy_fit_metric_weight;
@@ -37,11 +16,8 @@ struct Options
         float max_chart_area;
         float max_boundary_length;
     }
-	charter_options;
+	charter;
 
-    Mapper mapper;
-    Packer packer;
-    
 	struct
 	{
         int packing_quality;
@@ -49,7 +25,7 @@ struct Options
         bool block_align;       // Align charts to 4x4 blocks. 
         bool conservative;      // Pack charts with extra padding.
     }
-	packer_options;
+	packer;
 };
 
 struct Input_Vertex
@@ -7989,20 +7965,17 @@ void set_default_options(Options *options)
 {
 	if (options != NULL) {
 		// These are the default values we use on The Witness.
-		options->charter = Charter_Default;
-		options->charter_options.proxy_fit_metric_weight = 2.0f;
-		options->charter_options.roundness_metric_weight = 0.01f;
-		options->charter_options.straightness_metric_weight = 6.0f;
-		options->charter_options.normal_seam_metric_weight = 4.0f;
-		options->charter_options.texture_seam_metric_weight = 0.5f;
-		options->charter_options.max_chart_area = FLT_MAX;
-		options->charter_options.max_boundary_length = FLT_MAX;
-		options->mapper = Mapper_Default;
-		options->packer = Packer_Default;
-		options->packer_options.packing_quality = 0;
-		options->packer_options.texel_area = 8;
-		options->packer_options.block_align = true;
-		options->packer_options.conservative = false;
+		options->charter.proxy_fit_metric_weight = 2.0f;
+		options->charter.roundness_metric_weight = 0.01f;
+		options->charter.straightness_metric_weight = 6.0f;
+		options->charter.normal_seam_metric_weight = 4.0f;
+		options->charter.texture_seam_metric_weight = 0.5f;
+		options->charter.max_chart_area = FLT_MAX;
+		options->charter.max_boundary_length = FLT_MAX;
+		options->packer.packing_quality = 0;
+		options->packer.texel_area = 8;
+		options->packer.block_align = true;
+		options->packer.conservative = false;
 	}
 }
 
@@ -8038,31 +8011,21 @@ Atlas atlas_generate(const Options *options)
 		if (result.error != Error_Success) {
 			return result;
 		}
-		if (options->charter == Charter_Witness) {
-			internal::param::SegmentationSettings segmentation_settings;
-			segmentation_settings.proxyFitMetricWeight = options->charter_options.proxy_fit_metric_weight;
-			segmentation_settings.roundnessMetricWeight = options->charter_options.roundness_metric_weight;
-			segmentation_settings.straightnessMetricWeight = options->charter_options.straightness_metric_weight;
-			segmentation_settings.normalSeamMetricWeight = options->charter_options.normal_seam_metric_weight;
-			segmentation_settings.textureSeamMetricWeight = options->charter_options.texture_seam_metric_weight;
-			segmentation_settings.maxChartArea = options->charter_options.max_chart_area;
-			segmentation_settings.maxBoundaryLength = options->charter_options.max_boundary_length;
-			std::vector<uint32_t> uncharted_materials;
-			atlas.computeCharts(heMeshes[i], segmentation_settings, uncharted_materials);
-		}
+		internal::param::SegmentationSettings segmentation_settings;
+		segmentation_settings.proxyFitMetricWeight = options->charter.proxy_fit_metric_weight;
+		segmentation_settings.roundnessMetricWeight = options->charter.roundness_metric_weight;
+		segmentation_settings.straightnessMetricWeight = options->charter.straightness_metric_weight;
+		segmentation_settings.normalSeamMetricWeight = options->charter.normal_seam_metric_weight;
+		segmentation_settings.textureSeamMetricWeight = options->charter.texture_seam_metric_weight;
+		segmentation_settings.maxChartArea = options->charter.max_chart_area;
+		segmentation_settings.maxBoundaryLength = options->charter.max_boundary_length;
+		std::vector<uint32_t> uncharted_materials;
+		atlas.computeCharts(heMeshes[i], segmentation_settings, uncharted_materials);
 	}
-	if (options->mapper == Mapper_LSCM) {
-		atlas.parameterizeCharts();
-	}
-	if (options->packer == Packer_Witness) {
-		int packing_quality = options->packer_options.packing_quality;
-		float texel_area = options->packer_options.texel_area;
-		bool block_align = options->packer_options.block_align;
-		bool conservative = options->packer_options.conservative;
-		internal::param::AtlasPacker packer(&atlas);
-		packer.packCharts(packing_quality, texel_area, block_align, conservative);
-		//float utilization = return packer.computeAtlasUtilization();
-	}
+	atlas.parameterizeCharts();
+	internal::param::AtlasPacker packer(&atlas);
+	packer.packCharts(options->packer.packing_quality, options->packer.texel_area, options->packer.block_align, options->packer.conservative);
+	//float utilization = return packer.computeAtlasUtilization();
 	// Build output mesh.
 	result.width = result.height = 0;
 	result.nMeshes = (int)s_context.meshes.size();

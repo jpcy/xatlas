@@ -142,8 +142,8 @@ int main(int argc, char *argv[])
 	xatlas::Options atlas_options;
 	xatlas::set_default_options(&atlas_options);
 	// Avoid brute force packing, since it can be unusably slow in some situations.
-	atlas_options.packer_options.packing_quality = 1;
-	atlas_options.packer_options.texel_area = 256;
+	atlas_options.packer.packing_quality = 1;
+	atlas_options.packer.texel_area = 256;
 	xatlas::add_mesh(&input_mesh);
 	xatlas::add_mesh(&input_mesh);
 	xatlas::Atlas atlas = xatlas::atlas_generate(&atlas_options);
