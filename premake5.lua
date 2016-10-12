@@ -46,22 +46,12 @@ project "atlas"
 	files
 	{
 		"xatlas.h",
-		"nvcore/*.cpp",
-		"nvcore/*.h",
-		"nvmath/*.cpp",
-		"nvmath/*.h",
-		"nvmesh/**.cpp",
-		"nvmesh/**.h",
-		"thekla/*.cpp",
-		"thekla/*.h",
+		"thekla/*.cpp"
 	}
 	
 	includedirs
 	{
-		".",
 		"extern/tinyobj",
-		"nvcore",
-		"nvmesh",
 	}
 		
 	configuration { "windows", "gmake", "x86" }
