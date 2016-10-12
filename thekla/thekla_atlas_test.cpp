@@ -144,7 +144,9 @@ int main(int argc, char *argv[])
 	// Avoid brute force packing, since it can be unusably slow in some situations.
 	atlas_options.packer_options.packing_quality = 1;
 	atlas_options.packer_options.texel_area = 256;
-	xatlas::Atlas atlas = xatlas::atlas_generate(&input_mesh, &atlas_options);
+	xatlas::add_mesh(&input_mesh);
+	xatlas::add_mesh(&input_mesh);
+	xatlas::Atlas atlas = xatlas::atlas_generate(&atlas_options);
 	printf("%d output meshes\n", atlas.nMeshes);
 	uint8_t *output_image = new uint8_t[atlas.width * atlas.height * 4];
 	memset(output_image, 0, atlas.width * atlas.height * 4);

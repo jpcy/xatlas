@@ -108,7 +108,8 @@ struct Atlas
 };
 
 void set_default_options(Options * options);
-Atlas atlas_generate(const Input_Mesh *input, const Options *options);
+void add_mesh(const Input_Mesh *mesh);
+Atlas atlas_generate(const Options *options);
 void atlas_free(Atlas atlas);
 } // namespace xatlas
 
@@ -7930,10 +7931,10 @@ static void input_to_mesh(const Input_Mesh *input, internal::halfedge::Mesh *mes
 	}
 }
 
-static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, const internal::param::Atlas &atlas, int *width, int *height, Error *error)
+static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, int meshIndex, const internal::param::Atlas &atlas, int *width, int *height, Error *error)
 {
 	Output_Mesh *output = new Output_Mesh;
-	const internal::param::MeshCharts *charts = atlas.meshAt(0);
+	const internal::param::MeshCharts *charts = atlas.meshAt(meshIndex);
 	// Allocate vertices.
 	const int vertex_count = charts->vertexCount();
 	output->vertex_count = vertex_count;
@@ -7977,6 +7978,13 @@ static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, c
 
 } // namespace internal
 
+struct Context
+{
+	std::vector<const Input_Mesh *> meshes;
+};
+
+static Context s_context;
+
 void set_default_options(Options *options)
 {
 	if (options != NULL) {
@@ -7998,41 +8006,50 @@ void set_default_options(Options *options)
 	}
 }
 
-Atlas atlas_generate(const Input_Mesh *input, const Options *options)
+void add_mesh(const Input_Mesh *mesh)
+{
+	s_context.meshes.push_back(mesh);
+}
+
+Atlas atlas_generate(const Options *options)
 {
 	Atlas result;
 	result.error = Error_Success;
-
-	// Validate input mesh.
-	for (int i = 0; i < input->face_count; i++) {
-		int v0 = input->face_array[i].vertex_index[0];
-		int v1 = input->face_array[i].vertex_index[1];
-		int v2 = input->face_array[i].vertex_index[2];
-		if (v0 < 0 || v0 >= input->vertex_count ||
-		        v1 < 0 || v1 >= input->vertex_count ||
-		        v2 < 0 || v2 >= input->vertex_count) {
-			result.error = Error_Invalid_Mesh;
-			return result;
+	// Validate input meshes.
+	for (int i = 0; i < (int)s_context.meshes.size(); i++) {
+		const Input_Mesh *mesh = s_context.meshes[i];
+		for (int j = 0; j < mesh->face_count; j++) {
+			int v0 = mesh->face_array[j].vertex_index[0];
+			int v1 = mesh->face_array[j].vertex_index[1];
+			int v2 = mesh->face_array[j].vertex_index[2];
+			if (v0 < 0 || v0 >= mesh->vertex_count || v1 < 0 || v1 >= mesh->vertex_count || v2 < 0 || v2 >= mesh->vertex_count) {
+				result.error = Error_Invalid_Mesh;
+				return result;
+			}
 		}
 	}
-	// Build half edge mesh.
-	std::auto_ptr<internal::halfedge::Mesh> mesh(new internal::halfedge::Mesh);
-	internal::input_to_mesh(input, mesh.get(), &result.error);
-	if (result.error != Error_Success) {
-		return result;
-	}
+	// Chart meshes.
 	internal::param::Atlas atlas;
-	if (options->charter == Charter_Witness) {
-		internal::param::SegmentationSettings segmentation_settings;
-		segmentation_settings.proxyFitMetricWeight = options->charter_options.proxy_fit_metric_weight;
-		segmentation_settings.roundnessMetricWeight = options->charter_options.roundness_metric_weight;
-		segmentation_settings.straightnessMetricWeight = options->charter_options.straightness_metric_weight;
-		segmentation_settings.normalSeamMetricWeight = options->charter_options.normal_seam_metric_weight;
-		segmentation_settings.textureSeamMetricWeight = options->charter_options.texture_seam_metric_weight;
-		segmentation_settings.maxChartArea = options->charter_options.max_chart_area;
-		segmentation_settings.maxBoundaryLength = options->charter_options.max_boundary_length;
-		std::vector<uint32_t> uncharted_materials;
-		atlas.computeCharts(mesh.get(), segmentation_settings, uncharted_materials);
+	std::vector<internal::halfedge::Mesh *> heMeshes(s_context.meshes.size());
+	for (int i = 0; i < (int)s_context.meshes.size(); i++) {
+		// Build half edge mesh.
+		heMeshes[i] = new internal::halfedge::Mesh;
+		internal::input_to_mesh(s_context.meshes[i], heMeshes[i], &result.error);
+		if (result.error != Error_Success) {
+			return result;
+		}
+		if (options->charter == Charter_Witness) {
+			internal::param::SegmentationSettings segmentation_settings;
+			segmentation_settings.proxyFitMetricWeight = options->charter_options.proxy_fit_metric_weight;
+			segmentation_settings.roundnessMetricWeight = options->charter_options.roundness_metric_weight;
+			segmentation_settings.straightnessMetricWeight = options->charter_options.straightness_metric_weight;
+			segmentation_settings.normalSeamMetricWeight = options->charter_options.normal_seam_metric_weight;
+			segmentation_settings.textureSeamMetricWeight = options->charter_options.texture_seam_metric_weight;
+			segmentation_settings.maxChartArea = options->charter_options.max_chart_area;
+			segmentation_settings.maxBoundaryLength = options->charter_options.max_boundary_length;
+			std::vector<uint32_t> uncharted_materials;
+			atlas.computeCharts(heMeshes[i], segmentation_settings, uncharted_materials);
+		}
 	}
 	if (options->mapper == Mapper_LSCM) {
 		atlas.parameterizeCharts();
@@ -8048,9 +8065,12 @@ Atlas atlas_generate(const Input_Mesh *input, const Options *options)
 	}
 	// Build output mesh.
 	result.width = result.height = 0;
-	result.nMeshes = 1;
-	result.meshes = new Output_Mesh *[result.nMeshes];
-	result.meshes[0] = internal::mesh_atlas_to_output(mesh.get(), atlas, &result.width, &result.height, &result.error);
+	result.nMeshes = (int)s_context.meshes.size();
+	result.meshes = new Output_Mesh *[s_context.meshes.size()];
+	for (int i = 0; i < (int)s_context.meshes.size(); i++) {
+		result.meshes[i] = internal::mesh_atlas_to_output(heMeshes[i], i, atlas, &result.width, &result.height, &result.error);
+		delete heMeshes[i];
+	}
 	return result;
 }
 
