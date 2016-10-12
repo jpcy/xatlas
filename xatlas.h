@@ -4,63 +4,55 @@
 #define XATLAS_H
 
 namespace xatlas {
-enum Atlas_Charter
+enum Charter
 {
-    Atlas_Charter_Witness,  // Options: threshold
-    Atlas_Charter_Extract,  // Options: ---
-    Atlas_Charter_Default = Atlas_Charter_Witness
+    Charter_Witness,  // Options: threshold
+    Charter_Extract,  // Options: ---
+    Charter_Default = Charter_Witness
 };
 
-enum Atlas_Mapper
+enum Mapper
 {
-    Atlas_Mapper_LSCM,      // Options: ---
-    Atlas_Mapper_Default = Atlas_Mapper_LSCM
+    Mapper_LSCM,      // Options: ---
+    Mapper_Default = Mapper_LSCM
 };
 
-enum Atlas_Packer
+enum Packer
 {
-    Atlas_Packer_Witness,   // Options: texel_area
-    Atlas_Packer_Default = Atlas_Packer_Witness
+    Packer_Witness,   // Options: texel_area
+    Packer_Default = Packer_Witness
 };
 
-struct Atlas_Options
+struct Options
 {
-    Atlas_Charter charter;
+    Charter charter;
     
-	union
+	struct
 	{
-        struct
-		{
-            float proxy_fit_metric_weight;
-            float roundness_metric_weight;
-            float straightness_metric_weight;
-            float normal_seam_metric_weight;
-            float texture_seam_metric_weight;
-            float max_chart_area;
-            float max_boundary_length;
-        }
-		witness;
+        float proxy_fit_metric_weight;
+        float roundness_metric_weight;
+        float straightness_metric_weight;
+        float normal_seam_metric_weight;
+        float texture_seam_metric_weight;
+        float max_chart_area;
+        float max_boundary_length;
     }
 	charter_options;
 
-    Atlas_Mapper mapper;
-    Atlas_Packer packer;
+    Mapper mapper;
+    Packer packer;
     
-	union
+	struct
 	{
-        struct
-		{
-            int packing_quality;
-            float texel_area;       // This is not really texel area, but 1 / texel width?
-            bool block_align;       // Align charts to 4x4 blocks. 
-            bool conservative;      // Pack charts with extra padding.
-        }
-		witness;
+        int packing_quality;
+        float texel_area;       // This is not really texel area, but 1 / texel width?
+        bool block_align;       // Align charts to 4x4 blocks. 
+        bool conservative;      // Pack charts with extra padding.
     }
 	packer_options;
 };
 
-struct Atlas_Input_Vertex
+struct Input_Vertex
 {
     float position[3];
     float normal[3];
@@ -68,49 +60,49 @@ struct Atlas_Input_Vertex
     int first_colocal;
 };
 
-struct Atlas_Input_Face
+struct Input_Face
 {
     int vertex_index[3];
     int material_index;
 };
 
-struct Atlas_Input_Mesh
+struct Input_Mesh
 {
     int vertex_count;
     int face_count;
-    Atlas_Input_Vertex * vertex_array;
-    Atlas_Input_Face * face_array;
+    Input_Vertex * vertex_array;
+    Input_Face * face_array;
 };
 
-struct Atlas_Output_Vertex
+struct Output_Vertex
 {
     float uv[2];
     int xref;   // Index of input vertex from which this output vertex originated.
 };
 
-struct Atlas_Output_Mesh
+struct Output_Mesh
 {
     int atlas_width;
     int atlas_height;
     int vertex_count;
     int index_count;
-    Atlas_Output_Vertex * vertex_array;
+    Output_Vertex * vertex_array;
     int * index_array;
 };
 
-enum Atlas_Error
+enum Error
 {
-    Atlas_Error_Success,
-    Atlas_Error_Invalid_Args,
-    Atlas_Error_Invalid_Options,
-    Atlas_Error_Invalid_Mesh,
-    Atlas_Error_Invalid_Mesh_Non_Manifold,
-    Atlas_Error_Not_Implemented,
+    Error_Success,
+    Error_Invalid_Args,
+    Error_Invalid_Options,
+    Error_Invalid_Mesh,
+    Error_Invalid_Mesh_Non_Manifold,
+    Error_Not_Implemented,
 };
 
-void atlas_set_default_options(Atlas_Options * options);
-Atlas_Error atlas_generate(const Atlas_Input_Mesh *input, const Atlas_Options *options, std::vector<Atlas_Output_Mesh *> &outputMeshes);
-void atlas_free(Atlas_Output_Mesh * output);
+void set_default_options(Options * options);
+Error atlas_generate(const Input_Mesh *input, const Options *options, std::vector<Output_Mesh *> &outputMeshes);
+void atlas_free(Output_Mesh * output);
 } // namespace xatlas
 
 #ifdef XATLAS_IMPLEMENTATION
@@ -7896,12 +7888,12 @@ private:
 
 } // namespace param
 
-static void input_to_mesh(const Atlas_Input_Mesh *input, internal::halfedge::Mesh *mesh, Atlas_Error *error)
+static void input_to_mesh(const Input_Mesh *input, internal::halfedge::Mesh *mesh, Error *error)
 {
 	std::vector<uint32_t> canonicalMap;
 	canonicalMap.reserve(input->vertex_count);
 	for (int i = 0; i < input->vertex_count; i++) {
-		const Atlas_Input_Vertex &input_vertex = input->vertex_array[i];
+		const Input_Vertex &input_vertex = input->vertex_array[i];
 		const float *pos = input_vertex.position;
 		const float *nor = input_vertex.normal;
 		const float *tex = input_vertex.uv;
@@ -7914,7 +7906,7 @@ static void input_to_mesh(const Atlas_Input_Mesh *input, internal::halfedge::Mes
 	const int face_count = input->face_count;
 	int non_manifold_faces = 0;
 	for (int i = 0; i < face_count; i++) {
-		const Atlas_Input_Face &input_face = input->face_array[i];
+		const Input_Face &input_face = input->face_array[i];
 		int v0 = input_face.vertex_index[0];
 		int v1 = input_face.vertex_index[1];
 		int v2 = input_face.vertex_index[2];
@@ -7927,18 +7919,18 @@ static void input_to_mesh(const Atlas_Input_Mesh *input, internal::halfedge::Mes
 	}
 	mesh->linkBoundary();
 	if (non_manifold_faces != 0 && error != NULL) {
-		*error = Atlas_Error_Invalid_Mesh_Non_Manifold;
+		*error = Error_Invalid_Mesh_Non_Manifold;
 	}
 }
 
-static Atlas_Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, const internal::param::Atlas &atlas, Atlas_Error *error)
+static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, const internal::param::Atlas &atlas, Error *error)
 {
-	Atlas_Output_Mesh *output = new Atlas_Output_Mesh;
+	Output_Mesh *output = new Output_Mesh;
 	const internal::param::MeshCharts *charts = atlas.meshAt(0);
 	// Allocate vertices.
 	const int vertex_count = charts->vertexCount();
 	output->vertex_count = vertex_count;
-	output->vertex_array = new Atlas_Output_Vertex[vertex_count];
+	output->vertex_array = new Output_Vertex[vertex_count];
 	int w = 0;
 	int h = 0;
 	// Output vertices.
@@ -7948,7 +7940,7 @@ static Atlas_Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *m
 		uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
 		const uint32_t chart_vertex_count = chart->vertexCount();
 		for (uint32_t v = 0; v < chart_vertex_count; v++) {
-			Atlas_Output_Vertex &output_vertex = output->vertex_array[vertexOffset + v];
+			Output_Vertex &output_vertex = output->vertex_array[vertexOffset + v];
 			uint32_t original_vertex = chart->mapChartVertexToOriginalVertex(v);
 			output_vertex.xref = original_vertex;
 			internal::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
@@ -7974,7 +7966,7 @@ static Atlas_Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *m
 		output->index_array[3 * f + 1] = vertexOffset + edge->next->vertex->id;
 		output->index_array[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
 	}
-	*error = Atlas_Error_Success;
+	*error = Error_Success;
 	output->atlas_width = w;
 	output->atlas_height = h;
 	return output;
@@ -7982,48 +7974,48 @@ static Atlas_Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *m
 
 } // namespace internal
 
-void atlas_set_default_options(Atlas_Options *options)
+void set_default_options(Options *options)
 {
 	if (options != NULL) {
 		// These are the default values we use on The Witness.
-		options->charter = Atlas_Charter_Default;
-		options->charter_options.witness.proxy_fit_metric_weight = 2.0f;
-		options->charter_options.witness.roundness_metric_weight = 0.01f;
-		options->charter_options.witness.straightness_metric_weight = 6.0f;
-		options->charter_options.witness.normal_seam_metric_weight = 4.0f;
-		options->charter_options.witness.texture_seam_metric_weight = 0.5f;
-		options->charter_options.witness.max_chart_area = FLT_MAX;
-		options->charter_options.witness.max_boundary_length = FLT_MAX;
-		options->mapper = Atlas_Mapper_Default;
-		options->packer = Atlas_Packer_Default;
-		options->packer_options.witness.packing_quality = 0;
-		options->packer_options.witness.texel_area = 8;
-		options->packer_options.witness.block_align = true;
-		options->packer_options.witness.conservative = false;
+		options->charter = Charter_Default;
+		options->charter_options.proxy_fit_metric_weight = 2.0f;
+		options->charter_options.roundness_metric_weight = 0.01f;
+		options->charter_options.straightness_metric_weight = 6.0f;
+		options->charter_options.normal_seam_metric_weight = 4.0f;
+		options->charter_options.texture_seam_metric_weight = 0.5f;
+		options->charter_options.max_chart_area = FLT_MAX;
+		options->charter_options.max_boundary_length = FLT_MAX;
+		options->mapper = Mapper_Default;
+		options->packer = Packer_Default;
+		options->packer_options.packing_quality = 0;
+		options->packer_options.texel_area = 8;
+		options->packer_options.block_align = true;
+		options->packer_options.conservative = false;
 	}
 }
 
-Atlas_Error atlas_generate(const Atlas_Input_Mesh *input, const Atlas_Options *options, std::vector<Atlas_Output_Mesh *> &outputMeshes)
+Error atlas_generate(const Input_Mesh *input, const Options *options, std::vector<Output_Mesh *> &outputMeshes)
 {
 	// Validate args.
-	if (input == NULL || options == NULL) return Atlas_Error_Invalid_Args;
+	if (input == NULL || options == NULL) return Error_Invalid_Args;
 	// Validate options.
-	if (options->charter != Atlas_Charter_Witness) {
-		return Atlas_Error_Invalid_Options;
+	if (options->charter != Charter_Witness) {
+		return Error_Invalid_Options;
 	}
-	if (options->charter == Atlas_Charter_Witness) {
+	if (options->charter == Charter_Witness) {
 		// @@ Validate input options!
 	}
-	if (options->mapper != Atlas_Mapper_LSCM) {
-		return Atlas_Error_Invalid_Options;
+	if (options->mapper != Mapper_LSCM) {
+		return Error_Invalid_Options;
 	}
-	if (options->mapper == Atlas_Mapper_LSCM) {
+	if (options->mapper == Mapper_LSCM) {
 		// No options.
 	}
-	if (options->packer != Atlas_Packer_Witness) {
-		return Atlas_Error_Invalid_Options;
+	if (options->packer != Packer_Witness) {
+		return Error_Invalid_Options;
 	}
-	if (options->packer == Atlas_Packer_Witness) {
+	if (options->packer == Packer_Witness) {
 		// @@ Validate input options!
 	}
 	// Validate input mesh.
@@ -8034,42 +8026,42 @@ Atlas_Error atlas_generate(const Atlas_Input_Mesh *input, const Atlas_Options *o
 		if (v0 < 0 || v0 >= input->vertex_count ||
 		        v1 < 0 || v1 >= input->vertex_count ||
 		        v2 < 0 || v2 >= input->vertex_count) {
-			return Atlas_Error_Invalid_Mesh;
+			return Error_Invalid_Mesh;
 		}
 	}
 	// Build half edge mesh.
 	std::auto_ptr<internal::halfedge::Mesh> mesh(new internal::halfedge::Mesh);
-	Atlas_Error error = Atlas_Error_Success;
+	Error error = Error_Success;
 	internal::input_to_mesh(input, mesh.get(), &error);
-	if (error != Atlas_Error_Success) {
+	if (error != Error_Success) {
 		return error;
 	}
 	internal::param::Atlas atlas;
 	// Charter.
-	if (options->charter == Atlas_Charter_Extract) {
-		return Atlas_Error_Not_Implemented;
-	} else if (options->charter == Atlas_Charter_Witness) {
+	if (options->charter == Charter_Extract) {
+		return Error_Not_Implemented;
+	} else if (options->charter == Charter_Witness) {
 		internal::param::SegmentationSettings segmentation_settings;
-		segmentation_settings.proxyFitMetricWeight = options->charter_options.witness.proxy_fit_metric_weight;
-		segmentation_settings.roundnessMetricWeight = options->charter_options.witness.roundness_metric_weight;
-		segmentation_settings.straightnessMetricWeight = options->charter_options.witness.straightness_metric_weight;
-		segmentation_settings.normalSeamMetricWeight = options->charter_options.witness.normal_seam_metric_weight;
-		segmentation_settings.textureSeamMetricWeight = options->charter_options.witness.texture_seam_metric_weight;
-		segmentation_settings.maxChartArea = options->charter_options.witness.max_chart_area;
-		segmentation_settings.maxBoundaryLength = options->charter_options.witness.max_boundary_length;
+		segmentation_settings.proxyFitMetricWeight = options->charter_options.proxy_fit_metric_weight;
+		segmentation_settings.roundnessMetricWeight = options->charter_options.roundness_metric_weight;
+		segmentation_settings.straightnessMetricWeight = options->charter_options.straightness_metric_weight;
+		segmentation_settings.normalSeamMetricWeight = options->charter_options.normal_seam_metric_weight;
+		segmentation_settings.textureSeamMetricWeight = options->charter_options.texture_seam_metric_weight;
+		segmentation_settings.maxChartArea = options->charter_options.max_chart_area;
+		segmentation_settings.maxBoundaryLength = options->charter_options.max_boundary_length;
 		std::vector<uint32_t> uncharted_materials;
 		atlas.computeCharts(mesh.get(), segmentation_settings, uncharted_materials);
 	}
 	// Mapper.
-	if (options->mapper == Atlas_Mapper_LSCM) {
+	if (options->mapper == Mapper_LSCM) {
 		atlas.parameterizeCharts();
 	}
 	// Packer.
-	if (options->packer == Atlas_Packer_Witness) {
-		int packing_quality = options->packer_options.witness.packing_quality;
-		float texel_area = options->packer_options.witness.texel_area;
-		bool block_align = options->packer_options.witness.block_align;
-		bool conservative = options->packer_options.witness.conservative;
+	if (options->packer == Packer_Witness) {
+		int packing_quality = options->packer_options.packing_quality;
+		float texel_area = options->packer_options.texel_area;
+		bool block_align = options->packer_options.block_align;
+		bool conservative = options->packer_options.conservative;
 		internal::param::AtlasPacker packer(&atlas);
 		packer.packCharts(packing_quality, texel_area, block_align, conservative);
 		//float utilization = return packer.computeAtlasUtilization();
@@ -8079,7 +8071,7 @@ Atlas_Error atlas_generate(const Atlas_Input_Mesh *input, const Atlas_Options *o
 	return error;
 }
 
-void atlas_free(Atlas_Output_Mesh *output)
+void atlas_free(Output_Mesh *output)
 {
 	if (output != NULL) {
 		delete [] output->vertex_array;

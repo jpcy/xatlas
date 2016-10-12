@@ -98,7 +98,7 @@ void obj_mesh_free(Obj_Mesh *mesh)
 	}
 }
 
-static xatlas::Atlas_Output_Mesh *output_mesh;
+static xatlas::Output_Mesh *output_mesh;
 static uint8_t *output_image;
 
 bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3::Arg bar, xatlas::internal::Vector3::Arg dx, xatlas::internal::Vector3::Arg dy, float coverage)
@@ -127,21 +127,21 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 	// Convert Obj_Mesh to Atlast_Input_Mesh.
-	assert(sizeof(xatlas::Atlas_Input_Vertex) == sizeof(Obj_Vertex));
-	assert(sizeof(xatlas::Atlas_Input_Face) == sizeof(Obj_Face));
-	xatlas::Atlas_Input_Mesh input_mesh;
+	assert(sizeof(xatlas::Input_Vertex) == sizeof(Obj_Vertex));
+	assert(sizeof(xatlas::Input_Face) == sizeof(Obj_Face));
+	xatlas::Input_Mesh input_mesh;
 	input_mesh.vertex_count = obj_mesh->vertex_count;
-	input_mesh.vertex_array = (xatlas::Atlas_Input_Vertex *)obj_mesh->vertex_array;
+	input_mesh.vertex_array = (xatlas::Input_Vertex *)obj_mesh->vertex_array;
 	input_mesh.face_count = obj_mesh->face_count;
-	input_mesh.face_array = (xatlas::Atlas_Input_Face *)obj_mesh->face_array;
-	// Generate Atlas_Output_Mesh.
-	xatlas::Atlas_Options atlas_options;
-	xatlas::atlas_set_default_options(&atlas_options);
+	input_mesh.face_array = (xatlas::Input_Face *)obj_mesh->face_array;
+	// Generate Output_Mesh.
+	xatlas::Options atlas_options;
+	xatlas::set_default_options(&atlas_options);
 	// Avoid brute force packing, since it can be unusably slow in some situations.
-	atlas_options.packer_options.witness.packing_quality = 1;
-	atlas_options.packer_options.witness.texel_area = 256;
-	std::vector<xatlas::Atlas_Output_Mesh *> outputMeshes;
-	xatlas::Atlas_Error error = xatlas::atlas_generate(&input_mesh, &atlas_options, outputMeshes);
+	atlas_options.packer_options.packing_quality = 1;
+	atlas_options.packer_options.texel_area = 256;
+	std::vector<xatlas::Output_Mesh *> outputMeshes;
+	xatlas::Error error = xatlas::atlas_generate(&input_mesh, &atlas_options, outputMeshes);
 	printf("%d output meshes\n", (int)outputMeshes.size());
 	for (int i = 0; i < (int)outputMeshes.size(); i++) {
 		output_mesh = outputMeshes[i];
@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
 		output_image = new uint8_t[output_mesh->atlas_width * output_mesh->atlas_height * 4];
 		memset(output_image, 0, output_mesh->atlas_width * output_mesh->atlas_height * 4);
 		for (int j = 0; j < output_mesh->index_count; j += 3) {
-			const xatlas::Atlas_Output_Vertex *v[3];
+			const xatlas::Output_Vertex *v[3];
 			v[0] = &output_mesh->vertex_array[output_mesh->index_array[j + 0]];
 			v[1] = &output_mesh->vertex_array[output_mesh->index_array[j + 1]];
 			v[2] = &output_mesh->vertex_array[output_mesh->index_array[j + 2]];
