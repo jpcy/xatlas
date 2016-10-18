@@ -102,6 +102,9 @@ void atlas_free(Atlas atlas);
 #include <stdio.h>
 #include <time.h>
 
+#undef min
+#undef max
+
 #ifdef _MSC_VER
 // Ignore gcc attributes.
 #define __attribute__(X)
