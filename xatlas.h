@@ -24,6 +24,7 @@ struct Options
         float texel_area;       // This is not really texel area, but 1 / texel width?
         bool block_align;       // Align charts to 4x4 blocks. 
         bool conservative;      // Pack charts with extra padding.
+		int padding;
     }
 	packer;
 };
@@ -7180,7 +7181,7 @@ struct AtlasPacker
 	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_bitmap(256, 256), m_width(0), m_height(0) {}
 
 	// Pack charts in the smallest possible rectangle.
-	void packCharts(int quality, float texelsPerUnit, bool blockAligned, bool conservative)
+	void packCharts(int quality, float texelsPerUnit, bool blockAligned, bool conservative, int padding)
 	{
 		const uint32_t chartCount = m_atlas->chartCount();
 		if (chartCount == 0) return;
@@ -7350,9 +7351,9 @@ struct AtlasPacker
 				//    0   1   2
 				if (conservative) {
 					// Init all bits to 0.
-					chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 2, ftoi_ceil(chartExtents[c].y) + 2, /*initValue=*/false);  // + 2 to add padding on both sides.
+					chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1 + padding, ftoi_ceil(chartExtents[c].y) + 1 + padding, /*initValue=*/false);  // + 2 to add padding on both sides.
 					// Rasterize chart and dilate.
-					drawChartBitmapDilate(chart, &chart_bitmap, /*padding=*/1);
+					drawChartBitmapDilate(chart, &chart_bitmap, padding);
 				} else {
 					// Init all bits to 0.
 					chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1, /*initValue=*/false);  // Add half a texels on each side.
@@ -7979,6 +7980,7 @@ void set_default_options(Options *options)
 		options->packer.texel_area = 8;
 		options->packer.block_align = true;
 		options->packer.conservative = false;
+		options->packer.padding = 1;
 	}
 }
 
@@ -8027,7 +8029,7 @@ Atlas atlas_generate(const Options *options)
 	}
 	atlas.parameterizeCharts();
 	internal::param::AtlasPacker packer(&atlas);
-	packer.packCharts(options->packer.packing_quality, options->packer.texel_area, options->packer.block_align, options->packer.conservative);
+	packer.packCharts(options->packer.packing_quality, options->packer.texel_area, options->packer.block_align, options->packer.conservative, options->packer.padding);
 	//float utilization = return packer.computeAtlasUtilization();
 	// Build output mesh.
 	result.width = result.height = 0;
