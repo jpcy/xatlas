@@ -8002,6 +8002,7 @@ Atlas atlas_generate(const Options *options)
 			int v2 = mesh->face_array[j].vertex_index[2];
 			if (v0 < 0 || v0 >= mesh->vertex_count || v1 < 0 || v1 >= mesh->vertex_count || v2 < 0 || v2 >= mesh->vertex_count) {
 				result.error = Error_Invalid_Mesh;
+				s_context.meshes.clear();
 				return result;
 			}
 		}
@@ -8014,6 +8015,7 @@ Atlas atlas_generate(const Options *options)
 		heMeshes[i] = new internal::halfedge::Mesh;
 		internal::input_to_mesh(s_context.meshes[i], heMeshes[i], &result.error);
 		if (result.error != Error_Success) {
+			s_context.meshes.clear();
 			return result;
 		}
 		internal::param::SegmentationSettings segmentation_settings;
@@ -8039,6 +8041,7 @@ Atlas atlas_generate(const Options *options)
 		result.meshes[i] = internal::mesh_atlas_to_output(heMeshes[i], i, atlas, &result.width, &result.height, &result.error);
 		delete heMeshes[i];
 	}
+	s_context.meshes.clear();
 	return result;
 }
 
