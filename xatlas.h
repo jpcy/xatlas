@@ -116,9 +116,15 @@ void atlas_free(Atlas atlas);
 #define NV_FORCEINLINE  inline __attribute__((always_inline))
 #endif
 
-#define xaAssert(exp)     if (!(exp)) { xatlas::internal::Print("%s %s %s\n", #exp, __FILE__, __LINE__); }
+#ifndef xaAssert
+#define xaAssert(exp)     if (!(exp)) { xaPrint("%s %s %s\n", #exp, __FILE__, __LINE__); }
+#endif
+#ifndef xaDebugAssert
 #define xaDebugAssert(exp) assert(exp)
+#endif
+#ifndef xaPrint
 #define xaPrint(...)    xatlas::internal::Print(__VA_ARGS__)
+#endif
 
 #define NV_UINT32_MAX   0xffffffff
 #define NV_FLOAT_MAX    3.402823466e+38F
