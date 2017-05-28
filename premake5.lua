@@ -45,6 +45,7 @@ project "atlas"
 	
 	files
 	{
+		"xatlas.cpp",
 		"xatlas.h",
 		"thekla/*.cpp"
 	}
