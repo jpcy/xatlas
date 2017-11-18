@@ -1,6 +1,7 @@
 // This code is in the public domain -- castanyo@yahoo.es
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 #include <assert.h>
