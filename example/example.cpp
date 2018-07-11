@@ -6,13 +6,13 @@
 #pragma warning(push)
 #pragma warning(disable : 4996)
 #endif
-#include "../extern/stb_image_write.h"
+#include "stb_image_write.h"
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 
 #define TINYOBJLOADER_IMPLEMENTATION
-#include "../extern/tinyobj/tiny_obj_loader.h"
+#include "tiny_obj_loader.h"
 
 #define XATLAS_IMPLEMENTATION
 #include "../xatlas.h"
@@ -39,7 +39,6 @@ int main(int argc, char *argv[])
 {
 	if (argc != 2) {
 	    printf("Usage: %s input_file.obj\n", argv[0]);
-		system("pause");
 	    return 1;
 	}
 	// Load object file.
@@ -143,9 +142,9 @@ int main(int argc, char *argv[])
 			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)atlas.width, (float)atlas.height), true, verts, RasterCallback, &raster);
 		}
 	}
-	stbi_write_tga("debug_packer_final.tga", atlas.width, atlas.height, 4, output_image);
+	stbi_write_tga("output.tga", atlas.width, atlas.height, 4, output_image);
 	delete [] output_image;
-	printf("Produced debug_packer_final.tga\n");
+	printf("Produced output.tga\n");
 	// Free meshes.
 	for (int i = 0; i < (int)inputMeshes.size(); i++) {
 		delete [] inputMeshes[i].face_array;

@@ -25,13 +25,12 @@ solution "xatlas"
 		targetdir(path.join(BUILD_DIR, "release_bin"))
 		objdir(path.join(BUILD_DIR, "release_obj"))
 
-project "xatlas"
+project "example"
 	kind "ConsoleApp"
 	language "C++"
 	rtti "Off"
 	targetprefix ""
-	files { "xatlas.*", "thekla/*.cpp" }
-	includedirs { "extern/tinyobj" }
+	files { "xatlas.*", "example/*.cpp" }
 	filter { "system:windows", "action:gmake", "platforms:x86" }
 		gccprefix "i686-w64-mingw32-"
 	filter { "system:windows", "action:gmake", "platforms:x86_64" }
