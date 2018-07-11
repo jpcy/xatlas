@@ -15,7 +15,7 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
-#define XATLAS_IMPLEMENTATION
+#define xaPrint
 #include "../xatlas.h"
 
 class Stopwatch
@@ -49,24 +49,28 @@ static bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3:
 
 int main(int argc, char *argv[])
 {
-	if (argc != 2) {
-	    printf("Usage: %s input_file.obj\n", argv[0]);
+	if (argc < 2) {
+	    printf("Usage: %s input_file.obj [options]\n", argv[0]);
+		printf("  Options:\n");
+		printf("    -verbose\n");  
 	    return 1;
 	}
+	const bool verbose = (argc >= 3 && _stricmp(argv[2], "-verbose") == 0);
 	// Load object file.
+	printf("Loading '%s'...\n", argv[1]);
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
 	std::string err;
 	bool ret = tinyobj::LoadObj(shapes, materials, err, argv[1]);
 	if (!ret) {
-		printf("%s\n", err.c_str());
-		return NULL;
+		printf("Error: %s\n", err.c_str());
+		return 0;
 	}
 	if (shapes.size() == 0) {
-		printf("No shapes in obj file\n");
-		return NULL;
+		printf("Error: no shapes in obj file\n");
+		return 0;
 	}
-	printf("%lu shapes\n", shapes.size());
+	printf("   %lu shapes\n", shapes.size());
 	std::vector<xatlas::Input_Mesh> inputMeshes;
 	inputMeshes.resize(shapes.size());
 	int totalVertices = 0, totalFaces = 0;
@@ -74,7 +78,7 @@ int main(int argc, char *argv[])
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
 		if (objMesh.normals.size() == 0) {
 			printf("Shape %d has no normals\n", i);
-			return NULL;
+			return 0;
 		}
 		xatlas::Input_Mesh &mesh = inputMeshes[i];
 		mesh.vertex_count = objMesh.positions.size() / 3;
@@ -96,26 +100,31 @@ int main(int argc, char *argv[])
 			mesh.face_array[nface].vertex_index[1] = objMesh.indices[nface * 3 + 1];
 			mesh.face_array[nface].vertex_index[2] = objMesh.indices[nface * 3 + 2];
 		}
-		printf("Shape %d: %d verts, %d triangles\n", i, mesh.vertex_count, mesh.face_count);
+		if (verbose)
+			printf("      shape %d: %d vertices, %d triangles\n", i, mesh.vertex_count, mesh.face_count);
 		xatlas::add_mesh(&mesh);
 		totalVertices += mesh.vertex_count;
 		totalFaces += mesh.face_count;
 	}
-	printf("Total of %d verts, %d triangles\n", totalVertices, totalFaces);
+	printf("   %d vertices\n", totalVertices);
+	printf("   %d triangles\n", totalFaces);
 	// Generate Output_Mesh.
 	xatlas::Options atlas_options;
 	xatlas::set_default_options(&atlas_options);
+	if (!verbose)
+		atlas_options.Print = NULL;
 	// Avoid brute force packing, since it can be unusably slow in some situations.
 	atlas_options.packer.packing_quality = 1;
 	atlas_options.packer.texel_area = 256;
 	atlas_options.packer.conservative = true;
 	atlas_options.packer.padding = 2;
 	Stopwatch stopwatch;
+	printf("Generating atlas...\n");
 	xatlas::Atlas atlas = xatlas::atlas_generate(&atlas_options);
 	const double elapsedMs = stopwatch.elapsed();
 	if (atlas.error != xatlas::Error_Success)
 	{
-		printf("Error generating atlas");
+		printf("Error");
 		if (atlas.error == xatlas::Error_Invalid_Args)
 			printf(": invalid arguments");
 		else if (atlas.error == xatlas::Error_Invalid_Options)
@@ -130,15 +139,17 @@ int main(int argc, char *argv[])
 			delete [] inputMeshes[i].face_array;
 			delete [] inputMeshes[i].vertex_array;
 		}
-		return NULL;
+		return 0;
 	}
-	printf("%.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
-	printf("%d output meshes\n", atlas.nMeshes);
+	printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
+	printf("   %d charts\n", atlas.nCharts);
+	printf("   %dx%d resolution\n", atlas.width, atlas.height);
 	uint8_t *output_image = new uint8_t[atlas.width * atlas.height * 4];
 	memset(output_image, 0, atlas.width * atlas.height * 4);
 	for (int i = 0; i < atlas.nMeshes; i++) {
 		xatlas::Output_Mesh *output_mesh = atlas.meshes[i];
-		printf("Output mesh %d has %d verts, %d triangles\n", i, output_mesh->vertex_count, output_mesh->index_count / 3);
+		if (verbose)
+			printf("   output mesh %d: %d vertices, %d triangles\n", i, output_mesh->vertex_count, output_mesh->index_count / 3);
 		for (int j = 0; j < output_mesh->index_count; j += 3) {
 			const xatlas::Output_Vertex *v[3];
 			v[0] = &output_mesh->vertex_array[output_mesh->index_array[j + 0]];
@@ -157,14 +168,16 @@ int main(int argc, char *argv[])
 			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)atlas.width, (float)atlas.height), true, verts, RasterCallback, &raster);
 		}
 	}
-	stbi_write_tga("output.tga", atlas.width, atlas.height, 4, output_image);
+	const char *outputFilename = "output.tga";
+	printf("Writing '%s'...\n", outputFilename);
+	stbi_write_tga(outputFilename, atlas.width, atlas.height, 4, output_image);
 	delete [] output_image;
-	printf("Produced output.tga\n");
 	// Free meshes.
 	for (int i = 0; i < (int)inputMeshes.size(); i++) {
 		delete [] inputMeshes[i].face_array;
 		delete [] inputMeshes[i].vertex_array;
 	}
 	xatlas::atlas_free(atlas);
+	printf("Done\n");
 	return 0;
 }

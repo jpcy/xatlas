@@ -3,17 +3,6 @@
 #ifndef XATLAS_H
 #define XATLAS_H
 
-#ifndef xaAssert
-#define xaAssert(exp) if (!(exp)) { xaPrint("%s %s %s\n", #exp, __FILE__, __LINE__); }
-#endif
-#ifndef xaDebugAssert
-#define xaDebugAssert(exp) assert(exp)
-#endif
-#ifndef xaPrint
-#define xaInternalPrint
-#define xaPrint(...) xatlas::internal::Print(__VA_ARGS__)
-#endif
-
 namespace xatlas {
 struct Options
 {
@@ -38,6 +27,8 @@ struct Options
 		int padding;
     }
 	packer;
+
+	void (*Print)(const char *, ...);
 };
 
 struct Input_Vertex
@@ -92,6 +83,7 @@ struct Atlas
 	int errorMeshIndex;
 	int width;
 	int height;
+	int nCharts;
 	int nMeshes;
 	Output_Mesh **meshes;
 };
@@ -101,15 +93,7 @@ void add_mesh(const Input_Mesh *mesh);
 Atlas atlas_generate(const Options *options);
 void atlas_free(Atlas atlas);
 
-#ifdef _MSC_VER
-// Ignore gcc attributes.
-#define __attribute__(X)
-#endif
-
 namespace internal {
-#ifdef xaInternalPrint
-void Print( const char *msg, ... ) __attribute__((format (printf, 1, 2)));
-#endif
 
 class Vector2
 {

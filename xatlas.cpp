@@ -17,6 +17,21 @@
 #undef min
 #undef max
 
+#ifndef xaAssert
+#define xaAssert(exp) if (!(exp)) { xaPrint("%s %s %s\n", #exp, __FILE__, __LINE__); }
+#endif
+#ifndef xaDebugAssert
+#define xaDebugAssert(exp) assert(exp)
+#endif
+#ifndef xaPrint
+#define xaPrint(...) if (xatlas::internal::s_options->Print) { xatlas::internal::s_options->Print(__VA_ARGS__); }
+#endif
+
+#ifdef _MSC_VER
+// Ignore gcc attributes.
+#define __attribute__(X)
+#endif
+
 #ifdef _MSC_VER
 #define restrict
 #define NV_FORCEINLINE __forceinline
@@ -37,15 +52,15 @@
 
 namespace xatlas {
 namespace internal {
-#ifdef xaInternalPrint
-void Print( const char *msg, ... )
+static const Options *s_options = NULL;
+
+void Print(const char *msg, ...)
 {
 	va_list arg;
 	va_start(arg, msg);
 	vprintf(msg, arg);
 	va_end(arg);
 }
-#endif
 
 static int align(int x, int a)
 {
@@ -7720,21 +7735,22 @@ static Context s_context;
 
 void set_default_options(Options *options)
 {
-	if (options != NULL) {
-		// These are the default values we use on The Witness.
-		options->charter.proxy_fit_metric_weight = 2.0f;
-		options->charter.roundness_metric_weight = 0.01f;
-		options->charter.straightness_metric_weight = 6.0f;
-		options->charter.normal_seam_metric_weight = 4.0f;
-		options->charter.texture_seam_metric_weight = 0.5f;
-		options->charter.max_chart_area = FLT_MAX;
-		options->charter.max_boundary_length = FLT_MAX;
-		options->packer.packing_quality = 0;
-		options->packer.texel_area = 8;
-		options->packer.block_align = true;
-		options->packer.conservative = false;
-		options->packer.padding = 1;
-	}
+	if (options == NULL)
+		return;
+	// These are the default values we use on The Witness.
+	options->charter.proxy_fit_metric_weight = 2.0f;
+	options->charter.roundness_metric_weight = 0.01f;
+	options->charter.straightness_metric_weight = 6.0f;
+	options->charter.normal_seam_metric_weight = 4.0f;
+	options->charter.texture_seam_metric_weight = 0.5f;
+	options->charter.max_chart_area = FLT_MAX;
+	options->charter.max_boundary_length = FLT_MAX;
+	options->packer.packing_quality = 0;
+	options->packer.texel_area = 8;
+	options->packer.block_align = true;
+	options->packer.conservative = false;
+	options->packer.padding = 1;
+	options->Print = internal::Print;
 }
 
 void add_mesh(const Input_Mesh *mesh)
@@ -7744,6 +7760,7 @@ void add_mesh(const Input_Mesh *mesh)
 
 Atlas atlas_generate(const Options *options)
 {
+	internal::s_options = options;
 	Atlas result;
 	result.error = Error_Success;
 	result.errorMeshIndex = -1;
@@ -7791,6 +7808,7 @@ Atlas atlas_generate(const Options *options)
 	//float utilization = return packer.computeAtlasUtilization();
 	// Build output mesh.
 	result.width = result.height = 0;
+	result.nCharts = (int)atlas.chartCount();
 	result.nMeshes = (int)s_context.meshes.size();
 	result.meshes = new Output_Mesh *[s_context.meshes.size()];
 	for (int i = 0; i < (int)s_context.meshes.size(); i++) {
