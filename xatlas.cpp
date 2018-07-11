@@ -7746,6 +7746,7 @@ Atlas atlas_generate(const Options *options)
 {
 	Atlas result;
 	result.error = Error_Success;
+	result.errorMeshIndex = -1;
 	// Validate input meshes.
 	for (int i = 0; i < (int)s_context.meshes.size(); i++) {
 		const Input_Mesh *mesh = s_context.meshes[i];
@@ -7755,6 +7756,7 @@ Atlas atlas_generate(const Options *options)
 			int v2 = mesh->face_array[j].vertex_index[2];
 			if (v0 < 0 || v0 >= mesh->vertex_count || v1 < 0 || v1 >= mesh->vertex_count || v2 < 0 || v2 >= mesh->vertex_count) {
 				result.error = Error_Invalid_Mesh;
+				result.errorMeshIndex = i;
 				s_context.meshes.clear();
 				return result;
 			}
@@ -7769,6 +7771,7 @@ Atlas atlas_generate(const Options *options)
 		internal::input_to_mesh(s_context.meshes[i], heMeshes[i], &result.error);
 		if (result.error != Error_Success) {
 			s_context.meshes.clear();
+			result.errorMeshIndex = i;
 			return result;
 		}
 		internal::param::SegmentationSettings segmentation_settings;

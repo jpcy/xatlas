@@ -89,6 +89,7 @@ enum Error
 struct Atlas
 {
 	Error error;
+	int errorMeshIndex;
 	int width;
 	int height;
 	int nMeshes;

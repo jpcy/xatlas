@@ -17,94 +17,6 @@
 #define XATLAS_IMPLEMENTATION
 #include "../xatlas.h"
 
-struct Obj_Vertex {
-	float position[3];
-	float normal[3];
-	float uv[2];
-	int first_colocal;
-};
-
-struct Obj_Face {
-	int vertex_index[3];
-	int material_index;
-};
-
-struct Obj_Material {
-	// @@ Read obj mtl parameters as is.
-};
-
-struct Obj_Mesh {
-	int vertex_count;
-	Obj_Vertex *vertex_array;
-
-	int face_count;
-	Obj_Face *face_array;
-
-	int material_count;
-	Obj_Material *material_array;
-};
-
-enum Load_Flags {
-	Load_Flag_Weld_Attributes,
-};
-
-struct Obj_Load_Options {
-	int load_flags;
-};
-
-Obj_Mesh *obj_mesh_load(const char *filename, const Obj_Load_Options *options)
-{
-	using namespace std;
-	vector<tinyobj::shape_t> shapes;
-	vector<tinyobj::material_t> materials;
-	string err;
-	bool ret = tinyobj::LoadObj(shapes, materials, err, filename);
-	if (!ret) {
-		printf("%s\n", err.c_str());
-		return NULL;
-	}
-	printf("%lu shapes\n", shapes.size());
-	printf("%lu materials\n", materials.size());
-	assert(shapes.size() > 0);
-	Obj_Mesh *mesh = new Obj_Mesh();
-	mesh->vertex_count = shapes[0].mesh.positions.size() / 3;
-	mesh->vertex_array = new Obj_Vertex[mesh->vertex_count];
-	for (int nvert = 0; nvert < mesh->vertex_count; nvert++) {
-		mesh->vertex_array[nvert].position[0] = shapes[0].mesh.positions[nvert * 3];
-		mesh->vertex_array[nvert].position[1] = shapes[0].mesh.positions[nvert * 3 + 1];
-		mesh->vertex_array[nvert].position[2] = shapes[0].mesh.positions[nvert * 3 + 2];
-		mesh->vertex_array[nvert].normal[0] = shapes[0].mesh.normals[nvert * 3];
-		mesh->vertex_array[nvert].normal[1] = shapes[0].mesh.normals[nvert * 3 + 1];
-		mesh->vertex_array[nvert].normal[2] = shapes[0].mesh.normals[nvert * 3 + 2];
-		mesh->vertex_array[nvert].uv[0] = 0;
-		mesh->vertex_array[nvert].uv[1] = 0;
-		mesh->vertex_array[nvert].first_colocal = nvert;
-	}
-	mesh->face_count = shapes[0].mesh.indices.size() / 3;
-	mesh->face_array = new Obj_Face[mesh->face_count];
-	for (int nface = 0; nface < mesh->face_count; nface++) {
-		mesh->face_array[nface].material_index = 0;
-		mesh->face_array[nface].vertex_index[0] = shapes[0].mesh.indices[nface * 3];
-		mesh->face_array[nface].vertex_index[1] = shapes[0].mesh.indices[nface * 3 + 1];
-		mesh->face_array[nface].vertex_index[2] = shapes[0].mesh.indices[nface * 3 + 2];
-	}
-	printf("Reading %d verts\n", mesh->vertex_count);
-	printf("Reading %d triangles\n", mesh->face_count);
-	mesh->material_count = 0;
-	mesh->material_array = 0;
-	return mesh;
-}
-
-void obj_mesh_free(Obj_Mesh *mesh)
-{
-	if (mesh != NULL) {
-		delete [] mesh->vertex_array;
-		delete [] mesh->face_array;
-		delete [] mesh->material_array;
-		delete mesh;
-	}
-}
-
 struct RasterParam
 {
 	xatlas::Atlas *atlas;
@@ -112,7 +24,7 @@ struct RasterParam
 	uint8_t *output_image;
 };
 
-bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3::Arg bar, xatlas::internal::Vector3::Arg dx, xatlas::internal::Vector3::Arg dy, float coverage)
+static bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3::Arg bar, xatlas::internal::Vector3::Arg dx, xatlas::internal::Vector3::Arg dy, float coverage)
 {
 	RasterParam *data = (RasterParam *)param;
 	uint8_t *rgba = &data->output_image[(x + y * data->atlas->width) * 4];
@@ -130,21 +42,55 @@ int main(int argc, char *argv[])
 		system("pause");
 	    return 1;
 	}
-	// Load Obj_Mesh.
-	Obj_Load_Options load_options = {0};
-	Obj_Mesh *obj_mesh = obj_mesh_load(argv[1], &load_options);
-	if (obj_mesh == NULL) {
-		printf("Error loading obj file.\n");
-		return 1;
+	// Load object file.
+	std::vector<tinyobj::shape_t> shapes;
+	std::vector<tinyobj::material_t> materials;
+	std::string err;
+	bool ret = tinyobj::LoadObj(shapes, materials, err, argv[1]);
+	if (!ret) {
+		printf("%s\n", err.c_str());
+		return NULL;
 	}
-	// Convert Obj_Mesh to Atlast_Input_Mesh.
-	assert(sizeof(xatlas::Input_Vertex) == sizeof(Obj_Vertex));
-	assert(sizeof(xatlas::Input_Face) == sizeof(Obj_Face));
-	xatlas::Input_Mesh input_mesh;
-	input_mesh.vertex_count = obj_mesh->vertex_count;
-	input_mesh.vertex_array = (xatlas::Input_Vertex *)obj_mesh->vertex_array;
-	input_mesh.face_count = obj_mesh->face_count;
-	input_mesh.face_array = (xatlas::Input_Face *)obj_mesh->face_array;
+	if (shapes.size() == 0) {
+		printf("No shapes in obj file\n");
+		return NULL;
+	}
+	printf("%lu shapes\n", shapes.size());
+	std::vector<xatlas::Input_Mesh> inputMeshes;
+	inputMeshes.resize(shapes.size());
+	int totalVertices = 0, totalFaces = 0;
+	for (int i = 0; i < (int)shapes.size(); i++) {
+		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
+		if (objMesh.normals.size() == 0) {
+			printf("Shape %d has no normals\n", i);
+			return NULL;
+		}
+		xatlas::Input_Mesh &mesh = inputMeshes[i];
+		mesh.vertex_count = objMesh.positions.size() / 3;
+		mesh.vertex_array = new xatlas::Input_Vertex[mesh.vertex_count];
+		for (int nvert = 0; nvert < mesh.vertex_count; nvert++) {
+			for (int j = 0; j < 3; j++) {
+				mesh.vertex_array[nvert].position[j] = objMesh.positions[nvert * 3 + j];
+				mesh.vertex_array[nvert].normal[j] = objMesh.normals[nvert * 3 + j];
+			}
+			mesh.vertex_array[nvert].uv[0] = 0;
+			mesh.vertex_array[nvert].uv[1] = 0;
+			mesh.vertex_array[nvert].first_colocal = nvert;
+		}
+		mesh.face_count = objMesh.indices.size() / 3;
+		mesh.face_array = new xatlas::Input_Face[mesh.face_count];
+		for (int nface = 0; nface < mesh.face_count; nface++) {
+			mesh.face_array[nface].material_index = 0;
+			mesh.face_array[nface].vertex_index[0] = objMesh.indices[nface * 3];
+			mesh.face_array[nface].vertex_index[1] = objMesh.indices[nface * 3 + 1];
+			mesh.face_array[nface].vertex_index[2] = objMesh.indices[nface * 3 + 2];
+		}
+		printf("Shape %d: %d verts, %d triangles\n", i, mesh.vertex_count, mesh.face_count);
+		xatlas::add_mesh(&mesh);
+		totalVertices += mesh.vertex_count;
+		totalFaces += mesh.face_count;
+	}
+	printf("Total of %d verts, %d triangles\n", totalVertices, totalFaces);
 	// Generate Output_Mesh.
 	xatlas::Options atlas_options;
 	xatlas::set_default_options(&atlas_options);
@@ -153,9 +99,26 @@ int main(int argc, char *argv[])
 	atlas_options.packer.texel_area = 256;
 	atlas_options.packer.conservative = true;
 	atlas_options.packer.padding = 2;
-	//xatlas::add_mesh(&input_mesh);
-	xatlas::add_mesh(&input_mesh);
 	xatlas::Atlas atlas = xatlas::atlas_generate(&atlas_options);
+	if (atlas.error != xatlas::Error_Success)
+	{
+		printf("Error generating atlas");
+		if (atlas.error == xatlas::Error_Invalid_Args)
+			printf(": invalid arguments");
+		else if (atlas.error == xatlas::Error_Invalid_Options)
+			printf(": invalid options");
+		else if (atlas.error == xatlas::Error_Invalid_Mesh)
+			printf(": invalid mesh, index %d", atlas.errorMeshIndex);
+		else if (atlas.error == xatlas::Error_Invalid_Mesh_Non_Manifold)
+			printf(": non-manifold mesh, index %d", atlas.errorMeshIndex);
+		printf("\n");
+		// Free meshes.
+		for (int i = 0; i < (int)inputMeshes.size(); i++) {
+			delete [] inputMeshes[i].face_array;
+			delete [] inputMeshes[i].vertex_array;
+		}
+		return NULL;
+	}
 	printf("%d output meshes\n", atlas.nMeshes);
 	uint8_t *output_image = new uint8_t[atlas.width * atlas.height * 4];
 	memset(output_image, 0, atlas.width * atlas.height * 4);
@@ -169,7 +132,6 @@ int main(int argc, char *argv[])
 			v[2] = &output_mesh->vertex_array[output_mesh->index_array[j + 2]];
 			xatlas::internal::Vector2 verts[3];
 			for (int k = 0; k < 3; k++) {
-				//normalizedVerts[j] = nv::Vector2(v[j].uv[0] * atlas.width, v[j].uv[1] * atlas.height);
 				verts[k] = xatlas::internal::Vector2(v[k]->uv[0], v[k]->uv[1]);
 			}
 			RasterParam raster;
@@ -185,7 +147,10 @@ int main(int argc, char *argv[])
 	delete [] output_image;
 	printf("Produced debug_packer_final.tga\n");
 	// Free meshes.
-	obj_mesh_free(obj_mesh);
+	for (int i = 0; i < (int)inputMeshes.size(); i++) {
+		delete [] inputMeshes[i].face_array;
+		delete [] inputMeshes[i].vertex_array;
+	}
 	xatlas::atlas_free(atlas);
 	return 0;
 }
