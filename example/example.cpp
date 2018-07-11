@@ -1,3 +1,4 @@
+#include <chrono>
 #include <stdio.h>
 #include <assert.h>
 
@@ -16,6 +17,17 @@
 
 #define XATLAS_IMPLEMENTATION
 #include "../xatlas.h"
+
+class Stopwatch
+{
+	typedef std::chrono::high_resolution_clock Clock;
+public:
+	Stopwatch() { reset(); }
+	void reset() { start_ = Clock::now(); }
+	double elapsed() const { return (double)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start_).count(); }
+private:
+	std::chrono::time_point<Clock> start_;
+};
 
 struct RasterParam
 {
@@ -98,7 +110,9 @@ int main(int argc, char *argv[])
 	atlas_options.packer.texel_area = 256;
 	atlas_options.packer.conservative = true;
 	atlas_options.packer.padding = 2;
+	Stopwatch stopwatch;
 	xatlas::Atlas atlas = xatlas::atlas_generate(&atlas_options);
+	const double elapsedMs = stopwatch.elapsed();
 	if (atlas.error != xatlas::Error_Success)
 	{
 		printf("Error generating atlas");
@@ -118,6 +132,7 @@ int main(int argc, char *argv[])
 		}
 		return NULL;
 	}
+	printf("%.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
 	printf("%d output meshes\n", atlas.nMeshes);
 	uint8_t *output_image = new uint8_t[atlas.width * atlas.height * 4];
 	memset(output_image, 0, atlas.width * atlas.height * 4);
