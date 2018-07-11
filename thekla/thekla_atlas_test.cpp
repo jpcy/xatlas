@@ -2,7 +2,14 @@
 #include <assert.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
 #include "../extern/stb_image_write.h"
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "../extern/tinyobj/tiny_obj_loader.h"
@@ -118,14 +125,14 @@ bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3::Arg ba
 
 int main(int argc, char *argv[])
 {
-	/*if (argc != 2) {
+	if (argc != 2) {
 	    printf("Usage: %s input_file.obj\n", argv[0]);
 		system("pause");
-	    return EXIT_FAILURE;
-	}*/
+	    return 1;
+	}
 	// Load Obj_Mesh.
 	Obj_Load_Options load_options = {0};
-	Obj_Mesh *obj_mesh = obj_mesh_load("C:/Projects/atlas/gazebo.obj", &load_options);
+	Obj_Mesh *obj_mesh = obj_mesh_load(argv[1], &load_options);
 	if (obj_mesh == NULL) {
 		printf("Error loading obj file.\n");
 		return 1;

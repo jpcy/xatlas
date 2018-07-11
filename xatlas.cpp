@@ -10,6 +10,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include "xatlas.h"
 
@@ -837,7 +838,7 @@ public:
 	}
 
 	// Return extents of the box.
-	Vector3 Box::extents() const
+	Vector3 extents() const
 	{
 		return (maxCorner - minCorner) * 0.5f;
 	}
