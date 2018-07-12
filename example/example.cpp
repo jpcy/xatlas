@@ -86,8 +86,6 @@ int main(int argc, char *argv[])
 		mesh.vertexPositionStride = sizeof(float) * 3;
 		mesh.vertexNormalData = objMesh.normals.data();
 		mesh.vertexNormalStride = sizeof(float) * 3;
-		mesh.vertexUvData = NULL;
-		mesh.vertexUvStride = 0;
 		mesh.indexCount = (int)objMesh.indices.size();
 		mesh.indexData = objMesh.indices.data();
 		mesh.faceMaterialData = NULL;
