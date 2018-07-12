@@ -31,40 +31,32 @@ struct Options
 	void (*Print)(const char *, ...);
 };
 
-struct Input_Vertex
-{
-    float position[3];
-    float normal[3];
-    float uv[2];
-    int first_colocal;
-};
-
-struct Input_Face
-{
-    int vertex_index[3];
-    int material_index;
-};
-
 struct Input_Mesh
 {
-    int vertex_count;
-    int face_count;
-    Input_Vertex * vertex_array;
-    Input_Face * face_array;
+	uint32_t vertexCount;
+    const void *vertexPositionData;
+	uint32_t vertexPositionStride;
+	const void *vertexNormalData;
+	uint32_t vertexNormalStride;
+	const void *vertexUvData;  // optional
+	uint32_t vertexUvStride;
+	uint32_t indexCount;
+    const uint32_t *indexData;
+	const uint16_t *faceMaterialData; // optional. indexCount / 3 in length.
 };
 
 struct Output_Vertex
 {
     float uv[2];
-    int xref;   // Index of input vertex from which this output vertex originated.
+    uint32_t xref;   // Index of input vertex from which this output vertex originated.
 };
 
 struct Output_Mesh
 {
-    int vertex_count;
-    int index_count;
-    Output_Vertex * vertex_array;
-    int * index_array;
+	uint32_t vertexCount;
+	uint32_t indexCount;
+    Output_Vertex *vertexArray;
+	uint32_t *indexArray;
 };
 
 enum Error

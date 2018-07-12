@@ -73,7 +73,7 @@ int main(int argc, char *argv[])
 	printf("   %lu shapes\n", shapes.size());
 	std::vector<xatlas::Input_Mesh> inputMeshes;
 	inputMeshes.resize(shapes.size());
-	int totalVertices = 0, totalFaces = 0;
+	uint32_t totalVertices = 0, totalFaces = 0;
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
 		if (objMesh.normals.size() == 0) {
@@ -81,33 +81,24 @@ int main(int argc, char *argv[])
 			return 0;
 		}
 		xatlas::Input_Mesh &mesh = inputMeshes[i];
-		mesh.vertex_count = objMesh.positions.size() / 3;
-		mesh.vertex_array = new xatlas::Input_Vertex[mesh.vertex_count];
-		for (int nvert = 0; nvert < mesh.vertex_count; nvert++) {
-			for (int j = 0; j < 3; j++) {
-				mesh.vertex_array[nvert].position[j] = objMesh.positions[nvert * 3 + j];
-				mesh.vertex_array[nvert].normal[j] = objMesh.normals[nvert * 3 + j];
-			}
-			mesh.vertex_array[nvert].uv[0] = 0;
-			mesh.vertex_array[nvert].uv[1] = 0;
-			mesh.vertex_array[nvert].first_colocal = nvert;
-		}
-		mesh.face_count = objMesh.indices.size() / 3;
-		mesh.face_array = new xatlas::Input_Face[mesh.face_count];
-		for (int nface = 0; nface < mesh.face_count; nface++) {
-			mesh.face_array[nface].material_index = 0;
-			mesh.face_array[nface].vertex_index[0] = objMesh.indices[nface * 3];
-			mesh.face_array[nface].vertex_index[1] = objMesh.indices[nface * 3 + 1];
-			mesh.face_array[nface].vertex_index[2] = objMesh.indices[nface * 3 + 2];
-		}
+		mesh.vertexCount = (int)objMesh.positions.size() / 3;
+		mesh.vertexPositionData = objMesh.positions.data();
+		mesh.vertexPositionStride = sizeof(float) * 3;
+		mesh.vertexNormalData = objMesh.normals.data();
+		mesh.vertexNormalStride = sizeof(float) * 3;
+		mesh.vertexUvData = NULL;
+		mesh.vertexUvStride = 0;
+		mesh.indexCount = (int)objMesh.indices.size();
+		mesh.indexData = objMesh.indices.data();
+		mesh.faceMaterialData = NULL;
 		if (verbose)
-			printf("      shape %d: %d vertices, %d triangles\n", i, mesh.vertex_count, mesh.face_count);
+			printf("      shape %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
 		xatlas::add_mesh(&mesh);
-		totalVertices += mesh.vertex_count;
-		totalFaces += mesh.face_count;
+		totalVertices += mesh.vertexCount;
+		totalFaces += mesh.indexCount / 3;
 	}
-	printf("   %d vertices\n", totalVertices);
-	printf("   %d triangles\n", totalFaces);
+	printf("   %u vertices\n", totalVertices);
+	printf("   %u triangles\n", totalFaces);
 	// Generate Output_Mesh.
 	xatlas::Options atlas_options;
 	xatlas::set_default_options(&atlas_options);
@@ -115,9 +106,9 @@ int main(int argc, char *argv[])
 		atlas_options.Print = NULL;
 	// Avoid brute force packing, since it can be unusably slow in some situations.
 	atlas_options.packer.packing_quality = 1;
-	atlas_options.packer.texel_area = 256;
+	atlas_options.packer.texel_area = 8;
 	atlas_options.packer.conservative = true;
-	atlas_options.packer.padding = 2;
+	atlas_options.packer.padding = 1;
 	Stopwatch stopwatch;
 	printf("Generating atlas...\n");
 	xatlas::Atlas atlas = xatlas::atlas_generate(&atlas_options);
@@ -134,11 +125,6 @@ int main(int argc, char *argv[])
 		else if (atlas.error == xatlas::Error_Invalid_Mesh_Non_Manifold)
 			printf(": non-manifold mesh, index %d", atlas.errorMeshIndex);
 		printf("\n");
-		// Free meshes.
-		for (int i = 0; i < (int)inputMeshes.size(); i++) {
-			delete [] inputMeshes[i].face_array;
-			delete [] inputMeshes[i].vertex_array;
-		}
 		return 0;
 	}
 	printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
@@ -149,12 +135,12 @@ int main(int argc, char *argv[])
 	for (int i = 0; i < atlas.nMeshes; i++) {
 		xatlas::Output_Mesh *output_mesh = atlas.meshes[i];
 		if (verbose)
-			printf("   output mesh %d: %d vertices, %d triangles\n", i, output_mesh->vertex_count, output_mesh->index_count / 3);
-		for (int j = 0; j < output_mesh->index_count; j += 3) {
+			printf("   output mesh %d: %u vertices, %u triangles\n", i, output_mesh->vertexCount, output_mesh->indexCount / 3);
+		for (uint32_t j = 0; j < output_mesh->indexCount; j += 3) {
 			const xatlas::Output_Vertex *v[3];
-			v[0] = &output_mesh->vertex_array[output_mesh->index_array[j + 0]];
-			v[1] = &output_mesh->vertex_array[output_mesh->index_array[j + 1]];
-			v[2] = &output_mesh->vertex_array[output_mesh->index_array[j + 2]];
+			v[0] = &output_mesh->vertexArray[output_mesh->indexArray[j + 0]];
+			v[1] = &output_mesh->vertexArray[output_mesh->indexArray[j + 1]];
+			v[2] = &output_mesh->vertexArray[output_mesh->indexArray[j + 2]];
 			xatlas::internal::Vector2 verts[3];
 			for (int k = 0; k < 3; k++) {
 				verts[k] = xatlas::internal::Vector2(v[k]->uv[0], v[k]->uv[1]);
@@ -172,11 +158,6 @@ int main(int argc, char *argv[])
 	printf("Writing '%s'...\n", outputFilename);
 	stbi_write_tga(outputFilename, atlas.width, atlas.height, 4, output_image);
 	delete [] output_image;
-	// Free meshes.
-	for (int i = 0; i < (int)inputMeshes.size(); i++) {
-		delete [] inputMeshes[i].face_array;
-		delete [] inputMeshes[i].vertex_array;
-	}
 	xatlas::atlas_free(atlas);
 	printf("Done\n");
 	return 0;

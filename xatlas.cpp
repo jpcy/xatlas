@@ -7647,28 +7647,29 @@ private:
 static void input_to_mesh(const Input_Mesh *input, internal::halfedge::Mesh *mesh, Error *error)
 {
 	std::vector<uint32_t> canonicalMap;
-	canonicalMap.reserve(input->vertex_count);
-	for (int i = 0; i < input->vertex_count; i++) {
-		const Input_Vertex &input_vertex = input->vertex_array[i];
-		const float *pos = input_vertex.position;
-		const float *nor = input_vertex.normal;
-		const float *tex = input_vertex.uv;
+	canonicalMap.reserve(input->vertexCount);
+	for (uint32_t i = 0; i < input->vertexCount; i++) {
+		const float *pos = (const float *)&((const uint8_t *)input->vertexPositionData)[input->vertexPositionStride * i];
+		const float *nor = (const float *)&((const uint8_t *)input->vertexNormalData)[input->vertexNormalStride * i];
 		internal::halfedge::Vertex *vertex = mesh->addVertex(internal::Vector3(pos[0], pos[1], pos[2]));
 		vertex->nor.set(nor[0], nor[1], nor[2]);
-		vertex->tex.set(tex[0], tex[1]);
-		canonicalMap.push_back(input_vertex.first_colocal);
+		if (input->vertexUvData) {
+			const float *tex = (const float *)&((const uint8_t *)input->vertexUvData)[input->vertexUvStride * i];
+			vertex->tex.set(tex[0], tex[1]);
+		} else {
+			vertex->tex.set(0, 0);
+		}
+		canonicalMap.push_back((uint32_t)i);
 	}
 	mesh->linkColocalsWithCanonicalMap(canonicalMap);
-	const int face_count = input->face_count;
+	const int faceCount = input->indexCount / 3;
 	int non_manifold_faces = 0;
-	for (int i = 0; i < face_count; i++) {
-		const Input_Face &input_face = input->face_array[i];
-		int v0 = input_face.vertex_index[0];
-		int v1 = input_face.vertex_index[1];
-		int v2 = input_face.vertex_index[2];
-		internal::halfedge::Face *face = mesh->addFace(v0, v1, v2);
+	for (int i = 0; i < faceCount; i++) {
+		const uint32_t *tri = &(input->indexData[i * 3]);
+		internal::halfedge::Face *face = mesh->addFace(tri[0], tri[1], tri[2]);
 		if (face != NULL) {
-			face->material = (uint16_t)input_face.material_index;
+			if (input->faceMaterialData)
+				face->material = input->faceMaterialData[i];
 		} else {
 			non_manifold_faces++;
 		}
@@ -7684,19 +7685,15 @@ static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, i
 	Output_Mesh *output = new Output_Mesh;
 	const internal::param::MeshCharts *charts = atlas.meshAt(meshIndex);
 	// Allocate vertices.
-	const int vertex_count = charts->vertexCount();
-	output->vertex_count = vertex_count;
-	output->vertex_array = new Output_Vertex[vertex_count];
+	output->vertexCount = charts->vertexCount();
+	output->vertexArray = new Output_Vertex[output->vertexCount];
 	// Output vertices.
-	const int chart_count = charts->chartCount();
-	for (int i = 0; i < chart_count; i++) {
+	for (uint32_t i = 0; i < charts->chartCount(); i++) {
 		const internal::param::Chart *chart = charts->chartAt(i);
-		uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
-		const uint32_t chart_vertex_count = chart->vertexCount();
-		for (uint32_t v = 0; v < chart_vertex_count; v++) {
-			Output_Vertex &output_vertex = output->vertex_array[vertexOffset + v];
-			uint32_t original_vertex = chart->mapChartVertexToOriginalVertex(v);
-			output_vertex.xref = original_vertex;
+		const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
+		for (uint32_t v = 0; v < chart->vertexCount(); v++) {
+			Output_Vertex &output_vertex = output->vertexArray[vertexOffset + v];
+			output_vertex.xref = chart->mapChartVertexToOriginalVertex(v);
 			internal::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
 			output_vertex.uv[0] = uv.x;
 			output_vertex.uv[1] = uv.y;
@@ -7704,21 +7701,20 @@ static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, i
 			*height = std::max(*height, internal::ftoi_ceil(uv.y));
 		}
 	}
-	const int face_count = mesh->faceCount();
-	output->index_count = face_count * 3;
-	output->index_array = new int[face_count * 3];
+	output->indexCount = mesh->faceCount() * 3;
+	output->indexArray = new uint32_t[mesh->faceCount() * 3];
 	// Set face indices.
-	for (int f = 0; f < face_count; f++) {
-		uint32_t c = charts->faceChartAt(f);
-		uint32_t i = charts->faceIndexWithinChartAt(f);
-		uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
+	for (uint32_t f = 0; f < mesh->faceCount(); f++) {
+		const uint32_t c = charts->faceChartAt(f);
+		const uint32_t i = charts->faceIndexWithinChartAt(f);
+		const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
 		const internal::param::Chart *chart = charts->chartAt(c);
-		xaDebugAssert(chart->faceAt(i) == (uint32_t)f);
+		xaDebugAssert(chart->faceAt(i) == f);
 		const internal::halfedge::Face *face = chart->chartMesh()->faceAt(i);
 		const internal::halfedge::Edge *edge = face->edge;
-		output->index_array[3 * f + 0] = vertexOffset + edge->vertex->id;
-		output->index_array[3 * f + 1] = vertexOffset + edge->next->vertex->id;
-		output->index_array[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
+		output->indexArray[3 * f + 0] = vertexOffset + edge->vertex->id;
+		output->indexArray[3 * f + 1] = vertexOffset + edge->next->vertex->id;
+		output->indexArray[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
 	}
 	*error = Error_Success;
 	return output;
@@ -7767,11 +7763,17 @@ Atlas atlas_generate(const Options *options)
 	// Validate input meshes.
 	for (int i = 0; i < (int)s_context.meshes.size(); i++) {
 		const Input_Mesh *mesh = s_context.meshes[i];
-		for (int j = 0; j < mesh->face_count; j++) {
-			int v0 = mesh->face_array[j].vertex_index[0];
-			int v1 = mesh->face_array[j].vertex_index[1];
-			int v2 = mesh->face_array[j].vertex_index[2];
-			if (v0 < 0 || v0 >= mesh->vertex_count || v1 < 0 || v1 >= mesh->vertex_count || v2 < 0 || v2 >= mesh->vertex_count) {
+		// Expecting triangle faces.
+		if ((mesh->indexCount % 3) != 0) {
+			result.error = Error_Invalid_Mesh;
+			result.errorMeshIndex = i;
+			s_context.meshes.clear();
+			return result;
+		}
+		// Check if any index is out of range.
+		const int faceCount = mesh->indexCount / 3;
+		for (uint32_t j = 0; j < mesh->indexCount; j++) {
+			if (mesh->indexData[j] < 0 || mesh->indexData[j] >= mesh->vertexCount) {
 				result.error = Error_Invalid_Mesh;
 				result.errorMeshIndex = i;
 				s_context.meshes.clear();
@@ -7822,8 +7824,8 @@ Atlas atlas_generate(const Options *options)
 void atlas_free(Atlas atlas)
 {
 	for (int i = 0; i < atlas.nMeshes; i++) {
-		delete [] atlas.meshes[i]->vertex_array;
-		delete [] atlas.meshes[i]->index_array;
+		delete [] atlas.meshes[i]->vertexArray;
+		delete [] atlas.meshes[i]->indexArray;
 		delete atlas.meshes[i];
 	}
 	delete [] atlas.meshes;
