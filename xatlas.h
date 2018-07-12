@@ -4,6 +4,17 @@
 #define XATLAS_H
 
 namespace xatlas {
+
+struct PackMethod
+{
+	enum Enum
+	{
+		TexelArea, // texel_area determines resolution
+		ApproximateResolution, // guess texel_area to approximately match desired resolution
+		ExactResolution // run the packer multiple times to exactly match the desired resolution (slow)
+	};
+};
+
 struct Options
 {
 	struct
@@ -20,8 +31,10 @@ struct Options
 
 	struct
 	{
+		PackMethod::Enum method;
         int packing_quality;
         float texel_area;       // This is not really texel area, but 1 / texel width?
+		uint32_t resolution;
         bool block_align;       // Align charts to 4x4 blocks. 
         bool conservative;      // Pack charts with extra padding.
 		int padding;

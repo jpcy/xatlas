@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
 		atlas_options.Print = NULL;
 	// Avoid brute force packing, since it can be unusably slow in some situations.
 	atlas_options.packer.packing_quality = 1;
-	atlas_options.packer.texel_area = 8;
+	atlas_options.packer.resolution = 1024;
 	atlas_options.packer.conservative = true;
 	atlas_options.packer.padding = 1;
 	Stopwatch stopwatch;
