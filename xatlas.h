@@ -49,6 +49,8 @@ struct Input_Mesh
 	uint32_t vertexCount;
     const void *vertexPositionData;
 	uint32_t vertexPositionStride;
+	const void *vertexNormalData; // optional
+	uint32_t vertexNormalStride; // optional
 	uint32_t indexCount;
     const uint32_t *indexData;
 	const uint16_t *faceMaterialData; // optional. indexCount / 3 in length.

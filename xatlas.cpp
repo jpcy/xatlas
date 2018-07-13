@@ -7694,6 +7694,10 @@ static void input_to_mesh(const Input_Mesh *input, internal::halfedge::Mesh *mes
 	for (uint32_t i = 0; i < input->vertexCount; i++) {
 		const float *pos = (const float *)&((const uint8_t *)input->vertexPositionData)[input->vertexPositionStride * i];
 		internal::halfedge::Vertex *vertex = mesh->addVertex(internal::Vector3(pos[0], pos[1], pos[2]));
+		if (input->vertexNormalData) {
+			const float *nor = (const float *)&((const uint8_t *)input->vertexNormalData)[input->vertexNormalStride * i];
+			vertex->nor.set(nor[0], nor[1], nor[2]);
+		}
 		canonicalMap.push_back((uint32_t)i);
 	}
 	mesh->linkColocalsWithCanonicalMap(canonicalMap);
