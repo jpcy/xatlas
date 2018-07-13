@@ -2,6 +2,7 @@
 #pragma once
 #ifndef XATLAS_H
 #define XATLAS_H
+#include <float.h> // FLT_MAX
 
 namespace xatlas {
 

@@ -38,7 +38,7 @@
 #define NV_FORCEINLINE __forceinline
 #else
 #define restrict __restrict__
-#define NV_FORCEINLINE  __attribute__((always_inline))
+#define NV_FORCEINLINE  __attribute__((always_inline)) inline
 #endif
 
 #define NV_UINT32_MAX   0xffffffff
