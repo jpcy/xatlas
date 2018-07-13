@@ -39,15 +39,15 @@ static void Print(const char *format, ...)
 
 struct RasterParam
 {
-	xatlas::Atlas *atlas;
 	uint8_t color[3];
-	uint8_t *output_image;
+	uint8_t *imageData;
+	uint32_t imageWidth;
 };
 
 static bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3::Arg bar, xatlas::internal::Vector3::Arg dx, xatlas::internal::Vector3::Arg dy, float coverage)
 {
 	RasterParam *data = (RasterParam *)param;
-	uint8_t *rgba = &data->output_image[(x + y * xatlas::GetWidth(data->atlas)) * 4];
+	uint8_t *rgba = &data->imageData[(x + y * data->imageWidth) * 4];
 	rgba[0] = data->color[0];
 	rgba[1] = data->color[1];
 	rgba[2] = data->color[2];
@@ -129,34 +129,55 @@ int main(int argc, char *argv[])
 	const uint32_t width = xatlas::GetWidth(atlas);
 	const uint32_t height = xatlas::GetHeight(atlas);
 	printf("   %ux%u resolution\n", width, height);
-	uint8_t *output_image = new uint8_t[width * height * 4];
-	memset(output_image, 0, width * height * 4);
+	// Dump images.
+	std::vector<uint8_t> outputTrisImage, outputChartsImage;
+	outputTrisImage.resize(width * height * 4);
+	outputChartsImage.resize(width * height * 4);
 	for (int i = 0; i < (int)shapes.size(); i++) {
-		const xatlas::OutputMesh *output_mesh = xatlas::GetOutputMeshes(atlas)[i];
+		const xatlas::OutputMesh *mesh = xatlas::GetOutputMeshes(atlas)[i];
 		if (verbose)
-			printf("   output mesh %d: %u vertices, %u triangles\n", i, output_mesh->vertexCount, output_mesh->indexCount / 3);
-		for (uint32_t j = 0; j < output_mesh->indexCount; j += 3) {
-			const xatlas::OutputVertex *v[3];
-			v[0] = &output_mesh->vertexArray[output_mesh->indexArray[j + 0]];
-			v[1] = &output_mesh->vertexArray[output_mesh->indexArray[j + 1]];
-			v[2] = &output_mesh->vertexArray[output_mesh->indexArray[j + 2]];
+			printf("   output mesh %d: %u vertices, %u triangles, %u charts\n", i, mesh->vertexCount, mesh->indexCount / 3, mesh->chartCount);
+		// Rasterize mesh triangles.
+		for (uint32_t j = 0; j < mesh->indexCount; j += 3) {
+			RasterParam raster;
 			xatlas::internal::Vector2 verts[3];
 			for (int k = 0; k < 3; k++) {
-				verts[k] = xatlas::internal::Vector2(v[k]->uv[0], v[k]->uv[1]);
+				const xatlas::OutputVertex &v = mesh->vertexArray[mesh->indexArray[j + k]];
+				verts[k] = xatlas::internal::Vector2(v.uv[0], v.uv[1]);
+				raster.color[k] = rand() % 255;
 			}
-			RasterParam raster;
-			raster.atlas = atlas;
-			raster.color[0] = rand() % 255;
-			raster.color[1] = rand() % 255;
-			raster.color[2] = rand() % 255;
-			raster.output_image = output_image;
+			raster.imageData = outputTrisImage.data();
+			raster.imageWidth = width;
 			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)width, (float)height), true, verts, RasterCallback, &raster);
 		}
+		// Rasterize mesh charts.
+		for (uint32_t j = 0; j < mesh->chartCount; j++) {
+			const xatlas::OutputChart *chart = &mesh->chartArray[j];
+			uint8_t color[3];
+			color[0] = rand() % 255;
+			color[1] = rand() % 255;
+			color[2] = rand() % 255;
+			for (uint32_t k = 0; k < chart->indexCount; k += 3) {
+				RasterParam raster;
+				xatlas::internal::Vector2 verts[3];
+				for (int l = 0; l < 3; l++) {
+					const xatlas::OutputVertex &v = mesh->vertexArray[chart->indexArray[k + l]];
+					verts[l] = xatlas::internal::Vector2(v.uv[0], v.uv[1]);
+					raster.color[l] = color[l];
+				}
+				raster.imageData = outputChartsImage.data();
+				raster.imageWidth = width;
+				xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)width, (float)height), true, verts, RasterCallback, &raster);
+			}
+		}
 	}
-	const char *outputFilename = "output.tga";
-	printf("Writing '%s'...\n", outputFilename);
-	stbi_write_tga(outputFilename, width, height, 4, output_image);
-	delete [] output_image;
+	const char *outputTrisFilename = "output_tris.tga";
+	printf("Writing '%s'...\n", outputTrisFilename);
+	stbi_write_tga(outputTrisFilename, width, height, 4, outputTrisImage.data());
+	const char *outputChartsFilename = "output_charts.tga";
+	printf("Writing '%s'...\n", outputChartsFilename);
+	stbi_write_tga(outputChartsFilename, width, height, 4, outputChartsImage.data());
+	// Cleanup.
 	xatlas::Destroy(atlas);
 	printf("Done\n");
 	return 0;

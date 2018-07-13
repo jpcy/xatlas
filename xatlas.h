@@ -103,6 +103,12 @@ struct InputMesh
 	const uint16_t *faceMaterialData; // optional. indexCount / 3 in length.
 };
 
+struct OutputChart
+{
+	uint32_t *indexArray;
+	uint32_t indexCount;
+};
+
 struct OutputVertex
 {
     float uv[2];
@@ -111,10 +117,12 @@ struct OutputVertex
 
 struct OutputMesh
 {
-	uint32_t vertexCount;
+	OutputChart *chartArray;
+	uint32_t chartCount;
+	uint32_t *indexArray;
 	uint32_t indexCount;
 	OutputVertex *vertexArray;
-	uint32_t *indexArray;
+	uint32_t vertexCount;
 };
 
 void SetPrint(PrintFunc print);

@@ -7380,9 +7380,13 @@ void Destroy(Atlas *atlas)
 	xaAssert(atlas);
 	for (int i = 0; i < (int)atlas->inputMeshes.size(); i++) {
 		delete atlas->heMeshes[i];
-		delete [] atlas->outputMeshes[i]->vertexArray;
-		delete [] atlas->outputMeshes[i]->indexArray;
-		delete atlas->outputMeshes[i];
+		OutputMesh *outputMesh = atlas->outputMeshes[i];
+		for (uint32_t j = 0; j < outputMesh->chartCount; j++)
+			delete [] outputMesh->chartArray[j].indexArray;
+		delete [] outputMesh->chartArray;
+		delete [] outputMesh->vertexArray;
+		delete [] outputMesh->indexArray;
+		delete outputMesh;
 	}
 	delete [] atlas->outputMeshes;
 	delete atlas;
@@ -7451,10 +7455,9 @@ void Generate(Atlas *atlas)
 		const internal::halfedge::Mesh *heMesh = atlas->heMeshes[i];
 		OutputMesh *outputMesh = atlas->outputMeshes[i] = new OutputMesh;
 		const internal::param::MeshCharts *charts = atlas->atlas.meshAt(i);
-		// Allocate vertices.
+		// Vertices.
 		outputMesh->vertexCount = charts->vertexCount();
 		outputMesh->vertexArray = new OutputVertex[outputMesh->vertexCount];
-		// Output vertices.
 		for (uint32_t i = 0; i < charts->chartCount(); i++) {
 			const internal::param::Chart *chart = charts->chartAt(i);
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
@@ -7466,9 +7469,9 @@ void Generate(Atlas *atlas)
 				output_vertex.uv[1] = uv.y;
 			}
 		}
+		// Indices.
 		outputMesh->indexCount = heMesh->faceCount() * 3;
-		outputMesh->indexArray = new uint32_t[heMesh->faceCount() * 3];
-		// Set face indices.
+		outputMesh->indexArray = new uint32_t[outputMesh->indexCount];
 		for (uint32_t f = 0; f < heMesh->faceCount(); f++) {
 			const uint32_t c = charts->faceChartAt(f);
 			const uint32_t i = charts->faceIndexWithinChartAt(f);
@@ -7480,6 +7483,24 @@ void Generate(Atlas *atlas)
 			outputMesh->indexArray[3 * f + 0] = vertexOffset + edge->vertex->id;
 			outputMesh->indexArray[3 * f + 1] = vertexOffset + edge->next->vertex->id;
 			outputMesh->indexArray[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
+		}
+		// Charts.
+		outputMesh->chartCount = charts->chartCount();
+		outputMesh->chartArray = new OutputChart[outputMesh->chartCount];
+		for (uint32_t i = 0; i < charts->chartCount(); i++) {
+			OutputChart *outputChart = &outputMesh->chartArray[i];
+			const internal::param::Chart *chart = charts->chartAt(i);
+			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
+			const internal::halfedge::Mesh *mesh = chart->chartMesh();
+			outputChart->indexCount = mesh->faceCount() * 3;
+			outputChart->indexArray = new uint32_t[outputChart->indexCount];
+			for (uint32_t j = 0; j < mesh->faceCount(); j++) {
+				const internal::halfedge::Face *face = mesh->faceAt(j);
+				const internal::halfedge::Edge *edge = face->edge;
+				outputChart->indexArray[3 * j + 0] = vertexOffset + edge->vertex->id;
+				outputChart->indexArray[3 * j + 1] = vertexOffset + edge->next->vertex->id;
+				outputChart->indexArray[3 * j + 2] = vertexOffset + edge->next->next->vertex->id;
+			}
 		}
 	}
 }
