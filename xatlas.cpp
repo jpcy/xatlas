@@ -3692,13 +3692,6 @@ private:
 	Vector2 m_centroid;
 };
 
-/// A triangle vertex.
-struct Vertex
-{
-	Vector2 pos;	// Position.
-	Vector3 tex;	// Texcoord. (Barycentric coordinate)
-};
-
 /// A triangle for rasterization.
 struct Triangle
 {
