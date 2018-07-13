@@ -1850,21 +1850,21 @@ public:
 
 	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2)
 	{
-		std::vector<uint32_t> indexArray(3);
+		uint32_t indexArray[3];
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
-		return addFace(indexArray, 0, 3);
+		return addFace(indexArray, 3, 0, 3);
 	}
 
 	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3)
 	{
-		std::vector<uint32_t> indexArray(4);
+		uint32_t indexArray[4];
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
 		indexArray[3] = v3;
-		return addFace(indexArray, 0, 4);
+		return addFace(indexArray, 4, 0, 4);
 	}
 
 	Face *addFace(const std::vector<uint32_t> &indexArray)
@@ -1874,8 +1874,13 @@ public:
 
 	Face *addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num)
 	{
-		xaDebugAssert(first < indexArray.size());
-		xaDebugAssert(num <= indexArray.size() - first);
+		return addFace(indexArray.data(), (uint32_t)indexArray.size(), first, num);
+	}
+
+	Face *addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t first, uint32_t num)
+	{
+		xaDebugAssert(first < indexCount);
+		xaDebugAssert(num <= indexCount - first);
 		xaDebugAssert(num > 2);
 		if (!canAddFace(indexArray, first, num)) {
 			errorCount++;
@@ -2390,6 +2395,11 @@ public:
 private:
 	// Return true if the face can be added to the manifold mesh.
 	bool canAddFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num) const
+	{
+		return canAddFace(indexArray.data(), first, num);
+	}
+
+	bool canAddFace(const uint32_t *indexArray, uint32_t first, uint32_t num) const
 	{
 		for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
 			if (!canAddEdge(indexArray[first + j], indexArray[first + i])) {
