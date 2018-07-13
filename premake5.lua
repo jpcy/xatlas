@@ -30,7 +30,7 @@ project "example"
 	language "C++"
 	rtti "Off"
 	targetprefix ""
-	files { "xatlas.*", "example/*.cpp" }
+	files { "xatlas.cpp", "xatlas.h", "xatlas_raster.h", "example/*.cpp" }
 	filter { "system:windows", "action:gmake", "platforms:x86" }
 		gccprefix "i686-w64-mingw32-"
 	filter { "system:windows", "action:gmake", "platforms:x86_64" }

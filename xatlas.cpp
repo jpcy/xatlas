@@ -13,6 +13,7 @@
 #include <string.h>
 #include <time.h>
 #include "xatlas.h"
+#include "xatlas_raster.h"
 
 #undef min
 #undef max

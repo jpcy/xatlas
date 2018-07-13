@@ -15,8 +15,8 @@
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "tiny_obj_loader.h"
 
-#define xaPrint
 #include "../xatlas.h"
+#include "../xatlas_raster.h"
 
 class Stopwatch
 {
