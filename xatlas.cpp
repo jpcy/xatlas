@@ -641,11 +641,6 @@ Vector3 floor(Vector3::Arg v)
 	return Vector3(floorf(v.x), floorf(v.y), floorf(v.z));
 }
 
-Vector3 ceil(Vector3::Arg v)
-{
-	return Vector3(ceilf(v.x), ceilf(v.y), ceilf(v.z));
-}
-
 bool isFinite(Vector3::Arg v)
 {
 	return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
@@ -870,11 +865,6 @@ public:
 	{
 		Vector3 d = extents();
 		return 8.0f * (d.x * d.y * d.z);
-	}
-
-	const Vector3 &corner(int i) const
-	{
-		return (&minCorner)[i];
 	}
 
 	Vector3 minCorner;
@@ -1247,9 +1237,6 @@ public:
 		return true;
 	}
 
-	// Geometric queries.
-	Vector3 midPoint() const;
-
 	float length() const;
 
 	// Return angle between this edge and the previous one.
@@ -1287,24 +1274,6 @@ public:
 		for (VertexIterator it(colocals()); !it.isDone(); it.advance()) {
 			it.current()->pos = p;
 		}
-	}
-
-	uint32_t colocalCount() const
-	{
-		uint32_t count = 0;
-		for (ConstVertexIterator it(colocals()); !it.isDone(); it.advance()) {
-			++count;
-		}
-		return count;
-	}
-
-	uint32_t valence() const
-	{
-		uint32_t count = 0;
-		for (ConstEdgeIterator it(edges()); !it.isDone(); it.advance()) {
-			++count;
-		}
-		return count;
 	}
 
 	bool isFirstColocal() const
@@ -1523,11 +1492,6 @@ bool Edge::isNormalSeam() const
 bool Edge::isTextureSeam() const
 {
 	return (vertex->tex != pair->next->vertex->tex || next->vertex->tex != pair->vertex->tex);
-}
-
-Vector3 Edge::midPoint() const
-{
-	return (to()->pos + from()->pos) * 0.5f;
 }
 
 float Edge::length() const
@@ -2038,59 +2002,6 @@ public:
 		delete face;
 	}
 
-	// Remove holes from arrays and reassign indices.
-	void compactEdges()
-	{
-		const uint32_t edgeCount = m_edgeArray.size();
-		uint32_t c = 0;
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			if (m_edgeArray[i] != NULL) {
-				if (i != c) {
-					m_edgeArray[c] = m_edgeArray[i];
-					m_edgeArray[c]->id = 2 * c;
-					if (m_edgeArray[c]->pair != NULL) {
-						m_edgeArray[c]->pair->id = 2 * c + 1;
-					}
-				}
-				c++;
-			}
-		}
-		m_edgeArray.resize(c);
-	}
-
-	void compactVertices()
-	{
-		const uint32_t vertexCount = m_vertexArray.size();
-		uint32_t c = 0;
-		for (uint32_t i = 0; i < vertexCount; i++) {
-			if (m_vertexArray[i] != NULL) {
-				if (i != c) {
-					m_vertexArray[c] = m_vertexArray[i];
-					m_vertexArray[c]->id = c;
-				}
-				c++;
-			}
-		}
-		m_vertexArray.resize(c);
-		// @@ Generate xref array for external attributes.
-	}
-
-	void compactFaces()
-	{
-		const uint32_t faceCount = m_faceArray.size();
-		uint32_t c = 0;
-		for (uint32_t i = 0; i < faceCount; i++) {
-			if (m_faceArray[i] != NULL) {
-				if (i != c) {
-					m_faceArray[c] = m_faceArray[i];
-					m_faceArray[c]->id = c;
-				}
-				c++;
-			}
-		}
-		m_faceArray.resize(c);
-	}
-
 	// Triangulate in place.
 	void triangulate()
 	{
@@ -2219,87 +2130,6 @@ public:
 		xaPrint(" - %d edges split.\n", splitCount);
 		xaDebugAssert(isValid());
 		return splitCount != 0;
-	}
-
-	// Sew the boundary that starts at the given edge, returns one edge that still belongs to boundary, or NULL if boundary closed.
-	// For this to be effective, we have to fix the boundary junctions first.
-	halfedge::Edge *sewBoundary(Edge *startEdge)
-	{
-		xaDebugAssert(startEdge->face == NULL);
-		// @@ We may want to be more conservative linking colocals in order to preserve the input topology. One way of doing that is by linking colocals only
-		// if the vertices next to them are linked as well. That is, by sewing boundaries after detecting them. If any pair of consecutive edges have their first
-		// and last vertex in the same position, then it can be linked.
-		Edge *lastBoundarySeen = startEdge;
-		xaPrint("Sewing Boundary:\n");
-		int count = 0;
-		int sewnCount = 0;
-		Edge *edge = startEdge;
-		do {
-			xaDebugAssert(edge->face == NULL);
-			Edge *edge_a = edge;
-			Edge *edge_b = edge->prev;
-			Edge *pair_a = edge_a->pair;
-			Edge *pair_b = edge_b->pair;
-			Vertex *v0a = edge_a->to();
-			Vertex *v0b = edge_b->from();
-			Vertex *v1a = edge_a->from();
-			Vertex *v1b = edge_b->to();
-			xaDebugAssert(v1a->isColocal(v1b));
-			/*
-			v0b +      _+ v0a
-				 \     /
-				b \   / a
-				   \|/
-				v1b + v1a
-			*/
-			// @@ This should not happen while sewing, but it may be produced somewhere else.
-			xaDebugAssert(edge_a != edge_b);
-			if (v0a->pos == v0b->pos) {
-				// Link vertices.
-				v0a->linkColocal(v0b);
-				// Remove edges to be collapsed.
-				disconnect(edge_a);
-				disconnect(edge_b);
-				disconnect(pair_a);
-				disconnect(pair_b);
-				// Link new boundary edges.
-				Edge *prevBoundary = edge_b->prev;
-				Edge *nextBoundary = edge_a->next;
-				if (nextBoundary != NULL) {
-					xaDebugAssert(nextBoundary->face == NULL);
-					xaDebugAssert(prevBoundary->face == NULL);
-					nextBoundary->setPrev(prevBoundary);
-					// Make sure boundary vertex points to boundary edge.
-					v0a->setEdge(nextBoundary); // This updates all colocals.
-				}
-				lastBoundarySeen = prevBoundary;
-				// Creat new edge.
-				Edge *newEdge_a = addEdge(v0a->id, v1a->id);    // pair_a->from()->id, pair_a->to()->id
-				Edge *newEdge_b = addEdge(v1b->id, v0b->id);
-				newEdge_a->pair = newEdge_b;
-				newEdge_b->pair = newEdge_a;
-				newEdge_a->face = pair_a->face;
-				newEdge_b->face = pair_b->face;
-				newEdge_a->setNext(pair_a->next);
-				newEdge_a->setPrev(pair_a->prev);
-				newEdge_b->setNext(pair_b->next);
-				newEdge_b->setPrev(pair_b->prev);
-				delete edge_a;
-				delete edge_b;
-				delete pair_a;
-				delete pair_b;
-				edge = nextBoundary;    // If nextBoundary is NULL we have closed the loop.
-				sewnCount++;
-			} else {
-				edge = edge->next;
-			}
-			count++;
-		} while (edge != NULL && edge != lastBoundarySeen);
-		xaPrint(" - Sewn %d out of %d.\n", sewnCount, count);
-		if (lastBoundarySeen != NULL) {
-			xaDebugAssert(lastBoundarySeen->face == NULL);
-		}
-		return lastBoundarySeen;
 	}
 
 	// Vertices
@@ -4136,51 +3966,6 @@ public:
 		}
 	}
 
-	void addCoefficient(uint32_t x, uint32_t y, float f)
-	{
-		xaDebugAssert( x < width() );
-		xaDebugAssert( y < height() );
-		if (f != 0.0f) {
-			const uint32_t count = m_array[y].size();
-			for (uint32_t i = 0; i < count; i++) {
-				if (m_array[y][i].x == x) {
-					m_array[y][i].v += f;
-					return;
-				}
-			}
-			Coefficient c = { x, f };
-			m_array[y].push_back( c );
-		}
-	}
-
-	void mulCoefficient(uint32_t x, uint32_t y, float f)
-	{
-		xaDebugAssert( x < width() );
-		xaDebugAssert( y < height() );
-		const uint32_t count = m_array[y].size();
-		for (uint32_t i = 0; i < count; i++) {
-			if (m_array[y][i].x == x) {
-				m_array[y][i].v *= f;
-				return;
-			}
-		}
-		if (f != 0.0f) {
-			Coefficient c = { x, f };
-			m_array[y].push_back( c );
-		}
-	}
-
-	float sumRow(uint32_t y) const
-	{
-		xaDebugAssert( y < height() );
-		const uint32_t count = m_array[y].size();
-		float sum = 0;
-		for (uint32_t i = 0; i < count; i++) {
-			sum += m_array[y][i].v;
-		}
-		return sum;
-	}
-
 	float dotRow(uint32_t y, const FullVector &v) const
 	{
 		xaDebugAssert( y < height() );
@@ -4216,64 +4001,7 @@ public:
 		}
 	}
 
-	void normalizeRow(uint32_t y)
-	{
-		xaDebugAssert( y < height() );
-		float norm = 0.0f;
-		const uint32_t count = m_array[y].size();
-		for (uint32_t i = 0; i < count; i++) {
-			float f = m_array[y][i].v;
-			norm += f * f;
-		}
-		scaleRow(y, 1.0f / sqrtf(norm));
-	}
-
-	void clearColumn(uint32_t x)
-	{
-		xaDebugAssert(x < width());
-		for (uint32_t y = 0; y < height(); y++) {
-			const uint32_t count = m_array[y].size();
-			for (uint32_t e = 0; e < count; e++) {
-				if (m_array[y][e].x == x) {
-					m_array[y][e].v = 0.0f;
-					break;
-				}
-			}
-		}
-	}
-
-	void scaleColumn(uint32_t x, float f)
-	{
-		xaDebugAssert(x < width());
-		for (uint32_t y = 0; y < height(); y++) {
-			const uint32_t count = m_array[y].size();
-			for (uint32_t e = 0; e < count; e++) {
-				if (m_array[y][e].x == x) {
-					m_array[y][e].v *= f;
-					break;
-				}
-			}
-		}
-	}
-
 	const std::vector<Coefficient> &getRow(uint32_t y) const { return m_array[y]; }
-
-	bool isSymmetric() const
-	{
-		for (uint32_t y = 0; y < height(); y++) {
-			const uint32_t count = m_array[y].size();
-			for (uint32_t e = 0; e < count; e++) {
-				const uint32_t x = m_array[y][e].x;
-				if (x > y) {
-					float v = m_array[y][e].v;
-					if (!equal(getCoefficient(y, x), v)) {  // @@ epsilon
-						return false;
-					}
-				}
-			}
-		}
-		return true;
-	}
 
 private:
 	/// Number of columns.
@@ -5568,33 +5296,6 @@ struct AtlasBuilder
 			return 0.0f; // Avoid division by zero.
 		}
 		return seamLength / totalLength;
-	}
-
-	float evaluateSeamMetric(ChartBuildData *chart, uint32_t f)
-	{
-		float newSeamLength = 0.0f;
-		float oldSeamLength = 0.0f;
-		float totalLength = 0.0f;
-		const halfedge::Face *face = mesh->faceAt(f);
-		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			const halfedge::Edge *edge = it.current();
-			//float l = edge->length();
-			float l = edgeLengths[edge->id / 2];
-			if (edge->isBoundary()) {
-				newSeamLength += l;
-			} else {
-				if (edge->isSeam()) {
-					uint32_t neighborFaceId = edge->pair->face->id;
-					if (faceChartArray[neighborFaceId] != chart->id) {
-						newSeamLength += l;
-					} else {
-						oldSeamLength += l;
-					}
-				}
-			}
-			totalLength += l;
-		}
-		return (newSeamLength - oldSeamLength) / totalLength;
 	}
 
 	float evaluateChartArea(ChartBuildData *chart, uint32_t f)
@@ -7516,17 +7217,6 @@ private:
 				}
 			}
 		}
-	}
-
-	static bool checkBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float)
-	{
-		BitMap *bitmap = (BitMap * )param;
-		xaDebugAssert(bitmap->bitAt(x, y) == false);
-#ifdef NDEBUG
-		x = y = 0; // silence unused parameter warning
-		bitmap = NULL;
-#endif
-		return true;
 	}
 
 	static bool setBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float area)
