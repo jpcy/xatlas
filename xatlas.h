@@ -5,6 +5,40 @@
 
 namespace xatlas {
 
+typedef void (*PrintFunc)(const char *, ...);
+
+struct Atlas;
+
+struct CharterOptions
+{
+    float proxyFitMetricWeight;
+    float roundnessMetricWeight;
+    float straightnessMetricWeight;
+    float normalSeamMetricWeight;
+    float textureSeamMetricWeight;
+    float maxChartArea;
+    float maxBoundaryLength;
+
+	CharterOptions()
+	{
+		// These are the default values we use on The Witness.
+		proxyFitMetricWeight = 2.0f;
+		roundnessMetricWeight = 0.01f;
+		straightnessMetricWeight = 6.0f;
+		normalSeamMetricWeight = 4.0f;
+		textureSeamMetricWeight = 0.5f;
+		/*
+		proxyFitMetricWeight = 1.0f;
+		roundnessMetricWeight = 0.1f;
+		straightnessMetricWeight = 0.25f;
+		normalSeamMetricWeight = 1.0f;
+		textureSeamMetricWeight = 0.1f;
+		*/
+		maxChartArea = FLT_MAX;
+		maxBoundaryLength = FLT_MAX;
+	}
+};
+
 struct PackMethod
 {
 	enum Enum
@@ -15,36 +49,49 @@ struct PackMethod
 	};
 };
 
-struct Options
+struct PackerOptions
 {
-	struct
-	{
-        float proxy_fit_metric_weight;
-        float roundness_metric_weight;
-        float straightness_metric_weight;
-        float normal_seam_metric_weight;
-        float texture_seam_metric_weight;
-        float max_chart_area;
-        float max_boundary_length;
-    }
-	charter;
+	PackMethod::Enum method;
 
-	struct
-	{
-		PackMethod::Enum method;
-        int packing_quality;
-        float texel_area;       // This is not really texel area, but 1 / texel width?
-		uint32_t resolution;
-        bool block_align;       // Align charts to 4x4 blocks. 
-        bool conservative;      // Pack charts with extra padding.
-		int padding;
-    }
-	packer;
+	// 0 - brute force
+	// 1 - 4096 attempts
+	// 2 - 2048
+	// 3 - 1024
+	// 4 - 512
+	// other - 256
+	// Avoid brute force packing, since it can be unusably slow in some situations.
+    int quality;
 
-	void (*Print)(const char *, ...);
+    float texelArea;       // This is not really texel area, but 1 / texel width?
+	uint32_t resolution;
+    bool blockAlign;       // Align charts to 4x4 blocks. 
+    bool conservative;      // Pack charts with extra padding.
+	int padding;
+
+	PackerOptions()
+	{
+		method = PackMethod::ApproximateResolution;
+		quality = 1;
+		texelArea = 8;
+		resolution = 512;
+		blockAlign = false;
+		conservative = false;
+		padding = 0;
+	}
 };
 
-struct Input_Mesh
+struct AddMeshError
+{
+	enum Enum
+	{
+		Success,
+		IndexOutOfRange,
+		InvalidIndexCount,
+		NonManifold,
+	};
+};
+
+struct InputMesh
 {
 	uint32_t vertexCount;
     const void *vertexPositionData;
@@ -56,45 +103,30 @@ struct Input_Mesh
 	const uint16_t *faceMaterialData; // optional. indexCount / 3 in length.
 };
 
-struct Output_Vertex
+struct OutputVertex
 {
     float uv[2];
     uint32_t xref;   // Index of input vertex from which this output vertex originated.
 };
 
-struct Output_Mesh
+struct OutputMesh
 {
 	uint32_t vertexCount;
 	uint32_t indexCount;
-    Output_Vertex *vertexArray;
+	OutputVertex *vertexArray;
 	uint32_t *indexArray;
 };
 
-enum Error
-{
-    Error_Success,
-    Error_Invalid_Args,
-    Error_Invalid_Options,
-    Error_Invalid_Mesh,
-    Error_Invalid_Mesh_Non_Manifold,
-    Error_Not_Implemented,
-};
-
-struct Atlas
-{
-	Error error;
-	int errorMeshIndex;
-	int width;
-	int height;
-	int nCharts;
-	int nMeshes;
-	Output_Mesh **meshes;
-};
-
-void set_default_options(Options * options);
-void add_mesh(const Input_Mesh *mesh);
-Atlas atlas_generate(const Options *options);
-void atlas_free(Atlas atlas);
+void SetPrint(PrintFunc print);
+Atlas *Create(const CharterOptions &charterOptions, const PackerOptions &packerOptions);
+void Destroy(Atlas *atlas);
+AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh);
+void Generate(Atlas *atlas);
+uint32_t GetWidth(const Atlas *atlas);
+uint32_t GetHeight(const Atlas *atlas);
+uint32_t GetNumCharts(const Atlas *atlas);
+const OutputMesh * const *GetOutputMeshes(const Atlas *atlas);
+const char *StringForEnum(AddMeshError::Enum error);
 
 } // namespace xatlas
 

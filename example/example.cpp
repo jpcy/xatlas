@@ -29,6 +29,14 @@ private:
 	std::chrono::time_point<Clock> start_;
 };
 
+static void Print(const char *format, ...)
+{
+	va_list arg;
+	va_start(arg, format);
+	vprintf(format, arg);
+	va_end(arg);
+}
+
 struct RasterParam
 {
 	xatlas::Atlas *atlas;
@@ -39,7 +47,7 @@ struct RasterParam
 static bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3::Arg bar, xatlas::internal::Vector3::Arg dx, xatlas::internal::Vector3::Arg dy, float coverage)
 {
 	RasterParam *data = (RasterParam *)param;
-	uint8_t *rgba = &data->output_image[(x + y * data->atlas->width) * 4];
+	uint8_t *rgba = &data->output_image[(x + y * xatlas::GetWidth(data->atlas)) * 4];
 	rgba[0] = data->color[0];
 	rgba[1] = data->color[1];
 	rgba[2] = data->color[2];
@@ -71,71 +79,64 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 	printf("   %lu shapes\n", shapes.size());
-	std::vector<xatlas::Input_Mesh> inputMeshes;
-	inputMeshes.resize(shapes.size());
+	// Create atlas.
+	if (verbose)
+		xatlas::SetPrint(Print);
+	xatlas::PackerOptions packerOptions;
+	packerOptions.resolution = 1024;
+	packerOptions.conservative = true;
+	packerOptions.padding = 1;
+	xatlas::Atlas *atlas = xatlas::Create(xatlas::CharterOptions(), packerOptions);
+	// Add meshes to atlas.
+	Stopwatch stopwatch;
 	uint32_t totalVertices = 0, totalFaces = 0;
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
-		if (objMesh.normals.size() == 0) {
-			printf("Shape %d has no normals\n", i);
-			return 0;
-		}
-		xatlas::Input_Mesh &mesh = inputMeshes[i];
+		xatlas::InputMesh mesh;
 		mesh.vertexCount = (int)objMesh.positions.size() / 3;
 		mesh.vertexPositionData = objMesh.positions.data();
 		mesh.vertexPositionStride = sizeof(float) * 3;
-		mesh.vertexNormalData = objMesh.normals.data();
-		mesh.vertexNormalStride = sizeof(float) * 3;
+		if (objMesh.normals.size() == 0) {
+			mesh.vertexNormalData = NULL;
+		} else {
+			mesh.vertexNormalData = objMesh.normals.data();
+			mesh.vertexNormalStride = sizeof(float) * 3;
+		}
 		mesh.indexCount = (int)objMesh.indices.size();
 		mesh.indexData = objMesh.indices.data();
 		mesh.faceMaterialData = NULL;
 		if (verbose)
 			printf("      shape %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
-		xatlas::add_mesh(&mesh);
+		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, mesh);
+		if (error != xatlas::AddMeshError::Success) {
+			printf("Error adding mesh %d: %s\n", i, xatlas::StringForEnum(error));
+			return 0;
+		}
 		totalVertices += mesh.vertexCount;
 		totalFaces += mesh.indexCount / 3;
 	}
 	printf("   %u vertices\n", totalVertices);
 	printf("   %u triangles\n", totalFaces);
-	// Generate Output_Mesh.
-	xatlas::Options atlas_options;
-	xatlas::set_default_options(&atlas_options);
-	if (!verbose)
-		atlas_options.Print = NULL;
-	// Avoid brute force packing, since it can be unusably slow in some situations.
-	atlas_options.packer.packing_quality = 1;
-	atlas_options.packer.resolution = 1024;
-	atlas_options.packer.conservative = true;
-	atlas_options.packer.padding = 1;
-	Stopwatch stopwatch;
-	printf("Generating atlas...\n");
-	xatlas::Atlas atlas = xatlas::atlas_generate(&atlas_options);
-	const double elapsedMs = stopwatch.elapsed();
-	if (atlas.error != xatlas::Error_Success)
-	{
-		printf("Error");
-		if (atlas.error == xatlas::Error_Invalid_Args)
-			printf(": invalid arguments");
-		else if (atlas.error == xatlas::Error_Invalid_Options)
-			printf(": invalid options");
-		else if (atlas.error == xatlas::Error_Invalid_Mesh)
-			printf(": invalid mesh, index %d", atlas.errorMeshIndex);
-		else if (atlas.error == xatlas::Error_Invalid_Mesh_Non_Manifold)
-			printf(": non-manifold mesh, index %d", atlas.errorMeshIndex);
-		printf("\n");
-		return 0;
-	}
+	double elapsedMs = stopwatch.elapsed();
 	printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
-	printf("   %d charts\n", atlas.nCharts);
-	printf("   %dx%d resolution\n", atlas.width, atlas.height);
-	uint8_t *output_image = new uint8_t[atlas.width * atlas.height * 4];
-	memset(output_image, 0, atlas.width * atlas.height * 4);
-	for (int i = 0; i < atlas.nMeshes; i++) {
-		xatlas::Output_Mesh *output_mesh = atlas.meshes[i];
+	// Generate output meshes.
+	printf("Generating atlas...\n");
+	stopwatch.reset();
+	xatlas::Generate(atlas);
+	elapsedMs = stopwatch.elapsed();
+	printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
+	printf("   %d charts\n", xatlas::GetNumCharts(atlas));
+	const uint32_t width = xatlas::GetWidth(atlas);
+	const uint32_t height = xatlas::GetHeight(atlas);
+	printf("   %ux%u resolution\n", width, height);
+	uint8_t *output_image = new uint8_t[width * height * 4];
+	memset(output_image, 0, width * height * 4);
+	for (int i = 0; i < (int)shapes.size(); i++) {
+		const xatlas::OutputMesh *output_mesh = xatlas::GetOutputMeshes(atlas)[i];
 		if (verbose)
 			printf("   output mesh %d: %u vertices, %u triangles\n", i, output_mesh->vertexCount, output_mesh->indexCount / 3);
 		for (uint32_t j = 0; j < output_mesh->indexCount; j += 3) {
-			const xatlas::Output_Vertex *v[3];
+			const xatlas::OutputVertex *v[3];
 			v[0] = &output_mesh->vertexArray[output_mesh->indexArray[j + 0]];
 			v[1] = &output_mesh->vertexArray[output_mesh->indexArray[j + 1]];
 			v[2] = &output_mesh->vertexArray[output_mesh->indexArray[j + 2]];
@@ -144,19 +145,19 @@ int main(int argc, char *argv[])
 				verts[k] = xatlas::internal::Vector2(v[k]->uv[0], v[k]->uv[1]);
 			}
 			RasterParam raster;
-			raster.atlas = &atlas;
+			raster.atlas = atlas;
 			raster.color[0] = rand() % 255;
 			raster.color[1] = rand() % 255;
 			raster.color[2] = rand() % 255;
 			raster.output_image = output_image;
-			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)atlas.width, (float)atlas.height), true, verts, RasterCallback, &raster);
+			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)width, (float)height), true, verts, RasterCallback, &raster);
 		}
 	}
 	const char *outputFilename = "output.tga";
 	printf("Writing '%s'...\n", outputFilename);
-	stbi_write_tga(outputFilename, atlas.width, atlas.height, 4, output_image);
+	stbi_write_tga(outputFilename, width, height, 4, output_image);
 	delete [] output_image;
-	xatlas::atlas_free(atlas);
+	xatlas::Destroy(atlas);
 	printf("Done\n");
 	return 0;
 }

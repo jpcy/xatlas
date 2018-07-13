@@ -25,7 +25,7 @@
 #define xaDebugAssert(exp) assert(exp)
 #endif
 #ifndef xaPrint
-#define xaPrint(...) if (xatlas::internal::s_options->Print) { xatlas::internal::s_options->Print(__VA_ARGS__); }
+#define xaPrint(...) if (xatlas::internal::s_print) { xatlas::internal::s_print(__VA_ARGS__); }
 #endif
 
 #ifdef _MSC_VER
@@ -53,15 +53,8 @@
 
 namespace xatlas {
 namespace internal {
-static const Options *s_options = NULL;
 
-void Print(const char *msg, ...)
-{
-	va_list arg;
-	va_start(arg, msg);
-	vprintf(msg, arg);
-	va_end(arg);
-}
+static PrintFunc s_print = NULL;
 
 static int align(int x, int a)
 {
@@ -4859,30 +4852,6 @@ struct ChartBuildData
 	PriorityQueue candidates;
 };
 
-struct SegmentationSettings
-{
-	SegmentationSettings()
-	{
-		// Charts have no area or boundary limits right now.
-		maxChartArea = NV_FLOAT_MAX;
-		maxBoundaryLength = NV_FLOAT_MAX;
-		proxyFitMetricWeight = 1.0f;
-		roundnessMetricWeight = 0.1f;
-		straightnessMetricWeight = 0.25f;
-		normalSeamMetricWeight = 1.0f;
-		textureSeamMetricWeight = 0.1f;
-	}
-
-	float maxChartArea;
-	float maxBoundaryLength;
-
-	float proxyFitMetricWeight;
-	float roundnessMetricWeight;
-	float straightnessMetricWeight;
-	float normalSeamMetricWeight;
-	float textureSeamMetricWeight;
-};
-
 struct AtlasBuilder
 {
 	AtlasBuilder(const halfedge::Mesh *m) : mesh(m), facesLeft(m->faceCount())
@@ -5187,16 +5156,16 @@ struct AtlasBuilder
 		// - Cause more impedance. Never cross 90 degree edges.
 		// -
 		float cost = float(
-						 settings.proxyFitMetricWeight * F +
-						 settings.roundnessMetricWeight * C +
-						 settings.straightnessMetricWeight * P +
-						 settings.normalSeamMetricWeight * N +
-						 settings.textureSeamMetricWeight * T);
+						 options.proxyFitMetricWeight * F +
+						 options.roundnessMetricWeight * C +
+						 options.straightnessMetricWeight * P +
+						 options.normalSeamMetricWeight * N +
+						 options.textureSeamMetricWeight * T);
 		// Enforce limits strictly:
-		if (newChartArea > settings.maxChartArea) cost = FLT_MAX;
-		if (newBoundaryLength > settings.maxBoundaryLength) cost = FLT_MAX;
+		if (newChartArea > options.maxChartArea) cost = FLT_MAX;
+		if (newBoundaryLength > options.maxBoundaryLength) cost = FLT_MAX;
 		// Make sure normal seams are fully respected:
-		if (settings.normalSeamMetricWeight >= 1000 && N != 0) cost = FLT_MAX;
+		if (options.normalSeamMetricWeight >= 1000 && N != 0) cost = FLT_MAX;
 		xaAssert(std::isfinite(cost));
 		return cost;
 	}
@@ -5540,7 +5509,7 @@ struct AtlasBuilder
 	std::vector<Candidate> candidateArray; //
 	std::vector<uint32_t> faceCandidateArray; // Map face index to candidate index.
 	MTRand rand;
-	SegmentationSettings settings;
+	CharterOptions options;
 };
 
 /// A chart is a connected set of faces with a certain topology (usually a disk).
@@ -6364,7 +6333,7 @@ public:
 		  - emphasize roundness metrics to prevent those cases.
 	  - If interior self-overlaps: preserve boundary parameterization and use mean-value map.
 	*/
-	void computeCharts(const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
+	void computeCharts(const CharterOptions &options, const std::vector<uint32_t> &unchartedMaterialArray)
 	{
 		Chart *vertexMap = NULL;
 		if (unchartedMaterialArray.size() != 0) {
@@ -6386,10 +6355,10 @@ public:
 			const float maxThreshold = 2;
 			const uint32_t growFaceCount = 32;
 			const uint32_t maxIterations = 4;
-			builder.settings = settings;
-			//builder.settings.proxyFitMetricWeight *= 0.75; // relax proxy fit weight during initial seed placement.
-			//builder.settings.roundnessMetricWeight = 0;
-			//builder.settings.straightnessMetricWeight = 0;
+			builder.options = options;
+			//builder.options.proxyFitMetricWeight *= 0.75; // relax proxy fit weight during initial seed placement.
+			//builder.options.roundnessMetricWeight = 0;
+			//builder.options.straightnessMetricWeight = 0;
 			// This seems a reasonable estimate.
 			uint32_t maxSeedCount = std::max(6U, builder.facesLeft);
 			// Create initial charts greedely.
@@ -6406,7 +6375,7 @@ public:
 			if (vertexMap != NULL) {
 				builder.markUnchartedFaces(vertexMap->faceArray());
 			}
-			builder.settings = settings;
+			builder.options = options;
 			xaPrint("### Growing charts\n");
 			// Restart process growing charts in parallel.
 			uint32_t iteration = 0;
@@ -6627,10 +6596,10 @@ public:
 		addMeshCharts(meshCharts);
 	}
 
-	void computeCharts(const halfedge::Mesh *mesh, const SegmentationSettings &settings, const std::vector<uint32_t> &unchartedMaterialArray)
+	void computeCharts(const halfedge::Mesh *mesh, const CharterOptions &options, const std::vector<uint32_t> &unchartedMaterialArray)
 	{
 		MeshCharts *meshCharts = new MeshCharts(mesh);
-		meshCharts->computeCharts(settings, unchartedMaterialArray);
+		meshCharts->computeCharts(options, unchartedMaterialArray);
 		addMeshCharts(meshCharts);
 	}
 
@@ -6663,13 +6632,13 @@ struct AtlasPacker
 	uint32_t getHeight() const { return m_height; }
 
 	// Pack charts in the smallest possible rectangle.
-	void packCharts(int quality, PackMethod::Enum method, float texel_area, uint32_t resolution, bool blockAligned, bool conservative, int padding)
+	void packCharts(const PackerOptions &options)
 	{
 		const uint32_t chartCount = m_atlas->chartCount();
 		if (chartCount == 0) return;
 		float texelsPerUnit = 1;
-		if (method == PackMethod::TexelArea)
-			texelsPerUnit = texel_area;
+		if (options.method == PackMethod::TexelArea)
+			texelsPerUnit = options.texelArea;
 		for (int iteration = 0;; iteration++) {
 			m_rand = MTRand();
 			std::vector<float> chartOrderArray(chartCount);
@@ -6754,9 +6723,9 @@ struct AtlasPacker
 					float divide_y = 1.0f;
 					if (extents.x > 0) {
 						int cw = ftoi_ceil(extents.x);
-						if (blockAligned) {
+						if (options.blockAlign) {
 							// Align all chart extents to 4x4 blocks, but taking padding into account.
-							if (conservative) {
+							if (options.conservative) {
 								cw = align(cw + 2, 4) - 2;
 							} else {
 								cw = align(cw + 1, 4) - 1;
@@ -6768,9 +6737,9 @@ struct AtlasPacker
 					}
 					if (extents.y > 0) {
 						int ch = ftoi_ceil(extents.y);
-						if (blockAligned) {
+						if (options.blockAlign) {
 							// Align all chart extents to 4x4 blocks, but taking padding into account.
-							if (conservative) {
+							if (options.conservative) {
 								ch = align(ch + 2, 4) - 2;
 							} else {
 								ch = align(ch + 1, 4) - 1;
@@ -6802,16 +6771,16 @@ struct AtlasPacker
 			m_radix.sort(chartOrderArray);
 			const uint32_t *ranks = m_radix.ranks();
 			// First iteration - guess texelsPerUnit.
-			if (method != PackMethod::TexelArea && iteration == 0) {
+			if (options.method != PackMethod::TexelArea && iteration == 0) {
 				// Estimate size of the map based on the mesh surface area and given texel scale.
 				const float texelCount = std::max(1.0f, meshArea * square(texelsPerUnit) / 0.75f); // Assume 75% utilization.
-				texelsPerUnit = sqrt((resolution * resolution) / texelCount);
+				texelsPerUnit = sqrt((options.resolution * options.resolution) / texelCount);
 				resetUvs();
 				continue;
 			}
 			// Init bit map.
 			m_bitmap.clearAll();
-			m_bitmap.resize(resolution, resolution, false);
+			m_bitmap.resize(options.resolution, options.resolution, false);
 			int w = 0;
 			int h = 0;
 			// Add sorted charts to bitmap.
@@ -6839,11 +6808,11 @@ struct AtlasPacker
 					//   \ / \ / \ /
 					//    V   V   V
 					//    0   1   2
-					if (conservative) {
+					if (options.conservative) {
 						// Init all bits to 0.
-						chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1 + padding, ftoi_ceil(chartExtents[c].y) + 1 + padding, /*initValue=*/false);  // + 2 to add padding on both sides.
+						chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, /*initValue=*/false);  // + 2 to add padding on both sides.
 						// Rasterize chart and dilate.
-						drawChartBitmapDilate(chart, &chart_bitmap, padding);
+						drawChartBitmapDilate(chart, &chart_bitmap, options.padding);
 					} else {
 						// Init all bits to 0.
 						chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1, /*initValue=*/false);  // Add half a texels on each side.
@@ -6854,7 +6823,7 @@ struct AtlasPacker
 				int best_x, best_y;
 				int best_cw, best_ch;   // Includes padding now.
 				int best_r;
-				findChartLocation(quality, &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r);
+				findChartLocation(options.quality, &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r);
 				/*if (w < best_x + best_cw || h < best_y + best_ch)
 				{
 					xaPrint("Resize extents to (%d, %d).\n", best_x + best_cw, best_y + best_ch);
@@ -6893,11 +6862,10 @@ struct AtlasPacker
 			m_height = std::max(0, h);
 			xaAssert(isAligned(m_width, 4));
 			xaAssert(isAligned(m_height, 4));
-			if (method == PackMethod::ExactResolution) {
-				texelsPerUnit *= sqrt((resolution * resolution) / (float)(m_width * m_height));
-				if (iteration > 1 && m_width <= resolution && m_height <= resolution) {
-					m_width = resolution;
-					m_height = resolution;
+			if (options.method == PackMethod::ExactResolution) {
+				texelsPerUnit *= sqrt((options.resolution * options.resolution) / (float)(m_width * m_height));
+				if (iteration > 1 && m_width <= options.resolution && m_height <= options.resolution) {
+					m_width = m_height = options.resolution;
 					return;
 				}
 				resetUvs();
@@ -7380,188 +7348,175 @@ private:
 };
 
 } // namespace param
+} // namespace internal
 
-static void input_to_mesh(const Input_Mesh *input, internal::halfedge::Mesh *mesh, Error *error)
+struct Atlas
 {
+	CharterOptions charterOptions;
+	PackerOptions packerOptions;
+	internal::param::Atlas atlas;
+	std::vector<InputMesh> inputMeshes;
+	std::vector<internal::halfedge::Mesh *> heMeshes;
+	uint32_t width = 0;
+	uint32_t height = 0;
+	OutputMesh **outputMeshes = NULL;
+};
+
+void SetPrint(PrintFunc print)
+{
+	internal::s_print = print;
+}
+
+Atlas *Create(const CharterOptions &charterOptions, const PackerOptions &packerOptions)
+{
+	Atlas *atlas = new Atlas;
+	atlas->charterOptions = charterOptions;
+	atlas->packerOptions = packerOptions;
+	return atlas;
+}
+
+void Destroy(Atlas *atlas)
+{
+	xaAssert(atlas);
+	for (int i = 0; i < (int)atlas->inputMeshes.size(); i++) {
+		delete atlas->heMeshes[i];
+		delete [] atlas->outputMeshes[i]->vertexArray;
+		delete [] atlas->outputMeshes[i]->indexArray;
+		delete atlas->outputMeshes[i];
+	}
+	delete [] atlas->outputMeshes;
+	delete atlas;
+}
+
+AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
+{
+	xaAssert(atlas);
+	// Expecting triangle faces.
+	if ((mesh.indexCount % 3) != 0)
+		return AddMeshError::InvalidIndexCount;
+	// Check if any index is out of range.
+	const int faceCount = mesh.indexCount / 3;
+	for (uint32_t j = 0; j < mesh.indexCount; j++) {
+		if (mesh.indexData[j] < 0 || mesh.indexData[j] >= mesh.vertexCount) {
+			return AddMeshError::IndexOutOfRange;
+		}
+	}
+	// Build half edge mesh.
+	internal::halfedge::Mesh *heMesh = new internal::halfedge::Mesh;
 	std::vector<uint32_t> canonicalMap;
-	canonicalMap.reserve(input->vertexCount);
-	for (uint32_t i = 0; i < input->vertexCount; i++) {
-		const float *pos = (const float *)&((const uint8_t *)input->vertexPositionData)[input->vertexPositionStride * i];
-		internal::halfedge::Vertex *vertex = mesh->addVertex(internal::Vector3(pos[0], pos[1], pos[2]));
-		if (input->vertexNormalData) {
-			const float *nor = (const float *)&((const uint8_t *)input->vertexNormalData)[input->vertexNormalStride * i];
+	canonicalMap.reserve(mesh.vertexCount);
+	for (uint32_t i = 0; i < mesh.vertexCount; i++) {
+		const float *pos = (const float *)&((const uint8_t *)mesh.vertexPositionData)[mesh.vertexPositionStride * i];
+		internal::halfedge::Vertex *vertex = heMesh->addVertex(internal::Vector3(pos[0], pos[1], pos[2]));
+		if (mesh.vertexNormalData) {
+			const float *nor = (const float *)&((const uint8_t *)mesh.vertexNormalData)[mesh.vertexNormalStride * i];
 			vertex->nor.set(nor[0], nor[1], nor[2]);
 		}
 		canonicalMap.push_back((uint32_t)i);
 	}
-	mesh->linkColocalsWithCanonicalMap(canonicalMap);
-	const int faceCount = input->indexCount / 3;
-	int non_manifold_faces = 0;
+	heMesh->linkColocalsWithCanonicalMap(canonicalMap);
 	for (int i = 0; i < faceCount; i++) {
-		const uint32_t *tri = &(input->indexData[i * 3]);
-		internal::halfedge::Face *face = mesh->addFace(tri[0], tri[1], tri[2]);
-		if (face != NULL) {
-			if (input->faceMaterialData)
-				face->material = input->faceMaterialData[i];
-		} else {
-			non_manifold_faces++;
+		const uint32_t *tri = &(mesh.indexData[i * 3]);
+		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2]);
+		if (!face) {
+			delete heMesh;
+			return AddMeshError::NonManifold;
 		}
+		if (mesh.faceMaterialData)
+			face->material = mesh.faceMaterialData[i];
 	}
-	mesh->linkBoundary();
-	if (non_manifold_faces != 0 && error != NULL) {
-		*error = Error_Invalid_Mesh_Non_Manifold;
-	}
+	heMesh->linkBoundary();
+	atlas->heMeshes.push_back(heMesh);
+	atlas->inputMeshes.push_back(mesh);
+	return AddMeshError::Success;
 }
 
-static Output_Mesh *mesh_atlas_to_output(const internal::halfedge::Mesh *mesh, int meshIndex, const internal::param::Atlas &atlas, Error *error)
+void Generate(Atlas *atlas)
 {
-	Output_Mesh *output = new Output_Mesh;
-	const internal::param::MeshCharts *charts = atlas.meshAt(meshIndex);
-	// Allocate vertices.
-	output->vertexCount = charts->vertexCount();
-	output->vertexArray = new Output_Vertex[output->vertexCount];
-	// Output vertices.
-	for (uint32_t i = 0; i < charts->chartCount(); i++) {
-		const internal::param::Chart *chart = charts->chartAt(i);
-		const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
-		for (uint32_t v = 0; v < chart->vertexCount(); v++) {
-			Output_Vertex &output_vertex = output->vertexArray[vertexOffset + v];
-			output_vertex.xref = chart->mapChartVertexToOriginalVertex(v);
-			internal::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
-			output_vertex.uv[0] = uv.x;
-			output_vertex.uv[1] = uv.y;
-		}
+	xaAssert(atlas);
+	// Chart meshes.
+	for (int i = 0; i < (int)atlas->inputMeshes.size(); i++) {
+		std::vector<uint32_t> uncharted_materials;
+		atlas->atlas.computeCharts(atlas->heMeshes[i], atlas->charterOptions, uncharted_materials);
 	}
-	output->indexCount = mesh->faceCount() * 3;
-	output->indexArray = new uint32_t[mesh->faceCount() * 3];
-	// Set face indices.
-	for (uint32_t f = 0; f < mesh->faceCount(); f++) {
-		const uint32_t c = charts->faceChartAt(f);
-		const uint32_t i = charts->faceIndexWithinChartAt(f);
-		const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
-		const internal::param::Chart *chart = charts->chartAt(c);
-		xaDebugAssert(chart->faceAt(i) == f);
-		const internal::halfedge::Face *face = chart->chartMesh()->faceAt(i);
-		const internal::halfedge::Edge *edge = face->edge;
-		output->indexArray[3 * f + 0] = vertexOffset + edge->vertex->id;
-		output->indexArray[3 * f + 1] = vertexOffset + edge->next->vertex->id;
-		output->indexArray[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
-	}
-	*error = Error_Success;
-	return output;
-}
-
-} // namespace internal
-
-struct Context
-{
-	std::vector<const Input_Mesh *> meshes;
-};
-
-static Context s_context;
-
-void set_default_options(Options *options)
-{
-	if (options == NULL)
-		return;
-	// These are the default values we use on The Witness.
-	options->charter.proxy_fit_metric_weight = 2.0f;
-	options->charter.roundness_metric_weight = 0.01f;
-	options->charter.straightness_metric_weight = 6.0f;
-	options->charter.normal_seam_metric_weight = 4.0f;
-	options->charter.texture_seam_metric_weight = 0.5f;
-	options->charter.max_chart_area = FLT_MAX;
-	options->charter.max_boundary_length = FLT_MAX;
-	options->packer.packing_quality = 0;
-	options->packer.method = PackMethod::ApproximateResolution;
-	options->packer.texel_area = 8;
-	options->packer.resolution = 512;
-	options->packer.block_align = true;
-	options->packer.conservative = false;
-	options->packer.padding = 1;
-	options->Print = internal::Print;
-}
-
-void add_mesh(const Input_Mesh *mesh)
-{
-	s_context.meshes.push_back(mesh);
-}
-
-Atlas atlas_generate(const Options *options)
-{
-	internal::s_options = options;
-	Atlas result;
-	result.error = Error_Success;
-	result.errorMeshIndex = -1;
-	// Validate input meshes.
-	for (int i = 0; i < (int)s_context.meshes.size(); i++) {
-		const Input_Mesh *mesh = s_context.meshes[i];
-		// Expecting triangle faces.
-		if ((mesh->indexCount % 3) != 0) {
-			result.error = Error_Invalid_Mesh;
-			result.errorMeshIndex = i;
-			s_context.meshes.clear();
-			return result;
-		}
-		// Check if any index is out of range.
-		const int faceCount = mesh->indexCount / 3;
-		for (uint32_t j = 0; j < mesh->indexCount; j++) {
-			if (mesh->indexData[j] < 0 || mesh->indexData[j] >= mesh->vertexCount) {
-				result.error = Error_Invalid_Mesh;
-				result.errorMeshIndex = i;
-				s_context.meshes.clear();
-				return result;
+	atlas->atlas.parameterizeCharts();
+	internal::param::AtlasPacker packer(&atlas->atlas);
+	packer.packCharts(atlas->packerOptions);
+	//float utilization = return packer.computeAtlasUtilization();
+	atlas->width = packer.getWidth();
+	atlas->height = packer.getHeight();
+	// Build output meshes.
+	atlas->outputMeshes = new OutputMesh*[atlas->inputMeshes.size()];
+	for (int i = 0; i < (int)atlas->inputMeshes.size(); i++) {
+		const internal::halfedge::Mesh *heMesh = atlas->heMeshes[i];
+		OutputMesh *outputMesh = atlas->outputMeshes[i] = new OutputMesh;
+		const internal::param::MeshCharts *charts = atlas->atlas.meshAt(i);
+		// Allocate vertices.
+		outputMesh->vertexCount = charts->vertexCount();
+		outputMesh->vertexArray = new OutputVertex[outputMesh->vertexCount];
+		// Output vertices.
+		for (uint32_t i = 0; i < charts->chartCount(); i++) {
+			const internal::param::Chart *chart = charts->chartAt(i);
+			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(i);
+			for (uint32_t v = 0; v < chart->vertexCount(); v++) {
+				OutputVertex &output_vertex = outputMesh->vertexArray[vertexOffset + v];
+				output_vertex.xref = chart->mapChartVertexToOriginalVertex(v);
+				internal::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
+				output_vertex.uv[0] = uv.x;
+				output_vertex.uv[1] = uv.y;
 			}
 		}
-	}
-	// Chart meshes.
-	internal::param::Atlas atlas;
-	std::vector<internal::halfedge::Mesh *> heMeshes(s_context.meshes.size());
-	for (int i = 0; i < (int)s_context.meshes.size(); i++) {
-		// Build half edge mesh.
-		heMeshes[i] = new internal::halfedge::Mesh;
-		internal::input_to_mesh(s_context.meshes[i], heMeshes[i], &result.error);
-		if (result.error != Error_Success) {
-			s_context.meshes.clear();
-			result.errorMeshIndex = i;
-			return result;
+		outputMesh->indexCount = heMesh->faceCount() * 3;
+		outputMesh->indexArray = new uint32_t[heMesh->faceCount() * 3];
+		// Set face indices.
+		for (uint32_t f = 0; f < heMesh->faceCount(); f++) {
+			const uint32_t c = charts->faceChartAt(f);
+			const uint32_t i = charts->faceIndexWithinChartAt(f);
+			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
+			const internal::param::Chart *chart = charts->chartAt(c);
+			xaDebugAssert(chart->faceAt(i) == f);
+			const internal::halfedge::Face *face = chart->chartMesh()->faceAt(i);
+			const internal::halfedge::Edge *edge = face->edge;
+			outputMesh->indexArray[3 * f + 0] = vertexOffset + edge->vertex->id;
+			outputMesh->indexArray[3 * f + 1] = vertexOffset + edge->next->vertex->id;
+			outputMesh->indexArray[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
 		}
-		internal::param::SegmentationSettings segmentation_settings;
-		segmentation_settings.proxyFitMetricWeight = options->charter.proxy_fit_metric_weight;
-		segmentation_settings.roundnessMetricWeight = options->charter.roundness_metric_weight;
-		segmentation_settings.straightnessMetricWeight = options->charter.straightness_metric_weight;
-		segmentation_settings.normalSeamMetricWeight = options->charter.normal_seam_metric_weight;
-		segmentation_settings.textureSeamMetricWeight = options->charter.texture_seam_metric_weight;
-		segmentation_settings.maxChartArea = options->charter.max_chart_area;
-		segmentation_settings.maxBoundaryLength = options->charter.max_boundary_length;
-		std::vector<uint32_t> uncharted_materials;
-		atlas.computeCharts(heMeshes[i], segmentation_settings, uncharted_materials);
 	}
-	atlas.parameterizeCharts();
-	internal::param::AtlasPacker packer(&atlas);
-	packer.packCharts(options->packer.packing_quality, options->packer.method, options->packer.texel_area, options->packer.resolution, options->packer.block_align, options->packer.conservative, options->packer.padding);
-	//float utilization = return packer.computeAtlasUtilization();
-	// Build output mesh.
-	result.width = (int)packer.getWidth();
-	result.height = (int)packer.getHeight();
-	result.nCharts = (int)atlas.chartCount();
-	result.nMeshes = (int)s_context.meshes.size();
-	result.meshes = new Output_Mesh *[s_context.meshes.size()];
-	for (int i = 0; i < (int)s_context.meshes.size(); i++) {
-		result.meshes[i] = internal::mesh_atlas_to_output(heMeshes[i], i, atlas, &result.error);
-		delete heMeshes[i];
-	}
-	s_context.meshes.clear();
-	return result;
 }
 
-void atlas_free(Atlas atlas)
+uint32_t GetWidth(const Atlas *atlas)
 {
-	for (int i = 0; i < atlas.nMeshes; i++) {
-		delete [] atlas.meshes[i]->vertexArray;
-		delete [] atlas.meshes[i]->indexArray;
-		delete atlas.meshes[i];
-	}
-	delete [] atlas.meshes;
+	xaAssert(atlas);
+	return atlas->width;
 }
+
+uint32_t GetHeight(const Atlas *atlas)
+{
+	xaAssert(atlas);
+	return atlas->height;
+}
+
+uint32_t GetNumCharts(const Atlas *atlas)
+{
+	xaAssert(atlas);
+	return atlas->atlas.chartCount();
+}
+
+const OutputMesh * const *GetOutputMeshes(const Atlas *atlas)
+{
+	xaAssert(atlas);
+	return atlas->outputMeshes;
+}
+
+const char *StringForEnum(AddMeshError::Enum error)
+{
+	if (error == AddMeshError::IndexOutOfRange)
+		return "index out of range";
+	if (error == AddMeshError::InvalidIndexCount)
+		return "invalid index count";
+	if (error == AddMeshError::NonManifold)
+		return "non manifold";
+	return "success";
+}
+
 } // namespace xatlas
