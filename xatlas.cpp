@@ -7392,6 +7392,13 @@ void Destroy(Atlas *atlas)
 	delete atlas;
 }
 
+static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, uint32_t i)
+{
+	if (format == IndexFormat::HalfFloat)
+		return (uint32_t)((const uint16_t *)indexData)[i];
+	return ((const uint32_t *)indexData)[i];
+}
+
 AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 {
 	xaAssert(atlas);
@@ -7400,7 +7407,8 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 		return AddMeshError::InvalidIndexCount;
 	// Check if any index is out of range.
 	for (uint32_t j = 0; j < mesh.indexCount; j++) {
-		if (mesh.indexData[j] < 0 || mesh.indexData[j] >= mesh.vertexCount) {
+		const uint32_t index = DecodeIndex(mesh.indexFormat, mesh.indexData, j);
+		if (index < 0 || index >= mesh.vertexCount) {
 			return AddMeshError::IndexOutOfRange;
 		}
 	}
@@ -7423,7 +7431,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 	}
 	heMesh->linkColocalsWithCanonicalMap(canonicalMap);
 	for (uint32_t i = 0; i < mesh.indexCount / 3; i++) {
-		const uint32_t *tri = &(mesh.indexData[i * 3]);
+		uint32_t tri[3];
+		for (int j = 0; j < 3; j++)
+			tri[j] = DecodeIndex(mesh.indexFormat, mesh.indexData, i * 3 + j);
 		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2]);
 		if (!face) {
 			delete heMesh;

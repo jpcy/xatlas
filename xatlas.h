@@ -94,6 +94,15 @@ struct AddMeshError
 	};
 };
 
+struct IndexFormat
+{
+	enum Enum
+	{
+		HalfFloat,
+		Float
+	};
+};
+
 struct InputMesh
 {
 	uint32_t vertexCount;
@@ -104,7 +113,8 @@ struct InputMesh
 	const void *vertexUvData; // optional
 	uint32_t vertexUvStride; // optional
 	uint32_t indexCount;
-    const uint32_t *indexData;
+    const void *indexData;
+	IndexFormat::Enum indexFormat;
 	const uint16_t *faceMaterialData; // optional. indexCount / 3 in length.
 };
 
