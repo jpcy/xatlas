@@ -154,7 +154,7 @@ int main(int argc, char *argv[])
 			}
 			raster.imageData = outputTrisImage.data();
 			raster.imageWidth = width;
-			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)width, (float)height), true, verts, RasterCallback, &raster);
+			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Antialiased, xatlas::internal::Vector2((float)width, (float)height), true, verts, RasterCallback, &raster);
 		}
 		// Rasterize mesh charts.
 		for (uint32_t j = 0; j < mesh->chartCount; j++) {
@@ -173,7 +173,7 @@ int main(int argc, char *argv[])
 				}
 				raster.imageData = outputChartsImage.data();
 				raster.imageWidth = width;
-				xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Nearest, xatlas::internal::Vector2((float)width, (float)height), true, verts, RasterCallback, &raster);
+				xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Antialiased, xatlas::internal::Vector2((float)width, (float)height), true, verts, RasterCallback, &raster);
 			}
 		}
 	}
