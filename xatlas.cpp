@@ -7416,6 +7416,10 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 			const float *nor = (const float *)&((const uint8_t *)mesh.vertexNormalData)[mesh.vertexNormalStride * i];
 			vertex->nor.set(nor[0], nor[1], nor[2]);
 		}
+		if (mesh.vertexUvData) {
+			const float *tex = (const float *)&((const uint8_t *)mesh.vertexUvData)[mesh.vertexUvStride * i];
+			vertex->tex.set(tex[0], tex[1]);
+		}
 		canonicalMap.push_back((uint32_t)i);
 	}
 	heMesh->linkColocalsWithCanonicalMap(canonicalMap);

@@ -102,6 +102,12 @@ int main(int argc, char *argv[])
 			mesh.vertexNormalData = objMesh.normals.data();
 			mesh.vertexNormalStride = sizeof(float) * 3;
 		}
+		if (objMesh.texcoords.size() == 0) {
+			mesh.vertexUvData = NULL;
+		} else {
+			mesh.vertexUvData = objMesh.texcoords.data();
+			mesh.vertexUvStride = sizeof(float) * 2;
+		}
 		mesh.indexCount = (int)objMesh.indices.size();
 		mesh.indexData = objMesh.indices.data();
 		mesh.faceMaterialData = NULL;
