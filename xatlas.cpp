@@ -7356,7 +7356,6 @@ struct Atlas
 	CharterOptions charterOptions;
 	PackerOptions packerOptions;
 	internal::param::Atlas atlas;
-	std::vector<InputMesh> inputMeshes;
 	std::vector<internal::halfedge::Mesh *> heMeshes;
 	uint32_t width = 0;
 	uint32_t height = 0;
@@ -7379,7 +7378,7 @@ Atlas *Create(const CharterOptions &charterOptions, const PackerOptions &packerO
 void Destroy(Atlas *atlas)
 {
 	xaAssert(atlas);
-	for (int i = 0; i < (int)atlas->inputMeshes.size(); i++) {
+	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		delete atlas->heMeshes[i];
 		OutputMesh *outputMesh = atlas->outputMeshes[i];
 		for (uint32_t j = 0; j < outputMesh->chartCount; j++)
@@ -7443,13 +7442,13 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 				return AddMeshError::ZeroLengthEdge;
 			}
 		}
-		if (face->area() <= 0.0f) {
+		float area = face->area();
+		if (area <= 0.0f) {
 			delete heMesh;
 			return AddMeshError::ZeroAreaFace;
 		}
 	}
 	atlas->heMeshes.push_back(heMesh);
-	atlas->inputMeshes.push_back(mesh);
 	return AddMeshError::Success;
 }
 
@@ -7457,7 +7456,7 @@ void Generate(Atlas *atlas)
 {
 	xaAssert(atlas);
 	// Chart meshes.
-	for (int i = 0; i < (int)atlas->inputMeshes.size(); i++) {
+	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		std::vector<uint32_t> uncharted_materials;
 		atlas->atlas.computeCharts(atlas->heMeshes[i], atlas->charterOptions, uncharted_materials);
 	}
@@ -7468,8 +7467,8 @@ void Generate(Atlas *atlas)
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
 	// Build output meshes.
-	atlas->outputMeshes = new OutputMesh*[atlas->inputMeshes.size()];
-	for (int i = 0; i < (int)atlas->inputMeshes.size(); i++) {
+	atlas->outputMeshes = new OutputMesh*[atlas->heMeshes.size()];
+	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		const internal::halfedge::Mesh *heMesh = atlas->heMeshes[i];
 		OutputMesh *outputMesh = atlas->outputMeshes[i] = new OutputMesh;
 		const internal::param::MeshCharts *charts = atlas->atlas.meshAt(i);

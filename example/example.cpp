@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
 			printf("      shape %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
 		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, mesh);
 		if (error != xatlas::AddMeshError::Success) {
-			printf("Error adding mesh %d: %s\n", i, xatlas::StringForEnum(error));
+			printf("Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
 			return 0;
 		}
 		totalVertices += mesh.vertexCount;
