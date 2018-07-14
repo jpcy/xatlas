@@ -89,6 +89,8 @@ struct AddMeshError
 		IndexOutOfRange,
 		InvalidIndexCount,
 		NonManifold,
+		ZeroAreaFace,
+		ZeroLengthEdge
 	};
 };
 

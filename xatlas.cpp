@@ -7400,7 +7400,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 	if ((mesh.indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
 	// Check if any index is out of range.
-	const int faceCount = mesh.indexCount / 3;
 	for (uint32_t j = 0; j < mesh.indexCount; j++) {
 		if (mesh.indexData[j] < 0 || mesh.indexData[j] >= mesh.vertexCount) {
 			return AddMeshError::IndexOutOfRange;
@@ -7420,7 +7419,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 		canonicalMap.push_back((uint32_t)i);
 	}
 	heMesh->linkColocalsWithCanonicalMap(canonicalMap);
-	for (int i = 0; i < faceCount; i++) {
+	for (uint32_t i = 0; i < mesh.indexCount / 3; i++) {
 		const uint32_t *tri = &(mesh.indexData[i * 3]);
 		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2]);
 		if (!face) {
@@ -7431,6 +7430,20 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 			face->material = mesh.faceMaterialData[i];
 	}
 	heMesh->linkBoundary();
+	// Check for zero length edges and zero area faces.
+	for (uint32_t i = 0; i < heMesh->faceCount(); i++) {
+		internal::halfedge::Face *face = heMesh->faceAt(i);
+		for (internal::halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			if (it.current()->length() <= 0.0f) {
+				delete heMesh;
+				return AddMeshError::ZeroLengthEdge;
+			}
+		}
+		if (face->area() <= 0.0f) {
+			delete heMesh;
+			return AddMeshError::ZeroAreaFace;
+		}
+	}
 	atlas->heMeshes.push_back(heMesh);
 	atlas->inputMeshes.push_back(mesh);
 	return AddMeshError::Success;
@@ -7539,6 +7552,10 @@ const char *StringForEnum(AddMeshError::Enum error)
 		return "invalid index count";
 	if (error == AddMeshError::NonManifold)
 		return "non manifold";
+	if (error == AddMeshError::ZeroAreaFace)
+		return "zero area face";
+	if (error == AddMeshError::ZeroLengthEdge)
+		return "zero length edge";
 	return "success";
 }
 
