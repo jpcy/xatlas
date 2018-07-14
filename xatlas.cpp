@@ -7286,6 +7286,7 @@ private:
 				points.push_back(vertex->tex);
 			}
 		}
+		xaDebugAssert(points.size() > 0);
 		std::vector<Vector2> hull;
 		convexHull(points, hull, 0.00001f);
 		// @@ Ideally I should use rotating calipers to find the best box. Using brute force for now.
@@ -7477,6 +7478,7 @@ void Generate(Atlas *atlas)
 			const uint32_t i = charts->faceIndexWithinChartAt(f);
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
 			const internal::param::Chart *chart = charts->chartAt(c);
+			xaDebugAssert(i < chart->chartMesh()->faceCount());
 			xaDebugAssert(chart->faceAt(i) == f);
 			const internal::halfedge::Face *face = chart->chartMesh()->faceAt(i);
 			const internal::halfedge::Edge *edge = face->edge;
