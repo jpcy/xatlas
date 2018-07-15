@@ -688,7 +688,7 @@ public:
 class BitArray
 {
 public:
-	BitArray() {}
+	BitArray() : m_size(0) {}
 	BitArray(uint32_t sz)
 	{
 		resize(sz);
@@ -5940,6 +5940,7 @@ public:
 	float scale = 1.0f;
 	uint32_t vertexMapWidth;
 	uint32_t vertexMapHeight;
+	bool blockAligned = true;
 
 private:
 	bool closeLoop(uint32_t start, const std::vector<halfedge::Edge *> &loop)
@@ -6662,7 +6663,7 @@ struct AtlasPacker
 					meshArea += chartArea;
 					//chartOrderArray[c] = chartArea;
 					// Compute chart scale
-					float parametricArea = fabs(chart->computeParametricArea());    // @@ There doesn't seem to be anything preventing parametric area to be negative.
+					float parametricArea = fabsf(chart->computeParametricArea());    // @@ There doesn't seem to be anything preventing parametric area to be negative.
 					if (parametricArea < NV_EPSILON) {
 						// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
 						Vector2 bounds = chart->computeParametricBounds();
@@ -6723,7 +6724,7 @@ struct AtlasPacker
 					float divide_y = 1.0f;
 					if (extents.x > 0) {
 						int cw = ftoi_ceil(extents.x);
-						if (options.blockAlign) {
+						if (options.blockAlign && chart->blockAligned) {
 							// Align all chart extents to 4x4 blocks, but taking padding into account.
 							if (options.conservative) {
 								cw = align(cw + 2, 4) - 2;
@@ -6737,7 +6738,7 @@ struct AtlasPacker
 					}
 					if (extents.y > 0) {
 						int ch = ftoi_ceil(extents.y);
-						if (options.blockAlign) {
+						if (options.blockAlign && chart->blockAligned) {
 							// Align all chart extents to 4x4 blocks, but taking padding into account.
 							if (options.conservative) {
 								ch = align(ch + 2, 4) - 2;
@@ -6792,6 +6793,7 @@ struct AtlasPacker
 				//float scale_y = 1;
 				BitMap chart_bitmap;
 				if (chart->isVertexMapped()) {
+					chart->blockAligned = false;
 					// Init all bits to 1.
 					chart_bitmap.resize(ftoi_ceil(chartExtents[c].x), ftoi_ceil(chartExtents[c].y), /*initValue=*/true);
 					// @@ Another alternative would be to try to map each vertex to a different texel trying to fill all the available unused texels.
@@ -6823,7 +6825,7 @@ struct AtlasPacker
 				int best_x, best_y;
 				int best_cw, best_ch;   // Includes padding now.
 				int best_r;
-				findChartLocation(options.quality, &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r);
+				findChartLocation(options.quality, &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, chart->blockAligned);
 				/*if (w < best_x + best_cw || h < best_y + best_ch)
 				{
 					xaPrint("Resize extents to (%d, %d).\n", best_x + best_cw, best_y + best_ch);
@@ -6904,7 +6906,7 @@ private:
 	// is occupied at this point. At the end we have many small charts and a large atlas with sparse holes. Finding those holes randomly is slow. A better approach would be to
 	// start stacking large charts as if they were tetris pieces. Once charts get small try to place them randomly. It may be interesting to try a intermediate strategy, first try
 	// along one axis and then try exhaustively along that axis.
-	void findChartLocation(int quality, const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r)
+	void findChartLocation(int quality, const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned)
 	{
 		int attempts = 256;
 		if (quality == 1) attempts = 4096;
@@ -6912,23 +6914,24 @@ private:
 		if (quality == 3) attempts = 1024;
 		if (quality == 4) attempts = 512;
 		if (quality == 0 || w * h < attempts) {
-			findChartLocation_bruteForce(bitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r);
+			findChartLocation_bruteForce(bitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned);
 		} else {
-			findChartLocation_random(bitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts);
+			findChartLocation_random(bitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned);
 		}
 	}
 
-	void findChartLocation_bruteForce(const BitMap *bitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r)
+	void findChartLocation_bruteForce(const BitMap *bitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned)
 	{
 		const int BLOCK_SIZE = 4;
 		int best_metric = INT_MAX;
+		int step_size = blockAligned ? BLOCK_SIZE : 1;
 		// Try two different orientations.
 		for (int r = 0; r < 2; r++) {
 			int cw = bitmap->width();
 			int ch = bitmap->height();
 			if (r & 1) std::swap(cw, ch);
-			for (int y = 0; y <= h + 1; y += BLOCK_SIZE) { // + 1 to extend atlas in case atlas full.
-				for (int x = 0; x <= w + 1; x += BLOCK_SIZE) { // + 1 not really necessary here.
+			for (int y = 0; y <= h + 1; y += step_size) { // + 1 to extend atlas in case atlas full.
+				for (int x = 0; x <= w + 1; x += step_size) { // + 1 not really necessary here.
 					// Early out.
 					int area = std::max(w, x + cw) * std::max(h, y + ch);
 					//int perimeter = max(w, x+cw) + max(h, y+ch);
@@ -6960,7 +6963,7 @@ private:
 		xaDebugAssert (best_metric != INT_MAX);
 	}
 
-	void findChartLocation_random(const BitMap *bitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount)
+	void findChartLocation_random(const BitMap *bitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned)
 	{
 		const int BLOCK_SIZE = 4;
 		int best_metric = INT_MAX;
@@ -6968,8 +6971,10 @@ private:
 			int r = m_rand.getRange(1);
 			int x = m_rand.getRange(w + 1); // + 1 to extend atlas in case atlas full. We may want to use a higher number to increase probability of extending atlas.
 			int y = m_rand.getRange(h + 1); // + 1 to extend atlas in case atlas full.
-			x = align(x, BLOCK_SIZE);
-			y = align(y, BLOCK_SIZE);
+			if (blockAligned) {
+				x = align(x, BLOCK_SIZE);
+				y = align(y, BLOCK_SIZE);
+			}
 			int cw = bitmap->width();
 			int ch = bitmap->height();
 			if (r & 1) std::swap(cw, ch);
@@ -7242,7 +7247,7 @@ private:
 			Vector2 a = output[output.size() - 2];
 			Vector2 b = output[output.size() - 1];
 			Vector2 c = top[i];
-			float area = triangleArea2(a, b, c);
+			float area = triangleArea(a, b, c);
 			if (area >= -epsilon) {
 				output.pop_back();
 			}
@@ -7258,7 +7263,7 @@ private:
 			Vector2 a = output[output.size() - 2];
 			Vector2 b = output[output.size() - 1];
 			Vector2 c = bottom[i];
-			float area = triangleArea2(a, b, c);
+			float area = triangleArea(a, b, c);
 			if (area >= -epsilon) {
 				output.pop_back();
 			}
@@ -7369,6 +7374,7 @@ void SetPrint(PrintFunc print)
 
 Atlas *Create(const CharterOptions &charterOptions, const PackerOptions &packerOptions)
 {
+	xaAssert(packerOptions.texelArea > 0);
 	Atlas *atlas = new Atlas;
 	atlas->charterOptions = charterOptions;
 	atlas->packerOptions = packerOptions;

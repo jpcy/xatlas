@@ -110,12 +110,19 @@ struct InputMesh
 	uint32_t vertexPositionStride;
 	const void *vertexNormalData; // optional
 	uint32_t vertexNormalStride; // optional
-	const void *vertexUvData; // optional
-	uint32_t vertexUvStride; // optional
+
+	// optional
+	// The input UVs are provided as a hint to the chart generator.
+	const void *vertexUvData;
+	uint32_t vertexUvStride;
+
 	uint32_t indexCount;
     const void *indexData;
 	IndexFormat::Enum indexFormat;
-	const uint16_t *faceMaterialData; // optional. indexCount / 3 in length.
+
+	// optional. indexCount / 3 in length.
+	// Charter also uses material boundaries as a hint to cut charts.
+	const uint16_t *faceMaterialData;
 };
 
 struct OutputChart
