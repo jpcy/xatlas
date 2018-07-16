@@ -114,9 +114,35 @@ int main(int argc, char *argv[])
 		mesh.faceMaterialData = NULL;
 		if (verbose)
 			printf("      shape %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
-		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, mesh);
-		if (error != xatlas::AddMeshError::Success) {
-			printf("Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
+		xatlas::AddMeshError error = xatlas::AddMesh(atlas, mesh);
+		if (error.code != xatlas::AddMeshErrorCode::Success) {
+			printf("Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error.code));
+			switch (error.code) {
+			case xatlas::AddMeshErrorCode::AlreadyAddedEdge:
+			case xatlas::AddMeshErrorCode::DegenerateColocalEdge:
+			case xatlas::AddMeshErrorCode::DegenerateEdge:
+			case xatlas::AddMeshErrorCode::DuplicateEdge:
+			case xatlas::AddMeshErrorCode::ZeroLengthEdge:
+				printf("   indices: %u %u\n", error.index0, error.index1);
+				for (int j = 0; j < 2; j++) {
+					const float *pos = &objMesh.positions[(j == 0 ? error.index0 : error.index1) * 3];
+					printf("   position %d: %g %g %g\n", j + 1, pos[0], pos[1], pos[2]);
+				}
+				break;
+			case xatlas::AddMeshErrorCode::IndexOutOfRange:
+				printf("   index: %u\n", error.index0);
+				break;
+			case xatlas::AddMeshErrorCode::ZeroAreaFace: {
+					const uint32_t *indices = &objMesh.indices[error.face * 3];
+					printf("   face: %u\n", error.face);
+					printf("   indices: %u %u %u\n", indices[0], indices[1], indices[2]);
+					for (int j = 0; j < 3; j++) {
+						const float *pos = &objMesh.positions[indices[j] * 3];
+						printf("   position %d: %g %g %g\n", j + 1, pos[0], pos[1], pos[2]);
+					}
+				}
+				break;
+			}
 			return 0;
 		}
 		totalVertices += mesh.vertexCount;

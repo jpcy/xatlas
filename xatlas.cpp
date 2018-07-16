@@ -1728,11 +1728,10 @@ public:
 class Mesh
 {
 public:
-	Mesh() : m_colocalVertexCount(0), errorCount(0) {}
+	Mesh() : m_colocalVertexCount(0) {}
 
 	Mesh(const Mesh *mesh)
 	{
-		errorCount = 0;
 		// Copy mesh vertices.
 		const uint32_t vertexCount = mesh->vertexCount();
 		m_vertexArray.resize(vertexCount);
@@ -1876,7 +1875,6 @@ public:
 		xaDebugAssert(num <= indexCount - first);
 		xaDebugAssert(num > 2);
 		if (!canAddFace(indexArray, first, num)) {
-			errorCount++;
 			return NULL;
 		}
 		Face *f = new Face(m_faceArray.size());
@@ -2381,7 +2379,19 @@ public:
 	}
 
 	// Error status:
-	mutable uint32_t errorCount;
+	
+	struct ErrorCode
+	{
+		enum Enum
+		{
+			AlreadyAddedEdge,
+			DegenerateColocalEdge,
+			DegenerateEdge,
+			DuplicateEdge
+		};
+	};
+
+	mutable ErrorCode::Enum errorCode;
 	mutable uint32_t errorIndex0;
 	mutable uint32_t errorIndex1;
 
@@ -2409,6 +2419,9 @@ private:
 				int j0 = indexArray[first + j + 0];
 				int j1 = indexArray[first + (j + 1) % num];
 				if (i0 == j0 && i1 == j1) {
+					errorCode = ErrorCode::DuplicateEdge;
+					errorIndex0 = i0;
+					errorIndex1 = i1;
 					return false;
 				}
 			}
@@ -2421,6 +2434,7 @@ private:
 	{
 		if (i == j) {
 			// Skip degenerate edges.
+			errorCode = ErrorCode::DegenerateEdge;
 			return false;
 		}
 		// Same check, but taking into account colocal vertices.
@@ -2429,12 +2443,18 @@ private:
 		for (Vertex::ConstVertexIterator it(v0->colocals()); !it.isDone(); it.advance()) {
 			if (it.current() == v1) {
 				// Skip degenerate edges.
+				errorCode = ErrorCode::DegenerateColocalEdge;
 				return false;
 			}
 		}
 		// Make sure edge has not been added yet.
 		Edge *edge = findEdge(i, j);
-		return edge == NULL || edge->face == NULL; // We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
+		// We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
+		if (!(edge == NULL || edge->face == NULL)) {
+			errorCode = ErrorCode::AlreadyAddedEdge;
+			return false;
+		}
+		return true;
 	}
 
 	Edge *addEdge(uint32_t i, uint32_t j)
@@ -7398,6 +7418,24 @@ void Destroy(Atlas *atlas)
 	delete atlas;
 }
 
+static internal::Vector3 DecodePosition(const InputMesh &mesh, uint32_t index)
+{
+	xaAssert(mesh.vertexPositionData);
+	return *((const internal::Vector3 *)&((const uint8_t *)mesh.vertexPositionData)[mesh.vertexPositionStride * index]);
+}
+
+static const float *DecodeNormal(const InputMesh &mesh, uint32_t index)
+{
+	xaAssert(mesh.vertexNormalData);
+	return (const float *)&((const uint8_t *)mesh.vertexNormalData)[mesh.vertexNormalStride * index];
+}
+
+static const float *DecodeUv(const InputMesh &mesh, uint32_t index)
+{
+	xaAssert(mesh.vertexUvData);
+	return (const float *)&((const uint8_t *)mesh.vertexUvData)[mesh.vertexUvStride * index];
+}
+
 static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, uint32_t i)
 {
 	if (format == IndexFormat::HalfFloat)
@@ -7405,17 +7443,30 @@ static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, uin
 	return ((const uint32_t *)indexData)[i];
 }
 
-AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
+static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
+{
+	return internal::length(pos2 - pos1);
+}
+
+AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh)
 {
 	xaAssert(atlas);
+	AddMeshError error;
+	error.code = AddMeshErrorCode::Success;
+	error.face = error.index0 = error.index1 = UINT32_MAX;
 	// Expecting triangle faces.
 	if ((mesh.indexCount % 3) != 0)
-		return AddMeshError::InvalidIndexCount;
+	{
+		error.code = AddMeshErrorCode::InvalidIndexCount;
+		return error;
+	}
 	// Check if any index is out of range.
 	for (uint32_t j = 0; j < mesh.indexCount; j++) {
 		const uint32_t index = DecodeIndex(mesh.indexFormat, mesh.indexData, j);
 		if (index < 0 || index >= mesh.vertexCount) {
-			return AddMeshError::IndexOutOfRange;
+			error.code = AddMeshErrorCode::IndexOutOfRange;
+			error.index0 = index;
+			return error;
 		}
 	}
 	// Build half edge mesh.
@@ -7423,14 +7474,14 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 	std::vector<uint32_t> canonicalMap;
 	canonicalMap.reserve(mesh.vertexCount);
 	for (uint32_t i = 0; i < mesh.vertexCount; i++) {
-		const float *pos = (const float *)&((const uint8_t *)mesh.vertexPositionData)[mesh.vertexPositionStride * i];
-		internal::halfedge::Vertex *vertex = heMesh->addVertex(internal::Vector3(pos[0], pos[1], pos[2]));
+		const internal::Vector3 pos = DecodePosition(mesh, i);
+		internal::halfedge::Vertex *vertex = heMesh->addVertex(pos);
 		if (mesh.vertexNormalData) {
-			const float *nor = (const float *)&((const uint8_t *)mesh.vertexNormalData)[mesh.vertexNormalStride * i];
+			const float *nor = DecodeNormal(mesh, i);
 			vertex->nor.set(nor[0], nor[1], nor[2]);
 		}
 		if (mesh.vertexUvData) {
-			const float *tex = (const float *)&((const uint8_t *)mesh.vertexUvData)[mesh.vertexUvStride * i];
+			const float *tex = DecodeUv(mesh, i);
 			vertex->tex.set(tex[0], tex[1]);
 		}
 		canonicalMap.push_back((uint32_t)i);
@@ -7440,32 +7491,57 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh)
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
 			tri[j] = DecodeIndex(mesh.indexFormat, mesh.indexData, i * 3 + j);
+		// Check for zero length edges.
+		for (int j = 0; j < 3; j++) {
+			const uint32_t edges[6] = { 0, 1, 1, 2, 2, 0 };
+			const uint32_t index1 = tri[edges[j * 2 + 0]];
+			const uint32_t index2 = tri[edges[j * 2 + 1]];
+			const internal::Vector3 pos1 = DecodePosition(mesh, index1);
+			const internal::Vector3 pos2 = DecodePosition(mesh, index2);
+			if (EdgeLength(pos1, pos2) <= 0.0f) {
+				delete heMesh;
+				error.code = AddMeshErrorCode::ZeroLengthEdge;
+				error.face = i;
+				error.index0 = index1;
+				error.index1 = index2;
+				return error;
+			}
+		}
+		// Check for zero area faces.
+		{
+			const internal::Vector3 a = DecodePosition(mesh, tri[0]);
+			const internal::Vector3 b = DecodePosition(mesh, tri[1]);
+			const internal::Vector3 c = DecodePosition(mesh, tri[2]);
+			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
+			if (area <= 0.0f) {
+				delete heMesh;
+				error.code = AddMeshErrorCode::ZeroAreaFace;
+				error.face = i;
+				return error;
+			}
+		}
 		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2]);
 		if (!face) {
+			if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::AlreadyAddedEdge)
+				error.code = AddMeshErrorCode::AlreadyAddedEdge;
+			else if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::DegenerateColocalEdge)
+				error.code = AddMeshErrorCode::DegenerateColocalEdge;
+			else if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::DegenerateEdge)
+				error.code = AddMeshErrorCode::DegenerateEdge;
+			else if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::DuplicateEdge)
+				error.code = AddMeshErrorCode::DuplicateEdge;
+			error.face = i;
+			error.index0 = heMesh->errorIndex0;
+			error.index1 = heMesh->errorIndex1;
 			delete heMesh;
-			return AddMeshError::NonManifold;
+			return error;
 		}
 		if (mesh.faceMaterialData)
 			face->material = mesh.faceMaterialData[i];
 	}
 	heMesh->linkBoundary();
-	// Check for zero length edges and zero area faces.
-	for (uint32_t i = 0; i < heMesh->faceCount(); i++) {
-		internal::halfedge::Face *face = heMesh->faceAt(i);
-		for (internal::halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-			if (it.current()->length() <= 0.0f) {
-				delete heMesh;
-				return AddMeshError::ZeroLengthEdge;
-			}
-		}
-		float area = face->area();
-		if (area <= 0.0f) {
-			delete heMesh;
-			return AddMeshError::ZeroAreaFace;
-		}
-	}
 	atlas->heMeshes.push_back(heMesh);
-	return AddMeshError::Success;
+	return error;
 }
 
 void Generate(Atlas *atlas)
@@ -7563,17 +7639,23 @@ const OutputMesh * const *GetOutputMeshes(const Atlas *atlas)
 	return atlas->outputMeshes;
 }
 
-const char *StringForEnum(AddMeshError::Enum error)
+const char *StringForEnum(AddMeshErrorCode::Enum error)
 {
-	if (error == AddMeshError::IndexOutOfRange)
+	if (error == AddMeshErrorCode::AlreadyAddedEdge)
+		return "already added edge";
+	if (error == AddMeshErrorCode::DegenerateColocalEdge)
+		return "degenerate colocal edge";
+	if (error == AddMeshErrorCode::DegenerateEdge)
+		return "degenerate edge";
+	if (error == AddMeshErrorCode::DuplicateEdge)
+		return "duplicate edge";
+	if (error == AddMeshErrorCode::IndexOutOfRange)
 		return "index out of range";
-	if (error == AddMeshError::InvalidIndexCount)
+	if (error == AddMeshErrorCode::InvalidIndexCount)
 		return "invalid index count";
-	if (error == AddMeshError::NonManifold)
-		return "non manifold";
-	if (error == AddMeshError::ZeroAreaFace)
+	if (error == AddMeshErrorCode::ZeroAreaFace)
 		return "zero area face";
-	if (error == AddMeshError::ZeroLengthEdge)
+	if (error == AddMeshErrorCode::ZeroLengthEdge)
 		return "zero length edge";
 	return "success";
 }

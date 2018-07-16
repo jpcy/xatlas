@@ -81,17 +81,27 @@ struct PackerOptions
 	}
 };
 
-struct AddMeshError
+struct AddMeshErrorCode
 {
 	enum Enum
 	{
 		Success,
-		IndexOutOfRange,
-		InvalidIndexCount,
-		NonManifold,
+		AlreadyAddedEdge, // index0 and index1 are the edge indices
+		DegenerateColocalEdge, // index0 and index1 are the edge indices
+		DegenerateEdge, // index0 and index1 are the edge indices
+		DuplicateEdge, // index0 and index1 are the edge indices
+		IndexOutOfRange, // index0 is the index
+		InvalidIndexCount, // not evenly divisible by 3 - expecting triangles
 		ZeroAreaFace,
-		ZeroLengthEdge
+		ZeroLengthEdge // index0 and index1 are the edge indices
 	};
+};
+
+struct AddMeshError
+{
+	AddMeshErrorCode::Enum code;
+	uint32_t face;
+	uint32_t index0, index1;
 };
 
 struct IndexFormat
@@ -150,13 +160,13 @@ struct OutputMesh
 void SetPrint(PrintFunc print);
 Atlas *Create(const CharterOptions &charterOptions, const PackerOptions &packerOptions);
 void Destroy(Atlas *atlas);
-AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh);
+AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh);
 void Generate(Atlas *atlas);
 uint32_t GetWidth(const Atlas *atlas);
 uint32_t GetHeight(const Atlas *atlas);
 uint32_t GetNumCharts(const Atlas *atlas);
 const OutputMesh * const *GetOutputMeshes(const Atlas *atlas);
-const char *StringForEnum(AddMeshError::Enum error);
+const char *StringForEnum(AddMeshErrorCode::Enum error);
 
 } // namespace xatlas
 
