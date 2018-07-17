@@ -81,6 +81,15 @@ struct PackerOptions
 	}
 };
 
+struct Options
+{
+	CharterOptions charter;
+	PackerOptions packer;
+
+	// Generates fewer charts (good), but is more sensitive to bad geometry.
+	bool useMeshColocalVertices = true;
+};
+
 struct AddMeshErrorCode
 {
 	enum Enum
@@ -158,7 +167,7 @@ struct OutputMesh
 };
 
 void SetPrint(PrintFunc print);
-Atlas *Create(const CharterOptions &charterOptions, const PackerOptions &packerOptions);
+Atlas *Create(const Options &options = Options());
 void Destroy(Atlas *atlas);
 AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh);
 void Generate(Atlas *atlas);

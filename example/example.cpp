@@ -82,11 +82,11 @@ int main(int argc, char *argv[])
 	// Create atlas.
 	if (verbose)
 		xatlas::SetPrint(Print);
-	xatlas::PackerOptions packerOptions;
-	packerOptions.resolution = 1024;
-	packerOptions.conservative = true;
-	packerOptions.padding = 1;
-	xatlas::Atlas *atlas = xatlas::Create(xatlas::CharterOptions(), packerOptions);
+	xatlas::Options options;
+	options.packer.resolution = 1024;
+	options.packer.conservative = true;
+	options.packer.padding = 1;
+	xatlas::Atlas *atlas = xatlas::Create(options);
 	// Add meshes to atlas.
 	Stopwatch stopwatch;
 	uint32_t totalVertices = 0, totalFaces = 0;

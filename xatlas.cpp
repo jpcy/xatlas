@@ -7378,8 +7378,7 @@ private:
 
 struct Atlas
 {
-	CharterOptions charterOptions;
-	PackerOptions packerOptions;
+	Options options;
 	internal::param::Atlas atlas;
 	std::vector<internal::halfedge::Mesh *> heMeshes;
 	uint32_t width = 0;
@@ -7392,12 +7391,11 @@ void SetPrint(PrintFunc print)
 	internal::s_print = print;
 }
 
-Atlas *Create(const CharterOptions &charterOptions, const PackerOptions &packerOptions)
+Atlas *Create(const Options &options)
 {
-	xaAssert(packerOptions.texelArea > 0);
-	Atlas *atlas = new Atlas;
-	atlas->charterOptions = charterOptions;
-	atlas->packerOptions = packerOptions;
+	xaAssert(options.packer.texelArea > 0);
+	Atlas *atlas = new Atlas();
+	atlas->options = options;
 	return atlas;
 }
 
@@ -7424,16 +7422,16 @@ static internal::Vector3 DecodePosition(const InputMesh &mesh, uint32_t index)
 	return *((const internal::Vector3 *)&((const uint8_t *)mesh.vertexPositionData)[mesh.vertexPositionStride * index]);
 }
 
-static const float *DecodeNormal(const InputMesh &mesh, uint32_t index)
+static internal::Vector3 DecodeNormal(const InputMesh &mesh, uint32_t index)
 {
 	xaAssert(mesh.vertexNormalData);
-	return (const float *)&((const uint8_t *)mesh.vertexNormalData)[mesh.vertexNormalStride * index];
+	return *((const internal::Vector3 *)&((const uint8_t *)mesh.vertexNormalData)[mesh.vertexNormalStride * index]);
 }
 
-static const float *DecodeUv(const InputMesh &mesh, uint32_t index)
+static internal::Vector2 DecodeUv(const InputMesh &mesh, uint32_t index)
 {
 	xaAssert(mesh.vertexUvData);
-	return (const float *)&((const uint8_t *)mesh.vertexUvData)[mesh.vertexUvStride * index];
+	return *((const internal::Vector2 *)&((const uint8_t *)mesh.vertexUvData)[mesh.vertexUvStride * index]);
 }
 
 static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, uint32_t i)
@@ -7474,17 +7472,28 @@ AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh)
 	std::vector<uint32_t> canonicalMap;
 	canonicalMap.reserve(mesh.vertexCount);
 	for (uint32_t i = 0; i < mesh.vertexCount; i++) {
-		const internal::Vector3 pos = DecodePosition(mesh, i);
-		internal::halfedge::Vertex *vertex = heMesh->addVertex(pos);
-		if (mesh.vertexNormalData) {
-			const float *nor = DecodeNormal(mesh, i);
-			vertex->nor.set(nor[0], nor[1], nor[2]);
+		internal::halfedge::Vertex *vertex = heMesh->addVertex(DecodePosition(mesh, i));
+		if (mesh.vertexNormalData)
+			vertex->nor = DecodeNormal(mesh, i);
+		if (mesh.vertexUvData)
+			vertex->tex = DecodeUv(mesh, i);
+		// Link colocals. You probably want to do this more efficiently! Sort by one axis or use a hash or grid.
+		uint32_t firstColocal = i;
+		if (atlas->options.useMeshColocalVertices) {
+			for (uint32_t j = 0; j < i; j++) {
+				if (vertex->pos != DecodePosition(mesh, j))
+					continue;
+#if 0
+				if (mesh.vertexNormalData && vertex->nor != DecodeNormal(mesh, j))
+					continue;
+#endif
+				if (mesh.vertexUvData && vertex->tex != DecodeUv(mesh, j))
+					continue;
+				firstColocal = j;
+				break;
+			}
 		}
-		if (mesh.vertexUvData) {
-			const float *tex = DecodeUv(mesh, i);
-			vertex->tex.set(tex[0], tex[1]);
-		}
-		canonicalMap.push_back((uint32_t)i);
+		canonicalMap.push_back(firstColocal);
 	}
 	heMesh->linkColocalsWithCanonicalMap(canonicalMap);
 	for (uint32_t i = 0; i < mesh.indexCount / 3; i++) {
@@ -7550,11 +7559,11 @@ void Generate(Atlas *atlas)
 	// Chart meshes.
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		std::vector<uint32_t> uncharted_materials;
-		atlas->atlas.computeCharts(atlas->heMeshes[i], atlas->charterOptions, uncharted_materials);
+		atlas->atlas.computeCharts(atlas->heMeshes[i], atlas->options.charter, uncharted_materials);
 	}
 	atlas->atlas.parameterizeCharts();
 	internal::param::AtlasPacker packer(&atlas->atlas);
-	packer.packCharts(atlas->packerOptions);
+	packer.packCharts(atlas->options.packer);
 	//float utilization = return packer.computeAtlasUtilization();
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
