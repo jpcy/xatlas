@@ -13,7 +13,6 @@
 #include <string.h>
 #include <time.h>
 #include "xatlas.h"
-#include "xatlas_raster.h"
 
 #undef min
 #undef max
@@ -211,158 +210,87 @@ template <typename Key> struct Equal
 	bool operator()(const Key &k0, const Key &k1) const { return k0 == k1; }
 };
 
-// Vector2
-Vector2::Vector2() {}
-Vector2::Vector2(float f) : x(f), y(f) {}
-Vector2::Vector2(float x, float y) : x(x), y(y) {}
-Vector2::Vector2(Vector2::Arg v) : x(v.x), y(v.y) {}
-
-const Vector2 &Vector2::operator=(Vector2::Arg v)
+class Vector2
 {
-	x = v.x;
-	y = v.y;
-	return *this;
-}
+public:
+	typedef Vector2 const &Arg;
 
-const float *Vector2::ptr() const
-{
-	return &x;
-}
+	Vector2() {}
+	explicit Vector2(float f) : x(f), y(f) {}
+	Vector2(float x, float y): x(x), y(y) {}
+	Vector2(Vector2::Arg v) : x(v.x), y(v.y) {}
 
-void Vector2::set(float _x, float _y)
-{
-	x = _x;
-	y = _y;
-}
+	const Vector2 &operator=(Vector2::Arg v)
+	{
+		x = v.x;
+		y = v.y;
+		return
+			*this;
+	}
+	const float *ptr() const { return &x; }
 
-Vector2 Vector2::operator-() const
-{
-	return Vector2(-x, -y);
-}
+	void set(float _x, float _y)
+	{
+		x = _x;
+		y = _y;
+	}
 
-void Vector2::operator+=(Vector2::Arg v)
-{
-	x += v.x;
-	y += v.y;
-}
+	Vector2 operator-() const
+	{
+		return Vector2(-x, -y);
+	}
 
-void Vector2::operator-=(Vector2::Arg v)
-{
-	x -= v.x;
-	y -= v.y;
-}
+	void operator+=(Vector2::Arg v)
+	{
+		x += v.x;
+		y += v.y;
+	}
 
-void Vector2::operator*=(float s)
-{
-	x *= s;
-	y *= s;
-}
+	void operator-=(Vector2::Arg v)
+	{
+		x -= v.x;
+		y -= v.y;
+	}
 
-void Vector2::operator*=(Vector2::Arg v)
-{
-	x *= v.x;
-	y *= v.y;
-}
+	void operator*=(float s)
+	{
+		x *= s;
+		y *= s;
+	}
 
-bool operator==(Vector2::Arg a, Vector2::Arg b)
-{
-	return a.x == b.x && a.y == b.y;
-}
-bool operator!=(Vector2::Arg a, Vector2::Arg b)
-{
-	return a.x != b.x || a.y != b.y;
-}
+	void operator*=(Vector2::Arg v)
+	{
+		x *= v.x;
+		y *= v.y;
+	}
 
-// Vector3
-Vector3::Vector3() {}
-Vector3::Vector3(float f) : x(f), y(f), z(f) {}
-Vector3::Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
-Vector3::Vector3(Vector2::Arg v, float z) : x(v.x), y(v.y), z(z) {}
-Vector3::Vector3(Vector3::Arg v) : x(v.x), y(v.y), z(v.z) {}
+	friend bool operator==(Vector2::Arg a, Vector2::Arg b)
+	{
+		return a.x == b.x && a.y == b.y;
+	}
 
-const Vector3 &Vector3::operator=(Vector3::Arg v)
-{
-	x = v.x;
-	y = v.y;
-	z = v.z;
-	return *this;
-}
+	friend bool operator!=(Vector2::Arg a, Vector2::Arg b)
+	{
+		return a.x != b.x || a.y != b.y;
+	}
 
-Vector2 Vector3::xy() const
-{
-	return Vector2(x, y);
-}
+	union
+	{
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4201)
+#endif
+		struct
+		{
+			float x, y;
+		};
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
-const float *Vector3::ptr() const
-{
-	return &x;
-}
-
-void Vector3::set(float _x, float _y, float _z)
-{
-	x = _x;
-	y = _y;
-	z = _z;
-}
-
-Vector3 Vector3::operator-() const
-{
-	return Vector3(-x, -y, -z);
-}
-
-void Vector3::operator+=(Vector3::Arg v)
-{
-	x += v.x;
-	y += v.y;
-	z += v.z;
-}
-
-void Vector3::operator-=(Vector3::Arg v)
-{
-	x -= v.x;
-	y -= v.y;
-	z -= v.z;
-}
-
-void Vector3::operator*=(float s)
-{
-	x *= s;
-	y *= s;
-	z *= s;
-}
-
-void Vector3::operator/=(float s)
-{
-	float is = 1.0f / s;
-	x *= is;
-	y *= is;
-	z *= is;
-}
-
-void Vector3::operator*=(Vector3::Arg v)
-{
-	x *= v.x;
-	y *= v.y;
-	z *= v.z;
-}
-
-void Vector3::operator/=(Vector3::Arg v)
-{
-	x /= v.x;
-	y /= v.y;
-	z /= v.z;
-}
-
-bool operator==(Vector3::Arg a, Vector3::Arg b)
-{
-	return a.x == b.x && a.y == b.y && a.z == b.z;
-}
-bool operator!=(Vector3::Arg a, Vector3::Arg b)
-{
-	return a.x != b.x || a.y != b.y || a.z != b.z;
-}
-
-// Vector2
+		float component[2];
+	};
+};
 
 Vector2 operator+(Vector2::Arg a, Vector2::Arg b)
 {
@@ -484,7 +412,114 @@ static uint32_t hash(const Vector2 &v, uint32_t h)
 	return sdbmFloatHash(v.component, 2, h);
 }
 
-// Vector3
+class Vector3
+{
+public:
+	typedef Vector3 const &Arg;
+
+	Vector3() {}
+	explicit Vector3(float f) : x(f), y(f), z(f) {}
+	Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
+	Vector3(Vector2::Arg v, float z) : x(v.x), y(v.y), z(z) {}
+	Vector3(Vector3::Arg v) : x(v.x), y(v.y), z(v.z) {}
+
+	const Vector3 &operator=(Vector3::Arg v)
+	{
+		x = v.x;
+		y = v.y;
+		z = v.z;
+		return *this;
+	}
+
+	Vector2 xy() const
+	{
+		return Vector2(x, y);
+	}
+
+	const float *ptr() const { return &x; }
+
+	void set(float _x, float _y, float _z)
+	{
+		x = _x;
+		y = _y;
+		z = _z;
+	}
+
+	Vector3 operator-() const
+	{
+		return Vector3(-x, -y, -z);
+	}
+
+	void operator+=(Vector3::Arg v)
+	{
+		x += v.x;
+		y += v.y;
+		z += v.z;
+	}
+
+	void operator-=(Vector3::Arg v)
+	{
+		x -= v.x;
+		y -= v.y;
+		z -= v.z;
+	}
+
+	void operator*=(float s)
+	{
+		x *= s;
+		y *= s;
+		z *= s;
+	}
+
+	void operator/=(float s)
+	{
+		float is = 1.0f / s;
+		x *= is;
+		y *= is;
+		z *= is;
+	}
+
+	void operator*=(Vector3::Arg v)
+	{
+		x *= v.x;
+		y *= v.y;
+		z *= v.z;
+	}
+
+	void operator/=(Vector3::Arg v)
+	{
+		x /= v.x;
+		y /= v.y;
+		z /= v.z;
+	}
+
+	friend bool operator==(Vector3::Arg a, Vector3::Arg b)
+	{
+		return a.x == b.x && a.y == b.y && a.z == b.z;
+	}
+
+	friend bool operator!=(Vector3::Arg a, Vector3::Arg b)
+	{
+		return a.x != b.x || a.y != b.y || a.z != b.z;
+	}
+
+	union
+	{
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4201)
+#endif
+		struct
+		{
+			float x, y, z;
+		};
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
+		float component[3];
+	};
+};
 
 Vector3 add(Vector3::Arg a, Vector3::Arg b)
 {
@@ -3546,6 +3581,9 @@ private:
 	Vector2 m_centroid;
 };
 
+/// A callback to sample the environment. Return false to terminate rasterization.
+typedef bool (* SamplingCallback)(void *param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
+
 /// A triangle for rasterization.
 struct Triangle
 {
@@ -3870,8 +3908,14 @@ struct Triangle
 	bool valid;
 };
 
+enum Mode
+{
+	Mode_Nearest,
+	Mode_Antialiased
+};
+
 // Process the given triangle. Returns false if rasterization was interrupted by the callback.
-bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void *param)
+static bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void *param)
 {
 	Triangle tri(v[0], v[1], v[2], Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1));
 	// @@ It would be nice to have a conservative drawing mode that enlarges the triangle extents by one texel and is able to handle degenerate triangles.
@@ -3888,7 +3932,7 @@ bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, const Ve
 }
 
 // Process the given quad. Returns false if rasterization was interrupted by the callback.
-bool drawQuad(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[4], SamplingCallback cb, void *param)
+static bool drawQuad(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[4], SamplingCallback cb, void *param)
 {
 	bool sign0 = triangleArea2(v[0], v[1], v[2]) > 0.0f;
 	bool sign1 = triangleArea2(v[0], v[2], v[3]) > 0.0f;

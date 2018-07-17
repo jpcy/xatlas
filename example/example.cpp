@@ -16,7 +16,6 @@
 #include "tiny_obj_loader.h"
 
 #include "../xatlas.h"
-#include "../xatlas_raster.h"
 
 class Stopwatch
 {
@@ -37,22 +36,52 @@ static void Print(const char *format, ...)
 	va_end(arg);
 }
 
-struct RasterParam
+static void SetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)
 {
-	uint8_t color[3];
-	uint8_t *imageData;
-	uint32_t imageWidth;
-};
+	uint8_t *pixel = &dest[x * 3 + y * (destWidth * 3)];
+	pixel[0] = color[0];
+	pixel[1] = color[1];
+	pixel[2] = color[2];
+}
 
-static bool RasterCallback(void *param, int x, int y, xatlas::internal::Vector3::Arg bar, xatlas::internal::Vector3::Arg dx, xatlas::internal::Vector3::Arg dy, float coverage)
+// https://github.com/miloyip/line/blob/master/line_bresenham.c
+static void RasterizeLine(uint8_t *dest, int destWidth, const int *p1, const int *p2, const uint8_t *color)
 {
-	RasterParam *data = (RasterParam *)param;
-	uint8_t *rgba = &data->imageData[(x + y * data->imageWidth) * 4];
-	rgba[0] = data->color[0];
-	rgba[1] = data->color[1];
-	rgba[2] = data->color[2];
-	rgba[3] = 255;
-	return true;
+	const int dx = abs(p2[0] - p1[0]), sx = p1[0] < p2[0] ? 1 : -1;
+	const int dy = abs(p2[1] - p1[1]), sy = p1[1] < p2[1] ? 1 : -1;
+	int err = (dx > dy ? dx : -dy) / 2;
+	int current[2];
+	current[0] = p1[0];
+	current[1] = p1[1];
+	while (SetPixel(dest, destWidth, current[0], current[1], color), current[0] != p2[0] || current[1] != p2[1])
+	{
+		const int e2 = err;
+		if (e2 > -dx) { err -= dy; current[0] += sx; }
+		if (e2 < dy) { err += dx; current[1] += sy; }
+	}
+}
+
+// https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
+static void RasterizeTriangle(uint8_t *dest, int destWidth, const int *t0, const int *t1, const int *t2, const uint8_t *color)
+{
+	if (t0[1] > t1[1]) std::swap(t0, t1);
+	if (t0[1] > t2[1]) std::swap(t0, t2);
+	if (t1[1] > t2[1]) std::swap(t1, t2);
+	int total_height = t2[1] - t0[1];
+	for (int i = 0; i < total_height; i++) {
+		bool second_half = i > t1[1] - t0[1] || t1[1] == t0[1];
+		int segment_height = second_half ? t2[1] - t1[1] : t1[1] - t0[1];
+		float alpha = (float)i / total_height;
+		float beta = (float)(i - (second_half ? t1[1] - t0[1] : 0)) / segment_height;
+		int A[2], B[2];
+		for (int j = 0; j < 2; j++) {
+			A[j] = int(t0[j] + (t2[j] - t0[j]) * alpha);
+			B[j] = int(second_half ? t1[j] + (t2[j] - t1[j]) * beta : t0[j] + (t1[j] - t0[j]) * beta);
+		}
+		if (A[0] > B[0]) std::swap(A, B);
+		for (int j = A[0]; j <= B[0]; j++)
+			SetPixel(dest, destWidth, j, t0[1] + i, color);
+	}
 }
 
 int main(int argc, char *argv[])
@@ -163,24 +192,27 @@ int main(int argc, char *argv[])
 	printf("   %ux%u resolution\n", width, height);
 	// Dump images.
 	std::vector<uint8_t> outputTrisImage, outputChartsImage;
-	outputTrisImage.resize(width * height * 4);
-	outputChartsImage.resize(width * height * 4);
+	outputTrisImage.resize(width * height * 3);
+	outputChartsImage.resize(width * height * 3);
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const xatlas::OutputMesh *mesh = xatlas::GetOutputMeshes(atlas)[i];
 		if (verbose)
 			printf("   output mesh %d: %u vertices, %u triangles, %u charts\n", i, mesh->vertexCount, mesh->indexCount / 3, mesh->chartCount);
 		// Rasterize mesh triangles.
+		const uint8_t white[] = { 255, 255, 255 };
 		for (uint32_t j = 0; j < mesh->indexCount; j += 3) {
-			RasterParam raster;
-			xatlas::internal::Vector2 verts[3];
+			int verts[3][2];
+			uint8_t color[3];
 			for (int k = 0; k < 3; k++) {
 				const xatlas::OutputVertex &v = mesh->vertexArray[mesh->indexArray[j + k]];
-				verts[k] = xatlas::internal::Vector2(v.uv[0], v.uv[1]);
-				raster.color[k] = rand() % 255;
+				verts[k][0] = int(v.uv[0]);
+				verts[k][1] = int(v.uv[1]);
+				color[k] = rand() % 255;
 			}
-			raster.imageData = outputTrisImage.data();
-			raster.imageWidth = width;
-			xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Antialiased, xatlas::internal::Vector2((float)width, (float)height), true, verts, RasterCallback, &raster);
+			RasterizeTriangle(outputTrisImage.data(), width, verts[0], verts[1], verts[2], color);
+			RasterizeLine(outputTrisImage.data(), width, verts[0], verts[1], white);
+			RasterizeLine(outputTrisImage.data(), width, verts[1], verts[2], white);
+			RasterizeLine(outputTrisImage.data(), width, verts[2], verts[0], white);
 		}
 		// Rasterize mesh charts.
 		for (uint32_t j = 0; j < mesh->chartCount; j++) {
@@ -190,25 +222,25 @@ int main(int argc, char *argv[])
 			color[1] = rand() % 255;
 			color[2] = rand() % 255;
 			for (uint32_t k = 0; k < chart->indexCount; k += 3) {
-				RasterParam raster;
-				xatlas::internal::Vector2 verts[3];
+				int verts[3][2];
 				for (int l = 0; l < 3; l++) {
 					const xatlas::OutputVertex &v = mesh->vertexArray[chart->indexArray[k + l]];
-					verts[l] = xatlas::internal::Vector2(v.uv[0], v.uv[1]);
-					raster.color[l] = color[l];
+					verts[l][0] = int(v.uv[0]);
+					verts[l][1] = int(v.uv[1]);
 				}
-				raster.imageData = outputChartsImage.data();
-				raster.imageWidth = width;
-				xatlas::internal::raster::drawTriangle(xatlas::internal::raster::Mode_Antialiased, xatlas::internal::Vector2((float)width, (float)height), true, verts, RasterCallback, &raster);
+				RasterizeTriangle(outputChartsImage.data(), width, verts[0], verts[1], verts[2], color);
+				RasterizeLine(outputChartsImage.data(), width, verts[0], verts[1], white);
+				RasterizeLine(outputChartsImage.data(), width, verts[1], verts[2], white);
+				RasterizeLine(outputChartsImage.data(), width, verts[2], verts[0], white);
 			}
 		}
 	}
 	const char *outputTrisFilename = "output_tris.tga";
 	printf("Writing '%s'...\n", outputTrisFilename);
-	stbi_write_tga(outputTrisFilename, width, height, 4, outputTrisImage.data());
+	stbi_write_tga(outputTrisFilename, width, height, 3, outputTrisImage.data());
 	const char *outputChartsFilename = "output_charts.tga";
 	printf("Writing '%s'...\n", outputChartsFilename);
-	stbi_write_tga(outputChartsFilename, width, height, 4, outputChartsImage.data());
+	stbi_write_tga(outputChartsFilename, width, height, 3, outputChartsImage.data());
 	// Cleanup.
 	xatlas::Destroy(atlas);
 	printf("Done\n");
