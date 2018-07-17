@@ -69,8 +69,7 @@ int main(int argc, char *argv[])
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
 	std::string err;
-	bool ret = tinyobj::LoadObj(shapes, materials, err, argv[1]);
-	if (!ret) {
+	if (!tinyobj::LoadObj(shapes, materials, err, argv[1], NULL, tinyobj::triangulation)) {
 		printf("Error: %s\n", err.c_str());
 		return 0;
 	}
