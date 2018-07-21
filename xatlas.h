@@ -12,13 +12,13 @@ struct Atlas;
 
 struct CharterOptions
 {
-    float proxyFitMetricWeight;
-    float roundnessMetricWeight;
-    float straightnessMetricWeight;
-    float normalSeamMetricWeight;
-    float textureSeamMetricWeight;
-    float maxChartArea;
-    float maxBoundaryLength;
+	float proxyFitMetricWeight;
+	float roundnessMetricWeight;
+	float straightnessMetricWeight;
+	float normalSeamMetricWeight;
+	float textureSeamMetricWeight;
+	float maxChartArea;
+	float maxBoundaryLength;
 
 	CharterOptions()
 	{
@@ -61,12 +61,12 @@ struct PackerOptions
 	// 4 - 512
 	// other - 256
 	// Avoid brute force packing, since it can be unusably slow in some situations.
-    int quality;
+	int quality;
 
-    float texelArea;       // This is not really texel area, but 1 / texel width?
+	float texelArea;       // This is not really texel area, but 1 / texel width?
 	uint32_t resolution;
-    bool blockAlign;       // Align charts to 4x4 blocks. 
-    bool conservative;      // Pack charts with extra padding.
+	bool blockAlign;       // Align charts to 4x4 blocks. 
+	bool conservative;      // Pack charts with extra padding.
 	int padding;
 
 	PackerOptions()
@@ -125,7 +125,7 @@ struct IndexFormat
 struct InputMesh
 {
 	uint32_t vertexCount;
-    const void *vertexPositionData;
+	const void *vertexPositionData;
 	uint32_t vertexPositionStride;
 	const void *vertexNormalData; // optional
 	uint32_t vertexNormalStride; // optional
@@ -136,7 +136,7 @@ struct InputMesh
 	uint32_t vertexUvStride;
 
 	uint32_t indexCount;
-    const void *indexData;
+	const void *indexData;
 	IndexFormat::Enum indexFormat;
 
 	// optional. indexCount / 3 in length.
@@ -152,8 +152,8 @@ struct OutputChart
 
 struct OutputVertex
 {
-    float uv[2];
-    uint32_t xref;   // Index of input vertex from which this output vertex originated.
+	float uv[2];
+	uint32_t xref;   // Index of input vertex from which this output vertex originated.
 };
 
 struct OutputMesh
