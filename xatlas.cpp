@@ -7448,13 +7448,15 @@ void Destroy(Atlas *atlas)
 	xaAssert(atlas);
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		delete atlas->heMeshes[i];
-		OutputMesh *outputMesh = atlas->outputMeshes[i];
-		for (uint32_t j = 0; j < outputMesh->chartCount; j++)
-			delete [] outputMesh->chartArray[j].indexArray;
-		delete [] outputMesh->chartArray;
-		delete [] outputMesh->vertexArray;
-		delete [] outputMesh->indexArray;
-		delete outputMesh;
+		if (atlas->outputMeshes) {
+			OutputMesh *outputMesh = atlas->outputMeshes[i];
+			for (uint32_t j = 0; j < outputMesh->chartCount; j++)
+				delete [] outputMesh->chartArray[j].indexArray;
+			delete [] outputMesh->chartArray;
+			delete [] outputMesh->vertexArray;
+			delete [] outputMesh->indexArray;
+			delete outputMesh;
+		}
 	}
 	delete [] atlas->outputMeshes;
 	delete atlas;
