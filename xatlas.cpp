@@ -7422,7 +7422,6 @@ private:
 
 struct Atlas
 {
-	Options options;
 	internal::param::Atlas atlas;
 	std::vector<internal::halfedge::Mesh *> heMeshes;
 	uint32_t width = 0;
@@ -7435,11 +7434,9 @@ void SetPrint(PrintFunc print)
 	internal::s_print = print;
 }
 
-Atlas *Create(const Options &options)
+Atlas *Create()
 {
-	xaAssert(options.packer.texelArea > 0);
 	Atlas *atlas = new Atlas();
-	atlas->options = options;
 	return atlas;
 }
 
@@ -7492,7 +7489,7 @@ static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
 	return internal::length(pos2 - pos1);
 }
 
-AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh)
+AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices)
 {
 	xaAssert(atlas);
 	AddMeshError error;
@@ -7525,7 +7522,7 @@ AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh)
 			vertex->tex = DecodeUv(mesh, i);
 		// Link colocals. You probably want to do this more efficiently! Sort by one axis or use a hash or grid.
 		uint32_t firstColocal = i;
-		if (atlas->options.useMeshColocalVertices) {
+		if (useColocalVertices) {
 			for (uint32_t j = 0; j < i; j++) {
 				if (vertex->pos != DecodePosition(mesh, j))
 					continue;
@@ -7599,17 +7596,18 @@ AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh)
 	return error;
 }
 
-void Generate(Atlas *atlas)
+void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerOptions)
 {
 	xaAssert(atlas);
+	xaAssert(packerOptions.texelArea > 0);
 	// Chart meshes.
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		std::vector<uint32_t> uncharted_materials;
-		atlas->atlas.computeCharts(atlas->heMeshes[i], atlas->options.charter, uncharted_materials);
+		atlas->atlas.computeCharts(atlas->heMeshes[i], charterOptions, uncharted_materials);
 	}
 	atlas->atlas.parameterizeCharts();
 	internal::param::AtlasPacker packer(&atlas->atlas);
-	packer.packCharts(atlas->options.packer);
+	packer.packCharts(packerOptions);
 	//float utilization = return packer.computeAtlasUtilization();
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();

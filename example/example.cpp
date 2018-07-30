@@ -110,11 +110,7 @@ int main(int argc, char *argv[])
 	// Create atlas.
 	if (verbose)
 		xatlas::SetPrint(Print);
-	xatlas::Options options;
-	options.packer.resolution = 1024;
-	options.packer.conservative = true;
-	options.packer.padding = 1;
-	xatlas::Atlas *atlas = xatlas::Create(options);
+	xatlas::Atlas *atlas = xatlas::Create();
 	// Add meshes to atlas.
 	Stopwatch stopwatch;
 	uint32_t totalVertices = 0, totalFaces = 0;
@@ -183,7 +179,11 @@ int main(int argc, char *argv[])
 	// Generate output meshes.
 	printf("Generating atlas...\n");
 	stopwatch.reset();
-	xatlas::Generate(atlas);
+	xatlas::PackerOptions packerOptions;
+	packerOptions.resolution = 1024;
+	packerOptions.conservative = true;
+	packerOptions.padding = 1;
+	xatlas::Generate(atlas, xatlas::CharterOptions(), packerOptions);
 	elapsedMs = stopwatch.elapsed();
 	printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
 	printf("   %d charts\n", xatlas::GetNumCharts(atlas));
