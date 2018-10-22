@@ -108,8 +108,8 @@ struct IndexFormat
 {
 	enum Enum
 	{
-		HalfFloat,
-		Float
+		UInt16,
+		UInt32
 	};
 };
 

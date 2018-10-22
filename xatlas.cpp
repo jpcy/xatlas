@@ -7479,7 +7479,7 @@ static internal::Vector2 DecodeUv(const InputMesh &mesh, uint32_t index)
 
 static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, uint32_t i)
 {
-	if (format == IndexFormat::HalfFloat)
+	if (format == IndexFormat::UInt16)
 		return (uint32_t)((const uint16_t *)indexData)[i];
 	return ((const uint32_t *)indexData)[i];
 }

@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
 		}
 		mesh.indexCount = (int)objMesh.indices.size();
 		mesh.indexData = objMesh.indices.data();
-		mesh.indexFormat = xatlas::IndexFormat::Float;
+		mesh.indexFormat = xatlas::IndexFormat::UInt32;
 		mesh.faceMaterialData = NULL;
 		if (verbose)
 			printf("      shape %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
