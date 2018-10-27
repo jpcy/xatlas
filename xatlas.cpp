@@ -7489,26 +7489,17 @@ static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
 	return internal::length(pos2 - pos1);
 }
 
-AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices)
+AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCallback warningCallback, void *warningCallbackUserData, bool useColocalVertices)
 {
 	xaAssert(atlas);
-	AddMeshError error;
-	error.code = AddMeshErrorCode::Success;
-	error.face = error.index0 = error.index1 = UINT32_MAX;
 	// Expecting triangle faces.
 	if ((mesh.indexCount % 3) != 0)
-	{
-		error.code = AddMeshErrorCode::InvalidIndexCount;
-		return error;
-	}
+		return AddMeshError::InvalidIndexCount;
 	// Check if any index is out of range.
 	for (uint32_t j = 0; j < mesh.indexCount; j++) {
 		const uint32_t index = DecodeIndex(mesh.indexFormat, mesh.indexData, j);
-		if (index < 0 || index >= mesh.vertexCount) {
-			error.code = AddMeshErrorCode::IndexOutOfRange;
-			error.index0 = index;
-			return error;
-		}
+		if (index < 0 || index >= mesh.vertexCount)
+			return AddMeshError::IndexOutOfRange;
 	}
 	// Build half edge mesh.
 	internal::halfedge::Mesh *heMesh = new internal::halfedge::Mesh;
@@ -7544,6 +7535,7 @@ AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertice
 		for (int j = 0; j < 3; j++)
 			tri[j] = DecodeIndex(mesh.indexFormat, mesh.indexData, i * 3 + j);
 		// Check for zero length edges.
+		bool zeroLengthEdge = false;
 		for (int j = 0; j < 3; j++) {
 			const uint32_t edges[6] = { 0, 1, 1, 2, 2, 0 };
 			const uint32_t index1 = tri[edges[j * 2 + 0]];
@@ -7551,49 +7543,44 @@ AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertice
 			const internal::Vector3 pos1 = DecodePosition(mesh, index1);
 			const internal::Vector3 pos2 = DecodePosition(mesh, index2);
 			if (EdgeLength(pos1, pos2) <= 0.0f) {
-				delete heMesh;
-				error.code = AddMeshErrorCode::ZeroLengthEdge;
-				error.face = i;
-				error.index0 = index1;
-				error.index1 = index2;
-				return error;
+				zeroLengthEdge = true;
+				if (warningCallback)
+					warningCallback(AddMeshWarning::ZeroLengthEdge, i, index1, index2, warningCallbackUserData);
+				break;
 			}
 		}
+		if (zeroLengthEdge)
+			continue; // Skip this face.
 		// Check for zero area faces.
-		{
-			const internal::Vector3 a = DecodePosition(mesh, tri[0]);
-			const internal::Vector3 b = DecodePosition(mesh, tri[1]);
-			const internal::Vector3 c = DecodePosition(mesh, tri[2]);
-			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
-			if (area <= 0.0f) {
-				delete heMesh;
-				error.code = AddMeshErrorCode::ZeroAreaFace;
-				error.face = i;
-				return error;
-			}
+		const internal::Vector3 a = DecodePosition(mesh, tri[0]);
+		const internal::Vector3 b = DecodePosition(mesh, tri[1]);
+		const internal::Vector3 c = DecodePosition(mesh, tri[2]);
+		const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
+		if (area <= 0.0f) {
+			if (warningCallback)
+				warningCallback(AddMeshWarning::ZeroAreaFace, i, 0, 0, warningCallbackUserData);
+			continue; // Skip this face.
 		}
 		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2]);
 		if (!face) {
+			AddMeshWarning::Enum warning;
 			if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::AlreadyAddedEdge)
-				error.code = AddMeshErrorCode::AlreadyAddedEdge;
+				warning = AddMeshWarning::AlreadyAddedEdge;
 			else if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::DegenerateColocalEdge)
-				error.code = AddMeshErrorCode::DegenerateColocalEdge;
+				warning = AddMeshWarning::DegenerateColocalEdge;
 			else if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::DegenerateEdge)
-				error.code = AddMeshErrorCode::DegenerateEdge;
+				warning = AddMeshWarning::DegenerateEdge;
 			else if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::DuplicateEdge)
-				error.code = AddMeshErrorCode::DuplicateEdge;
-			error.face = i;
-			error.index0 = heMesh->errorIndex0;
-			error.index1 = heMesh->errorIndex1;
-			delete heMesh;
-			return error;
+				warning = AddMeshWarning::DuplicateEdge;
+			if (warningCallback)
+				warningCallback(warning, i, heMesh->errorIndex0, heMesh->errorIndex1, warningCallbackUserData);
 		}
-		if (mesh.faceMaterialData)
+		else if (mesh.faceMaterialData)
 			face->material = mesh.faceMaterialData[i];
 	}
 	heMesh->linkBoundary();
 	atlas->heMeshes.push_back(heMesh);
-	return error;
+	return AddMeshError::Success;
 }
 
 void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerOptions)
@@ -7692,25 +7679,30 @@ const OutputMesh * const *GetOutputMeshes(const Atlas *atlas)
 	return atlas->outputMeshes;
 }
 
-const char *StringForEnum(AddMeshErrorCode::Enum error)
+const char *StringForEnum(AddMeshError::Enum error)
 {
-	if (error == AddMeshErrorCode::AlreadyAddedEdge)
-		return "already added edge";
-	if (error == AddMeshErrorCode::DegenerateColocalEdge)
-		return "degenerate colocal edge";
-	if (error == AddMeshErrorCode::DegenerateEdge)
-		return "degenerate edge";
-	if (error == AddMeshErrorCode::DuplicateEdge)
-		return "duplicate edge";
-	if (error == AddMeshErrorCode::IndexOutOfRange)
+	if (error == AddMeshError::IndexOutOfRange)
 		return "index out of range";
-	if (error == AddMeshErrorCode::InvalidIndexCount)
+	if (error == AddMeshError::InvalidIndexCount)
 		return "invalid index count";
-	if (error == AddMeshErrorCode::ZeroAreaFace)
-		return "zero area face";
-	if (error == AddMeshErrorCode::ZeroLengthEdge)
-		return "zero length edge";
 	return "success";
+}
+
+const char *StringForEnum(AddMeshWarning::Enum warning)
+{
+	if (warning == AddMeshWarning::AlreadyAddedEdge)
+		return "already added edge";
+	if (warning == AddMeshWarning::DegenerateColocalEdge)
+		return "degenerate colocal edge";
+	if (warning == AddMeshWarning::DegenerateEdge)
+		return "degenerate edge";
+	if (warning == AddMeshWarning::DuplicateEdge)
+		return "duplicate edge";
+	if (warning == AddMeshWarning::ZeroAreaFace)
+		return "zero area face";
+	if (warning == AddMeshWarning::ZeroLengthEdge)
+		return "zero length edge";
+	return "";
 }
 
 } // namespace xatlas

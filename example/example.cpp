@@ -36,6 +36,35 @@ static void Print(const char *format, ...)
 	va_end(arg);
 }
 
+static void PrintAddMeshWarning(xatlas::AddMeshWarning::Enum warning, uint32_t face, uint32_t index0, uint32_t index1, void *userData)
+{
+	printf("WARNING: %s", xatlas::StringForEnum(warning));
+	const tinyobj::mesh_t *mesh = (const tinyobj::mesh_t *)userData;
+	switch (warning) {
+		case xatlas::AddMeshWarning::AlreadyAddedEdge:
+		case xatlas::AddMeshWarning::DegenerateColocalEdge:
+		case xatlas::AddMeshWarning::DegenerateEdge:
+		case xatlas::AddMeshWarning::DuplicateEdge:
+		case xatlas::AddMeshWarning::ZeroLengthEdge:
+			printf(": indices: %u %u", index0, index1);
+			for (int j = 0; j < 2; j++) {
+				const float *pos = &mesh->positions[(j == 0 ? index0 : index1) * 3];
+				printf(", position %d: %g %g %g", j + 1, pos[0], pos[1], pos[2]);
+			}
+			break;
+		case xatlas::AddMeshWarning::ZeroAreaFace: {
+			const uint32_t *indices = &mesh->indices[face * 3];
+			printf(": face: %u, indices: %u %u %u", face, indices[0], indices[1], indices[2]);
+			for (int j = 0; j < 3; j++) {
+				const float *pos = &mesh->positions[indices[j] * 3];
+				printf(", position %d: %g %g %g", j + 1, pos[0], pos[1], pos[2]);
+			}
+		}
+		break;
+	}
+	printf("\n");
+}
+
 static void SetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)
 {
 	uint8_t *pixel = &dest[x * 3 + y * (destWidth * 3)];
@@ -138,36 +167,10 @@ int main(int argc, char *argv[])
 		mesh.faceMaterialData = NULL;
 		if (verbose)
 			printf("      shape %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
-		xatlas::AddMeshError error = xatlas::AddMesh(atlas, mesh);
-		if (error.code != xatlas::AddMeshErrorCode::Success) {
-			printf("Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error.code));
-			switch (error.code) {
-			case xatlas::AddMeshErrorCode::AlreadyAddedEdge:
-			case xatlas::AddMeshErrorCode::DegenerateColocalEdge:
-			case xatlas::AddMeshErrorCode::DegenerateEdge:
-			case xatlas::AddMeshErrorCode::DuplicateEdge:
-			case xatlas::AddMeshErrorCode::ZeroLengthEdge:
-				printf("   indices: %u %u\n", error.index0, error.index1);
-				for (int j = 0; j < 2; j++) {
-					const float *pos = &objMesh.positions[(j == 0 ? error.index0 : error.index1) * 3];
-					printf("   position %d: %g %g %g\n", j + 1, pos[0], pos[1], pos[2]);
-				}
-				break;
-			case xatlas::AddMeshErrorCode::IndexOutOfRange:
-				printf("   index: %u\n", error.index0);
-				break;
-			case xatlas::AddMeshErrorCode::ZeroAreaFace: {
-					const uint32_t *indices = &objMesh.indices[error.face * 3];
-					printf("   face: %u\n", error.face);
-					printf("   indices: %u %u %u\n", indices[0], indices[1], indices[2]);
-					for (int j = 0; j < 3; j++) {
-						const float *pos = &objMesh.positions[indices[j] * 3];
-						printf("   position %d: %g %g %g\n", j + 1, pos[0], pos[1], pos[2]);
-					}
-				}
-				break;
-			}
-			return 0;
+		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, mesh, PrintAddMeshWarning, (void *)&objMesh);
+		if (error != xatlas::AddMeshError::Success) {
+			printf("Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
+			return EXIT_FAILURE;
 		}
 		totalVertices += mesh.vertexCount;
 		totalFaces += mesh.indexCount / 3;

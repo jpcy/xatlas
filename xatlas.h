@@ -81,28 +81,30 @@ struct PackerOptions
 	}
 };
 
-struct AddMeshErrorCode
+struct AddMeshError
 {
 	enum Enum
 	{
 		Success,
+		IndexOutOfRange, // index0 is the index
+		InvalidIndexCount // not evenly divisible by 3 - expecting triangles
+	};
+};
+
+struct AddMeshWarning
+{
+	enum Enum
+	{
 		AlreadyAddedEdge, // index0 and index1 are the edge indices
 		DegenerateColocalEdge, // index0 and index1 are the edge indices
 		DegenerateEdge, // index0 and index1 are the edge indices
 		DuplicateEdge, // index0 and index1 are the edge indices
-		IndexOutOfRange, // index0 is the index
-		InvalidIndexCount, // not evenly divisible by 3 - expecting triangles
 		ZeroAreaFace,
 		ZeroLengthEdge // index0 and index1 are the edge indices
 	};
 };
 
-struct AddMeshError
-{
-	AddMeshErrorCode::Enum code;
-	uint32_t face;
-	uint32_t index0, index1;
-};
+typedef void (*AddMeshWarningCallback)(AddMeshWarning::Enum warning, uint32_t face, uint32_t index0, uint32_t index1, void *userData);
 
 struct IndexFormat
 {
@@ -161,13 +163,14 @@ void SetPrint(PrintFunc print);
 Atlas *Create();
 void Destroy(Atlas *atlas);
 // useColocalVertices - generates fewer charts (good), but is more sensitive to bad geometry.
-AddMeshError AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices = true);
+AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCallback warningCallback = NULL, void *warningCallbackUserData = NULL, bool useColocalVertices = true);
 void Generate(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), PackerOptions packerOptions = PackerOptions());
 uint32_t GetWidth(const Atlas *atlas);
 uint32_t GetHeight(const Atlas *atlas);
 uint32_t GetNumCharts(const Atlas *atlas);
 const OutputMesh * const *GetOutputMeshes(const Atlas *atlas);
-const char *StringForEnum(AddMeshErrorCode::Enum error);
+const char *StringForEnum(AddMeshError::Enum error);
+const char *StringForEnum(AddMeshWarning::Enum warning);
 
 } // namespace xatlas
 
