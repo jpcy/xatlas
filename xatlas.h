@@ -143,7 +143,7 @@ struct OutputChart
 
 struct OutputVertex
 {
-	float uv[2];
+	float uv[2]; // bottom-left origin
 	uint32_t xref;   // Index of input vertex from which this output vertex originated.
 };
 
