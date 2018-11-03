@@ -31,6 +31,8 @@ project "example"
 	rtti "Off"
 	targetprefix ""
 	files { "xatlas.cpp", "xatlas.h", "example/*.cpp" }
+	filter { "action:vs*", "configurations:Debug" }
+		defines { "_ITERATOR_DEBUG_LEVEL=0" }
 	filter { "system:windows", "action:gmake", "platforms:x86" }
 		gccprefix "i686-w64-mingw32-"
 	filter { "system:windows", "action:gmake", "platforms:x86_64" }
