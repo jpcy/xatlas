@@ -6699,12 +6699,15 @@ struct AtlasPacker
 	// Pack charts in the smallest possible rectangle.
 	void packCharts(const PackerOptions &options)
 	{
+		xaPrint("Packing charts:\n");
 		const uint32_t chartCount = m_atlas->chartCount();
+		xaPrint("   %u charts\n", chartCount);
 		if (chartCount == 0) return;
 		float texelsPerUnit = 1;
 		if (options.method == PackMethod::TexelArea)
 			texelsPerUnit = options.texelArea;
 		for (int iteration = 0;; iteration++) {
+			xaPrint("   Iteration %d\n", iteration);
 			m_rand = MTRand();
 			std::vector<float> chartOrderArray(chartCount);
 			std::vector<Vector2> chartExtents(chartCount);
@@ -6840,6 +6843,7 @@ struct AtlasPacker
 				// Estimate size of the map based on the mesh surface area and given texel scale.
 				const float texelCount = std::max(1.0f, meshArea * square(texelsPerUnit) / 0.75f); // Assume 75% utilization.
 				texelsPerUnit = sqrt((options.resolution * options.resolution) / texelCount);
+				xaPrint("      Estimating texelsPerUnit as %g\n", texelsPerUnit);
 				resetUvs();
 				continue;
 			}
@@ -6849,6 +6853,7 @@ struct AtlasPacker
 			int w = 0;
 			int h = 0;
 			// Add sorted charts to bitmap.
+			xaPrint("      Rasterizing charts\n");
 			for (uint32_t i = 0; i < chartCount; i++) {
 				uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 				Chart *chart = m_atlas->chartAt(c);
@@ -6928,12 +6933,22 @@ struct AtlasPacker
 			m_height = std::max(0, h);
 			xaAssert(isAligned(m_width, 4));
 			xaAssert(isAligned(m_height, 4));
+			xaPrint("      %dx%d resolution\n", m_width, m_height);
 			if (options.method == PackMethod::ExactResolution) {
-				texelsPerUnit *= sqrt((options.resolution * options.resolution) / (float)(m_width * m_height));
+				const uint32_t largestDimension = std::max(m_width, m_height);
+				texelsPerUnit *= sqrt((options.resolution * options.resolution) / (float)(largestDimension * largestDimension));
+				// Reduce texelsPerUnit by 10% after a few iterations.
+				const int firstAdjustmentIteration = 8;
+				if (iteration >= firstAdjustmentIteration)
+					texelsPerUnit *= 1.0f - (0.1f * (iteration - firstAdjustmentIteration + 1));
+				xaPrint("      Estimating texelsPerUnit as %g\n", texelsPerUnit);
 				if (iteration > 1 && m_width <= options.resolution && m_height <= options.resolution) {
 					m_width = m_height = options.resolution;
 					return;
 				}
+				// Give up after too many iterations.
+				if (iteration >= 16)
+					return;
 				resetUvs();
 			} else {
 				return;
@@ -7588,6 +7603,7 @@ void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerO
 	xaAssert(atlas);
 	xaAssert(packerOptions.texelArea > 0);
 	// Chart meshes.
+	xaPrint("Computing charts\n");
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		std::vector<uint32_t> uncharted_materials;
 		atlas->atlas.computeCharts(atlas->heMeshes[i], charterOptions, uncharted_materials);
@@ -7599,6 +7615,7 @@ void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerO
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
 	// Build output meshes.
+	xaPrint("Building output meshes\n");
 	atlas->outputMeshes = new OutputMesh*[atlas->heMeshes.size()];
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		const internal::halfedge::Mesh *heMesh = atlas->heMeshes[i];
