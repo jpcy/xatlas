@@ -2,7 +2,6 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
-#include <unordered_map>
 #include <assert.h>
 #include <float.h>
 #include <limits.h>
@@ -1589,6 +1588,497 @@ private:
 	Array<float> m_array;
 };
 
+/** Thatcher Ulrich's hash table.
+*
+* Hash table, linear probing, internal chaining.  One
+* interesting/nice thing about this implementation is that the table
+* itself is a flat chunk of memory containing no pointers, only
+* relative indices.  If the key and value types of the hash contain
+* no pointers, then the hash can be serialized using raw IO.  Could
+* come in handy.
+*
+* Never shrinks, unless you explicitly clear() it.  Expands on
+* demand, though.  For best results, if you know roughly how big your
+* table will be, default it to that size when you create it.
+*/
+template<typename T, typename U, typename H = Hash<T>, typename E = Equal<T> >
+class HashMap
+{
+public:
+
+	HashMap() : entry_count(0), size_mask(-1), table(NULL) { }
+	explicit HashMap(int size_hint) : entry_count(0), size_mask(-1), table(NULL) { setCapacity(size_hint); }
+	~HashMap() { clear(); }
+	
+	// Set a new or existing value under the key, to the value.
+	void set(const T& key, const U& value)
+	{
+		int	index = findIndex(key);
+		if (index >= 0)
+		{
+			entry(index).value = value;
+			return;
+		}
+
+		// Entry under key doesn't exist.
+		add(key, value);
+	}
+
+	// Add a new value to the hash table, under the specified key.
+	void add(const T& key, const U& value)
+	{
+		xaAssert(findIndex(key) == -1);
+
+		checkExpand();
+		xaAssert(table != NULL);
+		entry_count++;
+
+		const uint32_t hash_value = compute_hash(key);
+		const int index = hash_value & size_mask;
+
+		Entry * natural_entry = &(entry(index));
+
+		if (natural_entry->isEmpty())
+		{
+			// Put the new entry in.
+			new (natural_entry) Entry(key, value, -1, hash_value);
+		} 
+		else if (natural_entry->isTombstone()) {
+			// Put the new entry in, without disturbing the rest of the chain.
+			int next_in_chain = natural_entry->next_in_chain;
+			new (natural_entry) Entry(key, value, next_in_chain, hash_value);
+		}
+		else
+		{
+			// Find a blank spot.
+			int	blank_index = index;
+			for (int search_count = 0; ; search_count++)
+			{
+				blank_index = (blank_index + 1) & size_mask;
+				if (entry(blank_index).isEmpty()) break;	// found it
+				if (entry(blank_index).isTombstone()) {
+					blank_index = removeTombstone(blank_index);
+					break;
+				}
+				xaAssert(search_count < this->size_mask);
+			}
+			Entry * blank_entry = &entry(blank_index);
+
+			if (int(natural_entry->hash_value & size_mask) == index)
+			{
+				// Collision.  Link into this chain.
+
+				// Move existing list head.
+				new (blank_entry) Entry(*natural_entry);	// placement new, copy ctor
+
+															// Put the new info in the natural entry.
+				natural_entry->key = key;
+				natural_entry->value = value;
+				natural_entry->next_in_chain = blank_index;
+				natural_entry->hash_value = hash_value;
+			}
+			else
+			{
+				// Existing entry does not naturally
+				// belong in this slot.  Existing
+				// entry must be moved.
+
+				// Find natural location of collided element (i.e. root of chain)
+				int	collided_index = natural_entry->hash_value & size_mask;
+				for (int search_count = 0; ; search_count++)
+				{
+					Entry * e = &entry(collided_index);
+					if (e->next_in_chain == index)
+					{
+						// Here's where we need to splice.
+						new (blank_entry) Entry(*natural_entry);
+						e->next_in_chain = blank_index;
+						break;
+					}
+					collided_index = e->next_in_chain;
+					xaAssert(collided_index >= 0 && collided_index <= size_mask);
+					xaAssert(search_count <= size_mask);
+				}
+
+				// Put the new data in the natural entry.
+				natural_entry->key = key;
+				natural_entry->value = value;
+				natural_entry->hash_value = hash_value;
+				natural_entry->next_in_chain = -1;
+			}
+		}
+	}
+
+	// Remove the first value under the specified key.
+	bool remove(const T& key)
+	{
+		if (table == NULL)
+		{
+			return false;
+		}
+
+		int	index = findIndex(key);
+		if (index < 0)
+		{
+			return false;
+		}
+
+		Entry * pos = &entry(index);
+
+		int natural_index = (int) (pos->hash_value & size_mask);
+
+		if (index != natural_index) {
+			// We're not the head of our chain, so we can
+			// be spliced out of it.
+
+			// Iterate up the chain, and splice out when
+			// we get to m_index.
+			Entry* e = &entry(natural_index);
+			while (e->next_in_chain != index) {
+				xaDebugAssert(e->isEndOfChain() == false);
+				e = &entry(e->next_in_chain);
+			}
+
+			if (e->isTombstone() && pos->isEndOfChain()) {
+				// Tombstone has nothing else to point
+				// to, so mark it empty.
+				e->next_in_chain = -2;
+			} else {
+				e->next_in_chain = pos->next_in_chain;
+			}
+
+			pos->clear();
+		}
+		else if (pos->isEndOfChain() == false) {
+			// We're the head of our chain, and there are
+			// additional elements.
+			//
+			// We need to put a tombstone here.
+			//
+			// We can't clear the element, because the
+			// rest of the elements in the chain must be
+			// linked to this position.
+			//
+			// We can't move any of the succeeding
+			// elements in the chain (i.e. to fill this
+			// entry), because we don't want to invalidate
+			// any other existing iterators.
+			pos->makeTombstone();
+		} else {
+			// We're the head of the chain, but we're the
+			// only member of the chain.
+			pos->clear();
+		}
+
+		entry_count--;
+
+		return true;
+	}
+
+	// Remove all entries from the hash table.
+	void clear()
+	{
+		if (table != NULL)
+		{
+			// Delete the entries.
+			for (int i = 0, n = size_mask; i <= n; i++)
+			{
+				Entry * e = &entry(i);
+				if (e->isEmpty() == false && e->isTombstone() == false)
+				{
+					e->clear();
+				}
+			}
+			free(table);
+			table = NULL;
+			entry_count = 0;
+			size_mask = -1;
+		}
+	}
+
+	bool isEmpty() const
+	{
+		return table == NULL || entry_count == 0;
+	}
+
+	// Retrieve the value under the given key.
+	// - If there's no value under the key, then return false and leave *value alone.
+	// - If there is a value, return true, and set *value to the entry's value.
+	// - If value == NULL, return true or false according to the presence of the key, but don't touch *value.
+	bool get(const T& key, U* value = NULL, T* other_key = NULL) const
+	{
+		int	index = findIndex(key);
+		if (index >= 0)
+		{
+			if (value != NULL) {
+				*value = entry(index).value;	// take care with side-effects!
+			}
+			if (other_key != NULL) {
+				*other_key = entry(index).key;
+			}
+			return true;
+		}
+		return false;
+	}
+
+	int	size() const
+	{
+		return entry_count;
+	}
+
+	int	count() const
+	{
+		return entry_count;
+	}
+
+	int	capacity() const
+	{
+		return size_mask+1;
+	}
+
+	// Resize the hash table to fit one more entry.  Often this doesn't involve any action.
+	void checkExpand()
+	{
+		if (table == NULL) {
+			// Initial creation of table.  Make a minimum-sized table.
+			setRawCapacity(16);
+		} 
+		else if (entry_count * 3 > (size_mask + 1) * 2) {
+			// Table is more than 2/3rds full.  Expand.
+			setRawCapacity(entry_count * 2);
+		}
+	}
+
+	// Hint the bucket count to >= n.
+	void resize(int n)
+	{
+		// Not really sure what this means in relation to
+		// STLport's hash_map... they say they "increase the
+		// bucket count to at least n" -- but does that mean
+		// their real capacity after resize(n) is more like
+		// n*2 (since they do linked-list chaining within
+		// buckets?).
+		setCapacity(n);
+	}
+
+	// Size the hash so that it can comfortably contain the given number of elements.  If the hash already contains more
+	// elements than new_size, then this may be a no-op.
+	void setCapacity(int new_size)
+	{
+		int	new_raw_size = (new_size * 3) / 2;
+		if (new_raw_size < size()) { return; }
+
+		setRawCapacity(new_raw_size);
+	}
+
+	// Behaves much like std::pair.
+	struct Entry
+	{
+		int	next_in_chain;	// internal chaining for collisions
+		uint32_t hash_value;	// avoids recomputing.  Worthwhile?
+		T key;
+		U value;
+
+		Entry() : next_in_chain(-2) {}
+		Entry(const Entry& e) : next_in_chain(e.next_in_chain), hash_value(e.hash_value), key(e.key), value(e.value) {}
+		Entry(const T& k, const U& v, int next, int hash) : next_in_chain(next), hash_value(hash), key(k), value(v) {}
+
+		bool isEmpty() const { return next_in_chain == -2; }
+		bool isEndOfChain() const { return next_in_chain == -1; }
+		bool isTombstone() const { return hash_value == TOMBSTONE_HASH; }
+
+		void clear() {
+			key.~T();	// placement delete
+			value.~U();	// placement delete
+			next_in_chain = -2;
+			hash_value = ~TOMBSTONE_HASH;
+		}
+
+		void makeTombstone() {
+			key.~T();
+			value.~U();
+			hash_value = TOMBSTONE_HASH;
+		}
+	};
+
+
+	// HashMap enumerator.
+	typedef int PseudoIndex;
+	PseudoIndex start() const { PseudoIndex i = 0; findNext(i); return i; }
+	bool isDone(const PseudoIndex & i) const { xaDebugAssert(i <= size_mask+1); return i == size_mask+1; };
+	void advance(PseudoIndex & i) const { xaDebugAssert(i <= size_mask+1); i++; findNext(i); }
+
+	Entry & operator[](const PseudoIndex & i) {
+		Entry & e = entry(i);
+		xaDebugAssert(e.isTombstone() == false);
+		return e;
+	}
+
+	const Entry & operator[](const PseudoIndex & i) const {
+		const Entry & e = entry(i);
+		xaDebugAssert(e.isTombstone() == false);
+		return e;
+	}
+
+	friend void swap(HashMap<T, U, H, E> & a, HashMap<T, U, H, E> & b)
+	{
+		std::swap(a.entry_count, b.entry_count);
+		std::swap(a.size_mask, b.size_mask);
+		std::swap(a.table, b.table);
+	}
+
+private:
+	static const uint32_t TOMBSTONE_HASH = (uint32_t) -1;
+
+	uint32_t compute_hash(const T& key) const
+	{
+		H hash;
+		uint32_t hash_value = hash(key);
+		if (hash_value == TOMBSTONE_HASH) {
+			hash_value ^= 0x8000;
+		}
+		return hash_value;
+	}
+
+	// Find the index of the matching entry. If no match, then return -1.
+	int	findIndex(const T& key) const
+	{
+		if (table == NULL) return -1;
+
+		E equal;
+
+		uint32_t hash_value = compute_hash(key);
+		int	index = hash_value & size_mask;
+
+		const Entry * e = &entry(index);
+		if (e->isEmpty()) return -1;
+		if (e->isTombstone() == false && int(e->hash_value & size_mask) != index) {
+			// occupied by a collider
+			return -1;
+		}
+
+		for (;;)
+		{
+			xaAssert(e->isTombstone() || (e->hash_value & size_mask) == (hash_value & size_mask));
+
+			if (e->hash_value == hash_value && equal(e->key, key))
+			{
+				// Found it.
+				return index;
+			}
+			xaDebugAssert(e->isTombstone() || !equal(e->key, key));   // keys are equal, but hash differs!
+
+																	 // Keep looking through the chain.
+			index = e->next_in_chain;
+			if (index == -1) break;	// end of chain
+
+			xaAssert(index >= 0 && index <= size_mask);
+			e = &entry(index);
+
+			xaAssert(e->isEmpty() == false || e->isTombstone());
+		}
+		return -1;
+	}
+
+	// Return the index of the newly cleared element.
+	int removeTombstone(int index)
+	{
+		Entry* e = &entry(index);
+		xaAssert(e->isTombstone());
+		xaAssert(!e->isEndOfChain());
+
+		// Move the next element of the chain into the
+		// tombstone slot, and return the vacated element.
+		int new_blank_index = e->next_in_chain;
+		Entry* new_blank = &entry(new_blank_index);
+		new (e) Entry(*new_blank);
+		new_blank->clear();
+		return new_blank_index;
+	}
+
+	// Helpers.
+	Entry & entry(int index)
+	{
+		xaDebugAssert(table != NULL);
+		xaDebugAssert(index >= 0 && index <= size_mask);
+		return table[index];
+	}
+
+	const Entry & entry(int index) const
+	{
+		xaDebugAssert(table != NULL);
+		xaDebugAssert(index >= 0 && index <= size_mask);
+		return table[index];
+	}
+
+	// Resize the hash table to the given size (Rehash the contents of the current table).  The arg is the number of
+	// hash table entries, not the number of elements we should actually contain (which will be less than this).
+	void setRawCapacity(int new_size)
+	{
+		if (new_size <= 0) {
+			// Special case.
+			clear();
+			return;
+		}
+
+		// Force new_size to be a power of two.
+		new_size = nextPowerOfTwo(uint32_t(new_size));
+
+		HashMap<T, U, H, E> new_hash;
+		new_hash.table = (Entry *)malloc(sizeof(Entry) * new_size);
+		xaDebugAssert(new_hash.table != NULL);
+
+		new_hash.entry_count = 0;
+		new_hash.size_mask = new_size - 1;
+		for (int i = 0; i < new_size; i++)
+		{
+			new_hash.entry(i).next_in_chain = -2;	// mark empty
+		}
+
+		// Copy stuff to new_hash
+		if (table != NULL)
+		{
+			for (int i = 0, n = size_mask; i <= n; i++)
+			{
+				Entry * e = &entry(i);
+				if (e->isEmpty() == false && e->isTombstone() == false)
+				{
+					// Insert old entry into new hash.
+					new_hash.add(e->key, e->value);
+					e->clear();	// placement delete of old element
+				}
+			}
+
+			// Delete our old data buffer.
+			free(table);
+		}
+
+		// Steal new_hash's data.
+		entry_count = new_hash.entry_count;
+		size_mask = new_hash.size_mask;
+		table = new_hash.table;
+		new_hash.entry_count = 0;
+		new_hash.size_mask = -1;
+		new_hash.table = NULL;
+	}
+
+	// Move the enumerator to the next valid element.
+	void findNext(PseudoIndex & i) const
+	{
+		while (i <= size_mask) {
+			const Entry & e = entry(i);
+			if (e.isEmpty() == false && e.isTombstone() == false) {
+				break;
+			}
+			i++;
+		}
+	}
+
+	int	entry_count;
+	int	size_mask;
+	Entry * table;
+};
+
 namespace halfedge {
 class Face;
 class Vertex;
@@ -2203,8 +2693,8 @@ public:
 		for (size_t i = 0; i < m_vertexArray.size(); i++)
 			delete m_vertexArray[i];
 		m_vertexArray.clear();
-		for (auto it = m_edgeMap.begin(); it != m_edgeMap.end(); it++)
-			delete it->second;
+		for (auto it = m_edgeMap.start(); !m_edgeMap.isDone(it); m_edgeMap.advance(it))
+			delete m_edgeMap[it].value;
 		m_edgeArray.clear();
 		m_edgeMap.clear();
 		for (size_t i = 0; i < m_faceArray.size(); i++)
@@ -2226,18 +2716,16 @@ public:
 	{
 		xaPrint("--- Linking colocals:\n");
 		const uint32_t vertexCount = this->vertexCount();
-		std::unordered_map<Vector3, Vertex *, Hash<Vector3>, Equal<Vector3> > vertexMap;
-		vertexMap.reserve(vertexCount);
+		HashMap<Vector3, Vertex *, Hash<Vector3>, Equal<Vector3> > vertexMap(vertexCount);
 		for (uint32_t v = 0; v < vertexCount; v++) {
 			Vertex *vertex = vertexAt(v);
-			Vertex *colocal = vertexMap[vertex->pos];
-			if (colocal) {
+			Vertex *colocal;
+			if (vertexMap.get(vertex->pos, &colocal))
 				colocal->linkColocal(vertex);
-			} else {
-				vertexMap[vertex->pos] = vertex;
-			}
+			else
+				vertexMap.add(vertex->pos, vertex);
 		}
-		m_colocalVertexCount = vertexMap.size();
+		m_colocalVertexCount = vertexMap.count();
 		xaPrint("---   %d vertex positions.\n", m_colocalVertexCount);
 		// @@ Remove duplicated vertices? or just leave them as colocals?
 	}
@@ -2346,10 +2834,10 @@ public:
 		}
 		// Remove edge from map. @@ Store map key inside edge?
 		xaDebugAssert(edge->from() != NULL && edge->to() != NULL);
-		size_t removed = m_edgeMap.erase(Key(edge->from()->id, edge->to()->id));
-		xaDebugAssert(removed == 1);
+		bool removed = m_edgeMap.remove(Key(edge->from()->id, edge->to()->id));
+		xaDebugAssert(removed == true);
 #ifdef NDEBUG
-		removed = 0; // silence unused parameter warning
+		removed = true; // silence unused parameter warning
 #endif
 		// Disconnect from vertex.
 		if (edge->vertex != NULL) {
@@ -2489,9 +2977,9 @@ public:
 				uint32_t i = edge->from()->id;
 				uint32_t j = edge->next->from()->id;
 				Key key(j, i);
-				xaAssert(m_edgeMap.find(key) == m_edgeMap.end());
+				xaAssert(!m_edgeMap.get(key));
 				pair->vertex = m_vertexArray[j];
-				m_edgeMap[key] = pair;
+				m_edgeMap.add(key, pair);
 				edge->pair = pair;
 				pair->pair = edge;
 				num++;
@@ -2918,7 +3406,7 @@ private:
 				m_edgeArray.push_back(edge);
 			}
 			edge->vertex = m_vertexArray[i];
-			m_edgeMap[Key(i, j)] = edge;
+			m_edgeMap.add(Key(i, j), edge);
 		}
 		// Face and Next are set by addFace.
 		return edge;
@@ -2935,15 +3423,13 @@ private:
 			for (Vertex::ConstVertexIterator it1(v1->colocals()); !it1.isDone(); it1.advance()) {
 				Key key(it0.current()->id, it1.current()->id);
 				if (edge == NULL) {
-					auto edgeIt = m_edgeMap.find(key);
-					if (edgeIt != m_edgeMap.end())
-						edge = (*edgeIt).second;
+					m_edgeMap.get(key, &edge);
 	#if !defined(_DEBUG)
 					if (edge != NULL) return edge;
 	#endif
 				} else {
 					// Make sure that only one edge is found.
-					xaDebugAssert(m_edgeMap.find(key) == m_edgeMap.end());
+					xaDebugAssert(!m_edgeMap.get(key));
 				}
 			}
 		}
@@ -3063,7 +3549,7 @@ private:
 	};
 
 	friend struct Hash<Mesh::Key>;
-	std::unordered_map<Key, Edge *, Hash<Key>, Equal<Key> > m_edgeMap;
+	HashMap<Key, Edge *, Hash<Key>, Equal<Key> > m_edgeMap;
 	uint32_t m_colocalVertexCount;
 };
 
