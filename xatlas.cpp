@@ -3,7 +3,6 @@
 #include <cmath>
 #include <memory>
 #include <unordered_map>
-#include <vector>
 #include <assert.h>
 #include <float.h>
 #include <limits.h>
@@ -681,6 +680,405 @@ static uint32_t hash(const Vector3 &v, uint32_t h)
 	return sdbmFloatHash(v.component, 3, h);
 }
 
+template <typename T>
+void construct_range(T * restrict ptr, uint32_t new_size, uint32_t old_size) {
+	for (uint32_t i = old_size; i < new_size; i++) {
+		new(ptr+i) T; // placement new
+	}
+}
+
+template <typename T>
+void construct_range(T * restrict ptr, uint32_t new_size, uint32_t old_size, const T & elem) {
+	for (uint32_t i = old_size; i < new_size; i++) {
+		new(ptr+i) T(elem); // placement new
+	}
+}
+
+template <typename T>
+void construct_range(T * restrict ptr, uint32_t new_size, uint32_t old_size, const T * src) {
+	for (uint32_t i = old_size; i < new_size; i++) {
+		new(ptr+i) T(src[i]); // placement new
+	}
+}
+
+template <typename T>
+void destroy_range(T * restrict ptr, uint32_t new_size, uint32_t old_size) {
+	for (uint32_t i = new_size; i < old_size; i++) {
+		(ptr+i)->~T(); // Explicit call to the destructor
+	}
+}
+
+/**
+* Replacement for std::vector that is easier to debug and provides
+* some nice foreach enumerators. 
+*/
+template<typename T>
+class Array {
+public:
+	typedef uint32_t size_type;
+
+	NV_FORCEINLINE Array() : m_buffer(NULL), m_capacity(0), m_size(0) {}
+
+	NV_FORCEINLINE Array(const Array & a) : m_buffer(NULL), m_capacity(0), m_size(0) {
+		copy(a.m_buffer, a.m_size);
+	}
+
+	NV_FORCEINLINE Array(const T * ptr, uint32_t num) : m_buffer(NULL), m_capacity(0), m_size(0) {
+		copy(ptr, num);
+	}
+
+	NV_FORCEINLINE explicit Array(uint32_t capacity) : m_buffer(NULL), m_capacity(0), m_size(0) {
+		setArrayCapacity(capacity);
+	}
+
+	NV_FORCEINLINE ~Array() {
+		clear();
+		free(m_buffer);
+	}
+
+	NV_FORCEINLINE const T & operator[]( uint32_t index ) const
+	{
+		xaDebugAssert(index < m_size);
+		return m_buffer[index];
+	}
+	
+	NV_FORCEINLINE const T & at( uint32_t index ) const
+	{
+		xaDebugAssert(index < m_size);
+		return m_buffer[index];
+	}
+
+	NV_FORCEINLINE T & operator[] ( uint32_t index )
+	{
+		xaDebugAssert(index < m_size);
+		return m_buffer[index];
+	}
+
+	NV_FORCEINLINE T & at( uint32_t index )
+	{
+		xaDebugAssert(index < m_size);
+		return m_buffer[index];
+	}
+
+	NV_FORCEINLINE uint32_t size() const { return m_size; }
+	NV_FORCEINLINE uint32_t count() const { return m_size; }
+	NV_FORCEINLINE uint32_t capacity() const { return m_capacity; }
+	NV_FORCEINLINE const T * data() const { return m_buffer; }
+	NV_FORCEINLINE T * data() { return m_buffer; }
+	NV_FORCEINLINE T * begin() { return m_buffer; }
+	NV_FORCEINLINE T * end() { return m_buffer + m_size; }
+	NV_FORCEINLINE const T * begin() const { return m_buffer; }
+	NV_FORCEINLINE const T * end() const { return m_buffer + m_size; }
+	NV_FORCEINLINE bool isEmpty() const { return m_size == 0; }
+	NV_FORCEINLINE bool isNull() const { return m_buffer == NULL; }
+
+	T & append()
+	{
+		uint32_t old_size = m_size;
+		uint32_t new_size = m_size + 1;
+		setArraySize(new_size);
+		construct_range(m_buffer, new_size, old_size);
+		return m_buffer[old_size]; // Return reference to last element.
+	}
+
+	void push_back( const T & val )
+	{
+#if 1
+		xaDebugAssert(&val < m_buffer || &val >= m_buffer+m_size);
+
+		uint32_t old_size = m_size;
+		uint32_t new_size = m_size + 1;
+
+		setArraySize(new_size);
+
+		construct_range(m_buffer, new_size, old_size, val);
+#else
+		uint32_t new_size = m_size + 1;
+
+		if (new_size > m_capacity)
+		{
+			// @@ Is there any way to avoid this copy?
+			// @@ Can we create a copy without side effects? Ie. without calls to constructor/destructor. Use alloca + memcpy?
+			// @@ Assert instead of copy?
+			const T copy(val);	// create a copy in case value is inside of this array.
+
+			setArraySize(new_size);
+
+			new (m_buffer+new_size-1) T(copy);
+		}
+		else
+		{
+			m_size = new_size;
+			new(m_buffer+new_size-1) T(val);
+		}
+#endif // 0/1
+	}
+
+	void pushBack( const T & val )
+	{
+		push_back(val);
+	}
+
+	Array<T> & append( const T & val )
+	{
+		push_back(val);
+		return *this;
+	}
+
+	void pop_back()
+	{
+		xaDebugAssert( m_size > 0 );
+		resize( m_size - 1 );
+	}
+
+	void popBack(uint32_t count = 1)
+	{
+		xaDebugAssert(m_size >= count);
+		resize(m_size - count);
+	}
+
+	const T & back() const
+	{
+		xaDebugAssert( m_size > 0 );
+		return m_buffer[m_size-1];
+	}
+
+	T & back()
+	{
+		xaDebugAssert( m_size > 0 );
+		return m_buffer[m_size-1];
+	}
+
+	const T & front() const
+	{
+		xaDebugAssert( m_size > 0 );
+		return m_buffer[0];
+	}
+
+	T & front()
+	{
+		xaDebugAssert( m_size > 0 );
+		return m_buffer[0];
+	}
+
+	bool contains(const T & e) const
+	{
+		return find(e, NULL);
+	}
+
+	bool find(const T & element, uint32_t * indexPtr) const
+	{
+		return find(element, 0, m_size, indexPtr);
+	}
+
+	bool find(const T & element, uint32_t begin, uint32_t end, uint32_t * indexPtr) const
+	{
+		return ::nv::find(element, m_buffer, begin, end, indexPtr);
+	}
+
+	// Remove the element at the given index. This is an expensive operation!
+	void removeAt(uint32_t index)
+	{
+		xaDebugAssert(index >= 0 && index < m_size);
+
+		if (m_size == 1) {
+			clear();
+		}
+		else {
+			m_buffer[index].~T();
+
+			memmove(m_buffer+index, m_buffer+index+1, sizeof(T) * (m_size - 1 - index));
+			m_size--;
+		}
+	}
+
+	// Remove the first instance of the given element.
+	bool remove(const T & element)
+	{
+		uint32_t index;
+		if (find(element, &index)) {
+			removeAt(index);
+			return true;
+		}
+		return false;
+	}
+
+	// Insert the given element at the given index shifting all the elements up.
+	void insertAt(uint32_t index, const T & val = T())
+	{
+		xaDebugAssert( index >= 0 && index <= m_size );
+
+		setArraySize(m_size + 1);
+
+		if (index < m_size - 1) {
+			memmove(m_buffer+index+1, m_buffer+index, sizeof(T) * (m_size - 1 - index));
+		}
+
+		// Copy-construct into the newly opened slot.
+		new(m_buffer+index) T(val);
+	}
+
+	void append(const Array<T> & other)
+	{
+		append(other.m_buffer, other.m_size);
+	}
+
+	void append(const T other[], uint32_t count)
+	{
+		if (count > 0) {
+			const uint32_t old_size = m_size;
+
+			setArraySize(m_size + count);
+
+			for (uint32_t i = 0; i < count; i++ ) {
+				new(m_buffer + old_size + i) T(other[i]);
+			}
+		}
+	}
+
+	// Remove the given element by replacing it with the last one.
+	void replaceWithLast(uint32_t index)
+	{
+		xaDebugAssert( index < m_size );
+		nv::swap(m_buffer[index], back());      // @@ Is this OK when index == size-1?
+		(m_buffer+m_size-1)->~T();
+		m_size--;
+	}
+
+	void resize(uint32_t new_size)
+	{
+		uint32_t old_size = m_size;
+
+		// Destruct old elements (if we're shrinking).
+		destroy_range(m_buffer, new_size, old_size);
+
+		setArraySize(new_size);
+
+		// Call default constructors
+		construct_range(m_buffer, new_size, old_size);
+	}
+
+	void resize(uint32_t new_size, const T & elem)
+	{
+		xaDebugAssert(&elem < m_buffer || &elem > m_buffer+m_size);
+
+		uint32_t old_size = m_size;
+
+		// Destruct old elements (if we're shrinking).
+		destroy_range(m_buffer, new_size, old_size);
+
+		setArraySize(new_size);
+
+		// Call copy constructors
+		construct_range(m_buffer, new_size, old_size, elem);
+	}
+
+	void fill(const T & elem)
+	{
+		fill(m_buffer, m_size, elem);
+	}
+
+	void clear()
+	{
+		// Destruct old elements
+		destroy_range(m_buffer, 0, m_size);
+		m_size = 0;
+	}
+
+	void shrink()
+	{
+		if (m_size < m_capacity) {
+			setArrayCapacity(m_size);
+		}
+	}
+
+	void reserve(uint32_t desired_size)
+	{
+		if (desired_size > m_capacity) {
+			setArrayCapacity(desired_size);
+		}
+	}
+
+	void copy(const T * data, uint32_t count)
+	{
+#if 1   // More simple, but maybe not be as efficient?
+		destroy_range(m_buffer, 0, m_size);
+		setArraySize(count);
+		construct_range(m_buffer, count, 0, data);
+#else
+		const uint32_t old_size = m_size;
+		destroy_range(m_buffer, count, old_size);
+		setArraySize(count);
+		copy_range(m_buffer, data, old_size);
+		construct_range(m_buffer, count, old_size, data);
+#endif
+	}
+
+	Array<T> & operator=( const Array<T> & a )
+	{
+		copy(a.m_buffer, a.m_size);
+		return *this;
+	}
+
+	T * release()
+	{
+		T * tmp = m_buffer;
+		m_buffer = NULL;
+		m_capacity = 0;
+		m_size = 0;
+		return tmp;
+	}
+
+	friend void swap(Array<T> & a, Array<T> & b)
+	{
+		std::swap(a.m_buffer, b.m_buffer);
+		std::swap(a.m_capacity, b.m_capacity);
+		std::swap(a.m_size, b.m_size);
+	}
+
+protected:
+	void setArraySize(uint32_t new_size)
+	{
+		m_size = new_size;
+
+		if (new_size > m_capacity) {
+			uint32_t new_buffer_size;
+			if (m_capacity == 0) {
+				// first allocation is exact
+				new_buffer_size = new_size;
+			}
+			else {
+				// following allocations grow array by 25%
+				new_buffer_size = new_size + (new_size >> 2);
+			}
+
+			setArrayCapacity( new_buffer_size );
+		}
+	}
+	void setArrayCapacity(uint32_t new_capacity)
+	{
+		xaDebugAssert(new_capacity >= m_size);
+
+		if (new_capacity == 0) {
+			// free the buffer.
+			if (m_buffer != NULL) {
+				free(m_buffer);
+				m_buffer = NULL;
+			}
+		}
+		else {
+			// realloc the buffer
+			m_buffer = (T *)realloc(m_buffer, sizeof(T) * new_capacity);
+		}
+
+		m_capacity = new_capacity;
+	}
+
+	T * m_buffer;
+	uint32_t m_capacity;
+	uint32_t m_size;
+};
+
 /// Basis class to compute tangent space basis, ortogonalizations and to
 /// transform vectors from one space to another.
 class Basis
@@ -798,7 +1196,7 @@ private:
 	uint32_t m_size;
 
 	// Array of bits.
-	std::vector<uint32_t> m_wordArray;
+	Array<uint32_t> m_wordArray;
 };
 
 /// Bit map. This should probably be called BitImage.
@@ -1188,7 +1586,7 @@ public:
 	}
 
 private:
-	std::vector<float> m_array;
+	Array<float> m_array;
 };
 
 namespace halfedge {
@@ -1782,7 +2180,7 @@ public:
 		m_colocalVertexCount = vertexCount;
 		// Copy mesh faces.
 		const uint32_t faceCount = mesh->faceCount();
-		std::vector<uint32_t> indexArray;
+		Array<uint32_t> indexArray;
 		indexArray.reserve(3);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const Face *face = mesh->faceAt(f);
@@ -1844,14 +2242,14 @@ public:
 		// @@ Remove duplicated vertices? or just leave them as colocals?
 	}
 
-	void linkColocalsWithCanonicalMap(const std::vector<uint32_t> &canonicalMap)
+	void linkColocalsWithCanonicalMap(const Array<uint32_t> &canonicalMap)
 	{
 		xaPrint("--- Linking colocals:\n");
 		uint32_t vertexMapSize = 0;
 		for (uint32_t i = 0; i < canonicalMap.size(); i++) {
 			vertexMapSize = std::max(vertexMapSize, canonicalMap[i] + 1);
 		}
-		std::vector<Vertex *> vertexMap;
+		Array<Vertex *> vertexMap;
 		vertexMap.resize(vertexMapSize, NULL);
 		m_colocalVertexCount = 0;
 		const uint32_t vertexCount = this->vertexCount();
@@ -1895,12 +2293,12 @@ public:
 		return addFace(indexArray, 4, 0, 4);
 	}
 
-	Face *addFace(const std::vector<uint32_t> &indexArray)
+	Face *addFace(const Array<uint32_t> &indexArray)
 	{
 		return addFace(indexArray, 0, indexArray.size());
 	}
 
-	Face *addFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num)
+	Face *addFace(const Array<uint32_t> &indexArray, uint32_t first, uint32_t num)
 	{
 		return addFace(indexArray.data(), (uint32_t)indexArray.size(), first, num);
 	}
@@ -2051,8 +2449,8 @@ public:
 			return;
 		}
 		// Do not touch vertices, but rebuild edges and faces.
-		std::vector<Edge *> edgeArray;
-		std::vector<Face *> faceArray;
+		Array<Edge *> edgeArray;
+		Array<Face *> faceArray;
 		std::swap(edgeArray, m_edgeArray);
 		std::swap(faceArray, m_faceArray);
 		m_edgeMap.clear();
@@ -2123,7 +2521,7 @@ public:
 	*/
 	bool splitBoundaryEdges() // Returns true if any split was made.
 	{
-		std::vector<Vertex *> boundaryVertices;
+		Array<Vertex *> boundaryVertices;
 		for (uint32_t i = 0; i < m_vertexArray.size(); i++) {
 			Vertex *v = m_vertexArray[i];
 			if (v->isBoundary()) {
@@ -2433,7 +2831,7 @@ public:
 
 private:
 	// Return true if the face can be added to the manifold mesh.
-	bool canAddFace(const std::vector<uint32_t> &indexArray, uint32_t first, uint32_t num) const
+	bool canAddFace(const Array<uint32_t> &indexArray, uint32_t first, uint32_t num) const
 	{
 		return canAddFace(indexArray.data(), first, num);
 	}
@@ -2641,9 +3039,9 @@ private:
 	}
 
 private:
-	std::vector<Vertex *> m_vertexArray;
-	std::vector<Edge *> m_edgeArray;
-	std::vector<Face *> m_faceArray;
+	Array<Vertex *> m_vertexArray;
+	Array<Edge *> m_edgeArray;
+	Array<Face *> m_faceArray;
 
 	struct Key
 	{
@@ -2702,7 +3100,7 @@ private:
 		const uint32_t faceCount = mesh->faceCount();
 		const uint32_t edgeCount = mesh->edgeCount();
 		xaPrint( "--- Building mesh topology:\n" );
-		std::vector<uint32_t> stack(faceCount);
+		Array<uint32_t> stack(faceCount);
 		BitArray bitFlags(faceCount);
 		bitFlags.clearAll();
 		// Compute connectivity.
@@ -2712,7 +3110,7 @@ private:
 			if ( bitFlags.bitAt(f) == false ) {
 				m_connectedCount++;
 				stack.push_back( f );
-				while ( !stack.empty() ) {
+				while ( !stack.isEmpty() ) {
 					const uint32_t top = stack.back();
 					xaAssert(top != uint32_t(~0));
 					stack.pop_back();
@@ -2732,7 +3130,7 @@ private:
 				}
 			}
 		}
-		xaAssert(stack.empty());
+		xaAssert(stack.isEmpty());
 		xaPrint( "---   %d connected components.\n", m_connectedCount );
 		// Count boundary loops.
 		xaPrint( "---   Counting boundary loops.\n" );
@@ -2825,7 +3223,7 @@ Mesh *unifyVertices(const Mesh *inputMesh)
 			mesh->addVertex(vertex->pos);
 		}
 	}
-	std::vector<uint32_t> indexArray;
+	Array<uint32_t> indexArray;
 	// Add new faces pointing to first colocals.
 	uint32_t faceCount = inputMesh->faceCount();
 	for (uint32_t f = 0; f < faceCount; f++) {
@@ -2860,9 +3258,9 @@ Mesh *triangulate(const Mesh *inputMesh)
 		const Vertex *vertex = inputMesh->vertexAt(v);
 		mesh->addVertex(vertex->pos);
 	}
-	std::vector<int> polygonVertices;
-	std::vector<float> polygonAngles;
-	std::vector<Vector2> polygonPoints;
+	Array<int> polygonVertices;
+	Array<float> polygonAngles;
+	Array<Vector2> polygonPoints;
 	const uint32_t faceCount = inputMesh->faceCount();
 	for (uint32_t f = 0; f < faceCount; f++) {
 		const Face *face = inputMesh->faceAt(f);
@@ -2948,9 +3346,9 @@ Mesh *triangulate(const Mesh *inputMesh)
 				int v1 = polygonVertices[i1];
 				int v2 = polygonVertices[i2];
 				mesh->addFace(v0, v1, v2);
-				polygonVertices.erase(polygonVertices.begin() + i1);
-				polygonPoints.erase(polygonPoints.begin() + i1);
-				polygonAngles.erase(polygonAngles.begin() + i1);
+				polygonVertices.removeAt(i1);
+				polygonPoints.removeAt(i1);
+				polygonAngles.removeAt(i1);
 			}
 		}
 	}
@@ -3249,7 +3647,7 @@ struct ProximityGrid
 
 	// Gather all points inside the given sphere.
 	// Radius is assumed to be small, so we don't bother culling the cells.
-	void gather(const Vector3 &position, float radius, std::vector<uint32_t> &indexArray)
+	void gather(const Vector3 &position, float radius, Array<uint32_t> &indexArray)
 	{
 		int x0 = index_x(position.x - radius);
 		int x1 = index_x(position.x + radius);
@@ -3261,17 +3659,17 @@ struct ProximityGrid
 			for (int y = y0; y <= y1; y++) {
 				for (int x = x0; x <= x1; x++) {
 					int idx = index(x, y, z);
-					indexArray.insert(indexArray.begin(), cellArray[idx].indexArray.begin(), cellArray[idx].indexArray.end());
+					indexArray.append(cellArray[idx].indexArray);
 				}
 			}
 		}
 	}
 
 	struct Cell {
-		std::vector<uint32_t> indexArray;
+		Array<uint32_t> indexArray;
 	};
 
-	std::vector<Cell> cellArray;
+	Array<Cell> cellArray;
 
 	Vector3 corner;
 	Vector3 invCellSize;
@@ -3319,7 +3717,7 @@ public:
 		return *this;
 	}
 
-	RadixSort &sort(const std::vector<float> &input)
+	RadixSort &sort(const Array<float> &input)
 	{
 		return sort(input.data(), input.size());
 	}
@@ -4070,14 +4468,14 @@ public:
 		}
 	}
 
-	const std::vector<Coefficient> &getRow(uint32_t y) const { return m_array[y]; }
+	const Array<Coefficient> &getRow(uint32_t y) const { return m_array[y]; }
 
 private:
 	/// Number of columns.
 	const uint32_t m_width;
 
 	/// Array of matrix elements.
-	std::vector< std::vector<Coefficient> > m_array;
+	Array< Array<Coefficient> > m_array;
 };
 
 // y = a * x + y
@@ -4172,7 +4570,7 @@ static void sgemv(float alpha, const Matrix &A, const FullVector &x, float beta,
 // dot y-row of A by x-column of B
 static float dotRowColumn(int y, const Matrix &A, int x, const Matrix &B)
 {
-	const std::vector<Matrix::Coefficient> &row = A.getRow(y);
+	const Array<Matrix::Coefficient> &row = A.getRow(y);
 	const uint32_t count = row.size();
 	float sum = 0.0f;
 	for (uint32_t i = 0; i < count; i++) {
@@ -4185,7 +4583,7 @@ static float dotRowColumn(int y, const Matrix &A, int x, const Matrix &B)
 // dot y-row of A by x-row of B
 static float dotRowRow(int y, const Matrix &A, int x, const Matrix &B)
 {
-	const std::vector<Matrix::Coefficient> &row = A.getRow(y);
+	const Array<Matrix::Coefficient> &row = A.getRow(y);
 	const uint32_t count = row.size();
 	float sum = 0.0f;
 	for (uint32_t i = 0; i < count; i++) {
@@ -4217,7 +4615,7 @@ static void transpose(const Matrix &A, Matrix &B)
 	}
 	const uint32_t h = A.height();
 	for (uint32_t y = 0; y < h; y++) {
-		const std::vector<Matrix::Coefficient> &row = A.getRow(y);
+		const Array<Matrix::Coefficient> &row = A.getRow(y);
 		const uint32_t count = row.size();
 		for (uint32_t i = 0; i < count; i++) {
 			const Matrix::Coefficient &c = row[i];
@@ -4757,7 +5155,7 @@ bool computeOrthogonalProjectionMap(halfedge::Mesh *mesh)
 {
 	Vector3 axis[2];
 	uint32_t vertexCount = mesh->vertexCount();
-	std::vector<Vector3> points(vertexCount);
+	Array<Vector3> points(vertexCount);
 	points.resize(vertexCount);
 	for (uint32_t i = 0; i < vertexCount; i++) {
 		points[i] = mesh->vertexAt(i)->pos;
@@ -4828,10 +5226,9 @@ struct PriorityQueue
 			if (pairs[i].priority > priority) break;
 		}
 		Pair p = { priority, face };
-		pairs.insert(pairs.begin() + i, p);
-		if (pairs.size() > maxSize) {
-			pairs.erase(pairs.begin());
-		}
+		pairs.insertAt(i, p);
+		if (pairs.count() > maxSize)
+			pairs.removeAt(0);
 	}
 
 	// push face out of order, to be sorted later.
@@ -4882,7 +5279,7 @@ struct PriorityQueue
 		uint32_t face;
 	};
 
-	std::vector<Pair> pairs;
+	Array<Pair> pairs;
 };
 
 struct ChartBuildData
@@ -4912,8 +5309,8 @@ struct ChartBuildData
 	Vector3 normalSum;
 	Vector3 centroidSum;
 
-	std::vector<uint32_t> seeds;  // @@ These could be a pointers to the halfedge faces directly.
-	std::vector<uint32_t> faces;
+	Array<uint32_t> seeds;  // @@ These could be a pointers to the halfedge faces directly.
+	Array<uint32_t> faces;
 	PriorityQueue candidates;
 };
 
@@ -4951,7 +5348,7 @@ struct AtlasBuilder
 		}
 	}
 
-	void markUnchartedFaces(const std::vector<uint32_t> &unchartedFaces)
+	void markUnchartedFaces(const Array<uint32_t> &unchartedFaces)
 	{
 		const uint32_t unchartedFaceCount = unchartedFaces.size();
 		for (uint32_t i = 0; i < unchartedFaceCount; i++) {
@@ -5403,7 +5800,7 @@ struct AtlasBuilder
 
 	void mergeCharts()
 	{
-		std::vector<float> sharedBoundaryLengths;
+		Array<float> sharedBoundaryLengths;
 		const uint32_t chartCount = chartArray.size();
 		for (int c = chartCount - 1; c >= 0; c--) {
 			sharedBoundaryLengths.clear();
@@ -5464,7 +5861,7 @@ struct AtlasBuilder
 		// Remove deleted charts.
 		for (int c = 0; c < int32_t(chartArray.size()); /*do not increment if removed*/) {
 			if (chartArray[c] == NULL) {
-				chartArray.erase(chartArray.begin() + c);
+				chartArray.removeAt(c);
 				// Update faceChartArray.
 				const uint32_t faceCount = faceChartArray.size();
 				for (uint32_t i = 0; i < faceCount; i++) {
@@ -5562,17 +5959,17 @@ struct AtlasBuilder
 
 
 	uint32_t chartCount() const { return chartArray.size(); }
-	const std::vector<uint32_t> &chartFaces(uint32_t i) const { return chartArray[i]->faces; }
+	const Array<uint32_t> &chartFaces(uint32_t i) const { return chartArray[i]->faces; }
 
 	const halfedge::Mesh *mesh;
 	uint32_t facesLeft;
-	std::vector<int> faceChartArray;
-	std::vector<ChartBuildData *> chartArray;
-	std::vector<float> shortestPaths;
-	std::vector<float> edgeLengths;
-	std::vector<float> faceAreas;
-	std::vector<Candidate> candidateArray; //
-	std::vector<uint32_t> faceCandidateArray; // Map face index to candidate index.
+	Array<int> faceChartArray;
+	Array<ChartBuildData *> chartArray;
+	Array<float> shortestPaths;
+	Array<float> edgeLengths;
+	Array<float> faceAreas;
+	Array<Candidate> candidateArray; //
+	Array<uint32_t> faceCandidateArray; // Map face index to candidate index.
 	MTRand rand;
 	CharterOptions options;
 };
@@ -5583,15 +5980,17 @@ class Chart
 public:
 	Chart() : m_isDisk(false), m_isVertexMapped(false) {}
 
-	void build(const halfedge::Mesh *originalMesh, const std::vector<uint32_t> &faceArray)
+	void build(const halfedge::Mesh *originalMesh, const Array<uint32_t> &faceArray)
 	{
 		// Copy face indices.
 		m_faceArray = faceArray;
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
 		m_chartMesh.reset(new halfedge::Mesh());
 		m_unifiedMesh.reset(new halfedge::Mesh());
-		std::vector<uint32_t> chartMeshIndices(meshVertexCount, (uint32_t)~0);
-		std::vector<uint32_t> unifiedMeshIndices(meshVertexCount, (uint32_t)~0);
+		Array<uint32_t> chartMeshIndices;
+		chartMeshIndices.resize(meshVertexCount, ~0);
+		Array<uint32_t> unifiedMeshIndices;
+		unifiedMeshIndices.resize(meshVertexCount, ~0);
 		// Add vertices.
 		const uint32_t faceCount = faceArray.size();
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -5624,7 +6023,7 @@ public:
 		// is not guaranteed to return the same vertex for two colocal vertices.
 		//xaAssert(m_chartMesh->colocalVertexCount() == m_unifiedMesh->vertexCount());
 		// Is that OK? What happens in meshes were that happens? Does anything break? Apparently not...
-		std::vector<uint32_t> faceIndices;
+		Array<uint32_t> faceIndices;
 		faceIndices.reserve(7);
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -5671,7 +6070,7 @@ public:
 		m_isDisk = topology.isDisk();
 	}
 
-	void buildVertexMap(const halfedge::Mesh *originalMesh, const std::vector<uint32_t> &unchartedMaterialArray)
+	void buildVertexMap(const halfedge::Mesh *originalMesh, const Array<uint32_t> &unchartedMaterialArray)
 	{
 		xaAssert(m_chartMesh.get() == NULL && m_unifiedMesh.get() == NULL);
 		m_isVertexMapped = true;
@@ -5691,7 +6090,8 @@ public:
 		// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
 		m_chartMesh.reset(new halfedge::Mesh());
-		std::vector<uint32_t> chartMeshIndices(meshVertexCount, (uint32_t)~0);
+		Array<uint32_t> chartMeshIndices;
+		chartMeshIndices.resize(meshVertexCount, ~0);
 		// Vertex map mesh only has disconnected vertices.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const halfedge::Face *face = originalMesh->faceAt(m_faceArray[f]);
@@ -5709,7 +6109,7 @@ public:
 		}
 		// @@ Link colocals using the original mesh canonical map? Build canonical map on the fly? Do we need to link colocals at all for this?
 		//m_chartMesh->linkColocals();
-		std::vector<uint32_t> faceIndices;
+		Array<uint32_t> faceIndices;
 		faceIndices.reserve(7);
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -5747,19 +6147,20 @@ public:
 		const float normalThreshold = 0.01f;
 		uint32_t verticesVisited = 0;
 		uint32_t cellsVisited = 0;
-		std::vector<int> vertexIndexArray(chartVertexCount, -1); // Init all indices to -1.
+		Array<int> vertexIndexArray;
+		vertexIndexArray.resize(chartVertexCount, -1); // Init all indices to -1.
 		// Traverse vertices in morton order. @@ It may be more interesting to sort them based on orientation.
 		const uint32_t cellCodeCount = grid.mortonCount();
 		for (uint32_t cellCode = 0; cellCode < cellCodeCount; cellCode++) {
 			int cell = grid.mortonIndex(cellCode);
 			if (cell < 0) continue;
 			cellsVisited++;
-			const std::vector<uint32_t> &indexArray = grid.cellArray[cell].indexArray;
+			const Array<uint32_t> &indexArray = grid.cellArray[cell].indexArray;
 			for (uint32_t i = 0; i < indexArray.size(); i++) {
 				uint32_t idx = indexArray[i];
 				halfedge::Vertex *vertex = m_chartMesh->vertexAt(idx);
 				xaDebugAssert(vertexIndexArray[idx] == -1);
-				std::vector<uint32_t> neighbors;
+				Array<uint32_t> neighbors;
 				grid.gather(vertex->pos, positionThreshold, /*ref*/neighbors);
 				// Compare against all nearby vertices, cluster greedily.
 				for (uint32_t j = 0; j < neighbors.size(); j++) {
@@ -5789,7 +6190,8 @@ public:
 		xaDebugAssert(vertexMapWidth >= vertexMapHeight);
 		xaPrint("Reduced vertex count from %d to %d.\n", chartVertexCount, texelCount);
 		// Lay down the clustered vertices in morton order.
-		std::vector<uint32_t> texelCodes(texelCount);
+		Array<uint32_t> texelCodes;
+		texelCodes.resize(texelCount);
 		// For each texel, assign one morton code.
 		uint32_t texelCode = 0;
 		for (uint32_t i = 0; i < texelCount; i++) {
@@ -5817,7 +6219,7 @@ public:
 	bool closeHoles()
 	{
 		xaDebugAssert(!m_isVertexMapped);
-		std::vector<halfedge::Edge *> boundaryEdges;
+		Array<halfedge::Edge *> boundaryEdges;
 		getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
 		uint32_t boundaryCount = boundaryEdges.size();
 		if (boundaryCount <= 1) {
@@ -5825,7 +6227,7 @@ public:
 			return true;
 		}
 		// Compute lengths and areas.
-		std::vector<float> boundaryLengths;
+		Array<float> boundaryLengths;
 		for (uint32_t i = 0; i < boundaryCount; i++) {
 			const halfedge::Edge *startEdge = boundaryEdges[i];
 			xaAssert(startEdge->face == NULL);
@@ -5862,8 +6264,8 @@ public:
 			halfedge::Edge *startEdge = boundaryEdges[i];
 			xaDebugAssert(startEdge != NULL);
 			xaDebugAssert(startEdge->face == NULL);
-			std::vector<halfedge::Vertex *> vertexLoop;
-			std::vector<halfedge::Edge *> edgeLoop;
+			Array<halfedge::Vertex *> vertexLoop;
+			Array<halfedge::Edge *> edgeLoop;
 			halfedge::Edge *edge = startEdge;
 			do {
 				halfedge::Vertex *vertex = edge->next->vertex;  // edge->to()
@@ -5957,7 +6359,7 @@ public:
 		return m_chartToUnifiedMap[i];
 	}
 
-	const std::vector<uint32_t> &faceArray() const
+	const Array<uint32_t> &faceArray() const
 	{
 		return m_faceArray;
 	}
@@ -6008,7 +6410,7 @@ public:
 	bool blockAligned = true;
 
 private:
-	bool closeLoop(uint32_t start, const std::vector<halfedge::Edge *> &loop)
+	bool closeLoop(uint32_t start, const Array<halfedge::Edge *> &loop)
 	{
 		const uint32_t vertexCount = loop.size() - start;
 		xaDebugAssert(vertexCount >= 3);
@@ -6017,7 +6419,8 @@ private:
 		// If the hole is planar, then we add a single face that will be properly triangulated later.
 		// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
 		// This is still a bit of a hack. There surely are better hole filling algorithms out there.
-		std::vector<Vector3> points(vertexCount);
+		Array<Vector3> points;
+		points.resize(vertexCount);
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			points[i] = loop[start + i]->vertex->pos;
 		}
@@ -6053,7 +6456,7 @@ private:
 		return true;
 	}
 
-	static void getBoundaryEdges(halfedge::Mesh *mesh, std::vector<halfedge::Edge *> &boundaryEdges)
+	static void getBoundaryEdges(halfedge::Mesh *mesh, Array<halfedge::Edge *> &boundaryEdges)
 	{
 		xaDebugAssert(mesh != NULL);
 		const uint32_t edgeCount = mesh->edgeCount();
@@ -6087,12 +6490,12 @@ private:
 	bool m_isVertexMapped;
 	
 	// List of faces of the original mesh that belong to this chart.
-	std::vector<uint32_t> m_faceArray;
+	Array<uint32_t> m_faceArray;
 
 	// Map vertices of the chart mesh to vertices of the original mesh.
-	std::vector<uint32_t> m_chartToOriginalMap;
+	Array<uint32_t> m_chartToOriginalMap;
 
-	std::vector<uint32_t> m_chartToUnifiedMap;
+	Array<uint32_t> m_chartToUnifiedMap;
 };
 
 // Estimate quality of existing parameterization.
@@ -6302,7 +6705,7 @@ public:
 	{
 		const uint32_t faceCount = m_mesh->faceCount();
 		int first = 0;
-		std::vector<uint32_t> queue;
+		Array<uint32_t> queue;
 		queue.reserve(faceCount);
 		BitArray bitFlags(faceCount);
 		bitFlags.clearAll();
@@ -6399,7 +6802,7 @@ public:
 		  - emphasize roundness metrics to prevent those cases.
 	  - If interior self-overlaps: preserve boundary parameterization and use mean-value map.
 	*/
-	void computeCharts(const CharterOptions &options, const std::vector<uint32_t> &unchartedMaterialArray)
+	void computeCharts(const CharterOptions &options, const Array<uint32_t> &unchartedMaterialArray)
 	{
 		Chart *vertexMap = NULL;
 		if (unchartedMaterialArray.size() != 0) {
@@ -6581,13 +6984,13 @@ private:
 
 	const halfedge::Mesh *m_mesh;
 
-	std::vector<Chart *> m_chartArray;
+	Array<Chart *> m_chartArray;
 
-	std::vector<uint32_t> m_chartVertexCountPrefixSum;
+	Array<uint32_t> m_chartVertexCountPrefixSum;
 	uint32_t m_totalVertexCount;
 
-	std::vector<uint32_t> m_faceChart; // the chart of every face of the input mesh.
-	std::vector<uint32_t> m_faceIndex; // the index within the chart for every face of the input mesh.
+	Array<uint32_t> m_faceChart; // the chart of every face of the input mesh.
+	Array<uint32_t> m_faceIndex; // the index within the chart for every face of the input mesh.
 };
 
 /// An atlas is a set of charts.
@@ -6662,7 +7065,7 @@ public:
 		addMeshCharts(meshCharts);
 	}
 
-	void computeCharts(const halfedge::Mesh *mesh, const CharterOptions &options, const std::vector<uint32_t> &unchartedMaterialArray)
+	void computeCharts(const halfedge::Mesh *mesh, const CharterOptions &options, const Array<uint32_t> &unchartedMaterialArray)
 	{
 		MeshCharts *meshCharts = new MeshCharts(mesh);
 		meshCharts->computeCharts(options, unchartedMaterialArray);
@@ -6677,7 +7080,7 @@ public:
 	}
 
 private:
-	std::vector<MeshCharts *> m_meshChartsArray;
+	Array<MeshCharts *> m_meshChartsArray;
 };
 
 struct AtlasPacker
@@ -6710,8 +7113,10 @@ struct AtlasPacker
 		for (int iteration = 0;; iteration++) {
 			xaPrint("   Iteration %d\n", iteration);
 			m_rand = MTRand();
-			std::vector<float> chartOrderArray(chartCount);
-			std::vector<Vector2> chartExtents(chartCount);
+			Array<float> chartOrderArray;
+			chartOrderArray.resize(chartCount);
+			Array<Vector2> chartExtents;
+			chartExtents.resize(chartCount);
 			float meshArea = 0;
 			for (uint32_t c = 0; c < chartCount; c++) {
 				Chart *chart = m_atlas->chartAt(c);
@@ -7293,19 +7698,20 @@ private:
 	}
 
 	// Compute the convex hull using Graham Scan.
-	static void convexHull(const std::vector<Vector2> &input, std::vector<Vector2> &output, float epsilon)
+	static void convexHull(const Array<Vector2> &input, Array<Vector2> &output, float epsilon)
 	{
 		const uint32_t inputCount = input.size();
-		std::vector<float> coords(inputCount);
+		Array<float> coords;
+		coords.resize(inputCount);
 		for (uint32_t i = 0; i < inputCount; i++) {
 			coords[i] = input[i].x;
 		}
 		RadixSort radix;
 		radix.sort(coords);
 		const uint32_t *ranks = radix.ranks();
-		std::vector<Vector2> top;
+		Array<Vector2> top;
 		top.reserve(inputCount);
-		std::vector<Vector2> bottom;
+		Array<Vector2> bottom;
 		bottom.reserve(inputCount);
 		Vector2 P = input[ranks[0]];
 		Vector2 Q = input[ranks[inputCount - 1]];
@@ -7361,7 +7767,7 @@ private:
 	static void computeBoundingBox(Chart *chart, Vector2 *majorAxis, Vector2 *minorAxis, Vector2 *minCorner, Vector2 *maxCorner)
 	{
 		// Compute list of boundary points.
-		std::vector<Vector2> points;
+		Array<Vector2> points;
 		points.reserve(16);
 		halfedge::Mesh *mesh = chart->chartMesh();
 		const uint32_t vertexCount = mesh->vertexCount();
@@ -7372,7 +7778,7 @@ private:
 			}
 		}
 		xaDebugAssert(points.size() > 0);
-		std::vector<Vector2> hull;
+		Array<Vector2> hull;
 		convexHull(points, hull, 0.00001f);
 		// @@ Ideally I should use rotating calipers to find the best box. Using brute force for now.
 		float best_area = FLT_MAX;
@@ -7430,7 +7836,7 @@ private:
 	uint32_t m_width;
 	uint32_t m_height;
 	MTRand m_rand;
-	std::vector<std::vector<Vector2> > m_originalChartUvs;
+	Array<Array<Vector2> > m_originalChartUvs;
 };
 
 } // namespace param
@@ -7439,7 +7845,7 @@ private:
 struct Atlas
 {
 	internal::param::Atlas atlas;
-	std::vector<internal::halfedge::Mesh *> heMeshes;
+	internal::Array<internal::halfedge::Mesh *> heMeshes;
 	uint32_t width = 0;
 	uint32_t height = 0;
 	OutputMesh **outputMeshes = NULL;
@@ -7519,7 +7925,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCa
 	}
 	// Build half edge mesh.
 	internal::halfedge::Mesh *heMesh = new internal::halfedge::Mesh;
-	std::vector<uint32_t> canonicalMap;
+	internal::Array<uint32_t> canonicalMap;
 	canonicalMap.reserve(mesh.vertexCount);
 	for (uint32_t i = 0; i < mesh.vertexCount; i++) {
 		internal::halfedge::Vertex *vertex = heMesh->addVertex(DecodePosition(mesh, i));
@@ -7606,7 +8012,7 @@ void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerO
 	// Chart meshes.
 	xaPrint("Computing charts\n");
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
-		std::vector<uint32_t> uncharted_materials;
+		internal::Array<uint32_t> uncharted_materials;
 		atlas->atlas.computeCharts(atlas->heMeshes[i], charterOptions, uncharted_materials);
 	}
 	atlas->atlas.parameterizeCharts();
