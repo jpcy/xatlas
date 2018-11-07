@@ -2406,6 +2406,7 @@ public:
 	class ConstEdgeIterator //: public Iterator<const Edge *>
 	{
 	public:
+		ConstEdgeIterator() : m_end(NULL), m_current(NULL) { }
 		ConstEdgeIterator(const Edge *e) : m_end(NULL), m_current(e) { }
 		ConstEdgeIterator(const EdgeIterator &it) : m_end(NULL), m_current(it.current()) { }
 
