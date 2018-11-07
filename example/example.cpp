@@ -1,6 +1,7 @@
 #include <chrono>
 #include <stdio.h>
 #include <assert.h>
+#include <string.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #ifdef _MSC_VER
