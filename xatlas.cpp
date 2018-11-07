@@ -760,7 +760,6 @@ public:
 	}
 
 	NV_FORCEINLINE uint32_t size() const { return m_size; }
-	NV_FORCEINLINE uint32_t count() const { return m_size; }
 	NV_FORCEINLINE uint32_t capacity() const { return m_capacity; }
 	NV_FORCEINLINE const T * data() const { return m_buffer; }
 	NV_FORCEINLINE T * data() { return m_buffer; }
@@ -769,71 +768,20 @@ public:
 	NV_FORCEINLINE const T * begin() const { return m_buffer; }
 	NV_FORCEINLINE const T * end() const { return m_buffer + m_size; }
 	NV_FORCEINLINE bool isEmpty() const { return m_size == 0; }
-	NV_FORCEINLINE bool isNull() const { return m_buffer == NULL; }
-
-	T & append()
-	{
-		uint32_t old_size = m_size;
-		uint32_t new_size = m_size + 1;
-		setArraySize(new_size);
-		construct_range(m_buffer, new_size, old_size);
-		return m_buffer[old_size]; // Return reference to last element.
-	}
 
 	void push_back( const T & val )
 	{
-#if 1
 		xaDebugAssert(&val < m_buffer || &val >= m_buffer+m_size);
-
 		uint32_t old_size = m_size;
 		uint32_t new_size = m_size + 1;
-
 		setArraySize(new_size);
-
 		construct_range(m_buffer, new_size, old_size, val);
-#else
-		uint32_t new_size = m_size + 1;
-
-		if (new_size > m_capacity)
-		{
-			// @@ Is there any way to avoid this copy?
-			// @@ Can we create a copy without side effects? Ie. without calls to constructor/destructor. Use alloca + memcpy?
-			// @@ Assert instead of copy?
-			const T copy(val);	// create a copy in case value is inside of this array.
-
-			setArraySize(new_size);
-
-			new (m_buffer+new_size-1) T(copy);
-		}
-		else
-		{
-			m_size = new_size;
-			new(m_buffer+new_size-1) T(val);
-		}
-#endif // 0/1
-	}
-
-	void pushBack( const T & val )
-	{
-		push_back(val);
-	}
-
-	Array<T> & append( const T & val )
-	{
-		push_back(val);
-		return *this;
 	}
 
 	void pop_back()
 	{
 		xaDebugAssert( m_size > 0 );
 		resize( m_size - 1 );
-	}
-
-	void popBack(uint32_t count = 1)
-	{
-		xaDebugAssert(m_size >= count);
-		resize(m_size - count);
 	}
 
 	const T & back() const
@@ -860,59 +808,28 @@ public:
 		return m_buffer[0];
 	}
 
-	bool contains(const T & e) const
-	{
-		return find(e, NULL);
-	}
-
-	bool find(const T & element, uint32_t * indexPtr) const
-	{
-		return find(element, 0, m_size, indexPtr);
-	}
-
-	bool find(const T & element, uint32_t begin, uint32_t end, uint32_t * indexPtr) const
-	{
-		return ::nv::find(element, m_buffer, begin, end, indexPtr);
-	}
-
 	// Remove the element at the given index. This is an expensive operation!
 	void removeAt(uint32_t index)
 	{
 		xaDebugAssert(index >= 0 && index < m_size);
-
 		if (m_size == 1) {
 			clear();
 		}
 		else {
 			m_buffer[index].~T();
-
 			memmove(m_buffer+index, m_buffer+index+1, sizeof(T) * (m_size - 1 - index));
 			m_size--;
 		}
-	}
-
-	// Remove the first instance of the given element.
-	bool remove(const T & element)
-	{
-		uint32_t index;
-		if (find(element, &index)) {
-			removeAt(index);
-			return true;
-		}
-		return false;
 	}
 
 	// Insert the given element at the given index shifting all the elements up.
 	void insertAt(uint32_t index, const T & val = T())
 	{
 		xaDebugAssert( index >= 0 && index <= m_size );
-
 		setArraySize(m_size + 1);
-
 		if (index < m_size - 1) {
 			memmove(m_buffer+index+1, m_buffer+index, sizeof(T) * (m_size - 1 - index));
 		}
-
 		// Copy-construct into the newly opened slot.
 		new(m_buffer+index) T(val);
 	}
@@ -926,33 +843,19 @@ public:
 	{
 		if (count > 0) {
 			const uint32_t old_size = m_size;
-
 			setArraySize(m_size + count);
-
 			for (uint32_t i = 0; i < count; i++ ) {
 				new(m_buffer + old_size + i) T(other[i]);
 			}
 		}
 	}
 
-	// Remove the given element by replacing it with the last one.
-	void replaceWithLast(uint32_t index)
-	{
-		xaDebugAssert( index < m_size );
-		nv::swap(m_buffer[index], back());      // @@ Is this OK when index == size-1?
-		(m_buffer+m_size-1)->~T();
-		m_size--;
-	}
-
 	void resize(uint32_t new_size)
 	{
 		uint32_t old_size = m_size;
-
 		// Destruct old elements (if we're shrinking).
 		destroy_range(m_buffer, new_size, old_size);
-
 		setArraySize(new_size);
-
 		// Call default constructors
 		construct_range(m_buffer, new_size, old_size);
 	}
@@ -960,21 +863,12 @@ public:
 	void resize(uint32_t new_size, const T & elem)
 	{
 		xaDebugAssert(&elem < m_buffer || &elem > m_buffer+m_size);
-
 		uint32_t old_size = m_size;
-
 		// Destruct old elements (if we're shrinking).
 		destroy_range(m_buffer, new_size, old_size);
-
 		setArraySize(new_size);
-
 		// Call copy constructors
 		construct_range(m_buffer, new_size, old_size, elem);
-	}
-
-	void fill(const T & elem)
-	{
-		fill(m_buffer, m_size, elem);
 	}
 
 	void clear()
@@ -982,13 +876,6 @@ public:
 		// Destruct old elements
 		destroy_range(m_buffer, 0, m_size);
 		m_size = 0;
-	}
-
-	void shrink()
-	{
-		if (m_size < m_capacity) {
-			setArrayCapacity(m_size);
-		}
 	}
 
 	void reserve(uint32_t desired_size)
@@ -1000,32 +887,15 @@ public:
 
 	void copy(const T * data, uint32_t count)
 	{
-#if 1   // More simple, but maybe not be as efficient?
 		destroy_range(m_buffer, 0, m_size);
 		setArraySize(count);
 		construct_range(m_buffer, count, 0, data);
-#else
-		const uint32_t old_size = m_size;
-		destroy_range(m_buffer, count, old_size);
-		setArraySize(count);
-		copy_range(m_buffer, data, old_size);
-		construct_range(m_buffer, count, old_size, data);
-#endif
 	}
 
 	Array<T> & operator=( const Array<T> & a )
 	{
 		copy(a.m_buffer, a.m_size);
 		return *this;
-	}
-
-	T * release()
-	{
-		T * tmp = m_buffer;
-		m_buffer = NULL;
-		m_capacity = 0;
-		m_size = 0;
-		return tmp;
 	}
 
 	friend void swap(Array<T> & a, Array<T> & b)
@@ -1039,7 +909,6 @@ protected:
 	void setArraySize(uint32_t new_size)
 	{
 		m_size = new_size;
-
 		if (new_size > m_capacity) {
 			uint32_t new_buffer_size;
 			if (m_capacity == 0) {
@@ -1050,14 +919,12 @@ protected:
 				// following allocations grow array by 25%
 				new_buffer_size = new_size + (new_size >> 2);
 			}
-
 			setArrayCapacity( new_buffer_size );
 		}
 	}
 	void setArrayCapacity(uint32_t new_capacity)
 	{
 		xaDebugAssert(new_capacity >= m_size);
-
 		if (new_capacity == 0) {
 			// free the buffer.
 			if (m_buffer != NULL) {
@@ -1069,7 +936,6 @@ protected:
 			// realloc the buffer
 			m_buffer = (T *)realloc(m_buffer, sizeof(T) * new_capacity);
 		}
-
 		m_capacity = new_capacity;
 	}
 
@@ -5713,7 +5579,7 @@ struct PriorityQueue
 		}
 		Pair p = { priority, face };
 		pairs.insertAt(i, p);
-		if (pairs.count() > maxSize)
+		if (pairs.size() > maxSize)
 			pairs.removeAt(0);
 	}
 
