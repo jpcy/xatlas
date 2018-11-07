@@ -17,6 +17,12 @@
 
 #include "../xatlas.h"
 
+#ifdef _MSC_VER
+#define STRICMP _stricmp
+#else
+#define STRICMP stricmp
+#endif
+
 class Stopwatch
 {
 	typedef std::chrono::high_resolution_clock Clock;
@@ -121,7 +127,7 @@ int main(int argc, char *argv[])
 		printf("    -verbose\n");  
 	    return 1;
 	}
-	const bool verbose = (argc >= 3 && _stricmp(argv[2], "-verbose") == 0);
+	const bool verbose = (argc >= 3 && STRICMP(argv[2], "-verbose") == 0);
 	// Load object file.
 	printf("Loading '%s'...\n", argv[1]);
 	std::vector<tinyobj::shape_t> shapes;
