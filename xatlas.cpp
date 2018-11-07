@@ -1471,39 +1471,20 @@ template<typename T, typename U, typename H = Hash<T>, typename E = Equal<T> >
 class HashMap
 {
 public:
-
 	HashMap() : entry_count(0), size_mask(-1), table(NULL) { }
 	explicit HashMap(int size_hint) : entry_count(0), size_mask(-1), table(NULL) { setCapacity(size_hint); }
 	~HashMap() { clear(); }
 	
-	// Set a new or existing value under the key, to the value.
-	void set(const T& key, const U& value)
-	{
-		int	index = findIndex(key);
-		if (index >= 0)
-		{
-			entry(index).value = value;
-			return;
-		}
-
-		// Entry under key doesn't exist.
-		add(key, value);
-	}
-
 	// Add a new value to the hash table, under the specified key.
 	void add(const T& key, const U& value)
 	{
 		xaAssert(findIndex(key) == -1);
-
 		checkExpand();
 		xaAssert(table != NULL);
 		entry_count++;
-
 		const uint32_t hash_value = compute_hash(key);
 		const int index = hash_value & size_mask;
-
 		Entry * natural_entry = &(entry(index));
-
 		if (natural_entry->isEmpty())
 		{
 			// Put the new entry in.
@@ -1533,10 +1514,8 @@ public:
 			if (int(natural_entry->hash_value & size_mask) == index)
 			{
 				// Collision.  Link into this chain.
-
 				// Move existing list head.
 				new (blank_entry) Entry(*natural_entry);	// placement new, copy ctor
-
 															// Put the new info in the natural entry.
 				natural_entry->key = key;
 				natural_entry->value = value;
@@ -1548,7 +1527,6 @@ public:
 				// Existing entry does not naturally
 				// belong in this slot.  Existing
 				// entry must be moved.
-
 				// Find natural location of collided element (i.e. root of chain)
 				int	collided_index = natural_entry->hash_value & size_mask;
 				for (int search_count = 0; ; search_count++)
@@ -1565,7 +1543,6 @@ public:
 					xaAssert(collided_index >= 0 && collided_index <= size_mask);
 					xaAssert(search_count <= size_mask);
 				}
-
 				// Put the new data in the natural entry.
 				natural_entry->key = key;
 				natural_entry->value = value;
@@ -1579,24 +1556,15 @@ public:
 	bool remove(const T& key)
 	{
 		if (table == NULL)
-		{
 			return false;
-		}
-
 		int	index = findIndex(key);
 		if (index < 0)
-		{
 			return false;
-		}
-
 		Entry * pos = &entry(index);
-
 		int natural_index = (int) (pos->hash_value & size_mask);
-
 		if (index != natural_index) {
 			// We're not the head of our chain, so we can
 			// be spliced out of it.
-
 			// Iterate up the chain, and splice out when
 			// we get to m_index.
 			Entry* e = &entry(natural_index);
@@ -1604,7 +1572,6 @@ public:
 				xaDebugAssert(e->isEndOfChain() == false);
 				e = &entry(e->next_in_chain);
 			}
-
 			if (e->isTombstone() && pos->isEndOfChain()) {
 				// Tombstone has nothing else to point
 				// to, so mark it empty.
@@ -1612,7 +1579,6 @@ public:
 			} else {
 				e->next_in_chain = pos->next_in_chain;
 			}
-
 			pos->clear();
 		}
 		else if (pos->isEndOfChain() == false) {
@@ -1635,9 +1601,7 @@ public:
 			// only member of the chain.
 			pos->clear();
 		}
-
 		entry_count--;
-
 		return true;
 	}
 
@@ -1651,9 +1615,7 @@ public:
 			{
 				Entry * e = &entry(i);
 				if (e->isEmpty() == false && e->isTombstone() == false)
-				{
 					e->clear();
-				}
 			}
 			free(table);
 			table = NULL;
@@ -1702,19 +1664,6 @@ public:
 		return size_mask+1;
 	}
 
-	// Resize the hash table to fit one more entry.  Often this doesn't involve any action.
-	void checkExpand()
-	{
-		if (table == NULL) {
-			// Initial creation of table.  Make a minimum-sized table.
-			setRawCapacity(16);
-		} 
-		else if (entry_count * 3 > (size_mask + 1) * 2) {
-			// Table is more than 2/3rds full.  Expand.
-			setRawCapacity(entry_count * 2);
-		}
-	}
-
 	// Hint the bucket count to >= n.
 	void resize(int n)
 	{
@@ -1725,16 +1674,6 @@ public:
 		// n*2 (since they do linked-list chaining within
 		// buckets?).
 		setCapacity(n);
-	}
-
-	// Size the hash so that it can comfortably contain the given number of elements.  If the hash already contains more
-	// elements than new_size, then this may be a no-op.
-	void setCapacity(int new_size)
-	{
-		int	new_raw_size = (new_size * 3) / 2;
-		if (new_raw_size < size()) { return; }
-
-		setRawCapacity(new_raw_size);
 	}
 
 	// Behaves much like std::pair.
@@ -1748,7 +1687,6 @@ public:
 		Entry() : next_in_chain(-2) {}
 		Entry(const Entry& e) : next_in_chain(e.next_in_chain), hash_value(e.hash_value), key(e.key), value(e.value) {}
 		Entry(const T& k, const U& v, int next, int hash) : next_in_chain(next), hash_value(hash), key(k), value(v) {}
-
 		bool isEmpty() const { return next_in_chain == -2; }
 		bool isEndOfChain() const { return next_in_chain == -1; }
 		bool isTombstone() const { return hash_value == TOMBSTONE_HASH; }
@@ -1766,7 +1704,6 @@ public:
 			hash_value = TOMBSTONE_HASH;
 		}
 	};
-
 
 	// HashMap enumerator.
 	typedef int PseudoIndex;
@@ -1794,6 +1731,28 @@ public:
 	}
 
 private:
+	// Size the hash so that it can comfortably contain the given number of elements.  If the hash already contains more
+	// elements than new_size, then this may be a no-op.
+	void setCapacity(int new_size)
+	{
+		int	new_raw_size = (new_size * 3) / 2;
+		if (new_raw_size < size()) { return; }
+		setRawCapacity(new_raw_size);
+	}
+
+	// Resize the hash table to fit one more entry.  Often this doesn't involve any action.
+	void checkExpand()
+	{
+		if (table == NULL) {
+			// Initial creation of table.  Make a minimum-sized table.
+			setRawCapacity(16);
+		} 
+		else if (entry_count * 3 > (size_mask + 1) * 2) {
+			// Table is more than 2/3rds full.  Expand.
+			setRawCapacity(entry_count * 2);
+		}
+	}
+
 	static const uint32_t TOMBSTONE_HASH = (uint32_t) -1;
 
 	uint32_t compute_hash(const T& key) const
@@ -1810,37 +1769,29 @@ private:
 	int	findIndex(const T& key) const
 	{
 		if (table == NULL) return -1;
-
 		E equal;
-
 		uint32_t hash_value = compute_hash(key);
 		int	index = hash_value & size_mask;
-
 		const Entry * e = &entry(index);
 		if (e->isEmpty()) return -1;
 		if (e->isTombstone() == false && int(e->hash_value & size_mask) != index) {
 			// occupied by a collider
 			return -1;
 		}
-
 		for (;;)
 		{
 			xaAssert(e->isTombstone() || (e->hash_value & size_mask) == (hash_value & size_mask));
-
 			if (e->hash_value == hash_value && equal(e->key, key))
 			{
 				// Found it.
 				return index;
 			}
 			xaDebugAssert(e->isTombstone() || !equal(e->key, key));   // keys are equal, but hash differs!
-
 																	 // Keep looking through the chain.
 			index = e->next_in_chain;
 			if (index == -1) break;	// end of chain
-
 			xaAssert(index >= 0 && index <= size_mask);
 			e = &entry(index);
-
 			xaAssert(e->isEmpty() == false || e->isTombstone());
 		}
 		return -1;
@@ -1852,7 +1803,6 @@ private:
 		Entry* e = &entry(index);
 		xaAssert(e->isTombstone());
 		xaAssert(!e->isEndOfChain());
-
 		// Move the next element of the chain into the
 		// tombstone slot, and return the vacated element.
 		int new_blank_index = e->next_in_chain;
@@ -1886,21 +1836,15 @@ private:
 			clear();
 			return;
 		}
-
 		// Force new_size to be a power of two.
 		new_size = nextPowerOfTwo(uint32_t(new_size));
-
 		HashMap<T, U, H, E> new_hash;
 		new_hash.table = (Entry *)malloc(sizeof(Entry) * new_size);
 		xaDebugAssert(new_hash.table != NULL);
-
 		new_hash.entry_count = 0;
 		new_hash.size_mask = new_size - 1;
 		for (int i = 0; i < new_size; i++)
-		{
 			new_hash.entry(i).next_in_chain = -2;	// mark empty
-		}
-
 		// Copy stuff to new_hash
 		if (table != NULL)
 		{
@@ -1914,11 +1858,9 @@ private:
 					e->clear();	// placement delete of old element
 				}
 			}
-
 			// Delete our old data buffer.
 			free(table);
 		}
-
 		// Steal new_hash's data.
 		entry_count = new_hash.entry_count;
 		size_mask = new_hash.size_mask;
