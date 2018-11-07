@@ -1,5 +1,7 @@
 ## xatlas
 
+[![Travis CI Build Status](https://travis-ci.org/jpcy/xatlas.svg?branch=master)](https://travis-ci.org/jpcy/xatlas)
+
 A cleaned up version of [thekla_atlas](https://github.com/Thekla/thekla_atlas).
 
 Mesh charting, parameterization and atlas packing. Suitable for generating unique texture coordinates for baking lightmaps.

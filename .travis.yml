@@ -1,0 +1,17 @@
+language: cpp
+compiler: gcc
+
+install:
+  - git clone https://github.com/premake/premake-core.git ../premake-core
+  - cd ../premake-core
+  - git checkout tags/v5.0.0-alpha12
+  - git submodule init
+  - git submodule update
+  - make -f Bootstrap.mak linux
+  - chmod +x bin/release/premake5 
+  - cd $TRAVIS_BUILD_DIR
+  - ../premake-core/bin/release/premake5 gmake
+  - cd build
+
+script:
+  make
