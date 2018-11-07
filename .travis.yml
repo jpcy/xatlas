@@ -11,7 +11,7 @@ install:
   - chmod +x bin/release/premake5 
   - cd $TRAVIS_BUILD_DIR
   - ../premake-core/bin/release/premake5 gmake
-  - cd build
+  - cd build/gmake
 
 script:
   make
