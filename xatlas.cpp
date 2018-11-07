@@ -2501,7 +2501,7 @@ public:
 		for (size_t i = 0; i < m_vertexArray.size(); i++)
 			delete m_vertexArray[i];
 		m_vertexArray.clear();
-		for (auto it = m_edgeMap.start(); !m_edgeMap.isDone(it); m_edgeMap.advance(it))
+		for (EdgeMap::PseudoIndex it = m_edgeMap.start(); !m_edgeMap.isDone(it); m_edgeMap.advance(it))
 			delete m_edgeMap[it].value;
 		m_edgeArray.clear();
 		m_edgeMap.clear();
@@ -3357,7 +3357,8 @@ private:
 	};
 
 	friend struct Hash<Mesh::Key>;
-	HashMap<Key, Edge *, Hash<Key>, Equal<Key> > m_edgeMap;
+	typedef HashMap<Key, Edge *, Hash<Key>, Equal<Key> > EdgeMap;
+	EdgeMap m_edgeMap;
 	uint32_t m_colocalVertexCount;
 };
 
@@ -6272,15 +6273,24 @@ struct AtlasBuilder
 class Chart
 {
 public:
-	Chart() : m_isDisk(false), m_isVertexMapped(false) {}
+	Chart() : m_chartMesh(NULL), m_isDisk(false), m_isVertexMapped(false), m_unifiedMesh(NULL), scale(1.0f), blockAligned(true) {}
+	~Chart()
+	{
+		delete m_chartMesh;
+		delete m_unifiedMesh;
+	}
 
 	void build(const halfedge::Mesh *originalMesh, const Array<uint32_t> &faceArray)
 	{
 		// Copy face indices.
 		m_faceArray = faceArray;
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
-		m_chartMesh.reset(new halfedge::Mesh());
-		m_unifiedMesh.reset(new halfedge::Mesh());
+		if (m_chartMesh)
+			delete m_chartMesh;
+		m_chartMesh = new halfedge::Mesh();
+		if (m_unifiedMesh)
+			delete m_unifiedMesh;
+		m_unifiedMesh = new halfedge::Mesh();
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(meshVertexCount, ~0);
 		Array<uint32_t> unifiedMeshIndices;
@@ -6343,7 +6353,9 @@ public:
 		m_unifiedMesh->linkBoundary();
 		//exportMesh(m_unifiedMesh.ptr(), "debug_input.obj");
 		if (m_unifiedMesh->splitBoundaryEdges()) {
-			m_unifiedMesh.reset(halfedge::unifyVertices(m_unifiedMesh.get()));
+			halfedge::Mesh *newUnifiedMesh = halfedge::unifyVertices(m_unifiedMesh);
+			delete m_unifiedMesh;
+			m_unifiedMesh = newUnifiedMesh;
 		}
 		//exportMesh(m_unifiedMesh.ptr(), "debug_split.obj");
 		// Closing the holes is not always the best solution and does not fix all the problems.
@@ -6357,16 +6369,18 @@ public:
 			fileName.format("debug_hole_%d.obj", pieceCount++);
 			exportMesh(m_unifiedMesh.ptr(), fileName.str());*/
 		}
-		m_unifiedMesh.reset(halfedge::triangulate(m_unifiedMesh.get()));
+		halfedge::Mesh *newUnifiedMesh = halfedge::triangulate(m_unifiedMesh);
+		delete m_unifiedMesh;
+		m_unifiedMesh = newUnifiedMesh;
 		//exportMesh(m_unifiedMesh.ptr(), "debug_triangulated.obj");
 		// Analyze chart topology.
-		halfedge::MeshTopology topology(m_unifiedMesh.get());
+		halfedge::MeshTopology topology(m_unifiedMesh);
 		m_isDisk = topology.isDisk();
 	}
 
 	void buildVertexMap(const halfedge::Mesh *originalMesh, const Array<uint32_t> &unchartedMaterialArray)
 	{
-		xaAssert(m_chartMesh.get() == NULL && m_unifiedMesh.get() == NULL);
+		xaAssert(m_chartMesh == NULL && m_unifiedMesh == NULL);
 		m_isVertexMapped = true;
 		// Build face indices.
 		m_faceArray.clear();
@@ -6383,7 +6397,9 @@ public:
 		}
 		// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
-		m_chartMesh.reset(new halfedge::Mesh());
+		if (m_chartMesh)
+			delete m_chartMesh;
+		m_chartMesh = new halfedge::Mesh();
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(meshVertexCount, ~0);
 		// Vertex map mesh only has disconnected vertices.
@@ -6514,7 +6530,7 @@ public:
 	{
 		xaDebugAssert(!m_isVertexMapped);
 		Array<halfedge::Edge *> boundaryEdges;
-		getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
+		getBoundaryEdges(m_unifiedMesh, boundaryEdges);
 		uint32_t boundaryCount = boundaryEdges.size();
 		if (boundaryCount <= 1) {
 			// Nothing to close.
@@ -6592,7 +6608,7 @@ public:
 			} while (edge != startEdge);
 			closeLoop(0, edgeLoop);
 		}
-		getBoundaryEdges(m_unifiedMesh.get(), boundaryEdges);
+		getBoundaryEdges(m_unifiedMesh, boundaryEdges);
 		boundaryCount = boundaryEdges.size();
 		xaDebugAssert(boundaryCount == 1);
 		return boundaryCount == 1;
@@ -6627,19 +6643,19 @@ public:
 
 	const halfedge::Mesh *chartMesh() const
 	{
-		return m_chartMesh.get();
+		return m_chartMesh;
 	}
 	halfedge::Mesh *chartMesh()
 	{
-		return m_chartMesh.get();
+		return m_chartMesh;
 	}
 	const halfedge::Mesh *unifiedMesh() const
 	{
-		return m_unifiedMesh.get();
+		return m_unifiedMesh;
 	}
 	halfedge::Mesh *unifiedMesh()
 	{
-		return m_unifiedMesh.get();
+		return m_unifiedMesh;
 	}
 
 	//uint32_t vertexIndex(uint32_t i) const { return m_vertexIndexArray[i]; }
@@ -6672,7 +6688,7 @@ public:
 
 	float computeSurfaceArea() const
 	{
-		return halfedge::computeSurfaceArea(m_chartMesh.get()) * scale;
+		return halfedge::computeSurfaceArea(m_chartMesh) * scale;
 	}
 
 	float computeParametricArea() const
@@ -6680,7 +6696,7 @@ public:
 		// This only makes sense in parameterized meshes.
 		xaDebugAssert(m_isDisk);
 		xaDebugAssert(!m_isVertexMapped);
-		return halfedge::computeParametricArea(m_chartMesh.get());
+		return halfedge::computeParametricArea(m_chartMesh);
 	}
 
 	Vector2 computeParametricBounds() const
@@ -6698,10 +6714,10 @@ public:
 		return bounds.extents().xy();
 	}
 
-	float scale = 1.0f;
+	float scale;
 	uint32_t vertexMapWidth;
 	uint32_t vertexMapHeight;
-	bool blockAligned = true;
+	bool blockAligned;
 
 private:
 	bool closeLoop(uint32_t start, const Array<halfedge::Edge *> &loop)
@@ -6777,9 +6793,8 @@ private:
 	}
 
 	// Chart mesh.
-	std::auto_ptr<halfedge::Mesh> m_chartMesh;
-
-	std::auto_ptr<halfedge::Mesh> m_unifiedMesh;
+	halfedge::Mesh *m_chartMesh;
+	halfedge::Mesh *m_unifiedMesh;
 	bool m_isDisk;
 	bool m_isVertexMapped;
 	
@@ -8138,11 +8153,12 @@ private:
 
 struct Atlas
 {
+	Atlas() : width(0), height(0), outputMeshes(NULL) {}
 	internal::param::Atlas atlas;
 	internal::Array<internal::halfedge::Mesh *> heMeshes;
-	uint32_t width = 0;
-	uint32_t height = 0;
-	OutputMesh **outputMeshes = NULL;
+	uint32_t width;
+	uint32_t height;
+	OutputMesh **outputMeshes;
 };
 
 void SetPrint(PrintFunc print)

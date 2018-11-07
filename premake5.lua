@@ -24,15 +24,21 @@ solution "xatlas"
 		optimize "Full"
 		targetdir(path.join(BUILD_DIR, "release_bin"))
 		objdir(path.join(BUILD_DIR, "release_obj"))
+		
+project "xatlas"
+	kind "StaticLib"
+	language "C++"
+	cppdialect "C++98"
+	rtti "Off"
+	files { "xatlas.cpp", "xatlas.h" }
 
 project "example"
 	kind "ConsoleApp"
 	language "C++"
 	rtti "Off"
 	targetprefix ""
-	files { "xatlas.cpp", "xatlas.h", "example/*.cpp" }
-	filter { "action:vs*", "configurations:Debug" }
-		defines { "_ITERATOR_DEBUG_LEVEL=0" }
+	files { "example/*.cpp" }
+	links { "xatlas" }
 	filter { "system:windows", "action:gmake", "platforms:x86" }
 		gccprefix "i686-w64-mingw32-"
 	filter { "system:windows", "action:gmake", "platforms:x86_64" }
