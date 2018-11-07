@@ -1,7 +1,6 @@
 #include <chrono>
 #include <stdio.h>
 #include <assert.h>
-#include <string.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #ifdef _MSC_VER
@@ -21,7 +20,8 @@
 #ifdef _MSC_VER
 #define STRICMP _stricmp
 #else
-#define STRICMP stricmp
+#include <strings.h>
+#define STRICMP strcasecmp
 #endif
 
 class Stopwatch
