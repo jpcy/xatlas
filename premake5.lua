@@ -8,7 +8,7 @@ solution "xatlas"
 	else
 		platforms { "x86", "x86_64" }
 	end
-	startproject "xatlas"
+	startproject "example"
 	filter "platforms:x86"
 		architecture "x86"
 	filter "platforms:x86_64"
