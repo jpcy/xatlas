@@ -37,6 +37,7 @@ project "xatlas"
 project "example"
 	kind "ConsoleApp"
 	language "C++"
+	cppdialect "C++11"
 	rtti "Off"
 	targetprefix ""
 	files { "example/*.cpp" }
