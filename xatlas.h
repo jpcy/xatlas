@@ -100,7 +100,6 @@ struct AddMeshWarning
 		DegenerateColocalEdge, // index0 and index1 are the edge indices
 		DegenerateEdge, // index0 and index1 are the edge indices
 		DuplicateEdge, // index0 and index1 are the edge indices
-		ZeroAreaFace,
 		ZeroLengthEdge // index0 and index1 are the edge indices
 	};
 };

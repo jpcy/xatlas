@@ -2223,6 +2223,14 @@ float Edge::angle() const
 	return acosf(dot(v0, v1) / (internal::length(v0) * internal::length(v1)));
 }
 
+struct FaceFlags
+{
+	enum
+	{
+		ZeroArea = 1<<0
+	};
+};
+
 class Face
 {
 public:
@@ -2230,8 +2238,9 @@ public:
 	uint16_t group;
 	uint16_t material;
 	Edge *edge;
+	uint32_t flags;
 
-	Face(uint32_t id) : id(id), group(uint16_t(~0)), material(uint16_t(~0)), edge(NULL) {}
+	Face(uint32_t id) : id(id), group(uint16_t(~0)), material(uint16_t(~0)), edge(NULL), flags(0) {}
 
 	float area() const
 	{
@@ -2559,36 +2568,26 @@ public:
 		return f;
 	}
 
-	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2)
+	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t flags = 0)
 	{
 		uint32_t indexArray[3];
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
-		return addFace(indexArray, 3, 0, 3);
+		return addFace(indexArray, 3, 0, 3, flags);
 	}
 
-	Face *addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t v3)
+	Face *addFace(const Array<uint32_t> &indexArray, uint32_t flags = 0)
 	{
-		uint32_t indexArray[4];
-		indexArray[0] = v0;
-		indexArray[1] = v1;
-		indexArray[2] = v2;
-		indexArray[3] = v3;
-		return addFace(indexArray, 4, 0, 4);
+		return addFace(indexArray, 0, indexArray.size(), flags);
 	}
 
-	Face *addFace(const Array<uint32_t> &indexArray)
+	Face *addFace(const Array<uint32_t> &indexArray, uint32_t first, uint32_t num, uint32_t flags = 0)
 	{
-		return addFace(indexArray, 0, indexArray.size());
+		return addFace(indexArray.data(), (uint32_t)indexArray.size(), first, num, flags);
 	}
 
-	Face *addFace(const Array<uint32_t> &indexArray, uint32_t first, uint32_t num)
-	{
-		return addFace(indexArray.data(), (uint32_t)indexArray.size(), first, num);
-	}
-
-	Face *addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t first, uint32_t num)
+	Face *addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t first, uint32_t num, uint32_t flags = 0)
 	{
 		XA_DEBUG_ASSERT(first < indexCount);
 		XA_DEBUG_ASSERT(num <= indexCount - first);
@@ -2614,6 +2613,7 @@ public:
 		last->setNext(current);
 		current->setNext(firstEdge);
 		f->edge = firstEdge;
+		f->flags = flags;
 		m_faceArray.push_back(f);
 		return f;
 	}
@@ -3526,7 +3526,7 @@ Mesh *unifyVertices(const Mesh *inputMesh)
 			const Vertex *vertex = edge->vertex->firstColocal();
 			indexArray.push_back(vertex->id);
 		}
-		mesh->addFace(indexArray);
+		mesh->addFace(indexArray, face->flags);
 	}
 	mesh->linkBoundary();
 	return mesh;
@@ -3629,7 +3629,10 @@ Mesh *triangulate(const Mesh *inputMesh)
 						}
 					}
 				}
-				XA_DEBUG_ASSERT(minAngle <= 2 * M_PI);
+				if (!(face->flags & FaceFlags::ZeroArea))
+				{
+					XA_DEBUG_ASSERT(minAngle <= 2 * M_PI);
+				}
 				// Clip best ear:
 				uint32_t i0 = (bestEar + size - 1) % size;
 				uint32_t i1 = (bestEar + 0) % size;
@@ -6336,7 +6339,7 @@ public:
 				XA_DEBUG_ASSERT(vertex != NULL);
 				faceIndices.push_back(chartMeshIndices[vertex->id]);
 			}
-			m_chartMesh->addFace(faceIndices);
+			m_chartMesh->addFace(faceIndices, face->flags);
 			faceIndices.clear();
 			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 				const halfedge::Vertex *vertex = it.current()->vertex;
@@ -6344,7 +6347,7 @@ public:
 				vertex = vertex->firstColocal();
 				faceIndices.push_back(unifiedMeshIndices[vertex->id]);
 			}
-			m_unifiedMesh->addFace(faceIndices);
+			m_unifiedMesh->addFace(faceIndices, face->flags);
 		}
 		m_chartMesh->linkBoundary();
 		m_unifiedMesh->linkBoundary();
@@ -8285,12 +8288,10 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCa
 		const internal::Vector3 b = DecodePosition(mesh, tri[1]);
 		const internal::Vector3 c = DecodePosition(mesh, tri[2]);
 		const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
-		if (area <= 0.0f) {
-			if (warningCallback)
-				warningCallback(AddMeshWarning::ZeroAreaFace, i, 0, 0, warningCallbackUserData);
-			continue; // Skip this face.
-		}
-		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2]);
+		uint32_t faceFlags = 0;
+		if (area <= 0.0f)
+			faceFlags |= internal::halfedge::FaceFlags::ZeroArea;
+		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 		if (!face) {
 			AddMeshWarning::Enum warning;
 			if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::AlreadyAddedEdge)
@@ -8429,8 +8430,6 @@ const char *StringForEnum(AddMeshWarning::Enum warning)
 		return "degenerate edge";
 	if (warning == AddMeshWarning::DuplicateEdge)
 		return "duplicate edge";
-	if (warning == AddMeshWarning::ZeroAreaFace)
-		return "zero area face";
 	if (warning == AddMeshWarning::ZeroLengthEdge)
 		return "zero length edge";
 	return "";
