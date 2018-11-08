@@ -3116,12 +3116,12 @@ public:
 
 private:
 	// Return true if the face can be added to the manifold mesh.
-	bool canAddFace(const Array<uint32_t> &indexArray, uint32_t first, uint32_t num) const
+	bool canAddFace(const Array<uint32_t> &indexArray, uint32_t first, uint32_t num)
 	{
 		return canAddFace(indexArray.data(), first, num);
 	}
 
-	bool canAddFace(const uint32_t *indexArray, uint32_t first, uint32_t num) const
+	bool canAddFace(const uint32_t *indexArray, uint32_t first, uint32_t num)
 	{
 		for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
 			if (!canAddEdge(indexArray[first + j], indexArray[first + i])) {
@@ -3149,7 +3149,7 @@ private:
 	}
 
 	// Return true if the edge doesn't exist or doesn't have any adjacent face.
-	bool canAddEdge(uint32_t i, uint32_t j) const
+	bool canAddEdge(uint32_t i, uint32_t j)
 	{
 		if (i == j) {
 			// Skip degenerate edges.
@@ -3170,8 +3170,16 @@ private:
 		Edge *edge = findEdge(i, j);
 		// We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
 		if (!(edge == NULL || edge->face == NULL)) {
-			errorCode = ErrorCode::AlreadyAddedEdge;
-			return false;
+			// Unlink colocals so this edge can be added.
+			Vertex *v0 = vertexAt(i);
+			Vertex *v1 = vertexAt(j);
+			v0->unlinkColocal();
+			v1->unlinkColocal();
+			edge = findEdge(i, j);
+			if (!(edge == NULL || edge->face == NULL)) {
+				errorCode = ErrorCode::AlreadyAddedEdge;
+				return false;
+			}
 		}
 		return true;
 	}
