@@ -141,7 +141,7 @@ int main(int argc, char *argv[])
 		printf("Error: no shapes in obj file\n");
 		return 0;
 	}
-	printf("   %u shapes\n", shapes.size());
+	printf("   %d shapes\n", (int)shapes.size());
 	// Create atlas.
 	if (verbose)
 		xatlas::SetPrint(Print);
