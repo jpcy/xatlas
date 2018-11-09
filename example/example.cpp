@@ -13,7 +13,15 @@
 #endif
 
 #define TINYOBJLOADER_IMPLEMENTATION
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4201)
+#pragma warning(disable : 4706)
+#endif
 #include "tiny_obj_loader.h"
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 #include "../xatlas.h"
 
@@ -133,7 +141,7 @@ int main(int argc, char *argv[])
 		printf("Error: no shapes in obj file\n");
 		return 0;
 	}
-	printf("   %lu shapes\n", shapes.size());
+	printf("   %u shapes\n", shapes.size());
 	// Create atlas.
 	if (verbose)
 		xatlas::SetPrint(Print);

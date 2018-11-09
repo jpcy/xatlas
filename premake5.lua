@@ -13,19 +13,24 @@ solution "xatlas"
 		architecture "x86"
 	filter "platforms:x86_64"
 		architecture "x86_64"
-	filter "configurations:Debug*"
+	filter "configurations:Debug"
 		defines { "_DEBUG" }
 		optimize "Debug"
 		symbols "On"
+		targetdir(path.join(BUILD_DIR, "debug_bin"))
+		objdir(path.join(BUILD_DIR, "debug_obj"))
 	filter { "configurations:Release" }
 		defines "NDEBUG"
 		optimize "Full"
+		targetdir(path.join(BUILD_DIR, "release_bin"))
+		objdir(path.join(BUILD_DIR, "release_obj"))
 		
 project "xatlas"
 	kind "StaticLib"
 	language "C++"
 	cppdialect "C++98"
 	rtti "Off"
+	warnings "Extra"
 	files { "xatlas.cpp", "xatlas.h" }
 	filter "configurations:DebugFast"
 		defines { "xaDebugAssert(x)" }
@@ -35,6 +40,7 @@ project "example"
 	language "C++"
 	cppdialect "C++11"
 	rtti "Off"
+	warnings "Extra"
 	targetprefix ""
 	files { "example/*.cpp" }
 	links { "xatlas" }
