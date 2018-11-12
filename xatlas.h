@@ -133,8 +133,8 @@ struct InputMesh
 	IndexFormat::Enum indexFormat;
 
 	// optional. indexCount / 3 in length.
-	// Charter also uses material boundaries as a hint to cut charts.
-	const uint16_t *faceMaterialData;
+	// Don't atlas faces set to true. Faces will still exist in the output meshes, uv will be (0, 0).
+	const bool *faceIgnoreData;
 };
 
 struct OutputChart

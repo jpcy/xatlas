@@ -2196,11 +2196,10 @@ class Face
 public:
 	uint32_t id;
 	uint16_t group;
-	uint16_t material;
 	Edge *edge;
 	uint32_t flags;
 
-	Face(uint32_t id) : id(id), group(uint16_t(~0)), material(uint16_t(~0)), edge(NULL), flags(0) {}
+	Face(uint32_t id) : id(id), group(uint16_t(~0)), edge(NULL), flags(0) {}
 
 	float area() const
 	{
@@ -6341,7 +6340,7 @@ public:
 		m_isDisk = topology.isDisk();
 	}
 
-	void buildVertexMap(const halfedge::Mesh *originalMesh, const Array<uint32_t> &unchartedMaterialArray)
+	void buildVertexMap(const halfedge::Mesh *originalMesh)
 	{
 		XA_ASSERT(m_chartMesh == NULL && m_unifiedMesh == NULL);
 		m_isVertexMapped = true;
@@ -6350,9 +6349,8 @@ public:
 		const uint32_t meshFaceCount = originalMesh->faceCount();
 		for (uint32_t f = 0; f < meshFaceCount; f++) {
 			const halfedge::Face *face = originalMesh->faceAt(f);
-			if ((face->flags & halfedge::FaceFlags::Ignore) != 0 || std::find(unchartedMaterialArray.begin(), unchartedMaterialArray.end(), face->material) != unchartedMaterialArray.end()) {
+			if ((face->flags & halfedge::FaceFlags::Ignore) != 0)
 				m_faceArray.push_back(f);
-			}
 		}
 		const uint32_t faceCount = m_faceArray.size();
 		if (faceCount == 0) {
@@ -7049,16 +7047,13 @@ public:
 		  - emphasize roundness metrics to prevent those cases.
 	  - If interior self-overlaps: preserve boundary parameterization and use mean-value map.
 	*/
-	void computeCharts(const CharterOptions &options, const Array<uint32_t> &unchartedMaterialArray)
+	void computeCharts(const CharterOptions &options)
 	{
-		Chart *vertexMap = NULL;
-		/*if (unchartedMaterialArray.size() != 0)*/ {
-			vertexMap = new Chart();
-			vertexMap->buildVertexMap(m_mesh, unchartedMaterialArray);
-			if (vertexMap->faceCount() == 0) {
-				delete vertexMap;
-				vertexMap = NULL;
-			}
+		Chart *vertexMap = new Chart();
+		vertexMap->buildVertexMap(m_mesh);
+		if (vertexMap->faceCount() == 0) {
+			delete vertexMap;
+			vertexMap = NULL;
 		}
 		AtlasBuilder builder(m_mesh);
 		if (vertexMap != NULL) {
@@ -7312,10 +7307,10 @@ public:
 		addMeshCharts(meshCharts);
 	}
 
-	void computeCharts(const halfedge::Mesh *mesh, const CharterOptions &options, const Array<uint32_t> &unchartedMaterialArray)
+	void computeCharts(const halfedge::Mesh *mesh, const CharterOptions &options)
 	{
 		MeshCharts *meshCharts = new MeshCharts(mesh);
-		meshCharts->computeCharts(options, unchartedMaterialArray);
+		meshCharts->computeCharts(options);
 		addMeshCharts(meshCharts);
 	}
 
@@ -8234,8 +8229,10 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCa
 			if (warningCallback)
 				warningCallback(warning, i, heMesh->errorIndex0, heMesh->errorIndex1, warningCallbackUserData);
 		}
-		else if (mesh.faceMaterialData)
-			face->material = mesh.faceMaterialData[i];
+		else if (mesh.faceIgnoreData) {
+			if (mesh.faceIgnoreData[i])
+				face->flags |= internal::halfedge::FaceFlags::Ignore;
+		}
 	}
 	heMesh->linkBoundary();
 	atlas->heMeshes.push_back(heMesh);
@@ -8248,10 +8245,8 @@ void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerO
 	XA_ASSERT(packerOptions.texelArea > 0);
 	// Chart meshes.
 	XA_PRINT("Computing charts\n");
-	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
-		internal::Array<uint32_t> uncharted_materials;
-		atlas->atlas.computeCharts(atlas->heMeshes[i], charterOptions, uncharted_materials);
-	}
+	for (int i = 0; i < (int)atlas->heMeshes.size(); i++)
+		atlas->atlas.computeCharts(atlas->heMeshes[i], charterOptions);
 	atlas->atlas.parameterizeCharts();
 	internal::param::AtlasPacker packer(&atlas->atlas);
 	packer.packCharts(packerOptions);
