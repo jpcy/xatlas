@@ -57,10 +57,8 @@ static void PrintAddMeshWarning(xatlas::AddMeshWarning::Enum warning, uint32_t /
 	const tinyobj::mesh_t *mesh = (const tinyobj::mesh_t *)userData;
 	switch (warning) {
 		case xatlas::AddMeshWarning::AlreadyAddedEdge:
-		case xatlas::AddMeshWarning::DegenerateColocalEdge:
 		case xatlas::AddMeshWarning::DegenerateEdge:
 		case xatlas::AddMeshWarning::DuplicateEdge:
-		case xatlas::AddMeshWarning::ZeroLengthEdge:
 			printf(": indices: %u %u", index0, index1);
 			for (int j = 0; j < 2; j++) {
 				const float *pos = &mesh->positions[(j == 0 ? index0 : index1) * 3];
@@ -229,6 +227,8 @@ int main(int argc, char *argv[])
 					verts[k][1] = int(v.uv[1]);
 					color[k] = rand() % 255;
 				}
+				if (!verts[0][0] && !verts[0][1] && !verts[1][0] && !verts[1][1] && !verts[2][0] && !verts[2][1])
+					continue; // Skip triangles that weren't atlased.
 				RasterizeTriangle(outputTrisImage.data(), width, verts[0], verts[1], verts[2], color);
 				RasterizeLine(outputTrisImage.data(), width, verts[0], verts[1], white);
 				RasterizeLine(outputTrisImage.data(), width, verts[1], verts[2], white);
