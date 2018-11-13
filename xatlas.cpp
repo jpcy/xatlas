@@ -3074,7 +3074,6 @@ public:
 		enum Enum
 		{
 			AlreadyAddedEdge,
-			DuplicateEdge
 		};
 	};
 
@@ -3106,6 +3105,7 @@ private:
 				}
 			}
 		}
+#ifdef _DEBUG
 		// We also have to make sure the face does not have any duplicate edge!
 		for (uint32_t i = 0; i < num; i++) {
 			int i0 = indexArray[first + i + 0];
@@ -3113,14 +3113,10 @@ private:
 			for (uint32_t j = i + 1; j < num; j++) {
 				int j0 = indexArray[first + j + 0];
 				int j1 = indexArray[first + (j + 1) % num];
-				if (i0 == j0 && i1 == j1) {
-					errorCode = ErrorCode::DuplicateEdge;
-					errorIndex0 = i0;
-					errorIndex1 = i1;
-					return false;
-				}
+				XA_DEBUG_ASSERT(!(i0 == j0 && i1 == j1));
 			}
 		}
+#endif
 		return true;
 	}
 
@@ -8159,8 +8155,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCa
 			AddMeshWarning::Enum warning = AddMeshWarning::AlreadyAddedEdge;
 			if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::AlreadyAddedEdge)
 				warning = AddMeshWarning::AlreadyAddedEdge;
-			else if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::DuplicateEdge)
-				warning = AddMeshWarning::DuplicateEdge;
 			else
 			{
 				XA_DEBUG_ASSERT(false);
@@ -8301,8 +8295,6 @@ const char *StringForEnum(AddMeshWarning::Enum warning)
 {
 	if (warning == AddMeshWarning::AlreadyAddedEdge)
 		return "already added edge";
-	if (warning == AddMeshWarning::DuplicateEdge)
-		return "duplicate edge";
 	return "";
 }
 

@@ -97,7 +97,6 @@ struct AddMeshWarning
 	enum Enum
 	{
 		AlreadyAddedEdge, // index0 and index1 are the edge indices
-		DuplicateEdge, // index0 and index1 are the edge indices
 	};
 };
 
