@@ -57,7 +57,6 @@ static void PrintAddMeshWarning(xatlas::AddMeshWarning::Enum warning, uint32_t /
 	const tinyobj::mesh_t *mesh = (const tinyobj::mesh_t *)userData;
 	switch (warning) {
 		case xatlas::AddMeshWarning::AlreadyAddedEdge:
-		case xatlas::AddMeshWarning::DegenerateEdge:
 		case xatlas::AddMeshWarning::DuplicateEdge:
 			printf(": indices: %u %u", index0, index1);
 			for (int j = 0; j < 2; j++) {

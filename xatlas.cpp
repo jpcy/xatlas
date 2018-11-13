@@ -21,8 +21,11 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#define XA_STR(x) #x
+#define XA_XSTR(x) XA_STR(x)
+
 #ifndef XA_ASSERT
-#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT("%s %s %s\n", #exp, __FILE__, __LINE__); }
+#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT("ASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
 #endif
 
 #ifndef XA_DEBUG_ASSERT
@@ -2732,6 +2735,8 @@ public:
 		for (uint32_t e = 0; e < edgeCount; e++) {
 			Edge *edge = edgeAt(e);
 			if (edge != NULL && edge->pair == NULL) {
+				if (edge->face && edge->face->flags & FaceFlags::Ignore)
+					continue;
 				Edge *pair = new Edge(edge->id + 1);
 				uint32_t i = edge->from()->id;
 				uint32_t j = edge->next->from()->id;
@@ -2747,8 +2752,11 @@ public:
 		// Link boundary edges.
 		for (uint32_t e = 0; e < edgeCount; e++) {
 			Edge *edge = edgeAt(e);
-			if (edge != NULL && edge->pair->face == NULL) {
-				linkBoundaryEdge(edge->pair);
+			if (edge != NULL) {
+				if (edge->face && edge->face->flags & FaceFlags::Ignore)
+					continue;
+				if (edge->pair->face == NULL)
+					linkBoundaryEdge(edge->pair);
 			}
 		}
 		XA_PRINT("---   %d boundary edges.\n", num);
@@ -3066,7 +3074,6 @@ public:
 		enum Enum
 		{
 			AlreadyAddedEdge,
-			DegenerateEdge,
 			DuplicateEdge
 		};
 	};
@@ -3076,19 +3083,27 @@ public:
 	mutable uint32_t errorIndex1;
 
 private:
-	// Return true if the face can be added to the manifold mesh.
-	bool canAddFace(const Array<uint32_t> &indexArray, uint32_t first, uint32_t num)
-	{
-		return canAddFace(indexArray.data(), first, num);
-	}
-
 	bool canAddFace(const uint32_t *indexArray, uint32_t first, uint32_t num)
 	{
 		for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
-			if (!canAddEdge(indexArray[first + j], indexArray[first + i])) {
-				errorIndex0 = indexArray[first + j];
-				errorIndex1 = indexArray[first + i];
-				return false;
+			const uint32_t edgeIndex0 = indexArray[first + j];
+			const uint32_t edgeIndex1 = indexArray[first + i];
+			// Make sure edge has not been added yet.
+			Edge *edge = findEdge(edgeIndex0, edgeIndex1);
+			// We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
+			if (!(edge == NULL || edge->face == NULL)) {
+				// Unlink colocals so this edge can be added.
+				Vertex *v0 = vertexAt(edgeIndex0);
+				Vertex *v1 = vertexAt(edgeIndex1);
+				v0->unlinkColocal();
+				v1->unlinkColocal();
+				edge = findEdge(edgeIndex0, edgeIndex1);
+				if (!(edge == NULL || edge->face == NULL)) {
+					errorCode = ErrorCode::AlreadyAddedEdge;
+					errorIndex0 = edgeIndex0;
+					errorIndex1 = edgeIndex1;
+					return false;
+				}
 			}
 		}
 		// We also have to make sure the face does not have any duplicate edge!
@@ -3109,35 +3124,8 @@ private:
 		return true;
 	}
 
-	// Return true if the edge doesn't exist or doesn't have any adjacent face.
-	bool canAddEdge(uint32_t i, uint32_t j)
-	{
-		if (i == j) {
-			// Skip degenerate edges.
-			errorCode = ErrorCode::DegenerateEdge;
-			return false;
-		}
-		// Make sure edge has not been added yet.
-		Edge *edge = findEdge(i, j);
-		// We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
-		if (!(edge == NULL || edge->face == NULL)) {
-			// Unlink colocals so this edge can be added.
-			Vertex *v0 = vertexAt(i);
-			Vertex *v1 = vertexAt(j);
-			v0->unlinkColocal();
-			v1->unlinkColocal();
-			edge = findEdge(i, j);
-			if (!(edge == NULL || edge->face == NULL)) {
-				errorCode = ErrorCode::AlreadyAddedEdge;
-				return false;
-			}
-		}
-		return true;
-	}
-
 	Edge *addEdge(uint32_t i, uint32_t j)
 	{
-		XA_ASSERT(i != j);
 		Edge *edge = findEdge(i, j);
 		if (edge != NULL) {
 			// Edge may already exist, but its face must not be set.
@@ -5589,11 +5577,19 @@ struct AtlasBuilder
 #ifdef NDEBUG
 			id = id; // silence unused parameter warning
 #endif
-			edgeLengths[i] = m->edgeAt(i)->length();
+			const halfedge::Edge *edge = m->edgeAt(i);
+			if (edge->face->flags & halfedge::FaceFlags::Ignore)
+				edgeLengths[i] = 0;
+			else
+				edgeLengths[i] = edge->length();
 		}
 		faceAreas.resize(faceCount);
 		for (uint32_t i = 0; i < faceCount; i++) {
-			faceAreas[i] = m->faceAt(i)->area();
+			const halfedge::Face *face = m->faceAt(i);
+			if (face->flags & halfedge::FaceFlags::Ignore)
+				faceAreas[i] = 0;
+			else
+				faceAreas[i] = face->area();
 		}
 	}
 
@@ -6399,67 +6395,6 @@ public:
 			new_face = new_face; // silence unused parameter warning
 #endif
 		}
-		m_chartMesh->linkBoundary();
-		const uint32_t chartVertexCount = m_chartMesh->vertexCount();
-		Box bounds;
-		bounds.clearBounds();
-		for (uint32_t i = 0; i < chartVertexCount; i++) {
-			halfedge::Vertex *vertex = m_chartMesh->vertexAt(i);
-			bounds.addPointToBounds(vertex->pos);
-		}
-		ProximityGrid grid;
-		grid.init(bounds, chartVertexCount);
-		for (uint32_t i = 0; i < chartVertexCount; i++) {
-			halfedge::Vertex *vertex = m_chartMesh->vertexAt(i);
-			grid.add(vertex->pos, i);
-		}
-		uint32_t texelCount = 0;
-		const float positionThreshold = 0.01f;
-		const float normalThreshold = 0.01f;
-		uint32_t verticesVisited = 0;
-		uint32_t cellsVisited = 0;
-		Array<int> vertexIndexArray;
-		vertexIndexArray.resize(chartVertexCount, -1); // Init all indices to -1.
-		// Traverse vertices in morton order. @@ It may be more interesting to sort them based on orientation.
-		const uint32_t cellCodeCount = grid.mortonCount();
-		for (uint32_t cellCode = 0; cellCode < cellCodeCount; cellCode++) {
-			int cell = grid.mortonIndex(cellCode);
-			if (cell < 0) continue;
-			cellsVisited++;
-			const Array<uint32_t> &indexArray = grid.cellArray[cell].indexArray;
-			for (uint32_t i = 0; i < indexArray.size(); i++) {
-				uint32_t idx = indexArray[i];
-				halfedge::Vertex *vertex = m_chartMesh->vertexAt(idx);
-				XA_DEBUG_ASSERT(vertexIndexArray[idx] == -1);
-				Array<uint32_t> neighbors;
-				grid.gather(vertex->pos, positionThreshold, /*ref*/neighbors);
-				// Compare against all nearby vertices, cluster greedily.
-				for (uint32_t j = 0; j < neighbors.size(); j++) {
-					uint32_t otherIdx = neighbors[j];
-					if (vertexIndexArray[otherIdx] != -1) {
-						halfedge::Vertex *otherVertex = m_chartMesh->vertexAt(otherIdx);
-						if (distance(vertex->pos, otherVertex->pos) < positionThreshold &&
-								distance(vertex->nor, otherVertex->nor) < normalThreshold) {
-							vertexIndexArray[idx] = vertexIndexArray[otherIdx];
-							break;
-						}
-					}
-				}
-				// If index not assigned, assign new one.
-				if (vertexIndexArray[idx] == -1) {
-					vertexIndexArray[idx] = texelCount++;
-				}
-				verticesVisited++;
-			}
-		}
-		XA_DEBUG_ASSERT(cellsVisited == grid.cellArray.size());
-		XA_DEBUG_ASSERT(verticesVisited == chartVertexCount);
-		vertexMapWidth = ftoi_ceil(sqrtf(float(texelCount)));
-		vertexMapWidth = (vertexMapWidth + 3) & ~3;                             // Width aligned to 4.
-		vertexMapHeight = vertexMapWidth == 0 ? 0 : (texelCount + vertexMapWidth - 1) / vertexMapWidth;
-		//vertexMapHeight = (vertexMapHeight + 3) & ~3;                           // Height aligned to 4.
-		XA_DEBUG_ASSERT(vertexMapWidth >= vertexMapHeight);
-		XA_PRINT("Reduced vertex count from %d to %d.\n", chartVertexCount, texelCount);
 	}
 
 	bool closeHoles()
@@ -8187,39 +8122,43 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCa
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
 			tri[j] = DecodeIndex(mesh.indexFormat, mesh.indexData, i * 3 + j);
-		// Check for zero length edges.
-		bool zeroLengthEdge = false;
+		uint32_t faceFlags = 0;
+		// Check for degenerate or zero length edges.
 		for (int j = 0; j < 3; j++) {
 			const uint32_t edges[6] = { 0, 1, 1, 2, 2, 0 };
 			const uint32_t index1 = tri[edges[j * 2 + 0]];
 			const uint32_t index2 = tri[edges[j * 2 + 1]];
+			if (index1 == index2) {
+				faceFlags |= internal::halfedge::FaceFlags::Ignore;
+				XA_PRINT("Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->heMeshes.size(), index1, index2);
+				break;
+			}
 			const internal::Vector3 pos1 = DecodePosition(mesh, index1);
 			const internal::Vector3 pos2 = DecodePosition(mesh, index2);
 			if (EdgeLength(pos1, pos2) <= 0.0f) {
-				zeroLengthEdge = true;
-				XA_PRINT("Zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
+				faceFlags |= internal::halfedge::FaceFlags::Ignore;
+				XA_PRINT("Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->heMeshes.size(), index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
+				break;
 			}
 		}
-		uint32_t faceFlags = 0;
-		if (zeroLengthEdge)
-			faceFlags |= internal::halfedge::FaceFlags::Ignore;
-		// Check for zero area faces.
-		const internal::Vector3 a = DecodePosition(mesh, tri[0]);
-		const internal::Vector3 b = DecodePosition(mesh, tri[1]);
-		const internal::Vector3 c = DecodePosition(mesh, tri[2]);
-		const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
-		if (area <= 0.0f)
+		// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
+		if (!(faceFlags & internal::halfedge::FaceFlags::Ignore))
 		{
-			faceFlags |= internal::halfedge::FaceFlags::Ignore;
-			XA_PRINT("Zero area face: %d, indices (%d %d %d)\n", i, tri[0], tri[1], tri[2]);
+			const internal::Vector3 a = DecodePosition(mesh, tri[0]);
+			const internal::Vector3 b = DecodePosition(mesh, tri[1]);
+			const internal::Vector3 c = DecodePosition(mesh, tri[2]);
+			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
+			if (area <= 0.0f)
+			{
+				faceFlags |= internal::halfedge::FaceFlags::Ignore;
+				XA_PRINT("Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->heMeshes.size(), i, tri[0], tri[1], tri[2]);
+			}
 		}
 		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 		if (!face) {
 			AddMeshWarning::Enum warning = AddMeshWarning::AlreadyAddedEdge;
 			if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::AlreadyAddedEdge)
 				warning = AddMeshWarning::AlreadyAddedEdge;
-			else if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::DegenerateEdge)
-				warning = AddMeshWarning::DegenerateEdge;
 			else if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::DuplicateEdge)
 				warning = AddMeshWarning::DuplicateEdge;
 			else
@@ -8362,8 +8301,6 @@ const char *StringForEnum(AddMeshWarning::Enum warning)
 {
 	if (warning == AddMeshWarning::AlreadyAddedEdge)
 		return "already added edge";
-	if (warning == AddMeshWarning::DegenerateEdge)
-		return "degenerate edge";
 	if (warning == AddMeshWarning::DuplicateEdge)
 		return "duplicate edge";
 	return "";
