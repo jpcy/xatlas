@@ -3183,6 +3183,8 @@ private:
 		// Make sure next pointer has not been set. @@ We want to be able to relink boundary edges after mesh changes.
 		Edge *next = edge;
 		while (next->pair->face != NULL) {
+			if (next->pair->face->flags & FaceFlags::Ignore)
+				break;
 			// Get pair prev
 			Edge *e = next->pair->next;
 			while (e->next != next->pair) {
