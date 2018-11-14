@@ -1891,7 +1891,7 @@ public:
 	// Face queries.
 	bool isBoundary() const
 	{
-		return !(face && pair->face);
+		return !(face && pair && pair->face);
 	}
 
 	// @@ This is not exactly accurate, we should compare the texture coordinates...
@@ -8206,8 +8206,8 @@ void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerO
 				OutputVertex &output_vertex = outputMesh->vertexArray[vertexOffset + v];
 				output_vertex.xref = chart->mapChartVertexToOriginalVertex(v);
 				internal::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
-				output_vertex.uv[0] = uv.x;
-				output_vertex.uv[1] = uv.y;
+				output_vertex.uv[0] = std::max(0.0f, uv.x);
+				output_vertex.uv[1] = std::max(0.0f, uv.y);
 			}
 		}
 		// Indices.
