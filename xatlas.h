@@ -92,16 +92,6 @@ struct AddMeshError
 	};
 };
 
-struct AddMeshWarning
-{
-	enum Enum
-	{
-		AlreadyAddedEdge, // index0 and index1 are the edge indices
-	};
-};
-
-typedef void (*AddMeshWarningCallback)(AddMeshWarning::Enum warning, uint32_t face, uint32_t index0, uint32_t index1, void *userData);
-
 struct IndexFormat
 {
 	enum Enum
@@ -159,14 +149,13 @@ void SetPrint(PrintFunc print);
 Atlas *Create();
 void Destroy(Atlas *atlas);
 // useColocalVertices - generates fewer charts (good), but is more sensitive to bad geometry.
-AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCallback warningCallback = NULL, void *warningCallbackUserData = NULL, bool useColocalVertices = true);
+AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices = true);
 void Generate(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), PackerOptions packerOptions = PackerOptions());
 uint32_t GetWidth(const Atlas *atlas);
 uint32_t GetHeight(const Atlas *atlas);
 uint32_t GetNumCharts(const Atlas *atlas);
 const OutputMesh * const *GetOutputMeshes(const Atlas *atlas);
 const char *StringForEnum(AddMeshError::Enum error);
-const char *StringForEnum(AddMeshWarning::Enum warning);
 
 } // namespace xatlas
 

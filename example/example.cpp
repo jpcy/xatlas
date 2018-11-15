@@ -51,22 +51,6 @@ static void Print(const char *format, ...)
 	va_end(arg);
 }
 
-static void PrintAddMeshWarning(xatlas::AddMeshWarning::Enum warning, uint32_t /*face*/, uint32_t index0, uint32_t index1, void *userData)
-{
-	printf("WARNING: %s", xatlas::StringForEnum(warning));
-	const tinyobj::mesh_t *mesh = (const tinyobj::mesh_t *)userData;
-	switch (warning) {
-		case xatlas::AddMeshWarning::AlreadyAddedEdge:
-			printf(": indices: %u %u", index0, index1);
-			for (int j = 0; j < 2; j++) {
-				const float *pos = &mesh->positions[(j == 0 ? index0 : index1) * 3];
-				printf(", position %d: %g %g %g", j + 1, pos[0], pos[1], pos[2]);
-			}
-			break;
-	}
-	printf("\n");
-}
-
 static void SetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)
 {
 	uint8_t *pixel = &dest[x * 3 + y * (destWidth * 3)];
@@ -169,7 +153,7 @@ int main(int argc, char *argv[])
 		mesh.faceIgnoreData = NULL;
 		if (verbose)
 			printf("      shape %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
-		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, mesh, PrintAddMeshWarning, (void *)&objMesh);
+		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, mesh);
 		if (error != xatlas::AddMeshError::Success) {
 			printf("Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
 			return EXIT_FAILURE;

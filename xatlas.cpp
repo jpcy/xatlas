@@ -2420,7 +2420,7 @@ public:
 class Mesh
 {
 public:
-	Mesh() : m_colocalVertexCount(0) {}
+	Mesh(uint32_t id = 0) : m_colocalVertexCount(0), m_id(id) {}
 
 	Mesh(const Mesh *mesh)
 	{
@@ -2557,10 +2557,35 @@ public:
 		indexCount = indexCount; // silence unused parameter warning
 #endif
 		XA_DEBUG_ASSERT(num > 2);
-		if (!canAddFace(indexArray, first, num)) {
-			return NULL;
-		}
 		Face *f = new Face(m_faceArray.size());
+		for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
+			const uint32_t edgeIndex0 = indexArray[first + j];
+			const uint32_t edgeIndex1 = indexArray[first + i];
+			// Make sure edge has not been added yet.
+			Edge *edge = findEdge(edgeIndex0, edgeIndex1);
+			// We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
+			if (edge && edge->face) {
+				// Unlink colocals so this edge can be added.
+				Vertex *v0 = vertexAt(edgeIndex0);
+				Vertex *v1 = vertexAt(edgeIndex1);
+				v0->unlinkColocal();
+				v1->unlinkColocal();
+				edge = findEdge(edgeIndex0, edgeIndex1);
+				if (edge && edge->face)
+					XA_PRINT("Mesh %d duplicate edge: index %d, index %d\n", m_id, edgeIndex0, edgeIndex1);
+			}
+		}
+		// We also have to make sure the face does not have any duplicate edge!
+		for (uint32_t i = 0; i < num; i++) {
+			int i0 = indexArray[first + i + 0];
+			int i1 = indexArray[first + (i + 1) % num];
+			for (uint32_t j = i + 1; j < num; j++) {
+				int j0 = indexArray[first + j + 0];
+				int j1 = indexArray[first + (j + 1) % num];
+				if (i0 == j0 && i1 == j1)
+					XA_PRINT("Mesh %d duplicate face edge: index %d, index %d\n", m_id, i0, i1);
+			}
+		}
 		Edge *firstEdge = NULL;
 		Edge *last = NULL;
 		Edge *current = NULL;
@@ -3067,59 +3092,7 @@ public:
 		return true;
 	}
 
-	// Error status:
-	
-	struct ErrorCode
-	{
-		enum Enum
-		{
-			AlreadyAddedEdge,
-		};
-	};
-
-	mutable ErrorCode::Enum errorCode;
-	mutable uint32_t errorIndex0;
-	mutable uint32_t errorIndex1;
-
 private:
-	bool canAddFace(const uint32_t *indexArray, uint32_t first, uint32_t num)
-	{
-		for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
-			const uint32_t edgeIndex0 = indexArray[first + j];
-			const uint32_t edgeIndex1 = indexArray[first + i];
-			// Make sure edge has not been added yet.
-			Edge *edge = findEdge(edgeIndex0, edgeIndex1);
-			// We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
-			if (!(edge == NULL || edge->face == NULL)) {
-				// Unlink colocals so this edge can be added.
-				Vertex *v0 = vertexAt(edgeIndex0);
-				Vertex *v1 = vertexAt(edgeIndex1);
-				v0->unlinkColocal();
-				v1->unlinkColocal();
-				edge = findEdge(edgeIndex0, edgeIndex1);
-				if (!(edge == NULL || edge->face == NULL)) {
-					errorCode = ErrorCode::AlreadyAddedEdge;
-					errorIndex0 = edgeIndex0;
-					errorIndex1 = edgeIndex1;
-					return false;
-				}
-			}
-		}
-#ifdef _DEBUG
-		// We also have to make sure the face does not have any duplicate edge!
-		for (uint32_t i = 0; i < num; i++) {
-			int i0 = indexArray[first + i + 0];
-			int i1 = indexArray[first + (i + 1) % num];
-			for (uint32_t j = i + 1; j < num; j++) {
-				int j0 = indexArray[first + j + 0];
-				int j1 = indexArray[first + (j + 1) % num];
-				XA_DEBUG_ASSERT(!(i0 == j0 && i1 == j1));
-			}
-		}
-#endif
-		return true;
-	}
-
 	Edge *addEdge(uint32_t i, uint32_t j)
 	{
 		Edge *edge = findEdge(i, j);
@@ -3267,6 +3240,7 @@ private:
 	}
 
 private:
+	uint32_t m_id;
 	Array<Vertex *> m_vertexArray;
 	Array<Edge *> m_edgeArray;
 	Array<Face *> m_faceArray;
@@ -8075,7 +8049,7 @@ static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
 	return internal::length(pos2 - pos1);
 }
 
-AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCallback warningCallback, void *warningCallbackUserData, bool useColocalVertices)
+AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices)
 {
 	XA_ASSERT(atlas);
 	// Expecting triangle faces.
@@ -8088,7 +8062,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCa
 			return AddMeshError::IndexOutOfRange;
 	}
 	// Build half edge mesh.
-	internal::halfedge::Mesh *heMesh = new internal::halfedge::Mesh;
+	internal::halfedge::Mesh *heMesh = new internal::halfedge::Mesh(atlas->heMeshes.size());
 	internal::Array<uint32_t> canonicalMap;
 	canonicalMap.reserve(mesh.vertexCount);
 	for (uint32_t i = 0; i < mesh.vertexCount; i++) {
@@ -8153,21 +8127,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, AddMeshWarningCa
 			}
 		}
 		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
-		if (!face) {
-			AddMeshWarning::Enum warning = AddMeshWarning::AlreadyAddedEdge;
-			if (heMesh->errorCode == internal::halfedge::Mesh::ErrorCode::AlreadyAddedEdge)
-				warning = AddMeshWarning::AlreadyAddedEdge;
-			else
-			{
-				XA_DEBUG_ASSERT(false);
-			}
-			if (warningCallback)
-				warningCallback(warning, i, heMesh->errorIndex0, heMesh->errorIndex1, warningCallbackUserData);
-		}
-		else if (mesh.faceIgnoreData) {
-			if (mesh.faceIgnoreData[i])
-				face->flags |= internal::halfedge::FaceFlags::Ignore;
-		}
+		XA_DEBUG_ASSERT(face);
+		if (mesh.faceIgnoreData && mesh.faceIgnoreData[i])
+			face->flags |= internal::halfedge::FaceFlags::Ignore;
 	}
 	heMesh->linkBoundary();
 	atlas->heMeshes.push_back(heMesh);
@@ -8291,13 +8253,6 @@ const char *StringForEnum(AddMeshError::Enum error)
 	if (error == AddMeshError::InvalidIndexCount)
 		return "invalid index count";
 	return "success";
-}
-
-const char *StringForEnum(AddMeshWarning::Enum warning)
-{
-	if (warning == AddMeshWarning::AlreadyAddedEdge)
-		return "already added edge";
-	return "";
 }
 
 } // namespace xatlas
