@@ -135,22 +135,17 @@ int main(int argc, char *argv[])
 		mesh.vertexCount = (int)objMesh.positions.size() / 3;
 		mesh.vertexPositionData = objMesh.positions.data();
 		mesh.vertexPositionStride = sizeof(float) * 3;
-		if (objMesh.normals.size() == 0) {
-			mesh.vertexNormalData = NULL;
-		} else {
+		if (!objMesh.normals.empty()) {
 			mesh.vertexNormalData = objMesh.normals.data();
 			mesh.vertexNormalStride = sizeof(float) * 3;
 		}
-		if (objMesh.texcoords.size() == 0) {
-			mesh.vertexUvData = NULL;
-		} else {
+		if (!objMesh.texcoords.empty()) {
 			mesh.vertexUvData = objMesh.texcoords.data();
 			mesh.vertexUvStride = sizeof(float) * 2;
 		}
 		mesh.indexCount = (int)objMesh.indices.size();
 		mesh.indexData = objMesh.indices.data();
 		mesh.indexFormat = xatlas::IndexFormat::UInt32;
-		mesh.faceIgnoreData = NULL;
 		if (verbose)
 			printf("      shape %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
 		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, mesh);

@@ -7993,7 +7993,7 @@ Atlas *Create()
 
 void Destroy(Atlas *atlas)
 {
-	XA_ASSERT(atlas);
+	XA_DEBUG_ASSERT(atlas);
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		delete atlas->heMeshes[i];
 		if (atlas->outputMeshes) {
@@ -8012,24 +8012,28 @@ void Destroy(Atlas *atlas)
 
 static internal::Vector3 DecodePosition(const InputMesh &mesh, uint32_t index)
 {
-	XA_ASSERT(mesh.vertexPositionData);
+	XA_DEBUG_ASSERT(mesh.vertexPositionData);
+	XA_DEBUG_ASSERT(mesh.vertexPositionStride > 0);
 	return *((const internal::Vector3 *)&((const uint8_t *)mesh.vertexPositionData)[mesh.vertexPositionStride * index]);
 }
 
 static internal::Vector3 DecodeNormal(const InputMesh &mesh, uint32_t index)
 {
-	XA_ASSERT(mesh.vertexNormalData);
+	XA_DEBUG_ASSERT(mesh.vertexNormalData);
+	XA_DEBUG_ASSERT(mesh.vertexNormalStride > 0);
 	return *((const internal::Vector3 *)&((const uint8_t *)mesh.vertexNormalData)[mesh.vertexNormalStride * index]);
 }
 
 static internal::Vector2 DecodeUv(const InputMesh &mesh, uint32_t index)
 {
-	XA_ASSERT(mesh.vertexUvData);
+	XA_DEBUG_ASSERT(mesh.vertexUvData);
+	XA_DEBUG_ASSERT(mesh.vertexUvStride > 0);
 	return *((const internal::Vector2 *)&((const uint8_t *)mesh.vertexUvData)[mesh.vertexUvStride * index]);
 }
 
 static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, uint32_t i)
 {
+	XA_DEBUG_ASSERT(indexData);
 	if (format == IndexFormat::UInt16)
 		return (uint32_t)((const uint16_t *)indexData)[i];
 	return ((const uint32_t *)indexData)[i];
@@ -8042,7 +8046,9 @@ static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
 
 AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices)
 {
-	XA_ASSERT(atlas);
+	XA_DEBUG_ASSERT(atlas);
+	XA_DEBUG_ASSERT(mesh.vertexCount > 0);
+	XA_DEBUG_ASSERT(mesh.indexCount > 0);
 	// Expecting triangle faces.
 	if ((mesh.indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
@@ -8129,8 +8135,8 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalV
 
 void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerOptions)
 {
-	XA_ASSERT(atlas);
-	XA_ASSERT(packerOptions.texelArea > 0);
+	XA_DEBUG_ASSERT(atlas);
+	XA_DEBUG_ASSERT(packerOptions.texelArea > 0);
 	// Chart meshes.
 	XA_PRINT("Computing charts\n");
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++)

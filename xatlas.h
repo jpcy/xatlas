@@ -121,6 +121,21 @@ struct InputMesh
 	// optional. indexCount / 3 in length.
 	// Don't atlas faces set to true. Faces will still exist in the output meshes, uv will be (0, 0).
 	const bool *faceIgnoreData;
+
+	InputMesh()
+	{
+		vertexCount = 0;
+		vertexPositionData = NULL;
+		vertexPositionStride = 0;
+		vertexNormalData = NULL;
+		vertexNormalStride = 0;
+		vertexUvData = NULL;
+		vertexUvStride = 0;
+		indexCount = 0;
+		indexData = NULL;
+		indexFormat = IndexFormat::UInt16;
+		faceIgnoreData = NULL;
+	}
 };
 
 struct OutputChart
