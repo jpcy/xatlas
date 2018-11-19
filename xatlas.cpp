@@ -2420,7 +2420,7 @@ public:
 class Mesh
 {
 public:
-	Mesh(uint32_t id = 0) : m_colocalVertexCount(0), m_id(id) {}
+	Mesh(uint32_t id = 0) : m_id(id), m_colocalVertexCount(0) {}
 
 	Mesh(const Mesh *mesh)
 	{
@@ -2765,10 +2765,10 @@ public:
 				Edge *pair = new Edge(edge->id + 1);
 				uint32_t i = edge->from()->id;
 				uint32_t j = edge->next->from()->id;
-				Key key(j, i);
-				XA_ASSERT(!m_edgeMap.get(key));
 				pair->vertex = m_vertexArray[j];
-				m_edgeMap.add(key, pair);
+				Key key(j, i);
+				if (!m_edgeMap.get(key))
+					m_edgeMap.add(key, pair);
 				edge->pair = pair;
 				pair->pair = edge;
 				num++;
@@ -3095,32 +3095,28 @@ public:
 private:
 	Edge *addEdge(uint32_t i, uint32_t j)
 	{
-		Edge *edge = findEdge(i, j);
-		if (edge != NULL) {
-			// Edge may already exist, but its face must not be set.
-			XA_DEBUG_ASSERT(edge->face == NULL);
-			// Nothing else to do!
+		// Add new edge.
+		// Lookup pair.
+		Edge *edge = NULL;
+		Edge *pair = findEdge(j, i);
+		if (pair != NULL) {
+			// Create edge with same id.
+			edge = new Edge(pair->id + 1);
+			// Link edge pairs.
+			edge->pair = pair;
+			pair->pair = edge;
+			// @@ I'm not sure this is necessary!
+			pair->vertex->setEdge(pair);
 		} else {
-			// Add new edge.
-			// Lookup pair.
-			Edge *pair = findEdge(j, i);
-			if (pair != NULL) {
-				// Create edge with same id.
-				edge = new Edge(pair->id + 1);
-				// Link edge pairs.
-				edge->pair = pair;
-				pair->pair = edge;
-				// @@ I'm not sure this is necessary!
-				pair->vertex->setEdge(pair);
-			} else {
-				// Create edge.
-				edge = new Edge(2 * m_edgeArray.size());
-				// Add only unpaired edges.
-				m_edgeArray.push_back(edge);
-			}
-			edge->vertex = m_vertexArray[i];
-			m_edgeMap.add(Key(i, j), edge);
+			// Create edge.
+			edge = new Edge(2 * m_edgeArray.size());
+			// Add only unpaired edges.
+			m_edgeArray.push_back(edge);
 		}
+		edge->vertex = m_vertexArray[i];
+		Key key(i, j);
+		if (!m_edgeMap.get(key))
+			m_edgeMap.add(key, edge);
 		// Face and Next are set by addFace.
 		return edge;
 	}
@@ -3128,25 +3124,18 @@ private:
 	/// Find edge, test all colocals.
 	Edge *findEdge(uint32_t i, uint32_t j) const
 	{
-		Edge *edge = NULL;
 		const Vertex *v0 = vertexAt(i);
 		const Vertex *v1 = vertexAt(j);
 		// Test all colocal pairs.
 		for (Vertex::ConstVertexIterator it0(v0->colocals()); !it0.isDone(); it0.advance()) {
 			for (Vertex::ConstVertexIterator it1(v1->colocals()); !it1.isDone(); it1.advance()) {
 				Key key(it0.current()->id, it1.current()->id);
-				if (edge == NULL) {
-					m_edgeMap.get(key, &edge);
-	#if !defined(_DEBUG)
-					if (edge != NULL) return edge;
-	#endif
-				} else {
-					// Make sure that only one edge is found.
-					XA_DEBUG_ASSERT(!m_edgeMap.get(key));
-				}
+				Edge *edge = NULL;
+				if (m_edgeMap.get(key, &edge))
+					return edge;
 			}
 		}
-		return edge;
+		return NULL;
 	}
 
 	/// Link this boundary edge.
@@ -5883,6 +5872,8 @@ struct AtlasBuilder
 		float l_out = 0.0f;
 		float l_in = 0.0f;
 		const halfedge::Face *face = mesh->faceAt(f);
+		if (face->flags & halfedge::FaceFlags::Ignore)
+			return 1.0f;
 		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const halfedge::Edge *edge = it.current();
 			float l = edgeLengths[edge->id / 2];
