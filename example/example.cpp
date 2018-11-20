@@ -51,6 +51,25 @@ static void Print(const char *format, ...)
 	va_end(arg);
 }
 
+static void PrintProgress(const char *name, const char *indent1, const char *indent2, int progress, Stopwatch *stopwatch)
+{
+	if (progress == 0)
+		stopwatch->reset();
+	printf("\r%s%s [", indent1, name);
+	for (int i = 0; i < 10; i++)
+		printf(progress / ((i + 1) * 10) ? "*" : " ");
+	printf("] %d%%", progress);
+	fflush(stdout);
+	if (progress == 100)
+		printf("\n%s%.2f seconds (%g ms) elapsed\n", indent2, stopwatch->elapsed() / 1000.0, stopwatch->elapsed());
+}
+
+static void ProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void *userData)
+{
+	Stopwatch *stopwatch = (Stopwatch *)userData;
+	PrintProgress(xatlas::StringForEnum(category), "   ", "      ", progress, stopwatch);
+}
+
 static void SetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)
 {
 	uint8_t *pixel = &dest[x * 3 + y * (destWidth * 3)];
@@ -127,8 +146,12 @@ int main(int argc, char *argv[])
 		xatlas::SetPrint(Print);
 	xatlas::Atlas *atlas = xatlas::Create();
 	// Add meshes to atlas.
-	printf("Adding meshes...\n");
 	Stopwatch stopwatch;
+	int progress = 0;
+	if (verbose)
+		printf("Adding meshes...\n");
+	else
+		PrintProgress("Adding meshes", "", "   ", 0, &stopwatch);
 	uint32_t totalVertices = 0, totalFaces = 0;
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
@@ -160,29 +183,25 @@ int main(int argc, char *argv[])
 		totalFaces += mesh.indexCount / 3;
 		if (!verbose)
 		{
-			printf("\r   mesh %d of %d - %.2f seconds (%g milliseconds) elapsed", i + 1, shapes.size(), stopwatch.elapsed() / 1000.0, stopwatch.elapsed());
-			fflush(stdout);
-			if (i == (int)shapes.size() - 1)
-				printf("\n");
+			const int newProgress = int((i + 1) / (float)shapes.size() * 100.0f);
+			if (newProgress != progress)
+			{
+				progress = newProgress;
+				PrintProgress("Adding meshes", "", "   ", progress, &stopwatch);
+			}
 		}
 	}
+	if (!verbose && progress != 100)
+		PrintProgress("Adding meshes", "", "   ", 100, &stopwatch);
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
-	if (verbose)
-	{
-		double elapsedMs = stopwatch.elapsed();
-		printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
-	}
 	// Generate output meshes.
-	printf("Generating atlas...\n");
-	stopwatch.reset();
+	printf("Generating atlas\n");
 	xatlas::PackerOptions packerOptions;
 	packerOptions.resolution = 1024;
 	packerOptions.conservative = true;
 	packerOptions.padding = 1;
-	xatlas::Generate(atlas, xatlas::CharterOptions(), packerOptions);
-	double elapsedMs = stopwatch.elapsed();
-	printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
+	xatlas::Generate(atlas, xatlas::CharterOptions(), packerOptions, verbose ? NULL : ProgressCallback, &stopwatch);
 	printf("   %d charts\n", xatlas::GetNumCharts(atlas));
 	const uint32_t width = xatlas::GetWidth(atlas);
 	const uint32_t height = xatlas::GetHeight(atlas);
@@ -194,18 +213,22 @@ int main(int argc, char *argv[])
 		totalVertices += mesh->vertexCount;
 		totalFaces += mesh->indexCount / 3;
 	}
-	printf("   %u vertices\n", totalVertices);
-	printf("   %u triangles\n", totalFaces);
-	if (width > 0 && height > 0)
-	{
+	printf("   %u total vertices\n", totalVertices);
+	printf("   %u total triangles\n", totalFaces);
+	if (verbose) {
+		for (int i = 0; i < (int)shapes.size(); i++) {
+			const xatlas::OutputMesh *mesh = xatlas::GetOutputMeshes(atlas)[i];
+			printf("   output mesh %d: %u vertices, %u triangles, %u charts\n", i, mesh->vertexCount, mesh->indexCount / 3, mesh->chartCount);
+		}
+	}
+	printf("Rasterizing result...\n");
+	if (width > 0 && height > 0) {
 		// Dump images.
 		std::vector<uint8_t> outputTrisImage, outputChartsImage;
 		outputTrisImage.resize(width * height * 3);
 		outputChartsImage.resize(width * height * 3);
 		for (int i = 0; i < (int)shapes.size(); i++) {
 			const xatlas::OutputMesh *mesh = xatlas::GetOutputMeshes(atlas)[i];
-			if (verbose)
-				printf("   output mesh %d: %u vertices, %u triangles, %u charts\n", i, mesh->vertexCount, mesh->indexCount / 3, mesh->chartCount);
 			// Rasterize mesh triangles.
 			const uint8_t white[] = { 255, 255, 255 };
 			for (uint32_t j = 0; j < mesh->indexCount; j += 3) {

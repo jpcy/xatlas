@@ -82,6 +82,19 @@ struct PackerOptions
 	}
 };
 
+struct ProgressCategory
+{
+	enum Enum
+	{
+		ComputingCharts,
+		ParametizingCharts,
+		PackingCharts,
+		BuildingOutputMeshes
+	};
+};
+
+typedef void (*ProgressCallback)(ProgressCategory::Enum category, int progress, void *userData);
+
 struct AddMeshError
 {
 	enum Enum
@@ -165,12 +178,13 @@ Atlas *Create();
 void Destroy(Atlas *atlas);
 // useColocalVertices - generates fewer charts (good), but is more sensitive to bad geometry.
 AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices = true);
-void Generate(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), PackerOptions packerOptions = PackerOptions());
+void Generate(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), PackerOptions packerOptions = PackerOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
 uint32_t GetWidth(const Atlas *atlas);
 uint32_t GetHeight(const Atlas *atlas);
 uint32_t GetNumCharts(const Atlas *atlas);
 const OutputMesh * const *GetOutputMeshes(const Atlas *atlas);
 const char *StringForEnum(AddMeshError::Enum error);
+const char *StringForEnum(ProgressCategory::Enum category);
 
 } // namespace xatlas
 

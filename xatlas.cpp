@@ -7212,11 +7212,25 @@ public:
 		addMeshCharts(meshCharts);
 	}
 
-	void parameterizeCharts()
+	void parameterizeCharts(ProgressCallback progressCallback, void *progressCallbackUserData)
 	{
+		int progress = 0;
+		if (progressCallback)
+			progressCallback(ProgressCategory::ParametizingCharts, 0, progressCallbackUserData);
 		for (uint32_t i = 0; i < m_meshChartsArray.size(); i++) {
 			m_meshChartsArray[i]->parameterizeCharts();
+			if (progressCallback)
+			{
+				const int newProgress = int((i + 1) / (float)m_meshChartsArray.size() * 100.0f);
+				if (newProgress != progress)
+				{
+					progress = newProgress;
+					progressCallback(ProgressCategory::ParametizingCharts, progress, progressCallbackUserData);
+				}
+			}
 		}
+		if (progressCallback && progress != 100)
+			progressCallback(ProgressCategory::ParametizingCharts, 100, progressCallbackUserData);
 	}
 
 private:
@@ -7243,7 +7257,6 @@ struct AtlasPacker
 	// Pack charts in the smallest possible rectangle.
 	void packCharts(const PackerOptions &options)
 	{
-		XA_PRINT("Packing charts:\n");
 		const uint32_t chartCount = m_atlas->chartCount();
 		XA_PRINT("   %u charts\n", chartCount);
 		if (chartCount == 0) return;
@@ -8133,23 +8146,47 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalV
 	return AddMeshError::Success;
 }
 
-void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerOptions)
+void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerOptions, ProgressCallback progressCallback, void *progressCallbackUserData)
 {
 	XA_DEBUG_ASSERT(atlas);
 	XA_DEBUG_ASSERT(packerOptions.texelArea > 0);
 	// Chart meshes.
 	XA_PRINT("Computing charts\n");
+	int progress = 0;
+	if (progressCallback)
+		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++)
+	{
 		atlas->atlas.computeCharts(atlas->heMeshes[i], charterOptions);
-	atlas->atlas.parameterizeCharts();
+		if (progressCallback)
+		{
+			const int newProgress = int((i + 1) / (float)atlas->heMeshes.size() * 100.0f);
+			if (newProgress != progress)
+			{
+				progress = newProgress;
+				progressCallback(ProgressCategory::ComputingCharts, progress, progressCallbackUserData);
+			}
+		}
+	}
+	if (progressCallback && progress != 100)
+		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
+	XA_PRINT("Parameterizing charts\n");
+	atlas->atlas.parameterizeCharts(progressCallback, progressCallbackUserData);
+	XA_PRINT("Packing charts\n");
 	internal::param::AtlasPacker packer(&atlas->atlas);
+	if (progressCallback)
+		progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
 	packer.packCharts(packerOptions);
+	if (progressCallback)
+		progressCallback(ProgressCategory::PackingCharts, 100, progressCallbackUserData);
 	//float utilization = return packer.computeAtlasUtilization();
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
 	atlas->chartCount = 0;
-	// Build output meshes.
 	XA_PRINT("Building output meshes\n");
+	progress = 0;
+	if (progressCallback)
+		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
 	atlas->outputMeshes = new OutputMesh*[atlas->heMeshes.size()];
 	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
 		const internal::halfedge::Mesh *heMesh = atlas->heMeshes[i];
@@ -8216,7 +8253,18 @@ void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerO
 			}
 			chartIndex++;
 		}
+		if (progressCallback)
+		{
+			const int newProgress = int((i + 1) / (float)atlas->heMeshes.size() * 100.0f);
+			if (newProgress != progress)
+			{
+				progress = newProgress;
+				progressCallback(ProgressCategory::BuildingOutputMeshes, progress, progressCallbackUserData);
+			}
+		}
 	}
+	if (progressCallback && progress != 100)
+		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
 }
 
 uint32_t GetWidth(const Atlas *atlas)
@@ -8246,10 +8294,23 @@ const OutputMesh * const *GetOutputMeshes(const Atlas *atlas)
 const char *StringForEnum(AddMeshError::Enum error)
 {
 	if (error == AddMeshError::IndexOutOfRange)
-		return "index out of range";
+		return "Index out of range";
 	if (error == AddMeshError::InvalidIndexCount)
-		return "invalid index count";
-	return "success";
+		return "Invalid index count";
+	return "Success";
+}
+
+const char *StringForEnum(ProgressCategory::Enum category)
+{
+	if (category == ProgressCategory::ComputingCharts)
+		return "Computing charts";
+	if (category == ProgressCategory::ParametizingCharts)
+		return "Parametizing charts";
+	if (category == ProgressCategory::PackingCharts)
+		return "Packing charts";
+	if (category == ProgressCategory::BuildingOutputMeshes)
+		return "Building output meshes";
+	return "";
 }
 
 } // namespace xatlas
