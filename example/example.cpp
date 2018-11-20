@@ -127,6 +127,7 @@ int main(int argc, char *argv[])
 		xatlas::SetPrint(Print);
 	xatlas::Atlas *atlas = xatlas::Create();
 	// Add meshes to atlas.
+	printf("Adding meshes...\n");
 	Stopwatch stopwatch;
 	uint32_t totalVertices = 0, totalFaces = 0;
 	for (int i = 0; i < (int)shapes.size(); i++) {
@@ -147,19 +148,31 @@ int main(int argc, char *argv[])
 		mesh.indexData = objMesh.indices.data();
 		mesh.indexFormat = xatlas::IndexFormat::UInt32;
 		if (verbose)
-			printf("      shape %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
+			printf("   mesh %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
 		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, mesh);
 		if (error != xatlas::AddMeshError::Success) {
+			if (!verbose)
+				printf("\n");
 			printf("Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
 			return EXIT_FAILURE;
 		}
 		totalVertices += mesh.vertexCount;
 		totalFaces += mesh.indexCount / 3;
+		if (!verbose)
+		{
+			printf("\r   mesh %d of %d - %.2f seconds (%g milliseconds) elapsed", i + 1, shapes.size(), stopwatch.elapsed() / 1000.0, stopwatch.elapsed());
+			fflush(stdout);
+			if (i == (int)shapes.size() - 1)
+				printf("\n");
+		}
 	}
-	printf("   %u vertices\n", totalVertices);
-	printf("   %u triangles\n", totalFaces);
-	double elapsedMs = stopwatch.elapsed();
-	printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
+	printf("   %u total vertices\n", totalVertices);
+	printf("   %u total triangles\n", totalFaces);
+	if (verbose)
+	{
+		double elapsedMs = stopwatch.elapsed();
+		printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
+	}
 	// Generate output meshes.
 	printf("Generating atlas...\n");
 	stopwatch.reset();
@@ -168,7 +181,7 @@ int main(int argc, char *argv[])
 	packerOptions.conservative = true;
 	packerOptions.padding = 1;
 	xatlas::Generate(atlas, xatlas::CharterOptions(), packerOptions);
-	elapsedMs = stopwatch.elapsed();
+	double elapsedMs = stopwatch.elapsed();
 	printf("   %.2f seconds elapsed (%g milliseconds)\n", elapsedMs / 1000.0, elapsedMs);
 	printf("   %d charts\n", xatlas::GetNumCharts(atlas));
 	const uint32_t width = xatlas::GetWidth(atlas);
