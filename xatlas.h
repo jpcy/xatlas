@@ -7,9 +7,80 @@
 
 namespace xatlas {
 
+struct Atlas;
 typedef void (*PrintFunc)(const char *, ...);
 
-struct Atlas;
+void SetPrint(PrintFunc print);
+Atlas *Create();
+void Destroy(Atlas *atlas);
+
+struct AddMeshError
+{
+	enum Enum
+	{
+		Success,
+		IndexOutOfRange, // index0 is the index
+		InvalidIndexCount // not evenly divisible by 3 - expecting triangles
+	};
+};
+
+struct IndexFormat
+{
+	enum Enum
+	{
+		UInt16,
+		UInt32
+	};
+};
+
+struct InputMesh
+{
+	uint32_t vertexCount;
+	const void *vertexPositionData;
+	uint32_t vertexPositionStride;
+	const void *vertexNormalData; // optional
+	uint32_t vertexNormalStride; // optional
+	const void *vertexUvData; // optional. The input UVs are provided as a hint to the chart generator.
+	uint32_t vertexUvStride;
+	uint32_t indexCount;
+	const void *indexData;
+	IndexFormat::Enum indexFormat;
+	
+	// optional. indexCount / 3 in length.
+	// Don't atlas faces set to true. Faces will still exist in the output meshes, uv will be (0, 0).
+	const bool *faceIgnoreData;
+
+	InputMesh()
+	{
+		vertexCount = 0;
+		vertexPositionData = NULL;
+		vertexPositionStride = 0;
+		vertexNormalData = NULL;
+		vertexNormalStride = 0;
+		vertexUvData = NULL;
+		vertexUvStride = 0;
+		indexCount = 0;
+		indexData = NULL;
+		indexFormat = IndexFormat::UInt16;
+		faceIgnoreData = NULL;
+	}
+};
+
+// useColocalVertices - generates fewer charts (good), but is more sensitive to bad geometry.
+AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices = true);
+
+struct ProgressCategory
+{
+	enum Enum
+	{
+		ComputingCharts,
+		ParametizingCharts,
+		PackingCharts,
+		BuildingOutputMeshes
+	};
+};
+
+typedef void (*ProgressCallback)(ProgressCategory::Enum category, int progress, void *userData);
 
 struct CharterOptions
 {
@@ -41,13 +112,15 @@ struct CharterOptions
 	}
 };
 
+void GenerateCharts(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
+
 struct PackMethod
 {
 	enum Enum
 	{
-		TexelArea, // texel_area determines resolution
 		ApproximateResolution, // guess texel_area to approximately match desired resolution
-		ExactResolution // run the packer multiple times to exactly match the desired resolution (slow)
+		ExactResolution, // run the packer multiple times to exactly match the desired resolution (slow)
+		TexelArea // texel_area determines resolution
 	};
 };
 
@@ -82,74 +155,7 @@ struct PackerOptions
 	}
 };
 
-struct ProgressCategory
-{
-	enum Enum
-	{
-		ComputingCharts,
-		ParametizingCharts,
-		PackingCharts,
-		BuildingOutputMeshes
-	};
-};
-
-typedef void (*ProgressCallback)(ProgressCategory::Enum category, int progress, void *userData);
-
-struct AddMeshError
-{
-	enum Enum
-	{
-		Success,
-		IndexOutOfRange, // index0 is the index
-		InvalidIndexCount // not evenly divisible by 3 - expecting triangles
-	};
-};
-
-struct IndexFormat
-{
-	enum Enum
-	{
-		UInt16,
-		UInt32
-	};
-};
-
-struct InputMesh
-{
-	uint32_t vertexCount;
-	const void *vertexPositionData;
-	uint32_t vertexPositionStride;
-	const void *vertexNormalData; // optional
-	uint32_t vertexNormalStride; // optional
-
-	// optional
-	// The input UVs are provided as a hint to the chart generator.
-	const void *vertexUvData;
-	uint32_t vertexUvStride;
-
-	uint32_t indexCount;
-	const void *indexData;
-	IndexFormat::Enum indexFormat;
-
-	// optional. indexCount / 3 in length.
-	// Don't atlas faces set to true. Faces will still exist in the output meshes, uv will be (0, 0).
-	const bool *faceIgnoreData;
-
-	InputMesh()
-	{
-		vertexCount = 0;
-		vertexPositionData = NULL;
-		vertexPositionStride = 0;
-		vertexNormalData = NULL;
-		vertexNormalStride = 0;
-		vertexUvData = NULL;
-		vertexUvStride = 0;
-		indexCount = 0;
-		indexData = NULL;
-		indexFormat = IndexFormat::UInt16;
-		faceIgnoreData = NULL;
-	}
-};
+void PackCharts(Atlas *atlas, PackerOptions packerOptions = PackerOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
 
 struct OutputChart
 {
@@ -159,8 +165,8 @@ struct OutputChart
 
 struct OutputVertex
 {
-	float uv[2]; // bottom-left origin
-	uint32_t xref;   // Index of input vertex from which this output vertex originated.
+	float uv[2]; // not normalized
+	uint32_t xref; // Index of input vertex from which this output vertex originated.
 };
 
 struct OutputMesh
@@ -173,13 +179,6 @@ struct OutputMesh
 	uint32_t vertexCount;
 };
 
-void SetPrint(PrintFunc print);
-Atlas *Create();
-void Destroy(Atlas *atlas);
-// useColocalVertices - generates fewer charts (good), but is more sensitive to bad geometry.
-AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices = true);
-void GenerateCharts(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
-void PackCharts(Atlas *atlas, PackerOptions packerOptions = PackerOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
 uint32_t GetWidth(const Atlas *atlas);
 uint32_t GetHeight(const Atlas *atlas);
 uint32_t GetNumCharts(const Atlas *atlas);
