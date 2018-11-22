@@ -8101,9 +8101,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalV
 #if 0
 				if (mesh.vertexNormalData && vertex->nor != DecodeNormal(mesh, j))
 					continue;
-#endif
 				if (mesh.vertexUvData && vertex->tex != DecodeUv(mesh, j))
 					continue;
+#endif
 				firstColocal = j;
 				break;
 			}
