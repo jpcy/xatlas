@@ -201,7 +201,8 @@ int main(int argc, char *argv[])
 	packerOptions.resolution = 1024;
 	packerOptions.conservative = true;
 	packerOptions.padding = 1;
-	xatlas::Generate(atlas, xatlas::CharterOptions(), packerOptions, verbose ? NULL : ProgressCallback, &stopwatch);
+	xatlas::GenerateCharts(atlas, xatlas::CharterOptions(), verbose ? NULL : ProgressCallback, &stopwatch);
+	xatlas::PackCharts(atlas, packerOptions, verbose ? NULL : ProgressCallback, &stopwatch);
 	printf("   %d charts\n", xatlas::GetNumCharts(atlas));
 	const uint32_t width = xatlas::GetWidth(atlas);
 	const uint32_t height = xatlas::GetHeight(atlas);

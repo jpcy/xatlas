@@ -7233,22 +7233,36 @@ public:
 			progressCallback(ProgressCategory::ParametizingCharts, 100, progressCallbackUserData);
 	}
 
+	void saveOriginalChartUvs()
+	{
+		m_originalChartUvs.resize(chartCount());
+		for (uint32_t i = 0; i < chartCount(); i++) {
+			const halfedge::Mesh *mesh = chartAt(i)->chartMesh();
+			m_originalChartUvs[i].resize(mesh->vertexCount());
+			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
+				m_originalChartUvs[i][j] = mesh->vertexAt(j)->tex;
+		}
+	}
+
+	void restoreOriginalChartUvs()
+	{
+		for (uint32_t i = 0; i < chartCount(); i++) {
+			halfedge::Mesh *mesh = chartAt(i)->chartMesh();
+			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
+				mesh->vertexAt(j)->tex = m_originalChartUvs[i][j];
+		}
+	}
+
 private:
 	Array<MeshCharts *> m_meshChartsArray;
+	Array<Array<Vector2> > m_originalChartUvs;
 };
 
 struct AtlasPacker
 {
 	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_width(0), m_height(0)
 	{
-		// Save the original uvs.
-		m_originalChartUvs.resize(m_atlas->chartCount());
-		for (uint32_t i = 0; i < m_atlas->chartCount(); i++) {
-			const halfedge::Mesh *mesh = atlas->chartAt(i)->chartMesh();
-			m_originalChartUvs[i].resize(mesh->vertexCount());
-			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
-				m_originalChartUvs[i][j] = mesh->vertexAt(j)->tex;
-		}
+		m_atlas->restoreOriginalChartUvs();
 	}
 
 	uint32_t getWidth() const { return m_width; }
@@ -7397,7 +7411,7 @@ struct AtlasPacker
 				const float texelCount = std::max(1.0f, meshArea * square(texelsPerUnit) / 0.75f); // Assume 75% utilization.
 				texelsPerUnit = sqrt((options.resolution * options.resolution) / texelCount);
 				XA_PRINT("      Estimating texelsPerUnit as %g\n", texelsPerUnit);
-				resetUvs();
+				m_atlas->restoreOriginalChartUvs();
 				continue;
 			}
 			// Init bit map.
@@ -7495,7 +7509,7 @@ struct AtlasPacker
 				// Give up after too many iterations.
 				if (iteration >= 16)
 					return;
-				resetUvs();
+				m_atlas->restoreOriginalChartUvs();
 			} else {
 				return;
 			}
@@ -7518,15 +7532,6 @@ struct AtlasPacker
 	}
 
 private:
-	void resetUvs()
-	{
-		for (uint32_t i = 0; i < m_atlas->chartCount(); i++) {
-			halfedge::Mesh *mesh = m_atlas->chartAt(i)->chartMesh();
-			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
-				mesh->vertexAt(j)->tex = m_originalChartUvs[i][j];
-		}
-	}
-
 	// IC: Brute force is slow, and random may take too much time to converge. We start inserting large charts in a small atlas. Using brute force is lame, because most of the space
 	// is occupied at this point. At the end we have many small charts and a large atlas with sparse holes. Finding those holes randomly is slow. A better approach would be to
 	// start stacking large charts as if they were tetris pieces. Once charts get small try to place them randomly. It may be interesting to try a intermediate strategy, first try
@@ -7904,15 +7909,15 @@ private:
 	}
 
 	// This should compute convex hull and use rotating calipers to find the best box. Currently it uses a brute force method.
-	static void computeBoundingBox(Chart *chart, Vector2 *majorAxis, Vector2 *minorAxis, Vector2 *minCorner, Vector2 *maxCorner)
+	static void computeBoundingBox(const Chart *chart, Vector2 *majorAxis, Vector2 *minorAxis, Vector2 *minCorner, Vector2 *maxCorner)
 	{
 		// Compute list of boundary points.
 		Array<Vector2> points;
 		points.reserve(16);
-		halfedge::Mesh *mesh = chart->chartMesh();
+		const halfedge::Mesh *mesh = chart->chartMesh();
 		const uint32_t vertexCount = mesh->vertexCount();
 		for (uint32_t i = 0; i < vertexCount; i++) {
-			halfedge::Vertex *vertex = mesh->vertexAt(i);
+			const halfedge::Vertex *vertex = mesh->vertexAt(i);
 			if (vertex->isBoundary()) {
 				points.push_back(vertex->tex);
 			}
@@ -7955,7 +7960,7 @@ private:
 		}
 		// Consider all points, not only boundary points, in case the input chart is malformed.
 		for (uint32_t i = 0; i < vertexCount; i++) {
-			halfedge::Vertex *vertex = mesh->vertexAt(i);
+			const halfedge::Vertex *vertex = mesh->vertexAt(i);
 			Vector2 point = vertex->tex;
 			float x = dot(best_axis, point);
 			if (x < best_min.x) best_min.x = x;
@@ -7976,7 +7981,6 @@ private:
 	uint32_t m_width;
 	uint32_t m_height;
 	MTRand m_rand;
-	Array<Array<Vector2> > m_originalChartUvs;
 };
 
 } // namespace param
@@ -7984,7 +7988,7 @@ private:
 
 struct Atlas
 {
-	Atlas() : width(0), height(0), outputMeshes(NULL) {}
+	Atlas() : chartCount(0), width(0), height(0), outputMeshes(NULL) {}
 	internal::param::Atlas atlas;
 	uint32_t chartCount; // Excluding vertex mapped charts.
 	internal::Array<internal::halfedge::Mesh *> heMeshes;
@@ -8004,22 +8008,29 @@ Atlas *Create()
 	return atlas;
 }
 
+static void DestroyOutputMeshes(Atlas *atlas)
+{
+	if (!atlas->outputMeshes)
+		return;
+	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
+		OutputMesh *outputMesh = atlas->outputMeshes[i];
+		for (uint32_t j = 0; j < outputMesh->chartCount; j++)
+			delete [] outputMesh->chartArray[j].indexArray;
+		delete [] outputMesh->chartArray;
+		delete [] outputMesh->vertexArray;
+		delete [] outputMesh->indexArray;
+		delete outputMesh;
+	}
+	delete [] atlas->outputMeshes;
+	atlas->outputMeshes = NULL;
+}
+
 void Destroy(Atlas *atlas)
 {
 	XA_DEBUG_ASSERT(atlas);
-	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
+	for (int i = 0; i < (int)atlas->heMeshes.size(); i++)
 		delete atlas->heMeshes[i];
-		if (atlas->outputMeshes) {
-			OutputMesh *outputMesh = atlas->outputMeshes[i];
-			for (uint32_t j = 0; j < outputMesh->chartCount; j++)
-				delete [] outputMesh->chartArray[j].indexArray;
-			delete [] outputMesh->chartArray;
-			delete [] outputMesh->vertexArray;
-			delete [] outputMesh->indexArray;
-			delete outputMesh;
-		}
-	}
-	delete [] atlas->outputMeshes;
+	DestroyOutputMeshes(atlas);
 	delete atlas;
 }
 
@@ -8146,10 +8157,15 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalV
 	return AddMeshError::Success;
 }
 
-void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerOptions, ProgressCallback progressCallback, void *progressCallbackUserData)
+void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallback progressCallback, void *progressCallbackUserData)
 {
 	XA_DEBUG_ASSERT(atlas);
-	XA_DEBUG_ASSERT(packerOptions.texelArea > 0);
+	if (atlas->heMeshes.isEmpty())
+		return;
+	atlas->chartCount = 0;
+	atlas->width = 0;
+	atlas->height = 0;
+	DestroyOutputMeshes(atlas);
 	// Chart meshes.
 	XA_PRINT("Computing charts\n");
 	int progress = 0;
@@ -8172,6 +8188,26 @@ void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerO
 		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
 	XA_PRINT("Parameterizing charts\n");
 	atlas->atlas.parameterizeCharts(progressCallback, progressCallbackUserData);
+	atlas->atlas.saveOriginalChartUvs();
+	// Count charts.
+	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
+		const internal::param::MeshCharts *charts = atlas->atlas.meshAt(i);
+		for (uint32_t j = 0; j < charts->chartCount(); j++) {
+			if (!charts->chartAt(j)->isVertexMapped())
+				atlas->chartCount++;
+		}
+	}
+}
+
+void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback progressCallback, void *progressCallbackUserData)
+{
+	XA_DEBUG_ASSERT(atlas);
+	XA_DEBUG_ASSERT(packerOptions.texelArea > 0);
+	atlas->width = 0;
+	atlas->height = 0;
+	DestroyOutputMeshes(atlas);
+	if (atlas->chartCount <= 0)
+		return;
 	XA_PRINT("Packing charts\n");
 	internal::param::AtlasPacker packer(&atlas->atlas);
 	if (progressCallback)
@@ -8182,9 +8218,8 @@ void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerO
 	//float utilization = return packer.computeAtlasUtilization();
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
-	atlas->chartCount = 0;
 	XA_PRINT("Building output meshes\n");
-	progress = 0;
+	int progress = 0;
 	if (progressCallback)
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
 	atlas->outputMeshes = new OutputMesh*[atlas->heMeshes.size()];
@@ -8228,10 +8263,7 @@ void Generate(Atlas *atlas, CharterOptions charterOptions, PackerOptions packerO
 		for (uint32_t j = 0; j < charts->chartCount(); j++) {
 			const internal::param::Chart *chart = charts->chartAt(j);
 			if (!chart->isVertexMapped())
-			{
 				outputMesh->chartCount++;
-				atlas->chartCount++;
-			}
 		}
 		outputMesh->chartArray = new OutputChart[outputMesh->chartCount];
 		uint32_t chartIndex = 0;

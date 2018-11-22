@@ -178,7 +178,8 @@ Atlas *Create();
 void Destroy(Atlas *atlas);
 // useColocalVertices - generates fewer charts (good), but is more sensitive to bad geometry.
 AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices = true);
-void Generate(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), PackerOptions packerOptions = PackerOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
+void GenerateCharts(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
+void PackCharts(Atlas *atlas, PackerOptions packerOptions = PackerOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
 uint32_t GetWidth(const Atlas *atlas);
 uint32_t GetHeight(const Atlas *atlas);
 uint32_t GetNumCharts(const Atlas *atlas);
