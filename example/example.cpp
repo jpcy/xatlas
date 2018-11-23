@@ -43,14 +43,6 @@ private:
 	std::chrono::time_point<Clock> start_;
 };
 
-static void Print(const char *format, ...)
-{
-	va_list arg;
-	va_start(arg, format);
-	vprintf(format, arg);
-	va_end(arg);
-}
-
 static void PrintProgress(const char *name, const char *indent1, const char *indent2, int progress, Stopwatch *stopwatch)
 {
 	if (progress == 0)
@@ -143,7 +135,7 @@ int main(int argc, char *argv[])
 	printf("   %d shapes\n", (int)shapes.size());
 	// Create atlas.
 	if (verbose)
-		xatlas::SetPrint(Print);
+		xatlas::SetPrint(xatlas::PrintFlags::All);
 	xatlas::Atlas *atlas = xatlas::Create();
 	// Add meshes to atlas.
 	Stopwatch stopwatch;
@@ -216,12 +208,6 @@ int main(int argc, char *argv[])
 	}
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
-	if (verbose) {
-		for (int i = 0; i < (int)shapes.size(); i++) {
-			const xatlas::OutputMesh *mesh = xatlas::GetOutputMeshes(atlas)[i];
-			printf("   output mesh %d: %u vertices, %u triangles, %u charts\n", i, mesh->vertexCount, mesh->indexCount / 3, mesh->chartCount);
-		}
-	}
 	printf("Rasterizing result...\n");
 	if (width > 0 && height > 0) {
 		// Dump images.

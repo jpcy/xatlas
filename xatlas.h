@@ -8,9 +8,25 @@
 namespace xatlas {
 
 struct Atlas;
-typedef void (*PrintFunc)(const char *, ...);
 
-void SetPrint(PrintFunc print);
+struct PrintFlags
+{
+	enum Enum
+	{
+		BuildingOutputMeshes = 1<<0,
+		ComputingCharts = 1<<1,
+		MeshCreation = 1<<2,
+		MeshProcessing = 1<<3,
+		MeshWarnings = 1<<4,
+		PackingCharts = 1<<5,
+		ParametizingCharts = 1<<6,
+		All = ~0
+	};
+};
+
+typedef int (*PrintFunc)(const char *, ...);
+
+void SetPrint(int flags, PrintFunc print = NULL);
 Atlas *Create();
 void Destroy(Atlas *atlas);
 

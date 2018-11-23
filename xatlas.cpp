@@ -25,7 +25,7 @@
 #define XA_XSTR(x) XA_STR(x)
 
 #ifndef XA_ASSERT
-#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT("ASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
+#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT(0, "ASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
 #endif
 
 #ifndef XA_DEBUG_ASSERT
@@ -33,7 +33,9 @@
 #endif
 
 #ifndef XA_PRINT
-#define XA_PRINT(...) if (xatlas::internal::s_print) { xatlas::internal::s_print(__VA_ARGS__); }
+#define XA_PRINT(flags, ...) \
+	if (xatlas::internal::s_print && (flags == 0 || (xatlas::internal::s_printFlags & flags) != 0)) \
+		xatlas::internal::s_print(__VA_ARGS__);
 #endif
 
 #define XA_EPSILON          (0.0001f)
@@ -42,7 +44,8 @@
 namespace xatlas {
 namespace internal {
 
-static PrintFunc s_print = NULL;
+static int s_printFlags = 0;
+static PrintFunc s_print = printf;
 
 static int align(int x, int a)
 {
@@ -2482,7 +2485,7 @@ public:
 	/// Link colocal vertices based on geometric location only.
 	void linkColocals()
 	{
-		XA_PRINT("--- Linking colocals:\n");
+		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
 		const uint32_t vertexCount = this->vertexCount();
 		HashMap<Vector3, Vertex *, Hash<Vector3>, Equal<Vector3> > vertexMap(vertexCount);
 		for (uint32_t v = 0; v < vertexCount; v++) {
@@ -2494,13 +2497,13 @@ public:
 				vertexMap.add(vertex->pos, vertex);
 		}
 		m_colocalVertexCount = vertexMap.count();
-		XA_PRINT("---   %d vertex positions.\n", m_colocalVertexCount);
+		XA_PRINT(PrintFlags::MeshCreation, "---   %d vertex positions.\n", m_colocalVertexCount);
 		// @@ Remove duplicated vertices? or just leave them as colocals?
 	}
 
 	void linkColocalsWithCanonicalMap(const Array<uint32_t> &canonicalMap)
 	{
-		XA_PRINT("--- Linking colocals:\n");
+		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
 		uint32_t vertexMapSize = 0;
 		for (uint32_t i = 0; i < canonicalMap.size(); i++) {
 			vertexMapSize = std::max(vertexMapSize, canonicalMap[i] + 1);
@@ -2520,7 +2523,7 @@ public:
 				m_colocalVertexCount++;
 			}
 		}
-		XA_PRINT("---   %d vertex positions.\n", m_colocalVertexCount);
+		XA_PRINT(PrintFlags::MeshCreation, "---   %d vertex positions.\n", m_colocalVertexCount);
 	}
 
 	Face *addFace()
@@ -2572,7 +2575,7 @@ public:
 				v1->unlinkColocal();
 				edge = findEdge(edgeIndex0, edgeIndex1);
 				if (edge && edge->face)
-					XA_PRINT("Mesh %d duplicate edge: index %d, index %d\n", m_id, edgeIndex0, edgeIndex1);
+					XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d duplicate edge: index %d, index %d\n", m_id, edgeIndex0, edgeIndex1);
 			}
 		}
 		// We also have to make sure the face does not have any duplicate edge!
@@ -2583,7 +2586,7 @@ public:
 				int j0 = indexArray[first + j + 0];
 				int j1 = indexArray[first + (j + 1) % num];
 				if (i0 == j0 && i1 == j1)
-					XA_PRINT("Mesh %d duplicate face edge: index %d, index %d\n", m_id, i0, i1);
+					XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d duplicate face edge: index %d, index %d\n", m_id, i0, i1);
 			}
 		}
 		Edge *firstEdge = NULL;
@@ -2753,7 +2756,7 @@ public:
 	/// Link boundary edges once the mesh has been created.
 	void linkBoundary()
 	{
-		XA_PRINT("--- Linking boundaries:\n");
+		XA_PRINT(PrintFlags::MeshProcessing, "--- Linking boundaries:\n");
 		int num = 0;
 		// Create boundary edges.
 		uint32_t edgeCount = this->edgeCount();
@@ -2784,7 +2787,7 @@ public:
 					linkBoundaryEdge(edge->pair);
 			}
 		}
-		XA_PRINT("---   %d boundary edges.\n", num);
+		XA_PRINT(PrintFlags::MeshProcessing, "---   %d boundary edges.\n", num);
 	}
 
 	/*
@@ -2808,7 +2811,7 @@ public:
 				boundaryVertices.push_back(v);
 			}
 		}
-		XA_PRINT("Fixing T-junctions:\n");
+		XA_PRINT(PrintFlags::MeshProcessing, "Fixing T-junctions:\n");
 		int splitCount = 0;
 		for (uint32_t v = 0; v < boundaryVertices.size(); v++) {
 			Vertex *vertex = boundaryVertices[v];
@@ -2838,7 +2841,7 @@ public:
 				}
 			}
 		}
-		XA_PRINT(" - %d edges split.\n", splitCount);
+		XA_PRINT(PrintFlags::MeshProcessing, " - %d edges split.\n", splitCount);
 		XA_DEBUG_ASSERT(isValid());
 		return splitCount != 0;
 	}
@@ -3291,12 +3294,12 @@ private:
 		const uint32_t vertexCount = mesh->colocalVertexCount();
 		const uint32_t faceCount = mesh->faceCount();
 		const uint32_t edgeCount = mesh->edgeCount();
-		XA_PRINT( "--- Building mesh topology:\n" );
+		XA_PRINT(PrintFlags::ComputingCharts, "--- Building mesh topology:\n" );
 		Array<uint32_t> stack(faceCount);
 		BitArray bitFlags(faceCount);
 		bitFlags.clearAll();
 		// Compute connectivity.
-		XA_PRINT( "---   Computing connectivity.\n" );
+		XA_PRINT(PrintFlags::ComputingCharts, "---   Computing connectivity.\n" );
 		m_connectedCount = 0;
 		for (uint32_t f = 0; f < faceCount; f++ ) {
 			if ( bitFlags.bitAt(f) == false ) {
@@ -3323,9 +3326,9 @@ private:
 			}
 		}
 		XA_ASSERT(stack.isEmpty());
-		XA_PRINT( "---   %d connected components.\n", m_connectedCount );
+		XA_PRINT(PrintFlags::ComputingCharts, "---   %d connected components.\n", m_connectedCount );
 		// Count boundary loops.
-		XA_PRINT( "---   Counting boundary loops.\n" );
+		XA_PRINT(PrintFlags::ComputingCharts, "---   Counting boundary loops.\n" );
 		m_boundaryCount = 0;
 		bitFlags.resize(edgeCount);
 		bitFlags.clearAll();
@@ -3344,15 +3347,15 @@ private:
 				} while (startEdge != edge);
 			}
 		}
-		XA_PRINT("---   %d boundary loops found.\n", m_boundaryCount );
+		XA_PRINT(PrintFlags::ComputingCharts, "---   %d boundary loops found.\n", m_boundaryCount );
 		// Compute euler number.
 		m_eulerNumber = vertexCount - edgeCount + faceCount;
-		XA_PRINT("---   Euler number: %d.\n", m_eulerNumber);
+		XA_PRINT(PrintFlags::ComputingCharts, "---   Euler number: %d.\n", m_eulerNumber);
 		// Compute genus. (only valid on closed connected surfaces)
 		m_genus = -1;
 		if ( isClosed() && isConnected() ) {
 			m_genus = (2 - m_eulerNumber) / 2;
-			XA_PRINT("---   Genus: %d.\n", m_genus);
+			XA_PRINT(PrintFlags::ComputingCharts, "---   Genus: %d.\n", m_genus);
 		}
 	}
 
@@ -6965,50 +6968,50 @@ public:
 			// This seems a reasonable estimate.
 			uint32_t maxSeedCount = std::max(6U, builder.facesLeft);
 			// Create initial charts greedely.
-			XA_PRINT("### Placing seeds\n");
+			XA_PRINT(PrintFlags::ComputingCharts, "### Placing seeds\n");
 			builder.placeSeeds(options.maxThreshold, maxSeedCount);
-			XA_PRINT("###   Placed %d seeds (max = %d)\n", builder.chartCount(), maxSeedCount);
+			XA_PRINT(PrintFlags::ComputingCharts, "###   Placed %d seeds (max = %d)\n", builder.chartCount(), maxSeedCount);
 			builder.updateProxies();
 			builder.mergeCharts();
 	#if 1
-			XA_PRINT("### Relocating seeds\n");
+			XA_PRINT(PrintFlags::ComputingCharts, "### Relocating seeds\n");
 			builder.relocateSeeds();
-			XA_PRINT("### Reset charts\n");
+			XA_PRINT(PrintFlags::ComputingCharts, "### Reset charts\n");
 			builder.resetCharts();
 			if (vertexMap != NULL) {
 				builder.markUnchartedFaces(vertexMap->faceArray());
 			}
-			XA_PRINT("### Growing charts\n");
+			XA_PRINT(PrintFlags::ComputingCharts, "### Growing charts\n");
 			// Restart process growing charts in parallel.
 			uint32_t iteration = 0;
 			while (true) {
 				if (!builder.growCharts(options.maxThreshold, options.growFaceCount)) {
-					XA_PRINT("### Can't grow anymore\n");
+					XA_PRINT(PrintFlags::ComputingCharts, "### Can't grow anymore\n");
 					// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
-					XA_PRINT("### Filling holes\n");
+					XA_PRINT(PrintFlags::ComputingCharts, "### Filling holes\n");
 					builder.fillHoles(options.maxThreshold);
-					XA_PRINT("###   Using %d charts now\n", builder.chartCount());
+					XA_PRINT(PrintFlags::ComputingCharts, "###   Using %d charts now\n", builder.chartCount());
 					builder.updateProxies();
-					XA_PRINT("### Merging charts\n");
+					XA_PRINT(PrintFlags::ComputingCharts, "### Merging charts\n");
 					builder.mergeCharts();
-					XA_PRINT("###   Using %d charts now\n", builder.chartCount());
-					XA_PRINT("### Reseeding\n");
+					XA_PRINT(PrintFlags::ComputingCharts, "###   Using %d charts now\n", builder.chartCount());
+					XA_PRINT(PrintFlags::ComputingCharts, "### Reseeding\n");
 					if (!builder.relocateSeeds()) {
-						XA_PRINT("### Cannot relocate seeds anymore\n");
+						XA_PRINT(PrintFlags::ComputingCharts, "### Cannot relocate seeds anymore\n");
 						// Done!
 						break;
 					}
 					if (iteration == options.maxIterations) {
-						XA_PRINT("### Reached iteration limit\n");
+						XA_PRINT(PrintFlags::ComputingCharts, "### Reached iteration limit\n");
 						break;
 					}
 					iteration++;
-					XA_PRINT("### Reset charts\n");
+					XA_PRINT(PrintFlags::ComputingCharts, "### Reset charts\n");
 					builder.resetCharts();
 					if (vertexMap != NULL) {
 						builder.markUnchartedFaces(vertexMap->faceArray());
 					}
-					XA_PRINT("### Growing charts\n");
+					XA_PRINT(PrintFlags::ComputingCharts, "### Growing charts\n");
 				}
 			};
 	#endif
@@ -7081,7 +7084,7 @@ public:
 				}
 				isValid = chartParameterizationQuality.isValid();
 				if (!isValid) {
-					XA_PRINT("*** Invalid parameterization.\n");
+					XA_PRINT(PrintFlags::ParametizingCharts, "*** Invalid parameterization.\n");
 				}
 				// @@ Check that parameterization quality is above a certain threshold.
 				// @@ Detect boundary self-intersections.
@@ -7092,11 +7095,11 @@ public:
 			chart->transferParameterization();
 
 		}
-		XA_PRINT("  Parameterized %d/%d charts.\n", diskCount, chartCount);
-		XA_PRINT("  RMS stretch metric: %f\n", globalParameterizationQuality.rmsStretchMetric());
-		XA_PRINT("  MAX stretch metric: %f\n", globalParameterizationQuality.maxStretchMetric());
-		XA_PRINT("  RMS conformal metric: %f\n", globalParameterizationQuality.rmsConformalMetric());
-		XA_PRINT("  RMS authalic metric: %f\n", globalParameterizationQuality.maxAuthalicMetric());
+		XA_PRINT(PrintFlags::ParametizingCharts, "  Parameterized %d/%d charts.\n", diskCount, chartCount);
+		XA_PRINT(PrintFlags::ParametizingCharts, "  RMS stretch metric: %f\n", globalParameterizationQuality.rmsStretchMetric());
+		XA_PRINT(PrintFlags::ParametizingCharts, "  MAX stretch metric: %f\n", globalParameterizationQuality.maxStretchMetric());
+		XA_PRINT(PrintFlags::ParametizingCharts, "  RMS conformal metric: %f\n", globalParameterizationQuality.rmsConformalMetric());
+		XA_PRINT(PrintFlags::ParametizingCharts, "  RMS authalic metric: %f\n", globalParameterizationQuality.maxAuthalicMetric());
 	}
 
 	uint32_t faceChartAt(uint32_t i) const
@@ -7265,13 +7268,13 @@ struct AtlasPacker
 	void packCharts(const PackerOptions &options)
 	{
 		const uint32_t chartCount = m_atlas->chartCount();
-		XA_PRINT("   %u charts\n", chartCount);
+		XA_PRINT(PrintFlags::PackingCharts, "   %u charts\n", chartCount);
 		if (chartCount == 0) return;
 		float texelsPerUnit = 1;
 		if (options.method == PackMethod::TexelArea)
 			texelsPerUnit = options.texelArea;
 		for (int iteration = 0;; iteration++) {
-			XA_PRINT("   Iteration %d\n", iteration);
+			XA_PRINT(PrintFlags::PackingCharts, "   Iteration %d\n", iteration);
 			m_rand = MTRand();
 			Array<float> chartOrderArray;
 			chartOrderArray.resize(chartCount);
@@ -7320,11 +7323,11 @@ struct AtlasPacker
 					tmp -= origin;
 					tmp *= scale;
 					if (tmp.x < 0 || tmp.y < 0) {
-						XA_PRINT("tmp: %f %f\n", tmp.x, tmp.y);
-						XA_PRINT("scale: %f\n", scale);
-						XA_PRINT("origin: %f %f\n", origin.x, origin.y);
-						XA_PRINT("majorAxis: %f %f\n", majorAxis.x, majorAxis.y);
-						XA_PRINT("minorAxis: %f %f\n", minorAxis.x, minorAxis.y);
+						XA_PRINT(PrintFlags::PackingCharts, "tmp: %f %f\n", tmp.x, tmp.y);
+						XA_PRINT(PrintFlags::PackingCharts, "scale: %f\n", scale);
+						XA_PRINT(PrintFlags::PackingCharts, "origin: %f %f\n", origin.x, origin.y);
+						XA_PRINT(PrintFlags::PackingCharts, "majorAxis: %f %f\n", majorAxis.x, majorAxis.y);
+						XA_PRINT(PrintFlags::PackingCharts, "minorAxis: %f %f\n", minorAxis.x, minorAxis.y);
 						XA_DEBUG_ASSERT(false);
 					}
 					//XA_ASSERT(tmp.x >= 0 && tmp.y >= 0);
@@ -7403,7 +7406,7 @@ struct AtlasPacker
 				// Estimate size of the map based on the mesh surface area and given texel scale.
 				const float texelCount = std::max(1.0f, meshArea * square(texelsPerUnit) / 0.75f); // Assume 75% utilization.
 				texelsPerUnit = sqrt((options.resolution * options.resolution) / texelCount);
-				XA_PRINT("      Estimating texelsPerUnit as %g\n", texelsPerUnit);
+				XA_PRINT(PrintFlags::PackingCharts, "      Estimating texelsPerUnit as %g\n", texelsPerUnit);
 				m_atlas->restoreOriginalChartUvs();
 				continue;
 			}
@@ -7413,7 +7416,7 @@ struct AtlasPacker
 			int w = 0;
 			int h = 0;
 			// Add sorted charts to bitmap.
-			XA_PRINT("      Rasterizing charts\n");
+			XA_PRINT(PrintFlags::PackingCharts, "      Rasterizing charts\n");
 			for (uint32_t i = 0; i < chartCount; i++) {
 				uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 				Chart *chart = m_atlas->chartAt(c);
@@ -7486,7 +7489,7 @@ struct AtlasPacker
 			m_height = std::max(0, h);
 			XA_ASSERT(isAligned(m_width, 4));
 			XA_ASSERT(isAligned(m_height, 4));
-			XA_PRINT("      %dx%d resolution\n", m_width, m_height);
+			XA_PRINT(PrintFlags::PackingCharts, "      %dx%d resolution\n", m_width, m_height);
 			if (options.method == PackMethod::ExactResolution) {
 				const uint32_t largestDimension = std::max(m_width, m_height);
 				texelsPerUnit *= sqrt((options.resolution * options.resolution) / (float)(largestDimension * largestDimension));
@@ -7494,7 +7497,7 @@ struct AtlasPacker
 				const int firstAdjustmentIteration = 8;
 				if (iteration >= firstAdjustmentIteration)
 					texelsPerUnit *= 1.0f - (0.1f * (iteration - firstAdjustmentIteration + 1));
-				XA_PRINT("      Estimating texelsPerUnit as %g\n", texelsPerUnit);
+				XA_PRINT(PrintFlags::PackingCharts, "      Estimating texelsPerUnit as %g\n", texelsPerUnit);
 				if (iteration > 1 && m_width <= options.resolution && m_height <= options.resolution) {
 					m_width = m_height = options.resolution;
 					return;
@@ -7990,9 +7993,10 @@ struct Atlas
 	OutputMesh **outputMeshes;
 };
 
-void SetPrint(PrintFunc print)
+void SetPrint(int flags, PrintFunc print)
 {
-	internal::s_print = print;
+	internal::s_printFlags = flags;
+	internal::s_print = print ? print : printf;
 }
 
 Atlas *Create()
@@ -8116,14 +8120,14 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalV
 			const uint32_t index2 = tri[edges[j * 2 + 1]];
 			if (index1 == index2) {
 				faceFlags |= internal::halfedge::FaceFlags::Ignore;
-				XA_PRINT("Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->heMeshes.size(), index1, index2);
+				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->heMeshes.size(), index1, index2);
 				break;
 			}
 			const internal::Vector3 pos1 = DecodePosition(mesh, index1);
 			const internal::Vector3 pos2 = DecodePosition(mesh, index2);
 			if (EdgeLength(pos1, pos2) <= 0.0f) {
 				faceFlags |= internal::halfedge::FaceFlags::Ignore;
-				XA_PRINT("Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->heMeshes.size(), index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
+				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->heMeshes.size(), index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
 				break;
 			}
 		}
@@ -8137,7 +8141,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalV
 			if (area <= 0.0f)
 			{
 				faceFlags |= internal::halfedge::FaceFlags::Ignore;
-				XA_PRINT("Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->heMeshes.size(), i, tri[0], tri[1], tri[2]);
+				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->heMeshes.size(), i, tri[0], tri[1], tri[2]);
 			}
 		}
 		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
@@ -8160,7 +8164,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	atlas->height = 0;
 	DestroyOutputMeshes(atlas);
 	// Chart meshes.
-	XA_PRINT("Computing charts\n");
+	XA_PRINT(PrintFlags::ComputingCharts, "Computing charts\n");
 	int progress = 0;
 	if (progressCallback)
 		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
@@ -8179,7 +8183,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	}
 	if (progressCallback && progress != 100)
 		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
-	XA_PRINT("Parameterizing charts\n");
+	XA_PRINT(PrintFlags::ParametizingCharts, "Parameterizing charts\n");
 	atlas->atlas.parameterizeCharts(progressCallback, progressCallbackUserData);
 	atlas->atlas.saveOriginalChartUvs();
 	// Count charts.
@@ -8201,7 +8205,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	DestroyOutputMeshes(atlas);
 	if (atlas->chartCount <= 0)
 		return;
-	XA_PRINT("Packing charts\n");
+	XA_PRINT(PrintFlags::PackingCharts, "Packing charts\n");
 	internal::param::AtlasPacker packer(&atlas->atlas);
 	if (progressCallback)
 		progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
@@ -8211,7 +8215,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	//float utilization = return packer.computeAtlasUtilization();
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
-	XA_PRINT("Building output meshes\n");
+	XA_PRINT(PrintFlags::BuildingOutputMeshes, "Building output meshes\n");
 	int progress = 0;
 	if (progressCallback)
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
@@ -8278,6 +8282,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			}
 			chartIndex++;
 		}
+		XA_PRINT(PrintFlags::BuildingOutputMeshes, "   mesh %d: %u vertices, %u triangles, %u charts\n", i, outputMesh->vertexCount, outputMesh->indexCount / 3, outputMesh->chartCount);
 		if (progressCallback)
 		{
 			const int newProgress = int((i + 1) / (float)atlas->heMeshes.size() * 100.0f);
