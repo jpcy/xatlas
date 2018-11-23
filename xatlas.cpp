@@ -5522,7 +5522,7 @@ struct ChartBuildData
 
 struct AtlasBuilder
 {
-	AtlasBuilder(const halfedge::Mesh *m) : mesh(m), facesLeft(m->faceCount())
+	AtlasBuilder(const halfedge::Mesh *m, const CharterOptions &options) : mesh(m), facesLeft(m->faceCount()), m_options(options)
 	{
 		const uint32_t faceCount = m->faceCount();
 		faceChartArray.resize(faceCount, -1);
@@ -5832,16 +5832,16 @@ struct AtlasBuilder
 		// - Cause more impedance. Never cross 90 degree edges.
 		// -
 		float cost = float(
-						 options.proxyFitMetricWeight * F +
-						 options.roundnessMetricWeight * C +
-						 options.straightnessMetricWeight * P +
-						 options.normalSeamMetricWeight * N +
-						 options.textureSeamMetricWeight * T);
+			m_options.proxyFitMetricWeight * F +
+			m_options.roundnessMetricWeight * C +
+			m_options.straightnessMetricWeight * P +
+			m_options.normalSeamMetricWeight * N +
+			m_options.textureSeamMetricWeight * T);
 		// Enforce limits strictly:
-		if (newChartArea > options.maxChartArea) cost = FLT_MAX;
-		if (newBoundaryLength > options.maxBoundaryLength) cost = FLT_MAX;
+		if (newChartArea > m_options.maxChartArea) cost = FLT_MAX;
+		if (newBoundaryLength > m_options.maxBoundaryLength) cost = FLT_MAX;
 		// Make sure normal seams are fully respected:
-		if (options.normalSeamMetricWeight >= 1000 && N != 0) cost = FLT_MAX;
+		if (m_options.normalSeamMetricWeight >= 1000 && N != 0) cost = FLT_MAX;
 		XA_ASSERT(std::isfinite(cost));
 		return cost;
 	}
@@ -6187,7 +6187,9 @@ struct AtlasBuilder
 	Array<Candidate> candidateArray; //
 	Array<uint32_t> faceCandidateArray; // Map face index to candidate index.
 	MTRand rand;
-	CharterOptions options;
+
+private:
+	CharterOptions m_options;
 };
 
 /// A chart is a connected set of faces with a certain topology (usually a disk).
@@ -6953,26 +6955,18 @@ public:
 			delete vertexMap;
 			vertexMap = NULL;
 		}
-		AtlasBuilder builder(m_mesh);
+		AtlasBuilder builder(m_mesh, options);
 		if (vertexMap != NULL) {
 			// Mark faces that do not need to be charted.
 			builder.markUnchartedFaces(vertexMap->faceArray());
 			m_chartArray.push_back(vertexMap);
 		}
 		if (builder.facesLeft != 0) {
-			// Tweak these values:
-			const float maxThreshold = 2;
-			const uint32_t growFaceCount = 32;
-			const uint32_t maxIterations = 4;
-			builder.options = options;
-			//builder.options.proxyFitMetricWeight *= 0.75; // relax proxy fit weight during initial seed placement.
-			//builder.options.roundnessMetricWeight = 0;
-			//builder.options.straightnessMetricWeight = 0;
 			// This seems a reasonable estimate.
 			uint32_t maxSeedCount = std::max(6U, builder.facesLeft);
 			// Create initial charts greedely.
 			XA_PRINT("### Placing seeds\n");
-			builder.placeSeeds(maxThreshold, maxSeedCount);
+			builder.placeSeeds(options.maxThreshold, maxSeedCount);
 			XA_PRINT("###   Placed %d seeds (max = %d)\n", builder.chartCount(), maxSeedCount);
 			builder.updateProxies();
 			builder.mergeCharts();
@@ -6984,16 +6978,15 @@ public:
 			if (vertexMap != NULL) {
 				builder.markUnchartedFaces(vertexMap->faceArray());
 			}
-			builder.options = options;
 			XA_PRINT("### Growing charts\n");
 			// Restart process growing charts in parallel.
 			uint32_t iteration = 0;
 			while (true) {
-				if (!builder.growCharts(maxThreshold, growFaceCount)) {
+				if (!builder.growCharts(options.maxThreshold, options.growFaceCount)) {
 					XA_PRINT("### Can't grow anymore\n");
 					// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
 					XA_PRINT("### Filling holes\n");
-					builder.fillHoles(maxThreshold);
+					builder.fillHoles(options.maxThreshold);
 					XA_PRINT("###   Using %d charts now\n", builder.chartCount());
 					builder.updateProxies();
 					XA_PRINT("### Merging charts\n");
@@ -7005,7 +6998,7 @@ public:
 						// Done!
 						break;
 					}
-					if (iteration == maxIterations) {
+					if (iteration == options.maxIterations) {
 						XA_PRINT("### Reached iteration limit\n");
 						break;
 					}

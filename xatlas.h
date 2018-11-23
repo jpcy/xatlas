@@ -91,6 +91,9 @@ struct CharterOptions
 	float textureSeamMetricWeight;
 	float maxChartArea;
 	float maxBoundaryLength;
+	float maxThreshold;
+	uint32_t growFaceCount;
+	uint32_t maxIterations;
 
 	CharterOptions()
 	{
@@ -109,6 +112,9 @@ struct CharterOptions
 		*/
 		maxChartArea = FLT_MAX;
 		maxBoundaryLength = FLT_MAX;
+		maxThreshold = 2;
+		growFaceCount = 32;
+		maxIterations = 4;
 	}
 };
 
