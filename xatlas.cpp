@@ -292,6 +292,11 @@ static bool equal(Vector2::Arg v1, Vector2::Arg v2, float epsilon = XA_EPSILON)
 	return equal(v1.x, v2.x, epsilon) && equal(v1.y, v2.y, epsilon);
 }
 
+static Vector2 min(Vector2::Arg a, Vector2::Arg b)
+{
+	return Vector2(std::min(a.x, b.x), std::min(a.y, b.y));
+}
+
 static Vector2 max(Vector2::Arg a, Vector2::Arg b)
 {
 	return Vector2(std::max(a.x, b.x), std::max(a.y, b.y));
@@ -520,16 +525,6 @@ static Vector3 normalizeSafe(Vector3::Arg v, Vector3::Arg fallback, float epsilo
 		return fallback;
 	}
 	return v * (1.0f / l);
-}
-
-static Vector3 min(Vector3::Arg a, Vector3::Arg b)
-{
-	return Vector3(std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z));
-}
-
-static Vector3 max(Vector3::Arg a, Vector3::Arg b)
-{
-	return Vector3(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z));
 }
 
 template <typename T>
@@ -971,50 +966,6 @@ private:
 	uint32_t m_width;
 	uint32_t m_height;
 	BitArray m_bitArray;
-};
-
-// Axis Aligned Bounding Box.
-class Box
-{
-public:
-	Box() {}
-	Box(const Box &b) : minCorner(b.minCorner), maxCorner(b.maxCorner) {}
-	Box(const Vector3 &mins, const Vector3 &maxs) : minCorner(mins), maxCorner(maxs) {}
-
-	operator const float *() const
-	{
-		return reinterpret_cast<const float *>(this);
-	}
-
-	// Clear the bounds.
-	void clearBounds()
-	{
-		minCorner.set(FLT_MAX, FLT_MAX, FLT_MAX);
-		maxCorner.set(-FLT_MAX, -FLT_MAX, -FLT_MAX);
-	}
-
-	// Return extents of the box.
-	Vector3 extents() const
-	{
-		return (maxCorner - minCorner) * 0.5f;
-	}
-
-	// Add a point to this box.
-	void addPointToBounds(const Vector3 &p)
-	{
-		minCorner = min(minCorner, p);
-		maxCorner = max(maxCorner, p);
-	}
-
-	// Get the volume of the box.
-	float volume() const
-	{
-		Vector3 d = extents();
-		return 8.0f * (d.x * d.y * d.z);
-	}
-
-	Vector3 minCorner;
-	Vector3 maxCorner;
 };
 
 class Fit
@@ -6252,14 +6203,15 @@ public:
 		// This only makes sense in parameterized meshes.
 		XA_DEBUG_ASSERT(m_isDisk);
 		XA_DEBUG_ASSERT(!m_isVertexMapped);
-		Box bounds;
-		bounds.clearBounds();
+		Vector2 minCorner(FLT_MAX, FLT_MAX);
+		Vector2 maxCorner(-FLT_MAX, -FLT_MAX);
 		uint32_t vertexCount = m_chartMesh->vertexCount();
 		for (uint32_t v = 0; v < vertexCount; v++) {
 			halfedge::Vertex *vertex = m_chartMesh->vertexAt(v);
-			bounds.addPointToBounds(Vector3(vertex->tex, 0));
+			minCorner = min(minCorner, vertex->tex);
+			maxCorner = max(maxCorner, vertex->tex);
 		}
-		return bounds.extents().xy();
+		return (maxCorner - minCorner) * 0.5f;
 	}
 
 	float scale;
