@@ -275,6 +275,13 @@ static float length(Vector2::Arg v)
 	return sqrtf(lengthSquared(v));
 }
 
+#ifdef _DEBUG
+static bool isNormalized(Vector2::Arg v, float epsilon = XA_NORMAL_EPSILON)
+{
+	return equal(length(v), 1, epsilon);
+}
+#endif
+
 static Vector2 normalize(Vector2::Arg v, float epsilon = XA_EPSILON)
 {
 	float l = length(v);
@@ -324,11 +331,6 @@ static float triangleArea(Vector2::Arg a, Vector2::Arg b, Vector2::Arg c)
 	// the triangle.
 	//return ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x)); // * 0.5f;
 	return triangleArea(a - c, b - c);
-}
-
-static float triangleArea2(Vector2::Arg v1, Vector2::Arg v2, Vector2::Arg v3)
-{
-	return 0.5f * (v3.x * v1.y + v1.x * v2.y + v2.x * v3.y - v2.x * v1.y - v3.x * v2.y - v1.x * v3.y);
 }
 
 class Vector3
@@ -526,6 +528,13 @@ static Vector3 normalizeSafe(Vector3::Arg v, Vector3::Arg fallback, float epsilo
 	}
 	return v * (1.0f / l);
 }
+
+#ifdef _DEBUG
+bool isFinite(Vector3::Arg v)
+{
+	return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+}
+#endif
 
 template <typename T>
 static void construct_range(T * ptr, uint32_t new_size, uint32_t old_size) {
@@ -2683,7 +2692,7 @@ public:
 					if (isZero(d)) {
 						float t = dot(v01, v21) / (l * l);
 						if (t > 0.0f + XA_EPSILON && t < 1.0f - XA_EPSILON) {
-							XA_DEBUG_ASSERT(equal(lerp(x1, x2, t), x0));
+							XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
 							Vertex *splitVertex = splitBoundaryEdge(edge, t, x0);
 							vertex->linkColocal(splitVertex);   // @@ Should we do this here?
 							splitCount++;
@@ -4188,35 +4197,6 @@ static bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, c
 	return true;
 }
 
-// Process the given quad. Returns false if rasterization was interrupted by the callback.
-static bool drawQuad(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[4], SamplingCallback cb, void *param)
-{
-	bool sign0 = triangleArea2(v[0], v[1], v[2]) > 0.0f;
-	bool sign1 = triangleArea2(v[0], v[2], v[3]) > 0.0f;
-	// Divide the quad into two non overlapping triangles.
-	if (sign0 == sign1) {
-		Triangle tri0(v[0], v[1], v[2], Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(1, 1, 0));
-		Triangle tri1(v[0], v[2], v[3], Vector3(0, 0, 0), Vector3(1, 1, 0), Vector3(0, 1, 0));
-		if (tri0.valid && tri1.valid) {
-			if (mode == Mode_Antialiased) {
-				return tri0.drawAA(extents, enableScissors, cb, param) && tri1.drawAA(extents, enableScissors, cb, param);
-			} else {
-				return tri0.draw(extents, enableScissors, cb, param) && tri1.draw(extents, enableScissors, cb, param);
-			}
-		}
-	} else {
-		Triangle tri0(v[0], v[1], v[3], Vector3(0, 0, 0), Vector3(1, 0, 0), Vector3(0, 1, 0));
-		Triangle tri1(v[1], v[2], v[3], Vector3(1, 0, 0), Vector3(1, 1, 0), Vector3(0, 1, 0));
-		if (tri0.valid && tri1.valid) {
-			if (mode == Mode_Antialiased) {
-				return tri0.drawAA(extents, enableScissors, cb, param) && tri1.drawAA(extents, enableScissors, cb, param);
-			} else {
-				return tri0.draw(extents, enableScissors, cb, param) && tri1.draw(extents, enableScissors, cb, param);
-			}
-		}
-	}
-	return true;
-}
 } // namespace raster
 
 // Full and sparse vector and matrix classes. BLAS subset.
@@ -7301,19 +7281,15 @@ private:
 		const uint32_t faceCount = chart->faceCount();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const halfedge::Face *face = chart->chartMesh()->faceAt(f);
-			Vector2 vertices[4];
+			Vector2 vertices[3];
 			uint32_t edgeCount = 0;
 			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				if (edgeCount < 4) {
+				if (edgeCount < 3)
 					vertices[edgeCount] = it.vertex()->tex + Vector2(0.5) + Vector2(float(padding), float(padding));
-				}
 				edgeCount++;
 			}
-			if (edgeCount == 3) {
-				raster::drawTriangle(raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitmap);
-			} else {
-				raster::drawQuad(raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitmap);
-			}
+			XA_DEBUG_ASSERT(edgeCount == 3);
+			raster::drawTriangle(raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitmap);
 		}
 		// Expand chart by padding pixels. (dilation)
 		BitMap tmp(w, h);
@@ -7360,10 +7336,10 @@ private:
 			const uint32_t faceCount = chart->chartMesh()->faceCount();
 			for (uint32_t f = 0; f < faceCount; f++) {
 				const halfedge::Face *face = chart->chartMesh()->faceAt(f);
-				Vector2 vertices[4];
+				Vector2 vertices[3];
 				uint32_t edgeCount = 0;
 				for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-					if (edgeCount < 4) {
+					if (edgeCount < 3) {
 						vertices[edgeCount] = it.vertex()->tex * scale + offset + pad[i];
 						XA_ASSERT(ftoi_ceil(vertices[edgeCount].x) >= 0);
 						XA_ASSERT(ftoi_ceil(vertices[edgeCount].y) >= 0);
@@ -7372,11 +7348,8 @@ private:
 					}
 					edgeCount++;
 				}
-				if (edgeCount == 3) {
-					raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitmap);
-				} else {
-					raster::drawQuad(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitmap);
-				}
+				XA_ASSERT(edgeCount == 3);
+				raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitmap);
 			}
 		}
 		// Expand chart by padding pixels. (dilation)
