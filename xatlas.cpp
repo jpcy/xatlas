@@ -78,11 +78,6 @@ static T clamp(const T &x, const T &a, const T &b)
 	return std::min(std::max(x, a), b);
 }
 
-static float saturate(float f)
-{
-	return clamp(f, 0.0f, 1.0f);
-}
-
 // Robust floating point comparisons:
 // http://realtimecollisiondetection.net/blog/?p=89
 static bool equal(const float f0, const float f1, const float epsilon = XA_EPSILON)
@@ -239,63 +234,48 @@ public:
 	};
 };
 
-Vector2 operator+(Vector2::Arg a, Vector2::Arg b)
+static Vector2 operator+(Vector2::Arg a, Vector2::Arg b)
 {
 	return Vector2(a.x + b.x, a.y + b.y);
 }
 
-Vector2 operator-(Vector2::Arg a, Vector2::Arg b)
+static Vector2 operator-(Vector2::Arg a, Vector2::Arg b)
 {
 	return Vector2(a.x - b.x, a.y - b.y);
 }
 
-Vector2 operator*(Vector2::Arg v, float s)
+static Vector2 operator*(Vector2::Arg v, float s)
 {
 	return Vector2(v.x * s, v.y * s);
 }
 
-Vector2 operator*(Vector2::Arg v1, Vector2::Arg v2)
+static Vector2 operator*(Vector2::Arg v1, Vector2::Arg v2)
 {
 	return Vector2(v1.x * v2.x, v1.y * v2.y);
 }
 
-Vector2 operator/(Vector2::Arg v, float s)
-{
-	return Vector2(v.x / s, v.y / s);
-}
-
-Vector2 lerp(Vector2::Arg v1, Vector2::Arg v2, float t)
+static Vector2 lerp(Vector2::Arg v1, Vector2::Arg v2, float t)
 {
 	const float s = 1.0f - t;
 	return Vector2(v1.x * s + t * v2.x, v1.y * s + t * v2.y);
 }
 
-float dot(Vector2::Arg a, Vector2::Arg b)
+static float dot(Vector2::Arg a, Vector2::Arg b)
 {
 	return a.x * b.x + a.y * b.y;
 }
 
-float lengthSquared(Vector2::Arg v)
+static float lengthSquared(Vector2::Arg v)
 {
 	return v.x * v.x + v.y * v.y;
 }
 
-float length(Vector2::Arg v)
+static float length(Vector2::Arg v)
 {
 	return sqrtf(lengthSquared(v));
 }
 
-float distance(Vector2::Arg a, Vector2::Arg b)
-{
-	return length(a - b);
-}
-
-bool isNormalized(Vector2::Arg v, float epsilon = XA_NORMAL_EPSILON)
-{
-	return equal(length(v), 1, epsilon);
-}
-
-Vector2 normalize(Vector2::Arg v, float epsilon = XA_EPSILON)
+static Vector2 normalize(Vector2::Arg v, float epsilon = XA_EPSILON)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
@@ -307,36 +287,28 @@ Vector2 normalize(Vector2::Arg v, float epsilon = XA_EPSILON)
 	return n;
 }
 
-Vector2 normalizeSafe(Vector2::Arg v, Vector2::Arg fallback, float epsilon = XA_EPSILON)
-{
-	float l = length(v);
-	if (isZero(l, epsilon)) {
-		return fallback;
-	}
-	return v * (1.0f / l);
-}
-
-bool equal(Vector2::Arg v1, Vector2::Arg v2, float epsilon = XA_EPSILON)
+static bool equal(Vector2::Arg v1, Vector2::Arg v2, float epsilon = XA_EPSILON)
 {
 	return equal(v1.x, v2.x, epsilon) && equal(v1.y, v2.y, epsilon);
 }
 
-Vector2 max(Vector2::Arg a, Vector2::Arg b)
+static Vector2 max(Vector2::Arg a, Vector2::Arg b)
 {
 	return Vector2(std::max(a.x, b.x), std::max(a.y, b.y));
 }
 
-bool isFinite(Vector2::Arg v)
+static bool isFinite(Vector2::Arg v)
 {
 	return std::isfinite(v.x) && std::isfinite(v.y);
 }
 
 // Note, this is the area scaled by 2!
-float triangleArea(Vector2::Arg v0, Vector2::Arg v1)
+static float triangleArea(Vector2::Arg v0, Vector2::Arg v1)
 {
 	return (v0.x * v1.y - v0.y * v1.x); // * 0.5f;
 }
-float triangleArea(Vector2::Arg a, Vector2::Arg b, Vector2::Arg c)
+
+static float triangleArea(Vector2::Arg a, Vector2::Arg b, Vector2::Arg c)
 {
 	// IC: While it may be appealing to use the following expression:
 	//return (c.x * a.y + a.x * b.y + b.x * c.y - b.x * a.y - c.x * b.y - a.x * c.y); // * 0.5f;
@@ -349,7 +321,7 @@ float triangleArea(Vector2::Arg a, Vector2::Arg b, Vector2::Arg c)
 	return triangleArea(a - c, b - c);
 }
 
-float triangleArea2(Vector2::Arg v1, Vector2::Arg v2, Vector2::Arg v3)
+static float triangleArea2(Vector2::Arg v1, Vector2::Arg v2, Vector2::Arg v3)
 {
 	return 0.5f * (v3.x * v1.y + v1.x * v2.y + v2.x * v3.y - v2.x * v1.y - v3.x * v2.y - v1.x * v3.y);
 }
@@ -463,105 +435,73 @@ public:
 	};
 };
 
-Vector3 add(Vector3::Arg a, Vector3::Arg b)
+static Vector3 add(Vector3::Arg a, Vector3::Arg b)
 {
 	return Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
-Vector3 add(Vector3::Arg a, float b)
-{
-	return Vector3(a.x + b, a.y + b, a.z + b);
-}
-Vector3 operator+(Vector3::Arg a, Vector3::Arg b)
-{
-	return add(a, b);
-}
-Vector3 operator+(Vector3::Arg a, float b)
+
+static Vector3 operator+(Vector3::Arg a, Vector3::Arg b)
 {
 	return add(a, b);
 }
 
-Vector3 sub(Vector3::Arg a, Vector3::Arg b)
+static Vector3 sub(Vector3::Arg a, Vector3::Arg b)
 {
 	return Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-Vector3 sub(Vector3::Arg a, float b)
-{
-	return Vector3(a.x - b, a.y - b, a.z - b);
-}
-
-Vector3 operator-(Vector3::Arg a, Vector3::Arg b)
+static Vector3 operator-(Vector3::Arg a, Vector3::Arg b)
 {
 	return sub(a, b);
 }
 
-Vector3 operator-(Vector3::Arg a, float b)
-{
-	return sub(a, b);
-}
-
-Vector3 cross(Vector3::Arg a, Vector3::Arg b)
+static Vector3 cross(Vector3::Arg a, Vector3::Arg b)
 {
 	return Vector3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
 }
 
-Vector3 operator*(Vector3::Arg v, float s)
+static Vector3 operator*(Vector3::Arg v, float s)
 {
 	return Vector3(v.x * s, v.y * s, v.z * s);
 }
 
-Vector3 operator*(float s, Vector3::Arg v)
+static Vector3 operator*(float s, Vector3::Arg v)
 {
 	return Vector3(v.x * s, v.y * s, v.z * s);
 }
 
-Vector3 operator*(Vector3::Arg v, Vector3::Arg s)
-{
-	return Vector3(v.x * s.x, v.y * s.y, v.z * s.z);
-}
-
-Vector3 operator/(Vector3::Arg v, float s)
+static Vector3 operator/(Vector3::Arg v, float s)
 {
 	return v * (1.0f / s);
 }
 
-Vector3 lerp(Vector3::Arg v1, Vector3::Arg v2, float t)
+static Vector3 lerp(Vector3::Arg v1, Vector3::Arg v2, float t)
 {
 	const float s = 1.0f - t;
 	return Vector3(v1.x * s + t * v2.x, v1.y * s + t * v2.y, v1.z * s + t * v2.z);
 }
 
-float dot(Vector3::Arg a, Vector3::Arg b)
+static float dot(Vector3::Arg a, Vector3::Arg b)
 {
 	return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-float lengthSquared(Vector3::Arg v)
+static float lengthSquared(Vector3::Arg v)
 {
 	return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-float length(Vector3::Arg v)
+static float length(Vector3::Arg v)
 {
 	return sqrtf(lengthSquared(v));
 }
 
-float distance(Vector3::Arg a, Vector3::Arg b)
-{
-	return length(a - b);
-}
-
-float distanceSquared(Vector3::Arg a, Vector3::Arg b)
-{
-	return lengthSquared(a - b);
-}
-
-bool isNormalized(Vector3::Arg v, float epsilon = XA_NORMAL_EPSILON)
+static bool isNormalized(Vector3::Arg v, float epsilon = XA_NORMAL_EPSILON)
 {
 	return equal(length(v), 1, epsilon);
 }
 
-Vector3 normalize(Vector3::Arg v, float epsilon = XA_EPSILON)
+static Vector3 normalize(Vector3::Arg v, float epsilon = XA_EPSILON)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
@@ -573,7 +513,7 @@ Vector3 normalize(Vector3::Arg v, float epsilon = XA_EPSILON)
 	return n;
 }
 
-Vector3 normalizeSafe(Vector3::Arg v, Vector3::Arg fallback, float epsilon = XA_EPSILON)
+static Vector3 normalizeSafe(Vector3::Arg v, Vector3::Arg fallback, float epsilon = XA_EPSILON)
 {
 	float l = length(v);
 	if (isZero(l, epsilon)) {
@@ -582,64 +522,39 @@ Vector3 normalizeSafe(Vector3::Arg v, Vector3::Arg fallback, float epsilon = XA_
 	return v * (1.0f / l);
 }
 
-bool equal(Vector3::Arg v1, Vector3::Arg v2, float epsilon = XA_EPSILON)
-{
-	return equal(v1.x, v2.x, epsilon) && equal(v1.y, v2.y, epsilon) && equal(v1.z, v2.z, epsilon);
-}
-
-Vector3 min(Vector3::Arg a, Vector3::Arg b)
+static Vector3 min(Vector3::Arg a, Vector3::Arg b)
 {
 	return Vector3(std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z));
 }
 
-Vector3 max(Vector3::Arg a, Vector3::Arg b)
+static Vector3 max(Vector3::Arg a, Vector3::Arg b)
 {
 	return Vector3(std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z));
 }
 
-Vector3 clamp(Vector3::Arg v, float min, float max)
-{
-	return Vector3(clamp(v.x, min, max), clamp(v.y, min, max), clamp(v.z, min, max));
-}
-
-Vector3 saturate(Vector3::Arg v)
-{
-	return Vector3(saturate(v.x), saturate(v.y), saturate(v.z));
-}
-
-Vector3 floor(Vector3::Arg v)
-{
-	return Vector3(floorf(v.x), floorf(v.y), floorf(v.z));
-}
-
-bool isFinite(Vector3::Arg v)
-{
-	return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
-}
-
 template <typename T>
-void construct_range(T * ptr, uint32_t new_size, uint32_t old_size) {
+static void construct_range(T * ptr, uint32_t new_size, uint32_t old_size) {
 	for (uint32_t i = old_size; i < new_size; i++) {
 		new(ptr+i) T; // placement new
 	}
 }
 
 template <typename T>
-void construct_range(T * ptr, uint32_t new_size, uint32_t old_size, const T & elem) {
+static void construct_range(T * ptr, uint32_t new_size, uint32_t old_size, const T & elem) {
 	for (uint32_t i = old_size; i < new_size; i++) {
 		new(ptr+i) T(elem); // placement new
 	}
 }
 
 template <typename T>
-void construct_range(T * ptr, uint32_t new_size, uint32_t old_size, const T * src) {
+static void construct_range(T * ptr, uint32_t new_size, uint32_t old_size, const T * src) {
 	for (uint32_t i = old_size; i < new_size; i++) {
 		new(ptr+i) T(src[i]); // placement new
 	}
 }
 
 template <typename T>
-void destroy_range(T * ptr, uint32_t new_size, uint32_t old_size) {
+static void destroy_range(T * ptr, uint32_t new_size, uint32_t old_size) {
 	for (uint32_t i = new_size; i < old_size; i++) {
 		(ptr+i)->~T(); // Explicit call to the destructor
 	}
@@ -2836,10 +2751,12 @@ public:
 	{
 		return m_vertexArray.size();
 	}
+
 	const Vertex *vertexAt(int i) const
 	{
 		return m_vertexArray[i];
 	}
+
 	Vertex *vertexAt(int i)
 	{
 		return m_vertexArray[i];
@@ -2855,10 +2772,12 @@ public:
 	{
 		return m_faceArray.size();
 	}
+
 	const Face *faceAt(int i) const
 	{
 		return m_faceArray[i];
 	}
+
 	Face *faceAt(int i)
 	{
 		return m_faceArray[i];
@@ -2869,10 +2788,12 @@ public:
 	{
 		return m_edgeArray.size();
 	}
+
 	const Edge *edgeAt(int i) const
 	{
 		return m_edgeArray[i];
 	}
+
 	Edge *edgeAt(int i)
 	{
 		return m_edgeArray[i];
@@ -2903,6 +2824,7 @@ public:
 		halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
+
 	VertexIterator vertices()
 	{
 		return VertexIterator(this);
@@ -2931,6 +2853,7 @@ public:
 		const halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
+
 	ConstVertexIterator vertices() const
 	{
 		return ConstVertexIterator(this);
@@ -2961,6 +2884,7 @@ public:
 		halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
+
 	FaceIterator faces()
 	{
 		return FaceIterator(this);
@@ -2989,6 +2913,7 @@ public:
 		const halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
+
 	ConstFaceIterator faces() const
 	{
 		return ConstFaceIterator(this);
@@ -3019,6 +2944,7 @@ public:
 		halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
+
 	EdgeIterator edges()
 	{
 		return EdgeIterator(this);
@@ -3047,6 +2973,7 @@ public:
 		const halfedge::Mesh *m_mesh;
 		uint32_t m_current;
 	};
+
 	ConstEdgeIterator edges() const
 	{
 		return ConstEdgeIterator(this);
@@ -3358,7 +3285,7 @@ private:
 	int m_genus;
 };
 
-float computeSurfaceArea(const halfedge::Mesh *mesh)
+static float computeSurfaceArea(const halfedge::Mesh *mesh)
 {
 	float area = 0;
 	for (halfedge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
@@ -3369,7 +3296,7 @@ float computeSurfaceArea(const halfedge::Mesh *mesh)
 	return area;
 }
 
-float computeParametricArea(const halfedge::Mesh *mesh)
+static float computeParametricArea(const halfedge::Mesh *mesh)
 {
 	float area = 0;
 	for (halfedge::Mesh::ConstFaceIterator it(mesh->faces()); !it.isDone(); it.advance()) {
@@ -3379,7 +3306,7 @@ float computeParametricArea(const halfedge::Mesh *mesh)
 	return area;
 }
 
-uint32_t countMeshTriangles(const Mesh *mesh)
+static uint32_t countMeshTriangles(const Mesh *mesh)
 {
 	const uint32_t faceCount = mesh->faceCount();
 	uint32_t triangleCount = 0;
@@ -3392,7 +3319,7 @@ uint32_t countMeshTriangles(const Mesh *mesh)
 	return triangleCount;
 }
 
-Mesh *unifyVertices(const Mesh *inputMesh)
+static Mesh *unifyVertices(const Mesh *inputMesh)
 {
 	Mesh *mesh = new Mesh;
 	// Only add the first colocal.
@@ -3422,14 +3349,12 @@ Mesh *unifyVertices(const Mesh *inputMesh)
 
 static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c)
 {
-	return triangleArea(a, b, p) >= 0.00001f &&
-	       triangleArea(b, c, p) >= 0.00001f &&
-	       triangleArea(c, a, p) >= 0.00001f;
+	return triangleArea(a, b, p) >= 0.00001f && triangleArea(b, c, p) >= 0.00001f && triangleArea(c, a, p) >= 0.00001f;
 }
 
 // This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
-Mesh *triangulate(const Mesh *inputMesh)
+static Mesh *triangulate(const Mesh *inputMesh)
 {
 	Mesh *mesh = new Mesh;
 	// Add all vertices.
@@ -3663,6 +3588,7 @@ class RadixSort
 {
 public:
 	RadixSort() : m_size(0), m_ranks(NULL), m_ranks2(NULL), m_validRanks(false) {}
+
 	~RadixSort()
 	{
 		// Release everything
@@ -3708,6 +3634,7 @@ public:
 		XA_DEBUG_ASSERT(m_validRanks);
 		return m_ranks;
 	}
+
 	uint32_t *ranks()
 	{
 		XA_DEBUG_ASSERT(m_validRanks);
@@ -5068,7 +4995,7 @@ static void setup_abf_relations(sparse::Matrix &A, int row, const halfedge::Vert
 	A.setCoefficient(v2_id, 2 * row + 1, 1);
 }
 
-bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
+static bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 {
 	XA_DEBUG_ASSERT(mesh != NULL);
 	// For this to work properly, mesh should not have colocals that have the same
@@ -5142,7 +5069,7 @@ bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 	return true;
 }
 
-bool computeOrthogonalProjectionMap(halfedge::Mesh *mesh)
+static bool computeOrthogonalProjectionMap(halfedge::Mesh *mesh)
 {
 	Vector3 axis[2];
 	uint32_t vertexCount = mesh->vertexCount();
@@ -5173,7 +5100,7 @@ bool computeOrthogonalProjectionMap(halfedge::Mesh *mesh)
 	return true;
 }
 
-void computeSingleFaceMap(halfedge::Mesh *mesh)
+static void computeSingleFaceMap(halfedge::Mesh *mesh)
 {
 	XA_DEBUG_ASSERT(mesh != NULL);
 	XA_DEBUG_ASSERT(mesh->faceCount() == 1);
