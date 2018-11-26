@@ -43,6 +43,16 @@ private:
 	std::chrono::time_point<Clock> start_;
 };
 
+static int Print(const char *format, ...)
+{
+	va_list arg;
+	va_start(arg, format);
+	printf("\r"); // Clear progress text (PrintProgress).
+	const int result = vprintf(format, arg);
+	va_end(arg);
+	return result;
+}
+
 static void PrintProgress(const char *name, const char *indent1, const char *indent2, int progress, Stopwatch *stopwatch)
 {
 	if (progress == 0)
@@ -134,16 +144,12 @@ int main(int argc, char *argv[])
 	}
 	printf("   %d shapes\n", (int)shapes.size());
 	// Create atlas.
-	if (verbose)
-		xatlas::SetPrint(xatlas::PrintFlags::All);
+	xatlas::SetPrint(verbose ? xatlas::PrintFlags::All : 0, Print);
 	xatlas::Atlas *atlas = xatlas::Create();
 	// Add meshes to atlas.
 	Stopwatch stopwatch;
 	int progress = 0;
-	if (verbose)
-		printf("Adding meshes...\n");
-	else
-		PrintProgress("Adding meshes", "", "   ", 0, &stopwatch);
+	PrintProgress("Adding meshes", "", "   ", 0, &stopwatch);
 	uint32_t totalVertices = 0, totalFaces = 0;
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
@@ -162,28 +168,21 @@ int main(int argc, char *argv[])
 		mesh.indexCount = (int)objMesh.indices.size();
 		mesh.indexData = objMesh.indices.data();
 		mesh.indexFormat = xatlas::IndexFormat::UInt32;
-		if (verbose)
-			printf("   mesh %d: %u vertices, %u triangles\n", i, mesh.vertexCount, mesh.indexCount / 3);
 		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, mesh);
 		if (error != xatlas::AddMeshError::Success) {
-			if (!verbose)
-				printf("\n");
-			printf("Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
+			printf("\rError adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
 			return EXIT_FAILURE;
 		}
 		totalVertices += mesh.vertexCount;
 		totalFaces += mesh.indexCount / 3;
-		if (!verbose)
+		const int newProgress = int((i + 1) / (float)shapes.size() * 100.0f);
+		if (newProgress != progress)
 		{
-			const int newProgress = int((i + 1) / (float)shapes.size() * 100.0f);
-			if (newProgress != progress)
-			{
-				progress = newProgress;
-				PrintProgress("Adding meshes", "", "   ", progress, &stopwatch);
-			}
+			progress = newProgress;
+			PrintProgress("Adding meshes", "", "   ", progress, &stopwatch);
 		}
 	}
-	if (!verbose && progress != 100)
+	if (progress != 100)
 		PrintProgress("Adding meshes", "", "   ", 100, &stopwatch);
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
@@ -193,8 +192,8 @@ int main(int argc, char *argv[])
 	packerOptions.resolution = 1024;
 	packerOptions.conservative = true;
 	packerOptions.padding = 1;
-	xatlas::GenerateCharts(atlas, xatlas::CharterOptions(), verbose ? NULL : ProgressCallback, &stopwatch);
-	xatlas::PackCharts(atlas, packerOptions, verbose ? NULL : ProgressCallback, &stopwatch);
+	xatlas::GenerateCharts(atlas, xatlas::CharterOptions(), ProgressCallback, &stopwatch);
+	xatlas::PackCharts(atlas, packerOptions, ProgressCallback, &stopwatch);
 	printf("   %d charts\n", xatlas::GetNumCharts(atlas));
 	const uint32_t width = xatlas::GetWidth(atlas);
 	const uint32_t height = xatlas::GetHeight(atlas);

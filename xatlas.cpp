@@ -25,7 +25,7 @@
 #define XA_XSTR(x) XA_STR(x)
 
 #ifndef XA_ASSERT
-#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT(0, "ASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
+#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT(0, "\rASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
 #endif
 
 #ifndef XA_DEBUG_ASSERT
@@ -7704,6 +7704,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalV
 	XA_DEBUG_ASSERT(atlas);
 	XA_DEBUG_ASSERT(mesh.vertexCount > 0);
 	XA_DEBUG_ASSERT(mesh.indexCount > 0);
+	XA_PRINT(PrintFlags::MeshCreation, "Adding mesh %d: %u vertices, %u triangles\n", atlas->heMeshes.size(), mesh.vertexCount, mesh.indexCount / 3);
 	// Expecting triangle faces.
 	if ((mesh.indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
