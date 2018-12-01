@@ -2305,7 +2305,8 @@ public:
 		indexArray.reserve(3);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const Face *face = mesh->faceAt(f);
-			for (Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+			Face::ConstEdgeIterator it(face->edges());
+			for (; !it.isDone(); it.advance()) {
 				const Vertex *vertex = it.current()->from();
 				indexArray.push_back(vertex->id);
 			}
