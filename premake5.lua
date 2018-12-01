@@ -1,7 +1,7 @@
 local BUILD_DIR = path.join("build", _ACTION)
 
 solution "xatlas"
-	configurations { "Release", "Debug", "DebugFast" }
+	configurations { "Release", "Debug" }
 	location(BUILD_DIR)
 	if os.is64bit() and not os.istarget("windows") then
 		platforms { "x86_64", "x86" }
@@ -28,8 +28,6 @@ project "xatlas"
 	rtti "Off"
 	warnings "Extra"
 	files { "xatlas.cpp", "xatlas.h" }
-	filter "configurations:DebugFast"
-		defines { "xaDebugAssert(x)" }
 
 project "example"
 	kind "ConsoleApp"
