@@ -4,7 +4,7 @@ compiler: gcc
 install:
   - git clone https://github.com/premake/premake-core.git ../premake-core
   - cd ../premake-core
-  - git checkout tags/v5.0.0-alpha12
+  - git checkout tags/v5.0.0-alpha13
   - git submodule init
   - git submodule update
   - make -f Bootstrap.mak linux
