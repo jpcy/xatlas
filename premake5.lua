@@ -1,8 +1,6 @@
-local BUILD_DIR = path.join("build", _ACTION)
-
 solution "xatlas"
 	configurations { "Release", "Debug" }
-	location(BUILD_DIR)
+	location(path.join("build", _ACTION))
 	if os.is64bit() and not os.istarget("windows") then
 		platforms { "x86_64", "x86" }
 	else
@@ -25,6 +23,7 @@ project "xatlas"
 	kind "StaticLib"
 	language "C++"
 	cppdialect "C++98"
+	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
 	files { "xatlas.cpp", "xatlas.h" }
@@ -33,9 +32,9 @@ project "example"
 	kind "ConsoleApp"
 	language "C++"
 	cppdialect "C++11"
+	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
-	targetprefix ""
 	files { "example/*.cpp" }
 	links { "xatlas" }
 	filter { "system:windows", "action:gmake", "platforms:x86" }
