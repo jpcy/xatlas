@@ -6421,7 +6421,7 @@ private:
 		// Compute eigen-values of the first fundamental form:
 		float sigma1 = sqrtf(0.5f * std::max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
 		float sigma2 = sqrtf(0.5f * std::max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
-		XA_ASSERT(sigma2 >= sigma1);
+		XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2));
 		// isometric: sigma1 = sigma2 = 1
 		// conformal: sigma1 / sigma2 = 1
 		// authalic: sigma1 * sigma2 = 1
