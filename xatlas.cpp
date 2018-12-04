@@ -5840,7 +5840,7 @@ private:
 class Chart
 {
 public:
-	Chart() : scale(1.0f), blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
+	Chart() : atlasIndex(-1), scale(1.0f), blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
 	~Chart()
 	{
 		delete m_chartMesh;
@@ -6195,6 +6195,7 @@ public:
 		return (maxCorner - minCorner) * 0.5f;
 	}
 
+	int32_t atlasIndex;
 	float scale;
 	uint32_t vertexMapWidth;
 	uint32_t vertexMapHeight;
@@ -6903,258 +6904,296 @@ struct AtlasPacker
 		m_atlas->restoreOriginalChartUvs();
 	}
 
+	~AtlasPacker()
+	{
+		for (uint32_t i = 0; i < m_bitmaps.size(); i++)
+			delete m_bitmaps[i];
+	}
+
 	uint32_t getWidth() const { return m_width; }
 	uint32_t getHeight() const { return m_height; }
+	uint32_t getNumAtlases() const { return m_bitmaps.size(); }
 
 	// Pack charts in the smallest possible rectangle.
-	void packCharts(const PackerOptions &options)
+	void packCharts(const PackerOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
 	{
+		if (progressCallback)
+			progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
 		const uint32_t chartCount = m_atlas->chartCount();
 		XA_PRINT(PrintFlags::PackingCharts, "   %u charts\n", chartCount);
 		if (chartCount == 0) return;
-		float texelsPerUnit = 1;
-		if (options.method == PackMethod::TexelArea)
-			texelsPerUnit = options.texelArea;
-		for (int iteration = 0;; iteration++) {
-			XA_PRINT(PrintFlags::PackingCharts, "   Iteration %d\n", iteration);
-			m_rand = MTRand();
-			Array<float> chartOrderArray;
-			chartOrderArray.resize(chartCount);
-			Array<Vector2> chartExtents;
-			chartExtents.resize(chartCount);
+		uint32_t resolution = options.resolution;
+		float texelsPerUnit = options.texelArea;
+		if (resolution <= 0 || texelsPerUnit <= 0) {
+			if (resolution <= 0 && texelsPerUnit <= 0)
+				resolution = 1024;
 			float meshArea = 0;
 			for (uint32_t c = 0; c < chartCount; c++) {
 				Chart *chart = m_atlas->chartAt(c);
-				if (chart->isVertexMapped() || !chart->isDisk()) {
-					chartOrderArray[c] = 0;
-					// Skip non-disks.
+				if (chart->isVertexMapped() || !chart->isDisk())
 					continue;
-				}
-				Vector2 extents(0.0f);
-				// Compute surface area to sort charts.
-				float chartArea = chart->computeSurfaceArea();
-				meshArea += chartArea;
-				//chartOrderArray[c] = chartArea;
-				// Compute chart scale
-				float parametricArea = fabsf(chart->computeParametricArea());    // @@ There doesn't seem to be anything preventing parametric area to be negative.
-				if (parametricArea < XA_EPSILON) {
-					// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
-					Vector2 bounds = chart->computeParametricBounds();
-					parametricArea = bounds.x * bounds.y;
-				}
-				float scale = (chartArea / parametricArea) * texelsPerUnit;
-				if (parametricArea == 0) { // < XA_EPSILON)
-					scale = 0;
-				}
-				XA_ASSERT(std::isfinite(scale));
-				// Compute bounding box of chart.
-				Vector2 majorAxis, minorAxis, origin, end;
-				computeBoundingBox(chart, &majorAxis, &minorAxis, &origin, &end);
-				XA_ASSERT(isFinite(majorAxis) && isFinite(minorAxis) && isFinite(origin));
-				// Sort charts by perimeter. @@ This is sometimes producing somewhat unexpected results. Is this right?
-				//chartOrderArray[c] = ((end.x - origin.x) + (end.y - origin.y)) * scale;
-				// Translate, rotate and scale vertices. Compute extents.
-				halfedge::Mesh *mesh = chart->chartMesh();
-				const uint32_t vertexCount = mesh->vertexCount();
-				for (uint32_t i = 0; i < vertexCount; i++) {
-					halfedge::Vertex *vertex = mesh->vertexAt(i);
-					//Vector2 t = vertex->tex - origin;
-					Vector2 tmp;
-					tmp.x = dot(vertex->tex, majorAxis);
-					tmp.y = dot(vertex->tex, minorAxis);
-					tmp -= origin;
-					tmp *= scale;
-					if (tmp.x < 0 || tmp.y < 0) {
-						XA_PRINT(PrintFlags::PackingCharts, "tmp: %f %f\n", tmp.x, tmp.y);
-						XA_PRINT(PrintFlags::PackingCharts, "scale: %f\n", scale);
-						XA_PRINT(PrintFlags::PackingCharts, "origin: %f %f\n", origin.x, origin.y);
-						XA_PRINT(PrintFlags::PackingCharts, "majorAxis: %f %f\n", majorAxis.x, majorAxis.y);
-						XA_PRINT(PrintFlags::PackingCharts, "minorAxis: %f %f\n", minorAxis.x, minorAxis.y);
-						XA_DEBUG_ASSERT(false);
-					}
-					//XA_ASSERT(tmp.x >= 0 && tmp.y >= 0);
-					vertex->tex = tmp;
-					XA_ASSERT(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
-					extents = max(extents, tmp);
-				}
-				XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
-				// Limit chart size.
-				if (extents.x > 1024 || extents.y > 1024) {
-					float limit = std::max(extents.x, extents.y);
-					scale = 1024 / (limit + 1);
-					for (uint32_t i = 0; i < vertexCount; i++) {
-						halfedge::Vertex *vertex = mesh->vertexAt(i);
-						vertex->tex *= scale;
-					}
-					extents *= scale;
-					XA_DEBUG_ASSERT(extents.x <= 1024 && extents.y <= 1024);
-				}
-				// Scale the charts to use the entire texel area available. So, if the width is 0.1 we could scale it to 1 without increasing the lightmap usage and making a better
-				// use of it. In many cases this also improves the look of the seams, since vertices on the chart boundaries have more chances of being aligned with the texel centers.
-				float scale_x = 1.0f;
-				float scale_y = 1.0f;
-				float divide_x = 1.0f;
-				float divide_y = 1.0f;
-				if (extents.x > 0) {
-					int cw = ftoi_ceil(extents.x);
-					if (options.blockAlign && chart->blockAligned) {
-						// Align all chart extents to 4x4 blocks, but taking padding into account.
-						if (options.conservative) {
-							cw = align(cw + 2, 4) - 2;
-						} else {
-							cw = align(cw + 1, 4) - 1;
-						}
-					}
-					scale_x = (float(cw) - XA_EPSILON);
-					divide_x = extents.x;
-					extents.x = float(cw);
-				}
-				if (extents.y > 0) {
-					int ch = ftoi_ceil(extents.y);
-					if (options.blockAlign && chart->blockAligned) {
-						// Align all chart extents to 4x4 blocks, but taking padding into account.
-						if (options.conservative) {
-							ch = align(ch + 2, 4) - 2;
-						} else {
-							ch = align(ch + 1, 4) - 1;
-						}
-					}
-					scale_y = (float(ch) - XA_EPSILON);
-					divide_y = extents.y;
-					extents.y = float(ch);
-				}
-				for (uint32_t v = 0; v < vertexCount; v++) {
-					halfedge::Vertex *vertex = mesh->vertexAt(v);
-					vertex->tex.x /= divide_x;
-					vertex->tex.y /= divide_y;
-					vertex->tex.x *= scale_x;
-					vertex->tex.y *= scale_y;
-					XA_ASSERT(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
-				}
-				chartExtents[c] = extents;
-				// Sort charts by perimeter.
-				chartOrderArray[c] = extents.x + extents.y;
+				meshArea += chart->computeSurfaceArea();
 			}
-			// @@ We can try to improve compression of small charts by sorting them by proximity like we do with vertex samples.
-			// @@ How to do that? One idea: compute chart centroid, insert into grid, compute morton index of the cell, sort based on morton index.
-			// @@ We would sort by morton index, first, then quantize the chart sizes, so that all small charts have the same size, and sort by size preserving the morton order.
-			//XA_PRINT("Sorting charts.\n");
-			// Sort charts by area.
-			m_radix = RadixSort();
-			m_radix.sort(chartOrderArray);
-			const uint32_t *ranks = m_radix.ranks();
-			// First iteration - guess texelsPerUnit.
-			if (options.method != PackMethod::TexelArea && iteration == 0) {
-				// Estimate size of the map based on the mesh surface area and given texel scale.
+			if (resolution <= 0) {
+				// Estimate resolution based on the mesh surface area and given texel scale.
 				const float texelCount = std::max(1.0f, meshArea * square(texelsPerUnit) / 0.75f); // Assume 75% utilization.
-				texelsPerUnit = sqrt((options.resolution * options.resolution) / texelCount);
-				XA_PRINT(PrintFlags::PackingCharts, "      Estimating texelsPerUnit as %g\n", texelsPerUnit);
-				m_atlas->restoreOriginalChartUvs();
-				continue;
+				resolution = nextPowerOfTwo(uint32_t(sqrtf(texelCount)));
+				XA_PRINT(PrintFlags::PackingCharts, "      Estimating resolution as %d\n", resolution);
 			}
-			// Init bit map.
-			m_bitmap.clearAll();
-			m_bitmap.resize(options.resolution, options.resolution, false);
-			int w = 0;
-			int h = 0;
-			// Add sorted charts to bitmap.
-			XA_PRINT(PrintFlags::PackingCharts, "      Rasterizing charts\n");
-			for (uint32_t i = 0; i < chartCount; i++) {
-				uint32_t c = ranks[chartCount - i - 1]; // largest chart first
-				Chart *chart = m_atlas->chartAt(c);
-				if (chart->isVertexMapped() || !chart->isDisk()) continue;
-				//float scale_x = 1;
-				//float scale_y = 1;
-				BitMap chart_bitmap;
-				// @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
-				// @@ We could also have a special case for chart quads. If the quad surface <= 4 texels, align vertices with texel centers and do not add padding. May be very useful for foliage.
-				// @@ In general we could reduce the padding of all charts by one texel by using a rasterizer that takes into account the 2-texel footprint of the tent bilinear filter. For example,
-				// if we have a chart that is less than 1 texel wide currently we add one texel to the left and one texel to the right creating a 3-texel-wide bitmap. However, if we know that the
-				// chart is only 1 texel wide we could align it so that it only touches the footprint of two texels:
-				//      |   |      <- Touches texels 0, 1 and 2.
-				//    |   |        <- Only touches texels 0 and 1.
-				// \   \ / \ /   /
-				//  \   X   X   /
-				//   \ / \ / \ /
-				//    V   V   V
-				//    0   1   2
-				if (options.conservative) {
-					// Init all bits to 0.
-					chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, /*initValue=*/false);  // + 2 to add padding on both sides.
-					// Rasterize chart and dilate.
-					drawChartBitmapDilate(chart, &chart_bitmap, options.padding);
-				} else {
-					// Init all bits to 0.
-					chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1, /*initValue=*/false);  // Add half a texels on each side.
-					// Rasterize chart and dilate.
-					drawChartBitmap(chart, &chart_bitmap, Vector2(1), Vector2(0.5));
-				}
-				int best_x = 0, best_y = 0;
-				int best_cw = 0, best_ch = 0;   // Includes padding now.
-				int best_r = 0;
-				findChartLocation(options.quality, &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, chart->blockAligned);
-				/*if (w < best_x + best_cw || h < best_y + best_ch)
-				{
-					XA_PRINT("Resize extents to (%d, %d).\n", best_x + best_cw, best_y + best_ch);
-				}*/
-				// Update parametric extents.
-				w = std::max(w, best_x + best_cw);
-				h = std::max(h, best_y + best_ch);
-				w = align(w, 4);
-				h = align(h, 4);
-				// Resize bitmap if necessary.
-				if (uint32_t(w) > m_bitmap.width() || uint32_t(h) > m_bitmap.height()) {
-					//XA_PRINT("Resize bitmap (%d, %d).\n", nextPowerOfTwo(w), nextPowerOfTwo(h));
-					m_bitmap.resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
-				}
-				//XA_PRINT("Add chart at (%d, %d).\n", best_x, best_y);
-				addChart(&chart_bitmap, w, h, best_x, best_y, best_r);
-				//float best_angle = 2 * M_PI * best_r;
-				// Translate and rotate chart texture coordinates.
-				halfedge::Mesh *mesh = chart->chartMesh();
-				const uint32_t vertexCount = mesh->vertexCount();
-				for (uint32_t v = 0; v < vertexCount; v++) {
-					halfedge::Vertex *vertex = mesh->vertexAt(v);
-					Vector2 t = vertex->tex;
-					if (best_r) std::swap(t.x, t.y);
-					//vertex->tex.x = best_x + t.x * cosf(best_angle) - t.y * sinf(best_angle);
-					//vertex->tex.y = best_y + t.x * sinf(best_angle) + t.y * cosf(best_angle);
-					vertex->tex.x = best_x + t.x + 0.5f;
-					vertex->tex.y = best_y + t.y + 0.5f;
-					XA_ASSERT(vertex->tex.x >= 0 && vertex->tex.y >= 0);
-					XA_ASSERT(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
-				}
-			}
-			//w -= padding - 1; // Leave one pixel border!
-			//h -= padding - 1;
-			m_width = std::max(0, w);
-			m_height = std::max(0, h);
-			XA_ASSERT(isAligned(m_width, 4));
-			XA_ASSERT(isAligned(m_height, 4));
-			XA_PRINT(PrintFlags::PackingCharts, "      %dx%d resolution\n", m_width, m_height);
-			if (options.method == PackMethod::ExactResolution) {
-				const uint32_t largestDimension = std::max(m_width, m_height);
-				texelsPerUnit *= sqrt((options.resolution * options.resolution) / (float)(largestDimension * largestDimension));
-				// Reduce texelsPerUnit by 10% after a few iterations.
-				const int firstAdjustmentIteration = 8;
-				if (iteration >= firstAdjustmentIteration)
-					texelsPerUnit *= 1.0f - (0.1f * (iteration - firstAdjustmentIteration + 1));
+			if (texelsPerUnit <= 0) {
+				// Estimate a suitable texelsPerUnit to fit the given resolution.
+				const float texelCount = std::max(1.0f, meshArea / 0.75f); // Assume 75% utilization.
+				texelsPerUnit = sqrt((resolution * resolution) / texelCount);
 				XA_PRINT(PrintFlags::PackingCharts, "      Estimating texelsPerUnit as %g\n", texelsPerUnit);
-				if (iteration > 1 && m_width <= options.resolution && m_height <= options.resolution) {
-					m_width = m_height = options.resolution;
-					return;
-				}
-				// Give up after too many iterations.
-				if (iteration >= 16)
-					return;
-				m_atlas->restoreOriginalChartUvs();
-			} else {
-				return;
 			}
 		}
+		m_rand = MTRand();
+		Array<float> chartOrderArray;
+		chartOrderArray.resize(chartCount);
+		Array<Vector2> chartExtents;
+		chartExtents.resize(chartCount);
+		for (uint32_t c = 0; c < chartCount; c++) {
+			Chart *chart = m_atlas->chartAt(c);
+			if (chart->isVertexMapped() || !chart->isDisk()) {
+				chartOrderArray[c] = 0;
+				// Skip non-disks.
+				continue;
+			}
+			Vector2 extents(0.0f);
+			// Compute surface area to sort charts.
+			float chartArea = chart->computeSurfaceArea();
+			//chartOrderArray[c] = chartArea;
+			// Compute chart scale
+			float parametricArea = fabsf(chart->computeParametricArea());    // @@ There doesn't seem to be anything preventing parametric area to be negative.
+			if (parametricArea < XA_EPSILON) {
+				// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
+				Vector2 bounds = chart->computeParametricBounds();
+				parametricArea = bounds.x * bounds.y;
+			}
+			float scale = (chartArea / parametricArea) * texelsPerUnit;
+			if (parametricArea == 0) { // < XA_EPSILON)
+				scale = 0;
+			}
+			XA_ASSERT(std::isfinite(scale));
+			// Compute bounding box of chart.
+			Vector2 majorAxis, minorAxis, origin, end;
+			computeBoundingBox(chart, &majorAxis, &minorAxis, &origin, &end);
+			XA_ASSERT(isFinite(majorAxis) && isFinite(minorAxis) && isFinite(origin));
+			// Sort charts by perimeter. @@ This is sometimes producing somewhat unexpected results. Is this right?
+			//chartOrderArray[c] = ((end.x - origin.x) + (end.y - origin.y)) * scale;
+			// Translate, rotate and scale vertices. Compute extents.
+			halfedge::Mesh *mesh = chart->chartMesh();
+			const uint32_t vertexCount = mesh->vertexCount();
+			for (uint32_t i = 0; i < vertexCount; i++) {
+				halfedge::Vertex *vertex = mesh->vertexAt(i);
+				//Vector2 t = vertex->tex - origin;
+				Vector2 tmp;
+				tmp.x = dot(vertex->tex, majorAxis);
+				tmp.y = dot(vertex->tex, minorAxis);
+				tmp -= origin;
+				tmp *= scale;
+				if (tmp.x < 0 || tmp.y < 0) {
+					XA_PRINT(PrintFlags::PackingCharts, "tmp: %f %f\n", tmp.x, tmp.y);
+					XA_PRINT(PrintFlags::PackingCharts, "scale: %f\n", scale);
+					XA_PRINT(PrintFlags::PackingCharts, "origin: %f %f\n", origin.x, origin.y);
+					XA_PRINT(PrintFlags::PackingCharts, "majorAxis: %f %f\n", majorAxis.x, majorAxis.y);
+					XA_PRINT(PrintFlags::PackingCharts, "minorAxis: %f %f\n", minorAxis.x, minorAxis.y);
+					XA_DEBUG_ASSERT(false);
+				}
+				//XA_ASSERT(tmp.x >= 0 && tmp.y >= 0);
+				vertex->tex = tmp;
+				XA_ASSERT(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
+				extents = max(extents, tmp);
+			}
+			XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
+			// Limit chart size.
+			if (extents.x > 1024 || extents.y > 1024) {
+				float limit = std::max(extents.x, extents.y);
+				scale = 1024 / (limit + 1);
+				for (uint32_t i = 0; i < vertexCount; i++) {
+					halfedge::Vertex *vertex = mesh->vertexAt(i);
+					vertex->tex *= scale;
+				}
+				extents *= scale;
+				XA_DEBUG_ASSERT(extents.x <= 1024 && extents.y <= 1024);
+			}
+			// Scale the charts to use the entire texel area available. So, if the width is 0.1 we could scale it to 1 without increasing the lightmap usage and making a better
+			// use of it. In many cases this also improves the look of the seams, since vertices on the chart boundaries have more chances of being aligned with the texel centers.
+			float scale_x = 1.0f;
+			float scale_y = 1.0f;
+			float divide_x = 1.0f;
+			float divide_y = 1.0f;
+			if (extents.x > 0) {
+				int cw = ftoi_ceil(extents.x);
+				if (options.blockAlign && chart->blockAligned) {
+					// Align all chart extents to 4x4 blocks, but taking padding into account.
+					if (options.conservative) {
+						cw = align(cw + 2, 4) - 2;
+					} else {
+						cw = align(cw + 1, 4) - 1;
+					}
+				}
+				scale_x = (float(cw) - XA_EPSILON);
+				divide_x = extents.x;
+				extents.x = float(cw);
+			}
+			if (extents.y > 0) {
+				int ch = ftoi_ceil(extents.y);
+				if (options.blockAlign && chart->blockAligned) {
+					// Align all chart extents to 4x4 blocks, but taking padding into account.
+					if (options.conservative) {
+						ch = align(ch + 2, 4) - 2;
+					} else {
+						ch = align(ch + 1, 4) - 1;
+					}
+				}
+				scale_y = (float(ch) - XA_EPSILON);
+				divide_y = extents.y;
+				extents.y = float(ch);
+			}
+			for (uint32_t v = 0; v < vertexCount; v++) {
+				halfedge::Vertex *vertex = mesh->vertexAt(v);
+				vertex->tex.x /= divide_x;
+				vertex->tex.y /= divide_y;
+				vertex->tex.x *= scale_x;
+				vertex->tex.y *= scale_y;
+				XA_ASSERT(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
+			}
+			chartExtents[c] = extents;
+			// Sort charts by perimeter.
+			chartOrderArray[c] = extents.x + extents.y;
+		}
+		// @@ We can try to improve compression of small charts by sorting them by proximity like we do with vertex samples.
+		// @@ How to do that? One idea: compute chart centroid, insert into grid, compute morton index of the cell, sort based on morton index.
+		// @@ We would sort by morton index, first, then quantize the chart sizes, so that all small charts have the same size, and sort by size preserving the morton order.
+		XA_PRINT(PrintFlags::PackingCharts, "      Sorting charts.\n");
+		// Sort charts by area.
+		m_radix = RadixSort();
+		m_radix.sort(chartOrderArray);
+		const uint32_t *ranks = m_radix.ranks();
+		// Add sorted charts to bitmap.
+		XA_PRINT(PrintFlags::PackingCharts, "      Rasterizing charts\n");
+		int w = 0, h = 0;
+		int progress = 0;
+		for (uint32_t i = 0; i < chartCount; i++) {
+			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
+			Chart *chart = m_atlas->chartAt(c);
+			if (chart->isVertexMapped() || !chart->isDisk())
+				continue;
+			BitMap chart_bitmap;
+			// @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
+			// @@ We could also have a special case for chart quads. If the quad surface <= 4 texels, align vertices with texel centers and do not add padding. May be very useful for foliage.
+			// @@ In general we could reduce the padding of all charts by one texel by using a rasterizer that takes into account the 2-texel footprint of the tent bilinear filter. For example,
+			// if we have a chart that is less than 1 texel wide currently we add one texel to the left and one texel to the right creating a 3-texel-wide bitmap. However, if we know that the
+			// chart is only 1 texel wide we could align it so that it only touches the footprint of two texels:
+			//      |   |      <- Touches texels 0, 1 and 2.
+			//    |   |        <- Only touches texels 0 and 1.
+			// \   \ / \ /   /
+			//  \   X   X   /
+			//   \ / \ / \ /
+			//    V   V   V
+			//    0   1   2
+			if (options.conservative) {
+				// Init all bits to 0.
+				chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, false);  // + 2 to add padding on both sides.
+				// Rasterize chart and dilate.
+				drawChartBitmapDilate(chart, &chart_bitmap, options.padding);
+			} else {
+				// Init all bits to 0.
+				chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1, false);  // Add half a texels on each side.
+				// Rasterize chart and dilate.
+				drawChartBitmap(chart, &chart_bitmap, Vector2(1), Vector2(0.5));
+			}
+			uint32_t currentBitmapIndex = 0;
+			int best_x = 0, best_y = 0;
+			int best_cw = 0, best_ch = 0;   // Includes padding now.
+			int best_r = 0;
+			for (;;)
+			{
+				bool firstChartInBitmap = false;
+				if (currentBitmapIndex + 1 > m_bitmaps.size()) {
+					// Chart doesn't fit in the current bitmap, create a new one.
+					BitMap *bm = new BitMap();
+					bm->clearAll();
+					bm->resize(resolution, resolution, false);
+					m_bitmaps.push_back(bm);
+					firstChartInBitmap = true;
+				}
+				const bool foundLocation = findChartLocation(options.quality, m_bitmaps[currentBitmapIndex], &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, chart->blockAligned, options.resolution <= 0);
+				if (firstChartInBitmap && !foundLocation) {
+					// Chart doesn't fit in an empty, newly allocated bitmap. texelArea must be too large for the resolution.
+					XA_ASSERT(true && "chart doesn't fit");
+					break;
+				}
+				if (options.resolution <= 0) {
+					XA_DEBUG_ASSERT(foundLocation);
+					break;
+				}
+				if (foundLocation)
+					break;
+				// Chart doesn't fit in the current bitmap, try the next one.
+				currentBitmapIndex++;
+			}
+			/*if (w < best_x + best_cw || h < best_y + best_ch)
+				XA_PRINT("Resize extents to (%d, %d).\n", best_x + best_cw, best_y + best_ch);
+			*/
+			// Update parametric extents.
+			w = std::max(w, best_x + best_cw);
+			h = std::max(h, best_y + best_ch);
+			w = align(w, 4);
+			h = align(h, 4);
+			if (options.resolution <= 0) {
+				// Resize bitmap if necessary.
+				if (uint32_t(w) > m_bitmaps[0]->width() || uint32_t(h) > m_bitmaps[0]->height()) {
+					m_bitmaps[0]->resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
+					XA_PRINT(PrintFlags::PackingCharts, "      Resize bitmap (%d, %d).\n", m_bitmaps[0]->width(), m_bitmaps[0]->height());
+				}
+			} else {
+				w = std::min((int)options.resolution, w);
+				h = std::min((int)options.resolution, h);
+			}
+			//XA_PRINT("Add chart at (%d, %d).\n", best_x, best_y);
+			addChart(m_bitmaps[currentBitmapIndex], &chart_bitmap, w, h, best_x, best_y, best_r);
+			chart->atlasIndex = (int32_t)currentBitmapIndex;
+			//float best_angle = 2 * M_PI * best_r;
+			// Translate and rotate chart texture coordinates.
+			halfedge::Mesh *mesh = chart->chartMesh();
+			const uint32_t vertexCount = mesh->vertexCount();
+			for (uint32_t v = 0; v < vertexCount; v++) {
+				halfedge::Vertex *vertex = mesh->vertexAt(v);
+				Vector2 t = vertex->tex;
+				if (best_r) std::swap(t.x, t.y);
+				//vertex->tex.x = best_x + t.x * cosf(best_angle) - t.y * sinf(best_angle);
+				//vertex->tex.y = best_y + t.x * sinf(best_angle) + t.y * cosf(best_angle);
+				vertex->tex.x = best_x + t.x + 0.5f;
+				vertex->tex.y = best_y + t.y + 0.5f;
+				XA_ASSERT(vertex->tex.x >= 0 && vertex->tex.y >= 0);
+				XA_ASSERT(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
+			}
+			if (progressCallback)
+			{
+				const int newProgress = int((i + 1) / (float)chartCount * 100.0f);
+				if (newProgress != progress)
+				{
+					progress = newProgress;
+					progressCallback(ProgressCategory::PackingCharts, progress, progressCallbackUserData);
+				}
+			}
+		}
+		//w -= padding - 1; // Leave one pixel border!
+		//h -= padding - 1;
+		m_width = std::max(0, w);
+		m_height = std::max(0, h);
+		XA_ASSERT(isAligned(m_width, 4));
+		XA_ASSERT(isAligned(m_height, 4));
+		if (options.resolution > 0)
+			m_width = m_height = options.resolution;
+		XA_PRINT(PrintFlags::PackingCharts, "      %dx%d resolution\n", m_width, m_height);
+		if (progressCallback && progress != 100)
+			progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
 	}
 
-	float computeAtlasUtilization() const
+	/*float computeAtlasUtilization() const
 	{
 		const uint32_t w = m_width;
 		const uint32_t h = m_height;
@@ -7167,39 +7206,40 @@ struct AtlasPacker
 			}
 		}
 		return float(count) / (w * h);
-	}
+	}*/
 
 private:
 	// IC: Brute force is slow, and random may take too much time to converge. We start inserting large charts in a small atlas. Using brute force is lame, because most of the space
 	// is occupied at this point. At the end we have many small charts and a large atlas with sparse holes. Finding those holes randomly is slow. A better approach would be to
 	// start stacking large charts as if they were tetris pieces. Once charts get small try to place them randomly. It may be interesting to try a intermediate strategy, first try
 	// along one axis and then try exhaustively along that axis.
-	void findChartLocation(int quality, const BitMap *bitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned)
+	bool findChartLocation(int quality, const BitMap *atlasBitmap, const BitMap *chartBitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
 	{
 		int attempts = 256;
 		if (quality == 1) attempts = 4096;
 		if (quality == 2) attempts = 2048;
 		if (quality == 3) attempts = 1024;
 		if (quality == 4) attempts = 512;
-		if (quality == 0 || w * h < attempts) {
-			findChartLocation_bruteForce(bitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned);
-		} else {
-			findChartLocation_random(bitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned);
-		}
+		if (quality == 0 || w * h < attempts)
+			return findChartLocation_bruteForce(atlasBitmap, chartBitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, resizableAtlas);
+		return findChartLocation_random(atlasBitmap, chartBitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned, resizableAtlas);
 	}
 
-	void findChartLocation_bruteForce(const BitMap *bitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned)
+	bool findChartLocation_bruteForce(const BitMap *atlasBitmap, const BitMap *chartBitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
 	{
+		bool result = false;
 		const int BLOCK_SIZE = 4;
 		int best_metric = INT_MAX;
 		int step_size = blockAligned ? BLOCK_SIZE : 1;
 		// Try two different orientations.
 		for (int r = 0; r < 2; r++) {
-			int cw = bitmap->width();
-			int ch = bitmap->height();
+			int cw = chartBitmap->width();
+			int ch = chartBitmap->height();
 			if (r & 1) std::swap(cw, ch);
 			for (int y = 0; y <= h + 1; y += step_size) { // + 1 to extend atlas in case atlas full.
 				for (int x = 0; x <= w + 1; x += step_size) { // + 1 not really necessary here.
+					if (!resizableAtlas && (x > (int)atlasBitmap->width() - cw || y > (int)atlasBitmap->height() - ch))
+						continue;
 					// Early out.
 					int area = std::max(w, x + cw) * std::max(h, y + ch);
 					//int perimeter = max(w, x+cw) + max(h, y+ch);
@@ -7212,7 +7252,8 @@ private:
 						// If metric is the same, pick the one closest to the origin.
 						continue;
 					}
-					if (canAddChart(bitmap, w, h, x, y, r)) {
+					if (canAddChart(atlasBitmap, chartBitmap, w, h, x, y, r)) {
+						result = true;
 						best_metric = metric;
 						*best_x = x;
 						*best_y = y;
@@ -7229,23 +7270,35 @@ private:
 		}
 	done:
 		XA_DEBUG_ASSERT (best_metric != INT_MAX);
+		return result;
 	}
 
-	void findChartLocation_random(const BitMap *bitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned)
+	bool findChartLocation_random(const BitMap *atlasBitmap, const BitMap *chartBitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned, bool resizableAtlas)
 	{
+		bool result = false;
 		const int BLOCK_SIZE = 4;
 		int best_metric = INT_MAX;
-		for (int i = 0; i < minTrialCount || best_metric == INT_MAX; i++) {
+		for (int i = 0; i < minTrialCount; i++) {
+			int cw = chartBitmap->width();
+			int ch = chartBitmap->height();
 			int r = m_rand.getRange(1);
-			int x = m_rand.getRange(w + 1); // + 1 to extend atlas in case atlas full. We may want to use a higher number to increase probability of extending atlas.
-			int y = m_rand.getRange(h + 1); // + 1 to extend atlas in case atlas full.
+			if (r & 1)
+				std::swap(cw, ch);
+			// + 1 to extend atlas in case atlas full. We may want to use a higher number to increase probability of extending atlas.
+			int xRange = w + 1;
+			int yRange = h + 1;
+			if (!resizableAtlas) {
+				xRange = std::min(xRange, (int)atlasBitmap->width() - cw);
+				yRange = std::min(yRange, (int)atlasBitmap->height() - ch);
+			}
+			int x = m_rand.getRange(xRange);
+			int y = m_rand.getRange(yRange);
 			if (blockAligned) {
 				x = align(x, BLOCK_SIZE);
 				y = align(y, BLOCK_SIZE);
+				if (!resizableAtlas && (x > (int)atlasBitmap->width() - cw || y > (int)atlasBitmap->height() - ch))
+					continue; // Block alignment pushed the chart outside the atlas.
 			}
-			int cw = bitmap->width();
-			int ch = bitmap->height();
-			if (r & 1) std::swap(cw, ch);
 			// Early out.
 			int area = std::max(w, x + cw) * std::max(h, y + ch);
 			//int perimeter = max(w, x+cw) + max(h, y+ch);
@@ -7258,7 +7311,8 @@ private:
 				// If metric is the same, pick the one closest to the origin.
 				continue;
 			}
-			if (canAddChart(bitmap, w, h, x, y, r)) {
+			if (canAddChart(atlasBitmap, chartBitmap, w, h, x, y, r)) {
+				result = true;
 				best_metric = metric;
 				*best_x = x;
 				*best_y = y;
@@ -7271,6 +7325,7 @@ private:
 				}
 			}
 		}
+		return result;
 	}
 
 	void drawChartBitmapDilate(const Chart *chart, BitMap *bitmap, int padding)
@@ -7379,12 +7434,12 @@ private:
 		std::swap(tmp, *bitmap);
 	}
 
-	bool canAddChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	bool canAddChart(const BitMap *atlasBitmap, const BitMap *chartBitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
 		// Check whether the two bitmaps overlap.
-		const int w = bitmap->width();
-		const int h = bitmap->height();
+		const int w = chartBitmap->width();
+		const int h = chartBitmap->height();
 		if (r == 0) {
 			for (int y = 0; y < h; y++) {
 				int yy = y + offset_y;
@@ -7392,9 +7447,10 @@ private:
 					for (int x = 0; x < w; x++) {
 						int xx = x + offset_x;
 						if (xx >= 0) {
-							if (bitmap->bitAt(x, y)) {
+							if (chartBitmap->bitAt(x, y)) {
 								if (xx < atlas_w && yy < atlas_h) {
-									if (m_bitmap.bitAt(xx, yy)) return false;
+									if (atlasBitmap->bitAt(xx, yy))
+										return false;
 								}
 							}
 						}
@@ -7408,9 +7464,10 @@ private:
 					for (int x = 0; x < w; x++) {
 						int yy = x + offset_y;
 						if (yy >= 0) {
-							if (bitmap->bitAt(x, y)) {
+							if (chartBitmap->bitAt(x, y)) {
 								if (xx < atlas_w && yy < atlas_h) {
-									if (m_bitmap.bitAt(xx, yy)) return false;
+									if (atlasBitmap->bitAt(xx, yy))
+										return false;
 								}
 							}
 						}
@@ -7421,12 +7478,12 @@ private:
 		return true;
 	}
 
-	void addChart(const BitMap *bitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	void addChart(BitMap *atlasBitmap, const BitMap *chartBitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
 		// Check whether the two bitmaps overlap.
-		const int w = bitmap->width();
-		const int h = bitmap->height();
+		const int w = chartBitmap->width();
+		const int h = chartBitmap->height();
 		if (r == 0) {
 			for (int y = 0; y < h; y++) {
 				int yy = y + offset_y;
@@ -7434,10 +7491,10 @@ private:
 					for (int x = 0; x < w; x++) {
 						int xx = x + offset_x;
 						if (xx >= 0) {
-							if (bitmap->bitAt(x, y)) {
+							if (chartBitmap->bitAt(x, y)) {
 								if (xx < atlas_w && yy < atlas_h) {
-									XA_DEBUG_ASSERT(m_bitmap.bitAt(xx, yy) == false);
-									m_bitmap.setBitAt(xx, yy);
+									XA_DEBUG_ASSERT(atlasBitmap->bitAt(xx, yy) == false);
+									atlasBitmap->setBitAt(xx, yy);
 								}
 							}
 						}
@@ -7451,10 +7508,10 @@ private:
 					for (int x = 0; x < w; x++) {
 						int yy = x + offset_y;
 						if (yy >= 0) {
-							if (bitmap->bitAt(x, y)) {
+							if (chartBitmap->bitAt(x, y)) {
 								if (xx < atlas_w && yy < atlas_h) {
-									XA_DEBUG_ASSERT(m_bitmap.bitAt(xx, yy) == false);
-									m_bitmap.setBitAt(xx, yy);
+									XA_DEBUG_ASSERT(atlasBitmap->bitAt(xx, yy) == false);
+									atlasBitmap->setBitAt(xx, yy);
 								}
 							}
 						}
@@ -7607,7 +7664,7 @@ private:
 	}
 
 	Atlas *m_atlas;
-	BitMap m_bitmap;
+	Array<BitMap *> m_bitmaps;
 	RadixSort m_radix;
 	uint32_t m_width;
 	uint32_t m_height;
@@ -7619,12 +7676,13 @@ private:
 
 struct Atlas
 {
-	Atlas() : chartCount(0), width(0), height(0), outputMeshes(NULL) {}
+	Atlas() : chartCount(0), width(0), height(0), numAtlases(0), outputMeshes(NULL) {}
 	internal::param::Atlas atlas;
 	uint32_t chartCount; // Excluding vertex mapped charts.
 	internal::Array<internal::halfedge::Mesh *> heMeshes;
 	uint32_t width;
 	uint32_t height;
+	uint32_t numAtlases;
 	OutputMesh **outputMeshes;
 };
 
@@ -7798,6 +7856,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	atlas->chartCount = 0;
 	atlas->width = 0;
 	atlas->height = 0;
+	atlas->numAtlases = 0;
 	DestroyOutputMeshes(atlas);
 	// Chart meshes.
 	XA_PRINT(PrintFlags::ComputingCharts, "Computing charts\n");
@@ -7838,19 +7897,17 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	XA_DEBUG_ASSERT(packerOptions.texelArea > 0);
 	atlas->width = 0;
 	atlas->height = 0;
+	atlas->numAtlases = 0;
 	DestroyOutputMeshes(atlas);
 	if (atlas->chartCount <= 0)
 		return;
 	XA_PRINT(PrintFlags::PackingCharts, "Packing charts\n");
 	internal::param::AtlasPacker packer(&atlas->atlas);
-	if (progressCallback)
-		progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
-	packer.packCharts(packerOptions);
-	if (progressCallback)
-		progressCallback(ProgressCategory::PackingCharts, 100, progressCallbackUserData);
+	packer.packCharts(packerOptions, progressCallback, progressCallbackUserData);
 	//float utilization = return packer.computeAtlasUtilization();
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
+	atlas->numAtlases = packer.getNumAtlases();
 	XA_PRINT(PrintFlags::BuildingOutputMeshes, "Building output meshes\n");
 	int progress = 0;
 	if (progressCallback)
@@ -7867,11 +7924,12 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			const internal::param::Chart *chart = charts->chartAt(j);
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
 			for (uint32_t v = 0; v < chart->vertexCount(); v++) {
-				OutputVertex &output_vertex = outputMesh->vertexArray[vertexOffset + v];
-				output_vertex.xref = chart->mapChartVertexToOriginalVertex(v);
+				OutputVertex &ov = outputMesh->vertexArray[vertexOffset + v];
 				internal::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
-				output_vertex.uv[0] = std::max(0.0f, uv.x);
-				output_vertex.uv[1] = std::max(0.0f, uv.y);
+				ov.uv[0] = std::max(0.0f, uv.x);
+				ov.uv[1] = std::max(0.0f, uv.y);
+				ov.atlasIndex = chart->atlasIndex;
+				ov.xref = chart->mapChartVertexToOriginalVertex(v);
 			}
 		}
 		// Indices.
@@ -7905,6 +7963,8 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			if (chart->isVertexMapped())
 				continue;
 			OutputChart *outputChart = &outputMesh->chartArray[chartIndex];
+			XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
+			outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
 			const internal::halfedge::Mesh *mesh = chart->chartMesh();
 			outputChart->indexCount = mesh->faceCount() * 3;
@@ -7943,6 +8003,12 @@ uint32_t GetHeight(const Atlas *atlas)
 {
 	XA_ASSERT(atlas);
 	return atlas->height;
+}
+
+uint32_t GetNumAtlases(const Atlas *atlas)
+{
+	XA_ASSERT(atlas);
+	return atlas->numAtlases;
 }
 
 uint32_t GetNumCharts(const Atlas *atlas)

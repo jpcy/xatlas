@@ -188,13 +188,13 @@ int main(int argc, char *argv[])
 	printf("   %u total triangles\n", totalFaces);
 	// Generate output meshes.
 	printf("Generating atlas\n");
+	xatlas::GenerateCharts(atlas, xatlas::CharterOptions(), ProgressCallback, &stopwatch);
 	xatlas::PackerOptions packerOptions;
-	packerOptions.resolution = 1024;
 	packerOptions.conservative = true;
 	packerOptions.padding = 1;
-	xatlas::GenerateCharts(atlas, xatlas::CharterOptions(), ProgressCallback, &stopwatch);
 	xatlas::PackCharts(atlas, packerOptions, ProgressCallback, &stopwatch);
 	printf("   %d charts\n", xatlas::GetNumCharts(atlas));
+	printf("   %d atlases\n", xatlas::GetNumAtlases(atlas));
 	const uint32_t width = xatlas::GetWidth(atlas);
 	const uint32_t height = xatlas::GetHeight(atlas);
 	printf("   %ux%u resolution\n", width, height);
@@ -211,27 +211,31 @@ int main(int argc, char *argv[])
 	if (width > 0 && height > 0) {
 		// Dump images.
 		std::vector<uint8_t> outputTrisImage, outputChartsImage;
-		outputTrisImage.resize(width * height * 3);
-		outputChartsImage.resize(width * height * 3);
+		const uint32_t imageDataSize = width * height * 3;
+		outputTrisImage.resize(xatlas::GetNumAtlases(atlas) * imageDataSize);
+		outputChartsImage.resize(xatlas::GetNumAtlases(atlas) * imageDataSize);
 		for (int i = 0; i < (int)shapes.size(); i++) {
 			const xatlas::OutputMesh *mesh = xatlas::GetOutputMeshes(atlas)[i];
 			// Rasterize mesh triangles.
 			const uint8_t white[] = { 255, 255, 255 };
 			for (uint32_t j = 0; j < mesh->indexCount; j += 3) {
+				int32_t atlasIndex = -1;
 				int verts[3][2];
 				uint8_t color[3];
 				for (int k = 0; k < 3; k++) {
 					const xatlas::OutputVertex &v = mesh->vertexArray[mesh->indexArray[j + k]];
+					atlasIndex = v.atlasIndex; // The same for every vertex in the triangle.
 					verts[k][0] = int(v.uv[0]);
 					verts[k][1] = int(v.uv[1]);
 					color[k] = rand() % 255;
 				}
-				if (!verts[0][0] && !verts[0][1] && !verts[1][0] && !verts[1][1] && !verts[2][0] && !verts[2][1])
+				if (atlasIndex < 0)
 					continue; // Skip triangles that weren't atlased.
-				RasterizeTriangle(outputTrisImage.data(), width, verts[0], verts[1], verts[2], color);
-				RasterizeLine(outputTrisImage.data(), width, verts[0], verts[1], white);
-				RasterizeLine(outputTrisImage.data(), width, verts[1], verts[2], white);
-				RasterizeLine(outputTrisImage.data(), width, verts[2], verts[0], white);
+				uint8_t *imageData = &outputTrisImage[atlasIndex * imageDataSize];
+				RasterizeTriangle(imageData, width, verts[0], verts[1], verts[2], color);
+				RasterizeLine(imageData, width, verts[0], verts[1], white);
+				RasterizeLine(imageData, width, verts[1], verts[2], white);
+				RasterizeLine(imageData, width, verts[2], verts[0], white);
 			}
 			// Rasterize mesh charts.
 			for (uint32_t j = 0; j < mesh->chartCount; j++) {
@@ -247,19 +251,23 @@ int main(int argc, char *argv[])
 						verts[l][0] = int(v.uv[0]);
 						verts[l][1] = int(v.uv[1]);
 					}
-					RasterizeTriangle(outputChartsImage.data(), width, verts[0], verts[1], verts[2], color);
-					RasterizeLine(outputChartsImage.data(), width, verts[0], verts[1], white);
-					RasterizeLine(outputChartsImage.data(), width, verts[1], verts[2], white);
-					RasterizeLine(outputChartsImage.data(), width, verts[2], verts[0], white);
+					uint8_t *imageData = &outputChartsImage[chart->atlasIndex * imageDataSize];
+					RasterizeTriangle(imageData, width, verts[0], verts[1], verts[2], color);
+					RasterizeLine(imageData, width, verts[0], verts[1], white);
+					RasterizeLine(imageData, width, verts[1], verts[2], white);
+					RasterizeLine(imageData, width, verts[2], verts[0], white);
 				}
 			}
 		}
-		const char *outputTrisFilename = "output_tris.tga";
-		printf("Writing '%s'...\n", outputTrisFilename);
-		stbi_write_tga(outputTrisFilename, width, height, 3, outputTrisImage.data());
-		const char *outputChartsFilename = "output_charts.tga";
-		printf("Writing '%s'...\n", outputChartsFilename);
-		stbi_write_tga(outputChartsFilename, width, height, 3, outputChartsImage.data());
+		for (uint32_t i = 0; i < xatlas::GetNumAtlases(atlas); i++) {
+			char filename[256];
+			snprintf(filename, sizeof(filename), "output_tris%02d.tga", i);
+			printf("Writing '%s'...\n", filename);
+			stbi_write_tga(filename, width, height, 3, &outputTrisImage[i * imageDataSize]);
+			snprintf(filename, sizeof(filename), "output_charts%02d.tga", i);
+			printf("Writing '%s'...\n", filename);
+			stbi_write_tga(filename, width, height, 3, &outputChartsImage[i * imageDataSize]);
+		}
 	}
 	// Cleanup.
 	xatlas::Destroy(atlas);

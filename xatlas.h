@@ -136,20 +136,8 @@ struct CharterOptions
 
 void GenerateCharts(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
 
-struct PackMethod
-{
-	enum Enum
-	{
-		ApproximateResolution, // guess texel_area to approximately match desired resolution
-		ExactResolution, // run the packer multiple times to exactly match the desired resolution (slow)
-		TexelArea // texel_area determines resolution
-	};
-};
-
 struct PackerOptions
 {
-	PackMethod::Enum method;
-
 	// 0 - brute force
 	// 1 - 4096 attempts
 	// 2 - 2048
@@ -159,18 +147,29 @@ struct PackerOptions
 	// Avoid brute force packing, since it can be unusably slow in some situations.
 	int quality;
 
-	float texelArea;       // This is not really texel area, but 1 / texel width?
+	// This is not really texel area, but 1 / texel width?
+	// If 0, an estimated value will be calculated to try and match the given resolution.
+	// If resolution is also 0, the estimated value will try to match a 1024x1024 atlas.
+	float texelArea;
+
+	// If 0, generate a single atlas with texelArea determining the final resolution.
+	// If not 0, generate 1 or more atlases with that exact resolution.
 	uint32_t resolution;
-	bool blockAlign;       // Align charts to 4x4 blocks. 
-	bool conservative;      // Pack charts with extra padding.
+
+	// Align charts to 4x4 blocks. 
+	bool blockAlign;
+
+	// Pack charts with extra padding.
+	bool conservative;
+
+	// Number of pixels to pad. conservative must be true.
 	int padding;
 
 	PackerOptions()
 	{
-		method = PackMethod::ApproximateResolution;
 		quality = 1;
-		texelArea = 8;
-		resolution = 512;
+		texelArea = 0;
+		resolution = 0;
 		blockAlign = false;
 		conservative = false;
 		padding = 0;
@@ -181,12 +180,14 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions = PackerOptions(), Pro
 
 struct OutputChart
 {
+	uint32_t atlasIndex;
 	uint32_t *indexArray;
 	uint32_t indexCount;
 };
 
 struct OutputVertex
 {
+	int32_t atlasIndex; // -1 if the vertex doesn't exist in any atlas.
 	float uv[2]; // not normalized
 	uint32_t xref; // Index of input vertex from which this output vertex originated.
 };
@@ -203,6 +204,7 @@ struct OutputMesh
 
 uint32_t GetWidth(const Atlas *atlas);
 uint32_t GetHeight(const Atlas *atlas);
+uint32_t GetNumAtlases(const Atlas *atlas);
 uint32_t GetNumCharts(const Atlas *atlas);
 const OutputMesh * const *GetOutputMeshes(const Atlas *atlas);
 const char *StringForEnum(AddMeshError::Enum error);
