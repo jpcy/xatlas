@@ -138,14 +138,9 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions = CharterOptions
 
 struct PackerOptions
 {
-	// 0 - brute force
-	// 1 - 4096 attempts
-	// 2 - 2048
-	// 3 - 1024
-	// 4 - 512
-	// other - 256
-	// Avoid brute force packing, since it can be unusably slow in some situations.
-	int quality;
+	// The number of attempts to find a suitable random chart location.
+	// 0 is brute force - slowest, but best results.
+	int attempts;
 
 	// This is not really texel area, but 1 / texel width?
 	// If 0, an estimated value will be calculated to try and match the given resolution.
@@ -167,7 +162,7 @@ struct PackerOptions
 
 	PackerOptions()
 	{
-		quality = 1;
+		attempts = 4096;
 		texelArea = 0;
 		resolution = 0;
 		blockAlign = false;

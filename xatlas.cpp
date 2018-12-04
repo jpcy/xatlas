@@ -7119,7 +7119,7 @@ struct AtlasPacker
 					m_bitmaps.push_back(bm);
 					firstChartInBitmap = true;
 				}
-				const bool foundLocation = findChartLocation(options.quality, m_bitmaps[currentBitmapIndex], &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, chart->blockAligned, options.resolution <= 0);
+				const bool foundLocation = findChartLocation(options.attempts, m_bitmaps[currentBitmapIndex], &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, chart->blockAligned, options.resolution <= 0);
 				if (firstChartInBitmap && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitmap. texelArea must be too large for the resolution.
 					XA_ASSERT(true && "chart doesn't fit");
@@ -7213,14 +7213,9 @@ private:
 	// is occupied at this point. At the end we have many small charts and a large atlas with sparse holes. Finding those holes randomly is slow. A better approach would be to
 	// start stacking large charts as if they were tetris pieces. Once charts get small try to place them randomly. It may be interesting to try a intermediate strategy, first try
 	// along one axis and then try exhaustively along that axis.
-	bool findChartLocation(int quality, const BitMap *atlasBitmap, const BitMap *chartBitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
+	bool findChartLocation(int attempts, const BitMap *atlasBitmap, const BitMap *chartBitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
 	{
-		int attempts = 256;
-		if (quality == 1) attempts = 4096;
-		if (quality == 2) attempts = 2048;
-		if (quality == 3) attempts = 1024;
-		if (quality == 4) attempts = 512;
-		if (quality == 0 || w * h < attempts)
+		if (attempts <= 0 || attempts >= w * h)
 			return findChartLocation_bruteForce(atlasBitmap, chartBitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, resizableAtlas);
 		return findChartLocation_random(atlasBitmap, chartBitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned, resizableAtlas);
 	}
