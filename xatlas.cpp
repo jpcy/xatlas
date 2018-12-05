@@ -6918,7 +6918,7 @@ struct AtlasPacker
 		XA_PRINT(PrintFlags::PackingCharts, "   %u charts\n", chartCount);
 		if (chartCount == 0) return;
 		uint32_t resolution = options.resolution;
-		float texelsPerUnit = options.texelArea;
+		float texelsPerUnit = options.texelsPerUnit;
 		if (resolution <= 0 || texelsPerUnit <= 0) {
 			if (resolution <= 0 && texelsPerUnit <= 0)
 				resolution = 1024;
@@ -7116,7 +7116,7 @@ struct AtlasPacker
 				}
 				const bool foundLocation = findChartLocation(options.attempts, m_bitmaps[currentBitmapIndex], &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, chart->blockAligned, options.resolution <= 0);
 				if (firstChartInBitmap && !foundLocation) {
-					// Chart doesn't fit in an empty, newly allocated bitmap. texelArea must be too large for the resolution.
+					// Chart doesn't fit in an empty, newly allocated bitmap. texelsPerUnit must be too large for the resolution.
 					XA_ASSERT(true && "chart doesn't fit");
 					break;
 				}
@@ -7880,7 +7880,6 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback progressCallback, void *progressCallbackUserData)
 {
 	XA_DEBUG_ASSERT(atlas);
-	XA_DEBUG_ASSERT(packerOptions.texelArea > 0);
 	atlas->width = 0;
 	atlas->height = 0;
 	atlas->numAtlases = 0;

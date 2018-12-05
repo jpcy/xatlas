@@ -142,12 +142,12 @@ struct PackerOptions
 	// 0 is brute force - slowest, but best results.
 	int attempts;
 
-	// This is not really texel area, but 1 / texel width?
+	// Unit to texel scale. e.g. a 1x1 quad with texelsPerUnit of 32 will take up approximately 32x32 texels in the atlas.
 	// If 0, an estimated value will be calculated to try and match the given resolution.
 	// If resolution is also 0, the estimated value will try to match a 1024x1024 atlas.
-	float texelArea;
+	float texelsPerUnit;
 
-	// If 0, generate a single atlas with texelArea determining the final resolution.
+	// If 0, generate a single atlas with texelsPerUnit determining the final resolution.
 	// If not 0, generate 1 or more atlases with that exact resolution.
 	uint32_t resolution;
 
@@ -163,7 +163,7 @@ struct PackerOptions
 	PackerOptions()
 	{
 		attempts = 4096;
-		texelArea = 0;
+		texelsPerUnit = 0;
 		resolution = 0;
 		blockAlign = false;
 		conservative = false;
