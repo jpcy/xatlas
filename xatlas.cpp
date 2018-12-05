@@ -52,11 +52,6 @@ static int align(int x, int a)
 	return (x + a - 1) & ~(a - 1);
 }
 
-static bool isAligned(int x, int a)
-{
-	return (x & (a - 1)) == 0;
-}
-
 /// Return the maximum of the three arguments.
 template <typename T>
 static T max3(const T &a, const T &b, const T &c)
@@ -7140,8 +7135,6 @@ struct AtlasPacker
 			// Update parametric extents.
 			w = std::max(w, best_x + best_cw);
 			h = std::max(h, best_y + best_ch);
-			w = align(w, 4);
-			h = align(h, 4);
 			if (options.resolution <= 0) {
 				// Resize bitmap if necessary.
 				if (uint32_t(w) > m_bitmaps[0]->width() || uint32_t(h) > m_bitmaps[0]->height()) {
@@ -7184,8 +7177,6 @@ struct AtlasPacker
 		//h -= padding - 1;
 		m_width = std::max(0, w);
 		m_height = std::max(0, h);
-		XA_ASSERT(isAligned(m_width, 4));
-		XA_ASSERT(isAligned(m_height, 4));
 		if (options.resolution > 0)
 			m_width = m_height = options.resolution;
 		XA_PRINT(PrintFlags::PackingCharts, "      %dx%d resolution\n", m_width, m_height);
