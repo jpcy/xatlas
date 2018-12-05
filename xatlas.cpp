@@ -2317,14 +2317,14 @@ public:
 
 	void clear()
 	{
-		for (size_t i = 0; i < m_vertexArray.size(); i++)
+		for (uint32_t i = 0; i < m_vertexArray.size(); i++)
 			delete m_vertexArray[i];
 		m_vertexArray.clear();
 		for (EdgeMap::PseudoIndex it = m_edgeMap.start(); !m_edgeMap.isDone(it); m_edgeMap.advance(it))
 			delete m_edgeMap[it].value;
 		m_edgeArray.clear();
 		m_edgeMap.clear();
-		for (size_t i = 0; i < m_faceArray.size(); i++)
+		for (uint32_t i = 0; i < m_faceArray.size(); i++)
 			delete m_faceArray[i];
 		m_faceArray.clear();
 	}
@@ -2603,9 +2603,9 @@ public:
 		}
 		XA_DEBUG_ASSERT(m_faceArray.size() > faceCount); // triangle count > face count
 		linkBoundary();
-		for (size_t i = 0; i < edgeArray.size(); i++)
+		for (uint32_t i = 0; i < edgeArray.size(); i++)
 			delete edgeArray[i];
-		for (size_t i = 0; i < faceArray.size(); i++)
+		for (uint32_t i = 0; i < faceArray.size(); i++)
 			delete faceArray[i];
 	}
 
@@ -5411,7 +5411,7 @@ struct AtlasBuilder
 			bestTriangles.push(priority, chart->faces[i]);
 		}
 		// Of those, choose the most central triangle.
-		uint32_t mostCentral;
+		uint32_t mostCentral = 0;
 		float maxDistance = -1;
 		const uint32_t bestCount = bestTriangles.count();
 		for (uint32_t i = 0; i < bestCount; i++) {
@@ -5425,17 +5425,17 @@ struct AtlasBuilder
 		}
 		XA_DEBUG_ASSERT(maxDistance >= 0);
 		// In order to prevent k-means cyles we record all the previously chosen seeds.
-		uint32_t index = std::find(chart->seeds.begin(), chart->seeds.end(), mostCentral) - chart->seeds.begin();
-		if (index < chart->seeds.size()) {
-			// Move new seed to the end of the seed array.
-			uint32_t last = chart->seeds.size() - 1;
-			std::swap(chart->seeds[index], chart->seeds[last]);
-			return false;
-		} else {
-			// Append new seed.
-			chart->seeds.push_back(mostCentral);
-			return true;
+		for (uint32_t i = 0; i < chart->seeds.size(); i++) {
+			if (chart->seeds[i] == mostCentral) {
+				// Move new seed to the end of the seed array.
+				uint32_t last = chart->seeds.size() - 1;
+				std::swap(chart->seeds[i], chart->seeds[last]);
+				return false;
+			}
 		}
+		// Append new seed.
+		chart->seeds.push_back(mostCentral);
+		return true;
 	}
 
 	void updatePriorities(ChartBuildData *chart)
@@ -6464,7 +6464,7 @@ public:
 
 	~MeshCharts()
 	{
-		for (size_t i = 0; i < m_chartArray.size(); i++)
+		for (uint32_t i = 0; i < m_chartArray.size(); i++)
 			delete m_chartArray[i];
 	}
 
@@ -6773,7 +6773,7 @@ class Atlas
 public:
 	~Atlas()
 	{
-		for (size_t i = 0; i < m_meshChartsArray.size(); i++)
+		for (uint32_t i = 0; i < m_meshChartsArray.size(); i++)
 			delete m_meshChartsArray[i];
 	}
 
