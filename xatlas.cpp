@@ -7185,20 +7185,21 @@ struct AtlasPacker
 			progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
 	}
 
-	/*float computeAtlasUtilization() const
+	float computeAtlasUtilization(uint32_t atlasIndex) const
 	{
 		const uint32_t w = m_width;
 		const uint32_t h = m_height;
-		XA_DEBUG_ASSERT(w <= m_bitmap.width());
-		XA_DEBUG_ASSERT(h <= m_bitmap.height());
+		BitMap *bm = m_bitmaps[atlasIndex];
+		XA_DEBUG_ASSERT(w <= bm->width());
+		XA_DEBUG_ASSERT(h <= bm->height());
 		uint32_t count = 0;
 		for (uint32_t y = 0; y < h; y++) {
 			for (uint32_t x = 0; x < w; x++) {
-				count += m_bitmap.bitAt(x, y);
+				count += bm->bitAt(x, y);
 			}
 		}
 		return float(count) / (w * h);
-	}*/
+	}
 
 private:
 	// IC: Brute force is slow, and random may take too much time to converge. We start inserting large charts in a small atlas. Using brute force is lame, because most of the space
@@ -7678,6 +7679,7 @@ Atlas *Create()
 	ctx->atlas.meshCount = 0;
 	ctx->atlas.meshes = NULL;
 	ctx->atlas.texelsPerUnit = 0;
+	ctx->atlas.utilization = NULL;
 	ctx->atlas.width = 0;
 	return &ctx->atlas;
 }
@@ -7703,6 +7705,8 @@ void Destroy(Atlas *atlas)
 {
 	XA_DEBUG_ASSERT(atlas);
 	Context *ctx = (Context *)atlas;
+	if (atlas->utilization)
+		delete [] atlas->utilization;
 	for (int i = 0; i < (int)ctx->heMeshes.size(); i++)
 		delete ctx->heMeshes[i];
 	DestroyOutputMeshes(ctx);
@@ -7846,6 +7850,10 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	atlas->height = 0;
 	atlas->texelsPerUnit = 0;
 	atlas->width = 0;
+	if (atlas->utilization) {
+		delete [] atlas->utilization;
+		atlas->utilization = NULL;
+	}
 	DestroyOutputMeshes(ctx);
 	// Chart meshes.
 	XA_PRINT(PrintFlags::ComputingCharts, "Computing charts\n");
@@ -7889,16 +7897,22 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	atlas->texelsPerUnit = packerOptions.texelsPerUnit;
 	atlas->width = 0;
 	DestroyOutputMeshes(ctx);
+	if (atlas->utilization) {
+		delete [] atlas->utilization;
+		atlas->utilization = NULL;
+	}
 	if (atlas->chartCount <= 0)
 		return;
 	XA_PRINT(PrintFlags::PackingCharts, "Packing charts\n");
 	internal::param::AtlasPacker packer(&ctx->paramAtlas);
 	packer.packCharts(packerOptions, progressCallback, progressCallbackUserData);
-	atlas->texelsPerUnit = packer.getTexelsPerUnit();
-	//float utilization = return packer.computeAtlasUtilization();
 	atlas->atlasCount = packer.getNumAtlases();
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
+	atlas->texelsPerUnit = packer.getTexelsPerUnit();
+	atlas->utilization = new float[atlas->atlasCount];
+	for (uint32_t i = 0; i < atlas->atlasCount; i++)
+		atlas->utilization[i] = packer.computeAtlasUtilization(i);
 	XA_PRINT(PrintFlags::BuildingOutputMeshes, "Building output meshes\n");
 	int progress = 0;
 	if (progressCallback)

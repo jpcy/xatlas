@@ -40,6 +40,9 @@ struct Atlas
 	uint32_t meshCount;
 	Mesh **meshes;
 
+	// atlasCount in length.
+	float *utilization;
+
 	// PackerOptions::texelsPerUnit if >= 0, otherwise an estimated value.
 	float texelsPerUnit;
 };
