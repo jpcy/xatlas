@@ -7,26 +7,40 @@
 
 namespace xatlas {
 
-struct Atlas;
-
-struct PrintFlags
+struct Chart
 {
-	enum Enum
-	{
-		BuildingOutputMeshes = 1<<0,
-		ComputingCharts = 1<<1,
-		MeshCreation = 1<<2,
-		MeshProcessing = 1<<3,
-		MeshWarnings = 1<<4,
-		PackingCharts = 1<<5,
-		ParametizingCharts = 1<<6,
-		All = ~0
-	};
+	uint32_t atlasIndex;
+	uint32_t *indexArray;
+	uint32_t indexCount;
 };
 
-typedef int (*PrintFunc)(const char *, ...);
+struct Vertex
+{
+	int32_t atlasIndex; // -1 if the vertex doesn't exist in any atlas.
+	float uv[2]; // not normalized
+	uint32_t xref; // Index of input vertex from which this output vertex originated.
+};
 
-void SetPrint(int flags, PrintFunc print = NULL);
+struct Mesh
+{
+	Chart *chartArray;
+	uint32_t chartCount;
+	uint32_t *indexArray;
+	uint32_t indexCount;
+	Vertex *vertexArray;
+	uint32_t vertexCount;
+};
+
+struct Atlas
+{
+	uint32_t width;
+	uint32_t height;
+	uint32_t atlasCount;
+	uint32_t chartCount;
+	uint32_t meshCount;
+	Mesh **meshes;
+};
+
 Atlas *Create();
 void Destroy(Atlas *atlas);
 
@@ -49,7 +63,7 @@ struct IndexFormat
 	};
 };
 
-struct InputMesh
+struct MeshDecl
 {
 	uint32_t vertexCount;
 	const void *vertexPositionData;
@@ -57,16 +71,16 @@ struct InputMesh
 	const void *vertexNormalData; // optional
 	uint32_t vertexNormalStride; // optional
 	const void *vertexUvData; // optional. The input UVs are provided as a hint to the chart generator.
-	uint32_t vertexUvStride;
+	uint32_t vertexUvStride; // optional
 	uint32_t indexCount;
 	const void *indexData;
 	IndexFormat::Enum indexFormat;
 	
 	// optional. indexCount / 3 in length.
-	// Don't atlas faces set to true. Faces will still exist in the output meshes, uv will be (0, 0).
+	// Don't atlas faces set to true. Faces will still exist in the output meshes, Vertex::uv will be (0, 0) and Vertex::atlasIndex will be -1.
 	const bool *faceIgnoreData;
 
-	InputMesh()
+	MeshDecl()
 	{
 		vertexCount = 0;
 		vertexPositionData = NULL;
@@ -83,7 +97,7 @@ struct InputMesh
 };
 
 // useColocalVertices - generates fewer charts (good), but is more sensitive to bad geometry.
-AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices = true);
+AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColocalVertices = true);
 
 struct ProgressCategory
 {
@@ -113,19 +127,11 @@ struct CharterOptions
 
 	CharterOptions()
 	{
-		// These are the default values we use on The Witness.
 		proxyFitMetricWeight = 2.0f;
 		roundnessMetricWeight = 0.01f;
 		straightnessMetricWeight = 6.0f;
 		normalSeamMetricWeight = 4.0f;
 		textureSeamMetricWeight = 0.5f;
-		/*
-		proxyFitMetricWeight = 1.0f;
-		roundnessMetricWeight = 0.1f;
-		straightnessMetricWeight = 0.25f;
-		normalSeamMetricWeight = 1.0f;
-		textureSeamMetricWeight = 0.1f;
-		*/
 		maxChartArea = FLT_MAX;
 		maxBoundaryLength = FLT_MAX;
 		maxThreshold = 2;
@@ -173,35 +179,24 @@ struct PackerOptions
 
 void PackCharts(Atlas *atlas, PackerOptions packerOptions = PackerOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
 
-struct OutputChart
+struct PrintFlags
 {
-	uint32_t atlasIndex;
-	uint32_t *indexArray;
-	uint32_t indexCount;
+	enum Enum
+	{
+		BuildingOutputMeshes = 1<<0,
+		ComputingCharts = 1<<1,
+		MeshCreation = 1<<2,
+		MeshProcessing = 1<<3,
+		MeshWarnings = 1<<4,
+		PackingCharts = 1<<5,
+		ParametizingCharts = 1<<6,
+		All = ~0
+	};
 };
 
-struct OutputVertex
-{
-	int32_t atlasIndex; // -1 if the vertex doesn't exist in any atlas.
-	float uv[2]; // not normalized
-	uint32_t xref; // Index of input vertex from which this output vertex originated.
-};
+typedef int (*PrintFunc)(const char *, ...);
+void SetPrint(int flags, PrintFunc print = NULL);
 
-struct OutputMesh
-{
-	OutputChart *chartArray;
-	uint32_t chartCount;
-	uint32_t *indexArray;
-	uint32_t indexCount;
-	OutputVertex *vertexArray;
-	uint32_t vertexCount;
-};
-
-uint32_t GetWidth(const Atlas *atlas);
-uint32_t GetHeight(const Atlas *atlas);
-uint32_t GetNumAtlases(const Atlas *atlas);
-uint32_t GetNumCharts(const Atlas *atlas);
-const OutputMesh * const *GetOutputMeshes(const Atlas *atlas);
 const char *StringForEnum(AddMeshError::Enum error);
 const char *StringForEnum(ProgressCategory::Enum category);
 

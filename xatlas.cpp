@@ -7660,75 +7660,71 @@ private:
 } // namespace param
 } // namespace internal
 
-struct Atlas
+struct Context
 {
-	Atlas() : chartCount(0), width(0), height(0), numAtlases(0), outputMeshes(NULL) {}
-	internal::param::Atlas atlas;
-	uint32_t chartCount; // Excluding vertex mapped charts.
+	Atlas atlas;
+	internal::param::Atlas paramAtlas;
 	internal::Array<internal::halfedge::Mesh *> heMeshes;
-	uint32_t width;
-	uint32_t height;
-	uint32_t numAtlases;
-	OutputMesh **outputMeshes;
 };
-
-void SetPrint(int flags, PrintFunc print)
-{
-	internal::s_printFlags = flags;
-	internal::s_print = print ? print : printf;
-}
 
 Atlas *Create()
 {
-	Atlas *atlas = new Atlas();
-	return atlas;
+	Context *ctx = new Context();
+	ctx->atlas.atlasCount = 0;
+	ctx->atlas.chartCount = 0;
+	ctx->atlas.height = 0;
+	ctx->atlas.meshCount = 0;
+	ctx->atlas.meshes = NULL;
+	ctx->atlas.width = 0;
+	return &ctx->atlas;
 }
 
-static void DestroyOutputMeshes(Atlas *atlas)
+static void DestroyOutputMeshes(Context *ctx)
 {
-	if (!atlas->outputMeshes)
+	if (!ctx->atlas.meshes)
 		return;
-	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
-		OutputMesh *outputMesh = atlas->outputMeshes[i];
-		for (uint32_t j = 0; j < outputMesh->chartCount; j++)
-			delete [] outputMesh->chartArray[j].indexArray;
-		delete [] outputMesh->chartArray;
-		delete [] outputMesh->vertexArray;
-		delete [] outputMesh->indexArray;
-		delete outputMesh;
+	for (int i = 0; i < (int)ctx->heMeshes.size(); i++) {
+		Mesh *mesh = ctx->atlas.meshes[i];
+		for (uint32_t j = 0; j < mesh->chartCount; j++)
+			delete [] mesh->chartArray[j].indexArray;
+		delete [] mesh->chartArray;
+		delete [] mesh->vertexArray;
+		delete [] mesh->indexArray;
+		delete mesh;
 	}
-	delete [] atlas->outputMeshes;
-	atlas->outputMeshes = NULL;
+	delete [] ctx->atlas.meshes;
+	ctx->atlas.meshes = NULL;
 }
 
 void Destroy(Atlas *atlas)
 {
 	XA_DEBUG_ASSERT(atlas);
-	for (int i = 0; i < (int)atlas->heMeshes.size(); i++)
-		delete atlas->heMeshes[i];
-	DestroyOutputMeshes(atlas);
-	delete atlas;
+	Context *ctx = (Context *)atlas;
+	for (int i = 0; i < (int)ctx->heMeshes.size(); i++)
+		delete ctx->heMeshes[i];
+	DestroyOutputMeshes(ctx);
+	delete ctx;
 }
 
-static internal::Vector3 DecodePosition(const InputMesh &mesh, uint32_t index)
+static internal::Vector3 DecodePosition(const MeshDecl &meshDecl, uint32_t index)
 {
-	XA_DEBUG_ASSERT(mesh.vertexPositionData);
-	XA_DEBUG_ASSERT(mesh.vertexPositionStride > 0);
-	return *((const internal::Vector3 *)&((const uint8_t *)mesh.vertexPositionData)[mesh.vertexPositionStride * index]);
+	XA_DEBUG_ASSERT(meshDecl.vertexPositionData);
+	XA_DEBUG_ASSERT(meshDecl.vertexPositionStride > 0);
+	return *((const internal::Vector3 *)&((const uint8_t *)meshDecl.vertexPositionData)[meshDecl.vertexPositionStride * index]);
 }
 
-static internal::Vector3 DecodeNormal(const InputMesh &mesh, uint32_t index)
+static internal::Vector3 DecodeNormal(const MeshDecl &meshDecl, uint32_t index)
 {
-	XA_DEBUG_ASSERT(mesh.vertexNormalData);
-	XA_DEBUG_ASSERT(mesh.vertexNormalStride > 0);
-	return *((const internal::Vector3 *)&((const uint8_t *)mesh.vertexNormalData)[mesh.vertexNormalStride * index]);
+	XA_DEBUG_ASSERT(meshDecl.vertexNormalData);
+	XA_DEBUG_ASSERT(meshDecl.vertexNormalStride > 0);
+	return *((const internal::Vector3 *)&((const uint8_t *)meshDecl.vertexNormalData)[meshDecl.vertexNormalStride * index]);
 }
 
-static internal::Vector2 DecodeUv(const InputMesh &mesh, uint32_t index)
+static internal::Vector2 DecodeUv(const MeshDecl &meshDecl, uint32_t index)
 {
-	XA_DEBUG_ASSERT(mesh.vertexUvData);
-	XA_DEBUG_ASSERT(mesh.vertexUvStride > 0);
-	return *((const internal::Vector2 *)&((const uint8_t *)mesh.vertexUvData)[mesh.vertexUvStride * index]);
+	XA_DEBUG_ASSERT(meshDecl.vertexUvData);
+	XA_DEBUG_ASSERT(meshDecl.vertexUvStride > 0);
+	return *((const internal::Vector2 *)&((const uint8_t *)meshDecl.vertexUvData)[meshDecl.vertexUvStride * index]);
 }
 
 static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, uint32_t i)
@@ -7744,41 +7740,42 @@ static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
 	return internal::length(pos2 - pos1);
 }
 
-AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalVertices)
+AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColocalVertices)
 {
 	XA_DEBUG_ASSERT(atlas);
-	XA_DEBUG_ASSERT(mesh.vertexCount > 0);
-	XA_DEBUG_ASSERT(mesh.indexCount > 0);
-	XA_PRINT(PrintFlags::MeshCreation, "Adding mesh %d: %u vertices, %u triangles\n", atlas->heMeshes.size(), mesh.vertexCount, mesh.indexCount / 3);
+	XA_DEBUG_ASSERT(meshDecl.vertexCount > 0);
+	XA_DEBUG_ASSERT(meshDecl.indexCount > 0);
+	Context *ctx = (Context *)atlas;
+	XA_PRINT(PrintFlags::MeshCreation, "Adding mesh %d: %u vertices, %u triangles\n", atlas->meshCount, meshDecl.vertexCount, meshDecl.indexCount / 3);
 	// Expecting triangle faces.
-	if ((mesh.indexCount % 3) != 0)
+	if ((meshDecl.indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
 	// Check if any index is out of range.
-	for (uint32_t j = 0; j < mesh.indexCount; j++) {
-		const uint32_t index = DecodeIndex(mesh.indexFormat, mesh.indexData, j);
-		if (index >= mesh.vertexCount)
+	for (uint32_t j = 0; j < meshDecl.indexCount; j++) {
+		const uint32_t index = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, j);
+		if (index >= meshDecl.vertexCount)
 			return AddMeshError::IndexOutOfRange;
 	}
 	// Build half edge mesh.
-	internal::halfedge::Mesh *heMesh = new internal::halfedge::Mesh(atlas->heMeshes.size());
+	internal::halfedge::Mesh *heMesh = new internal::halfedge::Mesh(atlas->meshCount);
 	internal::Array<uint32_t> canonicalMap;
-	canonicalMap.reserve(mesh.vertexCount);
-	for (uint32_t i = 0; i < mesh.vertexCount; i++) {
-		internal::halfedge::Vertex *vertex = heMesh->addVertex(DecodePosition(mesh, i));
-		if (mesh.vertexNormalData)
-			vertex->nor = DecodeNormal(mesh, i);
-		if (mesh.vertexUvData)
-			vertex->tex = DecodeUv(mesh, i);
+	canonicalMap.reserve(meshDecl.vertexCount);
+	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
+		internal::halfedge::Vertex *vertex = heMesh->addVertex(DecodePosition(meshDecl, i));
+		if (meshDecl.vertexNormalData)
+			vertex->nor = DecodeNormal(meshDecl, i);
+		if (meshDecl.vertexUvData)
+			vertex->tex = DecodeUv(meshDecl, i);
 		// Link colocals. You probably want to do this more efficiently! Sort by one axis or use a hash or grid.
 		uint32_t firstColocal = i;
 		if (useColocalVertices) {
 			for (uint32_t j = 0; j < i; j++) {
-				if (vertex->pos != DecodePosition(mesh, j))
+				if (vertex->pos != DecodePosition(meshDecl, j))
 					continue;
 #if 0
-				if (mesh.vertexNormalData && vertex->nor != DecodeNormal(mesh, j))
+				if (meshDecl.vertexNormalData && vertex->nor != DecodeNormal(meshDecl, j))
 					continue;
-				if (mesh.vertexUvData && vertex->tex != DecodeUv(mesh, j))
+				if (meshDecl.vertexUvData && vertex->tex != DecodeUv(meshDecl, j))
 					continue;
 #endif
 				firstColocal = j;
@@ -7788,10 +7785,10 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalV
 		canonicalMap.push_back(firstColocal);
 	}
 	heMesh->linkColocalsWithCanonicalMap(canonicalMap);
-	for (uint32_t i = 0; i < mesh.indexCount / 3; i++) {
+	for (uint32_t i = 0; i < meshDecl.indexCount / 3; i++) {
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
-			tri[j] = DecodeIndex(mesh.indexFormat, mesh.indexData, i * 3 + j);
+			tri[j] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, i * 3 + j);
 		uint32_t faceFlags = 0;
 		// Check for degenerate or zero length edges.
 		for (int j = 0; j < 3; j++) {
@@ -7800,61 +7797,63 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const InputMesh &mesh, bool useColocalV
 			const uint32_t index2 = tri[edges[j * 2 + 1]];
 			if (index1 == index2) {
 				faceFlags |= internal::halfedge::FaceFlags::Ignore;
-				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->heMeshes.size(), index1, index2);
+				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->meshCount, index1, index2);
 				break;
 			}
-			const internal::Vector3 pos1 = DecodePosition(mesh, index1);
-			const internal::Vector3 pos2 = DecodePosition(mesh, index2);
+			const internal::Vector3 pos1 = DecodePosition(meshDecl, index1);
+			const internal::Vector3 pos2 = DecodePosition(meshDecl, index2);
 			if (EdgeLength(pos1, pos2) <= 0.0f) {
 				faceFlags |= internal::halfedge::FaceFlags::Ignore;
-				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->heMeshes.size(), index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
+				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->meshCount, index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
 				break;
 			}
 		}
 		// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
 		if (!(faceFlags & internal::halfedge::FaceFlags::Ignore))
 		{
-			const internal::Vector3 a = DecodePosition(mesh, tri[0]);
-			const internal::Vector3 b = DecodePosition(mesh, tri[1]);
-			const internal::Vector3 c = DecodePosition(mesh, tri[2]);
+			const internal::Vector3 a = DecodePosition(meshDecl, tri[0]);
+			const internal::Vector3 b = DecodePosition(meshDecl, tri[1]);
+			const internal::Vector3 c = DecodePosition(meshDecl, tri[2]);
 			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
 			if (area <= 0.0f)
 			{
 				faceFlags |= internal::halfedge::FaceFlags::Ignore;
-				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->heMeshes.size(), i, tri[0], tri[1], tri[2]);
+				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->meshCount, i, tri[0], tri[1], tri[2]);
 			}
 		}
 		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 		XA_DEBUG_ASSERT(face);
-		if (mesh.faceIgnoreData && mesh.faceIgnoreData[i])
+		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
 			face->flags |= internal::halfedge::FaceFlags::Ignore;
 	}
 	heMesh->linkBoundary();
-	atlas->heMeshes.push_back(heMesh);
+	ctx->heMeshes.push_back(heMesh);
+	atlas->meshCount++;
 	return AddMeshError::Success;
 }
 
 void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallback progressCallback, void *progressCallbackUserData)
 {
 	XA_DEBUG_ASSERT(atlas);
-	if (atlas->heMeshes.isEmpty())
+	Context *ctx = (Context *)atlas;
+	if (ctx->heMeshes.isEmpty())
 		return;
+	atlas->atlasCount = 0;
 	atlas->chartCount = 0;
-	atlas->width = 0;
 	atlas->height = 0;
-	atlas->numAtlases = 0;
-	DestroyOutputMeshes(atlas);
+	atlas->width = 0;
+	DestroyOutputMeshes(ctx);
 	// Chart meshes.
 	XA_PRINT(PrintFlags::ComputingCharts, "Computing charts\n");
 	int progress = 0;
 	if (progressCallback)
 		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
-	for (int i = 0; i < (int)atlas->heMeshes.size(); i++)
+	for (int i = 0; i < (int)ctx->heMeshes.size(); i++)
 	{
-		atlas->atlas.computeCharts(atlas->heMeshes[i], charterOptions);
+		ctx->paramAtlas.computeCharts(ctx->heMeshes[i], charterOptions);
 		if (progressCallback)
 		{
-			const int newProgress = int((i + 1) / (float)atlas->heMeshes.size() * 100.0f);
+			const int newProgress = int((i + 1) / (float)ctx->heMeshes.size() * 100.0f);
 			if (newProgress != progress)
 			{
 				progress = newProgress;
@@ -7865,11 +7864,11 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	if (progressCallback && progress != 100)
 		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
 	XA_PRINT(PrintFlags::ParametizingCharts, "Parameterizing charts\n");
-	atlas->atlas.parameterizeCharts(progressCallback, progressCallbackUserData);
-	atlas->atlas.saveOriginalChartUvs();
+	ctx->paramAtlas.parameterizeCharts(progressCallback, progressCallbackUserData);
+	ctx->paramAtlas.saveOriginalChartUvs();
 	// Count charts.
-	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
-		const internal::param::MeshCharts *charts = atlas->atlas.meshAt(i);
+	for (int i = 0; i < (int)ctx->heMeshes.size(); i++) {
+		const internal::param::MeshCharts *charts = ctx->paramAtlas.meshAt(i);
 		for (uint32_t j = 0; j < charts->chartCount(); j++) {
 			if (!charts->chartAt(j)->isVertexMapped())
 				atlas->chartCount++;
@@ -7880,41 +7879,42 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback progressCallback, void *progressCallbackUserData)
 {
 	XA_DEBUG_ASSERT(atlas);
-	atlas->width = 0;
+	Context *ctx = (Context *)atlas;
+	atlas->atlasCount = 0;
 	atlas->height = 0;
-	atlas->numAtlases = 0;
-	DestroyOutputMeshes(atlas);
+	atlas->width = 0;
+	DestroyOutputMeshes(ctx);
 	if (atlas->chartCount <= 0)
 		return;
 	XA_PRINT(PrintFlags::PackingCharts, "Packing charts\n");
-	internal::param::AtlasPacker packer(&atlas->atlas);
+	internal::param::AtlasPacker packer(&ctx->paramAtlas);
 	packer.packCharts(packerOptions, progressCallback, progressCallbackUserData);
 	//float utilization = return packer.computeAtlasUtilization();
+	atlas->atlasCount = packer.getNumAtlases();
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
-	atlas->numAtlases = packer.getNumAtlases();
 	XA_PRINT(PrintFlags::BuildingOutputMeshes, "Building output meshes\n");
 	int progress = 0;
 	if (progressCallback)
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
-	atlas->outputMeshes = new OutputMesh*[atlas->heMeshes.size()];
-	for (int i = 0; i < (int)atlas->heMeshes.size(); i++) {
-		const internal::halfedge::Mesh *heMesh = atlas->heMeshes[i];
-		OutputMesh *outputMesh = atlas->outputMeshes[i] = new OutputMesh;
-		const internal::param::MeshCharts *charts = atlas->atlas.meshAt(i);
+	atlas->meshes = new Mesh*[atlas->meshCount];
+	for (int i = 0; i < (int)atlas->meshCount; i++) {
+		const internal::halfedge::Mesh *heMesh = ctx->heMeshes[i];
+		Mesh *outputMesh = atlas->meshes[i] = new Mesh;
+		const internal::param::MeshCharts *charts = ctx->paramAtlas.meshAt(i);
 		// Vertices.
 		outputMesh->vertexCount = charts->vertexCount();
-		outputMesh->vertexArray = new OutputVertex[outputMesh->vertexCount];
+		outputMesh->vertexArray = new Vertex[outputMesh->vertexCount];
 		for (uint32_t j = 0; j < charts->chartCount(); j++) {
 			const internal::param::Chart *chart = charts->chartAt(j);
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
-			for (uint32_t v = 0; v < chart->vertexCount(); v++) {
-				OutputVertex &ov = outputMesh->vertexArray[vertexOffset + v];
-				internal::Vector2 uv = chart->chartMesh()->vertexAt(v)->tex;
-				ov.uv[0] = std::max(0.0f, uv.x);
-				ov.uv[1] = std::max(0.0f, uv.y);
-				ov.atlasIndex = chart->atlasIndex;
-				ov.xref = chart->mapChartVertexToOriginalVertex(v);
+			for (uint32_t k = 0; k < chart->vertexCount(); k++) {
+				Vertex &v = outputMesh->vertexArray[vertexOffset + k];
+				v.atlasIndex = chart->atlasIndex;
+				const internal::Vector2 &uv = chart->chartMesh()->vertexAt(k)->tex;
+				v.uv[0] = std::max(0.0f, uv.x);
+				v.uv[1] = std::max(0.0f, uv.y);
+				v.xref = chart->mapChartVertexToOriginalVertex(k);
 			}
 		}
 		// Indices.
@@ -7941,13 +7941,13 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			if (!chart->isVertexMapped())
 				outputMesh->chartCount++;
 		}
-		outputMesh->chartArray = new OutputChart[outputMesh->chartCount];
+		outputMesh->chartArray = new Chart[outputMesh->chartCount];
 		uint32_t chartIndex = 0;
 		for (uint32_t j = 0; j < charts->chartCount(); j++) {
 			const internal::param::Chart *chart = charts->chartAt(j);
 			if (chart->isVertexMapped())
 				continue;
-			OutputChart *outputChart = &outputMesh->chartArray[chartIndex];
+			Chart *outputChart = &outputMesh->chartArray[chartIndex];
 			XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
 			outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
@@ -7966,7 +7966,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 		XA_PRINT(PrintFlags::BuildingOutputMeshes, "   mesh %d: %u vertices, %u triangles, %u charts\n", i, outputMesh->vertexCount, outputMesh->indexCount / 3, outputMesh->chartCount);
 		if (progressCallback)
 		{
-			const int newProgress = int((i + 1) / (float)atlas->heMeshes.size() * 100.0f);
+			const int newProgress = int((i + 1) / (float)atlas->meshCount * 100.0f);
 			if (newProgress != progress)
 			{
 				progress = newProgress;
@@ -7978,34 +7978,10 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
 }
 
-uint32_t GetWidth(const Atlas *atlas)
+void SetPrint(int flags, PrintFunc print)
 {
-	XA_ASSERT(atlas);
-	return atlas->width;
-}
-
-uint32_t GetHeight(const Atlas *atlas)
-{
-	XA_ASSERT(atlas);
-	return atlas->height;
-}
-
-uint32_t GetNumAtlases(const Atlas *atlas)
-{
-	XA_ASSERT(atlas);
-	return atlas->numAtlases;
-}
-
-uint32_t GetNumCharts(const Atlas *atlas)
-{
-	XA_ASSERT(atlas);
-	return atlas->chartCount;
-}
-
-const OutputMesh * const *GetOutputMeshes(const Atlas *atlas)
-{
-	XA_ASSERT(atlas);
-	return atlas->outputMeshes;
+	internal::s_printFlags = flags;
+	internal::s_print = print ? print : printf;
 }
 
 const char *StringForEnum(AddMeshError::Enum error)
