@@ -6894,7 +6894,7 @@ private:
 
 struct AtlasPacker
 {
-	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_width(0), m_height(0)
+	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_width(0), m_height(0), m_texelsPerUnit(0)
 	{
 		m_atlas->restoreOriginalChartUvs();
 	}
@@ -6908,6 +6908,7 @@ struct AtlasPacker
 	uint32_t getWidth() const { return m_width; }
 	uint32_t getHeight() const { return m_height; }
 	uint32_t getNumAtlases() const { return m_bitmaps.size(); }
+	float getTexelsPerUnit() const { return m_texelsPerUnit; }
 
 	// Pack charts in the smallest possible rectangle.
 	void packCharts(const PackerOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
@@ -6918,9 +6919,9 @@ struct AtlasPacker
 		XA_PRINT(PrintFlags::PackingCharts, "   %u charts\n", chartCount);
 		if (chartCount == 0) return;
 		uint32_t resolution = options.resolution;
-		float texelsPerUnit = options.texelsPerUnit;
-		if (resolution <= 0 || texelsPerUnit <= 0) {
-			if (resolution <= 0 && texelsPerUnit <= 0)
+		m_texelsPerUnit = options.texelsPerUnit;
+		if (resolution <= 0 || m_texelsPerUnit <= 0) {
+			if (resolution <= 0 && m_texelsPerUnit <= 0)
 				resolution = 1024;
 			float meshArea = 0;
 			for (uint32_t c = 0; c < chartCount; c++) {
@@ -6931,15 +6932,15 @@ struct AtlasPacker
 			}
 			if (resolution <= 0) {
 				// Estimate resolution based on the mesh surface area and given texel scale.
-				const float texelCount = std::max(1.0f, meshArea * square(texelsPerUnit) / 0.75f); // Assume 75% utilization.
+				const float texelCount = std::max(1.0f, meshArea * square(m_texelsPerUnit) / 0.75f); // Assume 75% utilization.
 				resolution = nextPowerOfTwo(uint32_t(sqrtf(texelCount)));
 				XA_PRINT(PrintFlags::PackingCharts, "      Estimating resolution as %d\n", resolution);
 			}
-			if (texelsPerUnit <= 0) {
+			if (m_texelsPerUnit <= 0) {
 				// Estimate a suitable texelsPerUnit to fit the given resolution.
 				const float texelCount = std::max(1.0f, meshArea / 0.75f); // Assume 75% utilization.
-				texelsPerUnit = sqrt((resolution * resolution) / texelCount);
-				XA_PRINT(PrintFlags::PackingCharts, "      Estimating texelsPerUnit as %g\n", texelsPerUnit);
+				m_texelsPerUnit = sqrt((resolution * resolution) / texelCount);
+				XA_PRINT(PrintFlags::PackingCharts, "      Estimating texelsPerUnit as %g\n", m_texelsPerUnit);
 			}
 		}
 		m_rand = MTRand();
@@ -6965,7 +6966,7 @@ struct AtlasPacker
 				Vector2 bounds = chart->computeParametricBounds();
 				parametricArea = bounds.x * bounds.y;
 			}
-			float scale = (chartArea / parametricArea) * texelsPerUnit;
+			float scale = (chartArea / parametricArea) * m_texelsPerUnit;
 			if (parametricArea == 0) { // < XA_EPSILON)
 				scale = 0;
 			}
@@ -7654,6 +7655,7 @@ private:
 	RadixSort m_radix;
 	uint32_t m_width;
 	uint32_t m_height;
+	float m_texelsPerUnit;
 	MTRand m_rand;
 };
 
@@ -7675,6 +7677,7 @@ Atlas *Create()
 	ctx->atlas.height = 0;
 	ctx->atlas.meshCount = 0;
 	ctx->atlas.meshes = NULL;
+	ctx->atlas.texelsPerUnit = 0;
 	ctx->atlas.width = 0;
 	return &ctx->atlas;
 }
@@ -7841,6 +7844,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	atlas->atlasCount = 0;
 	atlas->chartCount = 0;
 	atlas->height = 0;
+	atlas->texelsPerUnit = 0;
 	atlas->width = 0;
 	DestroyOutputMeshes(ctx);
 	// Chart meshes.
@@ -7882,6 +7886,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	Context *ctx = (Context *)atlas;
 	atlas->atlasCount = 0;
 	atlas->height = 0;
+	atlas->texelsPerUnit = packerOptions.texelsPerUnit;
 	atlas->width = 0;
 	DestroyOutputMeshes(ctx);
 	if (atlas->chartCount <= 0)
@@ -7889,6 +7894,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	XA_PRINT(PrintFlags::PackingCharts, "Packing charts\n");
 	internal::param::AtlasPacker packer(&ctx->paramAtlas);
 	packer.packCharts(packerOptions, progressCallback, progressCallbackUserData);
+	atlas->texelsPerUnit = packer.getTexelsPerUnit();
 	//float utilization = return packer.computeAtlasUtilization();
 	atlas->atlasCount = packer.getNumAtlases();
 	atlas->width = packer.getWidth();

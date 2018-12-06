@@ -39,6 +39,9 @@ struct Atlas
 	uint32_t chartCount;
 	uint32_t meshCount;
 	Mesh **meshes;
+
+	// PackerOptions::texelsPerUnit if >= 0, otherwise an estimated value.
+	float texelsPerUnit;
 };
 
 Atlas *Create();
