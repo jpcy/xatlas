@@ -40,7 +40,7 @@ struct Atlas
 	uint32_t meshCount;
 	Mesh **meshes;
 
-	// atlasCount in length.
+	// Normalized atlas texel utilization. atlasCount in length.
 	float *utilization;
 
 	// PackerOptions::texelsPerUnit if >= 0, otherwise an estimated value.
@@ -199,6 +199,11 @@ struct PrintFlags
 		All = ~0
 	};
 };
+
+typedef void *(*MallocFunc)(size_t);
+typedef void *(*ReallocFunc)(void *, size_t);
+typedef void (*FreeFunc)(void *);
+void SetAlloc(MallocFunc mallocFunc, ReallocFunc reallocFunc, FreeFunc freeFunc);
 
 typedef int (*PrintFunc)(const char *, ...);
 void SetPrint(int flags, PrintFunc print = NULL);

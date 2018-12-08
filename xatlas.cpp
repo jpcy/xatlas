@@ -32,6 +32,13 @@
 #define XA_DEBUG_ASSERT(exp) assert(exp)
 #endif
 
+#define XA_ALLOC(type) (type *)internal::s_malloc(sizeof(type))
+#define XA_ALLOC_ARRAY(type, num) (type *)internal::s_malloc(sizeof(type) * num)
+#define XA_REALLOC(ptr, type, num) (type *)internal::s_realloc(ptr, sizeof(type) * num)
+#define XA_FREE(ptr) internal::s_free(ptr)
+#define XA_NEW(type, ...) new (XA_ALLOC(type)) type(__VA_ARGS__)
+#define XA_DELETE(ptr, type) if (ptr) { ptr->~##type##(); XA_FREE(ptr); }
+
 #ifndef XA_PRINT
 #define XA_PRINT(flags, ...) \
 	if (xatlas::internal::s_print && (flags == 0 || (xatlas::internal::s_printFlags & flags) != 0)) \
@@ -44,6 +51,9 @@
 namespace xatlas {
 namespace internal {
 
+static MallocFunc s_malloc = malloc;
+static ReallocFunc s_realloc = realloc;
+static FreeFunc s_free = free;
 static int s_printFlags = 0;
 static PrintFunc s_print = printf;
 
@@ -584,7 +594,7 @@ public:
 
 	~Array() {
 		clear();
-		free(m_buffer);
+		XA_FREE(m_buffer);
 	}
 
 	const T & operator[]( uint32_t index ) const
@@ -780,13 +790,13 @@ protected:
 		if (new_capacity == 0) {
 			// free the buffer.
 			if (m_buffer != NULL) {
-				free(m_buffer);
+				XA_FREE(m_buffer);
 				m_buffer = NULL;
 			}
 		}
 		else {
 			// realloc the buffer
-			m_buffer = (T *)realloc(m_buffer, sizeof(T) * new_capacity);
+			m_buffer = XA_REALLOC(m_buffer, T, new_capacity);
 		}
 		m_capacity = new_capacity;
 	}
@@ -1425,7 +1435,7 @@ public:
 				if (e->isEmpty() == false && e->isTombstone() == false)
 					e->clear();
 			}
-			free(table);
+			XA_FREE(table);
 			table = NULL;
 			entry_count = 0;
 			size_mask = -1;
@@ -1647,7 +1657,7 @@ private:
 		// Force new_size to be a power of two.
 		new_size = nextPowerOfTwo(uint32_t(new_size));
 		HashMap<T, U, H, E> new_hash;
-		new_hash.table = (Entry *)malloc(sizeof(Entry) * new_size);
+		new_hash.table = XA_ALLOC_ARRAY(Entry, new_size);
 		XA_DEBUG_ASSERT(new_hash.table != NULL);
 		new_hash.entry_count = 0;
 		new_hash.size_mask = new_size - 1;
@@ -1667,7 +1677,7 @@ private:
 				}
 			}
 			// Delete our old data buffer.
-			free(table);
+			XA_FREE(table);
 		}
 		// Steal new_hash's data.
 		entry_count = new_hash.entry_count;
@@ -2288,7 +2298,7 @@ public:
 		for (uint32_t v = 0; v < vertexCount; v++) {
 			const Vertex *vertex = mesh->vertexAt(v);
 			XA_DEBUG_ASSERT(vertex->id == v);
-			m_vertexArray[v] = new Vertex(v);
+			m_vertexArray[v] = XA_NEW(Vertex, v);
 			m_vertexArray[v]->pos = vertex->pos;
 			m_vertexArray[v]->nor = vertex->nor;
 			m_vertexArray[v]->tex = vertex->tex;
@@ -2318,21 +2328,21 @@ public:
 	void clear()
 	{
 		for (uint32_t i = 0; i < m_vertexArray.size(); i++)
-			delete m_vertexArray[i];
+			XA_DELETE(m_vertexArray[i], Vertex);
 		m_vertexArray.clear();
 		for (EdgeMap::PseudoIndex it = m_edgeMap.start(); !m_edgeMap.isDone(it); m_edgeMap.advance(it))
-			delete m_edgeMap[it].value;
+			XA_DELETE(m_edgeMap[it].value, Edge);
 		m_edgeArray.clear();
 		m_edgeMap.clear();
 		for (uint32_t i = 0; i < m_faceArray.size(); i++)
-			delete m_faceArray[i];
+			XA_DELETE(m_faceArray[i], Face);
 		m_faceArray.clear();
 	}
 
 	Vertex *addVertex(const Vector3 &pos)
 	{
 		XA_DEBUG_ASSERT(isFinite(pos));
-		Vertex *v = new Vertex(m_vertexArray.size());
+		Vertex *v = XA_NEW(Vertex, m_vertexArray.size());
 		v->pos = pos;
 		m_vertexArray.push_back(v);
 		return v;
@@ -2384,7 +2394,7 @@ public:
 
 	Face *addFace()
 	{
-		Face *f = new Face(m_faceArray.size());
+		Face *f = XA_NEW(Face, m_faceArray.size());
 		m_faceArray.push_back(f);
 		return f;
 	}
@@ -2416,7 +2426,7 @@ public:
 		indexCount = indexCount; // silence unused parameter warning
 #endif
 		XA_DEBUG_ASSERT(num > 2);
-		Face *f = new Face(m_faceArray.size());
+		Face *f = XA_NEW(Face, m_faceArray.size());
 		for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
 			const uint32_t edgeIndex0 = indexArray[first + j];
 			const uint32_t edgeIndex1 = indexArray[first + i];
@@ -2531,7 +2541,7 @@ public:
 	{
 		XA_DEBUG_ASSERT(edge != NULL);
 		disconnect(edge);
-		delete edge;
+		XA_DELETE(edge, Edge);
 	}
 
 	void remove(Vertex *vertex)
@@ -2550,7 +2560,7 @@ public:
 			}
 			vertex->setEdge(NULL);
 		}
-		delete vertex;
+		XA_DELETE(vertex, Vertex);
 	}
 
 	void remove(Face *face)
@@ -2564,7 +2574,7 @@ public:
 			face->edge->face = NULL;
 			face->edge = NULL;
 		}
-		delete face;
+		XA_DELETE(face, Face);
 	}
 
 	// Triangulate in place.
@@ -2604,9 +2614,9 @@ public:
 		XA_DEBUG_ASSERT(m_faceArray.size() > faceCount); // triangle count > face count
 		linkBoundary();
 		for (uint32_t i = 0; i < edgeArray.size(); i++)
-			delete edgeArray[i];
+			XA_DELETE(edgeArray[i], Edge);
 		for (uint32_t i = 0; i < faceArray.size(); i++)
-			delete faceArray[i];
+			XA_DELETE(faceArray[i], Face);
 	}
 
 	/// Link boundary edges once the mesh has been created.
@@ -2621,7 +2631,7 @@ public:
 			if (edge != NULL && edge->pair == NULL) {
 				if (edge->face && edge->face->flags & FaceFlags::Ignore)
 					continue;
-				Edge *pair = new Edge(edge->id + 1);
+				Edge *pair = XA_NEW(Edge, edge->id + 1);
 				uint32_t i = edge->from()->id;
 				uint32_t j = edge->next->from()->id;
 				pair->vertex = m_vertexArray[j];
@@ -2972,7 +2982,7 @@ private:
 		Edge *pair = findEdge(j, i);
 		if (pair != NULL) {
 			// Create edge with same id.
-			edge = new Edge(pair->id + 1);
+			edge = XA_NEW(Edge, pair->id + 1);
 			// Link edge pairs.
 			edge->pair = pair;
 			pair->pair = edge;
@@ -2980,7 +2990,7 @@ private:
 			pair->vertex->setEdge(pair);
 		} else {
 			// Create edge.
-			edge = new Edge(2 * m_edgeArray.size());
+			edge = XA_NEW(Edge, 2 * m_edgeArray.size());
 			// Add only unpaired edges.
 			m_edgeArray.push_back(edge);
 		}
@@ -3094,8 +3104,8 @@ private:
 		// Link vertices.
 		edge->from()->setEdge(e0);
 		vertex->setEdge(e1);
-		delete edge;
-		delete pair;
+		XA_DELETE(edge, Edge);
+		XA_DELETE(pair, Edge);
 		return vertex;
 	}
 
@@ -3277,7 +3287,7 @@ static uint32_t countMeshTriangles(const Mesh *mesh)
 
 static Mesh *unifyVertices(const Mesh *inputMesh)
 {
-	Mesh *mesh = new Mesh;
+	Mesh *mesh = XA_NEW(Mesh);
 	// Only add the first colocal.
 	const uint32_t vertexCount = inputMesh->vertexCount();
 	for (uint32_t v = 0; v < vertexCount; v++) {
@@ -3312,7 +3322,7 @@ static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
 static Mesh *triangulate(const Mesh *inputMesh)
 {
-	Mesh *mesh = new Mesh;
+	Mesh *mesh = XA_NEW(Mesh);
 	// Add all vertices.
 	const uint32_t vertexCount = inputMesh->vertexCount();
 	for (uint32_t v = 0; v < vertexCount; v++) {
@@ -3548,8 +3558,8 @@ public:
 	~RadixSort()
 	{
 		// Release everything
-		free(m_ranks2);
-		free(m_ranks);
+		XA_FREE(m_ranks2);
+		XA_FREE(m_ranks);
 	}
 
 	RadixSort &sort(const float *input, uint32_t count)
@@ -3558,8 +3568,8 @@ public:
 		// Resize lists if needed
 		if (count != m_size) {
 			if (count > m_size) {
-				m_ranks2 = (uint32_t *)realloc(m_ranks2, sizeof(uint32_t ) * count);
-				m_ranks = (uint32_t *)realloc(m_ranks, sizeof(uint32_t ) * count);
+				m_ranks2 = XA_REALLOC(m_ranks2, uint32_t, count);
+				m_ranks = XA_REALLOC(m_ranks, uint32_t, count);
 			}
 			m_size = count;
 			m_validRanks = false;
@@ -5196,9 +5206,8 @@ struct AtlasBuilder
 	~AtlasBuilder()
 	{
 		const uint32_t chartCount = chartArray.size();
-		for (uint32_t i = 0; i < chartCount; i++) {
-			delete chartArray[i];
-		}
+		for (uint32_t i = 0; i < chartCount; i++)
+			XA_DELETE(chartArray[i], ChartBuildData);
 	}
 
 	void markUnchartedFaces(const Array<uint32_t> &unchartedFaces)
@@ -5262,7 +5271,7 @@ struct AtlasBuilder
 
 	void createRandomChart(float threshold)
 	{
-		ChartBuildData *chart = new ChartBuildData(chartArray.size());
+		ChartBuildData *chart = XA_NEW(ChartBuildData, chartArray.size());
 		chartArray.push_back(chart);
 		// Pick random face that is not used by any chart yet.
 		uint32_t randomFaceIdx = rand.getRange(facesLeft - 1);
@@ -5696,7 +5705,7 @@ struct AtlasBuilder
 					if (chart2->boundaryLength > sharedBoundaryLengths[cc]) {
 						if (dot(chart2->planeNormal, chart->planeNormal) > -0.25) {
 							mergeChart(chart2, chart, sharedBoundaryLengths[cc]);
-							delete chart;
+							XA_DELETE(chart, ChartBuildData);
 							chartArray[c] = NULL;
 							break;
 						}
@@ -5706,7 +5715,7 @@ struct AtlasBuilder
 					// Compare proxies.
 					if (dot(chart2->planeNormal, chart->planeNormal) > 0) {
 						mergeChart(chart2, chart, sharedBoundaryLengths[cc]);
-						delete chart;
+						XA_DELETE(chart, ChartBuildData);
 						chartArray[c] = NULL;
 						break;
 					}
@@ -5836,10 +5845,11 @@ class Chart
 {
 public:
 	Chart() : atlasIndex(-1), scale(1.0f), blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
+
 	~Chart()
 	{
-		delete m_chartMesh;
-		delete m_unifiedMesh;
+		XA_DELETE(m_chartMesh, Mesh);
+		XA_DELETE(m_unifiedMesh, Mesh);
 	}
 
 	void build(const halfedge::Mesh *originalMesh, const Array<uint32_t> &faceArray)
@@ -5848,11 +5858,11 @@ public:
 		m_faceArray = faceArray;
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
 		if (m_chartMesh)
-			delete m_chartMesh;
-		m_chartMesh = new halfedge::Mesh();
+			XA_DELETE(m_chartMesh, Mesh);
+		m_chartMesh = XA_NEW(halfedge::Mesh);
 		if (m_unifiedMesh)
-			delete m_unifiedMesh;
-		m_unifiedMesh = new halfedge::Mesh();
+			XA_DELETE(m_unifiedMesh, Mesh);
+		m_unifiedMesh = XA_NEW(halfedge::Mesh);
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
 		Array<uint32_t> unifiedMeshIndices;
@@ -5916,7 +5926,7 @@ public:
 		//exportMesh(m_unifiedMesh.ptr(), "debug_input.obj");
 		if (m_unifiedMesh->splitBoundaryEdges()) {
 			halfedge::Mesh *newUnifiedMesh = halfedge::unifyVertices(m_unifiedMesh);
-			delete m_unifiedMesh;
+			XA_DELETE(m_unifiedMesh, Mesh);
 			m_unifiedMesh = newUnifiedMesh;
 		}
 		//exportMesh(m_unifiedMesh.ptr(), "debug_split.obj");
@@ -5932,7 +5942,7 @@ public:
 			exportMesh(m_unifiedMesh.ptr(), fileName.str());*/
 		}
 		halfedge::Mesh *newUnifiedMesh = halfedge::triangulate(m_unifiedMesh);
-		delete m_unifiedMesh;
+		XA_DELETE(m_unifiedMesh, Mesh);
 		m_unifiedMesh = newUnifiedMesh;
 		//exportMesh(m_unifiedMesh.ptr(), "debug_triangulated.obj");
 		// Analyze chart topology.
@@ -5959,8 +5969,8 @@ public:
 		// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
 		if (m_chartMesh)
-			delete m_chartMesh;
-		m_chartMesh = new halfedge::Mesh();
+			XA_DELETE(m_chartMesh, Mesh);
+		m_chartMesh = XA_NEW(halfedge::Mesh);
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
 		// Vertex map mesh only has disconnected vertices.
@@ -6465,7 +6475,7 @@ public:
 	~MeshCharts()
 	{
 		for (uint32_t i = 0; i < m_chartArray.size(); i++)
-			delete m_chartArray[i];
+			XA_DELETE(m_chartArray[i], Chart);
 	}
 
 	uint32_t chartCount() const
@@ -6521,7 +6531,7 @@ public:
 					}
 					first++;
 				}
-				Chart *chart = new Chart();
+				Chart *chart = XA_NEW(Chart);
 				chart->build(m_mesh, queue);
 				m_chartArray.push_back(chart);
 			}
@@ -6590,10 +6600,10 @@ public:
 	*/
 	void computeCharts(const CharterOptions &options)
 	{
-		Chart *vertexMap = new Chart();
+		Chart *vertexMap = XA_NEW(Chart);
 		vertexMap->buildVertexMap(m_mesh);
 		if (vertexMap->faceCount() == 0) {
-			delete vertexMap;
+			XA_DELETE(vertexMap, Chart);
 			vertexMap = NULL;
 		}
 		AtlasBuilder builder(m_mesh, options);
@@ -6657,7 +6667,7 @@ public:
 			XA_DEBUG_ASSERT(builder.facesLeft == 0);
 			const uint32_t chartCount = builder.chartArray.size();
 			for (uint32_t i = 0; i < chartCount; i++) {
-				Chart *chart = new Chart();
+				Chart *chart = XA_NEW(Chart);
 				m_chartArray.push_back(chart);
 				chart->build(m_mesh, builder.chartFaces(i));
 			}
@@ -6774,7 +6784,7 @@ public:
 	~Atlas()
 	{
 		for (uint32_t i = 0; i < m_meshChartsArray.size(); i++)
-			delete m_meshChartsArray[i];
+			XA_DELETE(m_meshChartsArray[i], MeshCharts);
 	}
 
 	uint32_t meshCount() const
@@ -6834,14 +6844,14 @@ public:
 
 	void extractCharts(const halfedge::Mesh *mesh)
 	{
-		MeshCharts *meshCharts = new MeshCharts(mesh);
+		MeshCharts *meshCharts = XA_NEW(MeshCharts, mesh);
 		meshCharts->extractCharts();
 		addMeshCharts(meshCharts);
 	}
 
 	void computeCharts(const halfedge::Mesh *mesh, const CharterOptions &options)
 	{
-		MeshCharts *meshCharts = new MeshCharts(mesh);
+		MeshCharts *meshCharts = XA_NEW(MeshCharts, mesh);
 		meshCharts->computeCharts(options);
 		addMeshCharts(meshCharts);
 	}
@@ -6902,7 +6912,7 @@ struct AtlasPacker
 	~AtlasPacker()
 	{
 		for (uint32_t i = 0; i < m_bitmaps.size(); i++)
-			delete m_bitmaps[i];
+			XA_DELETE(m_bitmaps[i], BitMap);
 	}
 
 	uint32_t getWidth() const { return m_width; }
@@ -7109,7 +7119,7 @@ struct AtlasPacker
 				bool firstChartInBitmap = false;
 				if (currentBitmapIndex + 1 > m_bitmaps.size()) {
 					// Chart doesn't fit in the current bitmap, create a new one.
-					BitMap *bm = new BitMap();
+					BitMap *bm = XA_NEW(BitMap);
 					bm->clearAll();
 					bm->resize(resolution, resolution, false);
 					m_bitmaps.push_back(bm);
@@ -7672,7 +7682,7 @@ struct Context
 
 Atlas *Create()
 {
-	Context *ctx = new Context();
+	Context *ctx = XA_NEW(Context);
 	ctx->atlas.atlasCount = 0;
 	ctx->atlas.chartCount = 0;
 	ctx->atlas.height = 0;
@@ -7688,16 +7698,16 @@ static void DestroyOutputMeshes(Context *ctx)
 {
 	if (!ctx->atlas.meshes)
 		return;
-	for (int i = 0; i < (int)ctx->heMeshes.size(); i++) {
+	for (int i = 0; i < (int)ctx->atlas.meshCount; i++) {
 		Mesh *mesh = ctx->atlas.meshes[i];
 		for (uint32_t j = 0; j < mesh->chartCount; j++)
-			delete [] mesh->chartArray[j].indexArray;
-		delete [] mesh->chartArray;
-		delete [] mesh->vertexArray;
-		delete [] mesh->indexArray;
-		delete mesh;
+			XA_FREE(mesh->chartArray[j].indexArray);
+		XA_FREE(mesh->chartArray);
+		XA_FREE(mesh->vertexArray);
+		XA_FREE(mesh->indexArray);
+		XA_FREE(mesh);
 	}
-	delete [] ctx->atlas.meshes;
+	XA_FREE(ctx->atlas.meshes);
 	ctx->atlas.meshes = NULL;
 }
 
@@ -7706,11 +7716,11 @@ void Destroy(Atlas *atlas)
 	XA_DEBUG_ASSERT(atlas);
 	Context *ctx = (Context *)atlas;
 	if (atlas->utilization)
-		delete [] atlas->utilization;
+		XA_FREE(atlas->utilization);
 	for (int i = 0; i < (int)ctx->heMeshes.size(); i++)
-		delete ctx->heMeshes[i];
+		XA_DELETE(ctx->heMeshes[i], Mesh);
 	DestroyOutputMeshes(ctx);
-	delete ctx;
+	XA_DELETE(ctx, Context);
 }
 
 static internal::Vector3 DecodePosition(const MeshDecl &meshDecl, uint32_t index)
@@ -7764,7 +7774,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			return AddMeshError::IndexOutOfRange;
 	}
 	// Build half edge mesh.
-	internal::halfedge::Mesh *heMesh = new internal::halfedge::Mesh(atlas->meshCount);
+	internal::halfedge::Mesh *heMesh = XA_NEW(internal::halfedge::Mesh, atlas->meshCount);
 	internal::Array<uint32_t> canonicalMap;
 	canonicalMap.reserve(meshDecl.vertexCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
@@ -7851,7 +7861,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	atlas->texelsPerUnit = 0;
 	atlas->width = 0;
 	if (atlas->utilization) {
-		delete [] atlas->utilization;
+		XA_FREE(atlas->utilization);
 		atlas->utilization = NULL;
 	}
 	DestroyOutputMeshes(ctx);
@@ -7898,7 +7908,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	atlas->width = 0;
 	DestroyOutputMeshes(ctx);
 	if (atlas->utilization) {
-		delete [] atlas->utilization;
+		XA_FREE(atlas->utilization);
 		atlas->utilization = NULL;
 	}
 	if (atlas->chartCount <= 0)
@@ -7910,21 +7920,21 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	atlas->width = packer.getWidth();
 	atlas->height = packer.getHeight();
 	atlas->texelsPerUnit = packer.getTexelsPerUnit();
-	atlas->utilization = new float[atlas->atlasCount];
+	atlas->utilization = XA_ALLOC_ARRAY(float, atlas->atlasCount);
 	for (uint32_t i = 0; i < atlas->atlasCount; i++)
 		atlas->utilization[i] = packer.computeAtlasUtilization(i);
 	XA_PRINT(PrintFlags::BuildingOutputMeshes, "Building output meshes\n");
 	int progress = 0;
 	if (progressCallback)
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
-	atlas->meshes = new Mesh*[atlas->meshCount];
+	atlas->meshes = XA_ALLOC_ARRAY(Mesh *, atlas->meshCount);
 	for (int i = 0; i < (int)atlas->meshCount; i++) {
 		const internal::halfedge::Mesh *heMesh = ctx->heMeshes[i];
-		Mesh *outputMesh = atlas->meshes[i] = new Mesh;
+		Mesh *outputMesh = atlas->meshes[i] = XA_ALLOC(Mesh);
 		const internal::param::MeshCharts *charts = ctx->paramAtlas.meshAt(i);
 		// Vertices.
 		outputMesh->vertexCount = charts->vertexCount();
-		outputMesh->vertexArray = new Vertex[outputMesh->vertexCount];
+		outputMesh->vertexArray = XA_ALLOC_ARRAY(Vertex, outputMesh->vertexCount);
 		for (uint32_t j = 0; j < charts->chartCount(); j++) {
 			const internal::param::Chart *chart = charts->chartAt(j);
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
@@ -7939,7 +7949,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 		}
 		// Indices.
 		outputMesh->indexCount = heMesh->faceCount() * 3;
-		outputMesh->indexArray = new uint32_t[outputMesh->indexCount];
+		outputMesh->indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh->indexCount);
 		for (uint32_t f = 0; f < heMesh->faceCount(); f++) {
 			const uint32_t c = charts->faceChartAt(f);
 			const uint32_t fi = charts->faceIndexWithinChartAt(f);
@@ -7961,7 +7971,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			if (!chart->isVertexMapped())
 				outputMesh->chartCount++;
 		}
-		outputMesh->chartArray = new Chart[outputMesh->chartCount];
+		outputMesh->chartArray = XA_ALLOC_ARRAY(Chart, outputMesh->chartCount);
 		uint32_t chartIndex = 0;
 		for (uint32_t j = 0; j < charts->chartCount(); j++) {
 			const internal::param::Chart *chart = charts->chartAt(j);
@@ -7973,7 +7983,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
 			const internal::halfedge::Mesh *mesh = chart->chartMesh();
 			outputChart->indexCount = mesh->faceCount() * 3;
-			outputChart->indexArray = new uint32_t[outputChart->indexCount];
+			outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
 			for (uint32_t k = 0; k < mesh->faceCount(); k++) {
 				const internal::halfedge::Face *face = mesh->faceAt(k);
 				const internal::halfedge::Edge *edge = face->edge;
@@ -7996,6 +8006,13 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	}
 	if (progressCallback && progress != 100)
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
+}
+
+void SetAlloc(MallocFunc mallocFunc, ReallocFunc reallocFunc, FreeFunc freeFunc)
+{
+	internal::s_malloc = mallocFunc;
+	internal::s_realloc = reallocFunc;
+	internal::s_free = freeFunc;
 }
 
 void SetPrint(int flags, PrintFunc print)
