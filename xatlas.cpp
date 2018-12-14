@@ -7803,9 +7803,16 @@ struct PositionHashMap
 {
 	PositionHashMap(uint32_t positionCount)
 	{
-		for (int i = 0; i < m_numSlots; i++)
+		m_numSlots = std::min((uint32_t)(positionCount * 1.3), 8u * 1024u * 1024u);
+		m_slots = XA_ALLOC_ARRAY(uint32_t, m_numSlots);
+		for (uint32_t i = 0; i < m_numSlots; i++)
 			m_slots[i] = UINT32_MAX;
 		m_elements.reserve(positionCount);
+	}
+
+	~PositionHashMap()
+	{
+		XA_FREE(m_slots);
 	}
 
 	void insert(xatlas::internal::Vector3 pos)
@@ -7839,8 +7846,8 @@ private:
 		uint32_t next;
 	};
 
-	static const size_t m_numSlots = 4096;
-	uint32_t m_slots[m_numSlots];
+	uint32_t m_numSlots;
+	uint32_t *m_slots;
 	internal::Array<Element> m_elements;
 };
 
