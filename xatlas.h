@@ -80,6 +80,7 @@ struct MeshDecl
 	uint32_t vertexUvStride; // optional
 	uint32_t indexCount;
 	const void *indexData;
+	int32_t indexOffset; // optional. Add this offset to all indices.
 	IndexFormat::Enum indexFormat;
 	
 	// optional. indexCount / 3 in length.
@@ -97,6 +98,7 @@ struct MeshDecl
 		vertexUvStride = 0;
 		indexCount = 0;
 		indexData = NULL;
+		indexOffset = 0;
 		indexFormat = IndexFormat::UInt16;
 		faceIgnoreData = NULL;
 	}

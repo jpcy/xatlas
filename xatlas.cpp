@@ -7786,12 +7786,12 @@ static internal::Vector2 DecodeUv(const MeshDecl &meshDecl, uint32_t index)
 	return *((const internal::Vector2 *)&((const uint8_t *)meshDecl.vertexUvData)[meshDecl.vertexUvStride * index]);
 }
 
-static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, uint32_t i)
+static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, int32_t offset, uint32_t i)
 {
 	XA_DEBUG_ASSERT(indexData);
 	if (format == IndexFormat::UInt16)
-		return (uint32_t)((const uint16_t *)indexData)[i];
-	return ((const uint32_t *)indexData)[i];
+		return uint16_t((int32_t)((const uint16_t *)indexData)[i] + offset);
+	return uint32_t((int32_t)((const uint32_t *)indexData)[i] + offset);
 }
 
 static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
@@ -7863,7 +7863,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 		return AddMeshError::InvalidIndexCount;
 	// Check if any index is out of range.
 	for (uint32_t i = 0; i < meshDecl.indexCount; i++) {
-		const uint32_t index = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, i);
+		const uint32_t index = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i);
 		if (index >= meshDecl.vertexCount)
 			return AddMeshError::IndexOutOfRange;
 	}
@@ -7892,7 +7892,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 	for (uint32_t i = 0; i < meshDecl.indexCount / 3; i++) {
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
-			tri[j] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, i * 3 + j);
+			tri[j] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
 		uint32_t faceFlags = 0;
 		// Check for degenerate or zero length edges.
 		for (int j = 0; j < 3; j++) {
