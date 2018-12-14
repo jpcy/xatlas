@@ -7799,6 +7799,51 @@ static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
 	return internal::length(pos2 - pos1);
 }
 
+struct PositionHashMap
+{
+	PositionHashMap(uint32_t positionCount)
+	{
+		for (int i = 0; i < m_numSlots; i++)
+			m_slots[i] = UINT32_MAX;
+		m_elements.reserve(positionCount);
+	}
+
+	void insert(xatlas::internal::Vector3 pos)
+	{
+		const uint32_t hash = internal::hash(pos) % m_numSlots;
+		Element element;
+		element.value = pos;
+		element.next = m_slots[hash];
+		m_slots[hash] = m_elements.size();
+		m_elements.push_back(element);
+	}
+
+	uint32_t get(xatlas::internal::Vector3 pos, uint32_t max)
+	{
+		const uint32_t hash = internal::hash(pos) % m_numSlots;
+		uint32_t i = m_slots[hash];
+		uint32_t lowest = max;
+		while (i != UINT32_MAX) {
+			const Element &element = m_elements[i];
+			if (i < lowest && element.value == pos)
+				lowest = i;
+			i = element.next;
+		}
+		return lowest;
+	}
+
+private:
+	struct Element
+	{
+		xatlas::internal::Vector3 value;
+		uint32_t next;
+	};
+
+	static const size_t m_numSlots = 4096;
+	uint32_t m_slots[m_numSlots];
+	internal::Array<Element> m_elements;
+};
+
 AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColocalVertices)
 {
 	XA_DEBUG_ASSERT(atlas);
@@ -7810,13 +7855,16 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 	if ((meshDecl.indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
 	// Check if any index is out of range.
-	for (uint32_t j = 0; j < meshDecl.indexCount; j++) {
-		const uint32_t index = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, j);
+	for (uint32_t i = 0; i < meshDecl.indexCount; i++) {
+		const uint32_t index = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, i);
 		if (index >= meshDecl.vertexCount)
 			return AddMeshError::IndexOutOfRange;
 	}
 	// Build half edge mesh.
 	internal::halfedge::Mesh *heMesh = XA_NEW(internal::halfedge::Mesh, atlas->meshCount);
+	PositionHashMap positionHashMap(meshDecl.vertexCount);
+	for (uint32_t i = 0; i < meshDecl.vertexCount; i++)
+		positionHashMap.insert(DecodePosition(meshDecl, i));
 	internal::Array<uint32_t> canonicalMap;
 	canonicalMap.reserve(meshDecl.vertexCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
@@ -7825,21 +7873,11 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			vertex->nor = DecodeNormal(meshDecl, i);
 		if (meshDecl.vertexUvData)
 			vertex->tex = DecodeUv(meshDecl, i);
-		// Link colocals. You probably want to do this more efficiently! Sort by one axis or use a hash or grid.
 		uint32_t firstColocal = i;
 		if (useColocalVertices) {
-			for (uint32_t j = 0; j < i; j++) {
-				if (vertex->pos != DecodePosition(meshDecl, j))
-					continue;
-#if 0
-				if (meshDecl.vertexNormalData && vertex->nor != DecodeNormal(meshDecl, j))
-					continue;
-				if (meshDecl.vertexUvData && vertex->tex != DecodeUv(meshDecl, j))
-					continue;
-#endif
-				firstColocal = j;
-				break;
-			}
+			firstColocal = positionHashMap.get(vertex->pos, i);
+			if (firstColocal == UINT32_MAX)
+				firstColocal = i;
 		}
 		canonicalMap.push_back(firstColocal);
 	}
