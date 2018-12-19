@@ -202,10 +202,8 @@ struct PrintFlags
 	};
 };
 
-typedef void *(*MallocFunc)(size_t);
 typedef void *(*ReallocFunc)(void *, size_t);
-typedef void (*FreeFunc)(void *);
-void SetAlloc(MallocFunc mallocFunc, ReallocFunc reallocFunc, FreeFunc freeFunc);
+void SetRealloc(ReallocFunc reallocFunc);
 
 typedef int (*PrintFunc)(const char *, ...);
 void SetPrint(int flags, PrintFunc print = NULL);

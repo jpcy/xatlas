@@ -32,10 +32,10 @@
 #define XA_DEBUG_ASSERT(exp) assert(exp)
 #endif
 
-#define XA_ALLOC(type) (type *)internal::s_malloc(sizeof(type))
-#define XA_ALLOC_ARRAY(type, num) (type *)internal::s_malloc(sizeof(type) * num)
+#define XA_ALLOC(type) (type *)internal::s_realloc(nullptr, sizeof(type))
+#define XA_ALLOC_ARRAY(type, num) (type *)internal::s_realloc(nullptr, sizeof(type) * num)
 #define XA_REALLOC(ptr, type, num) (type *)internal::s_realloc(ptr, sizeof(type) * num)
-#define XA_FREE(ptr) internal::s_free(ptr)
+#define XA_FREE(ptr) internal::s_realloc(ptr, 0)
 #define XA_NEW(type, ...) new (XA_ALLOC(type)) type(__VA_ARGS__)
 
 #ifndef XA_PRINT
@@ -50,9 +50,7 @@
 namespace xatlas {
 namespace internal {
 
-static MallocFunc s_malloc = malloc;
 static ReallocFunc s_realloc = realloc;
-static FreeFunc s_free = free;
 static int s_printFlags = 0;
 static PrintFunc s_print = printf;
 
@@ -8095,11 +8093,9 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
 }
 
-void SetAlloc(MallocFunc mallocFunc, ReallocFunc reallocFunc, FreeFunc freeFunc)
+void SetRealloc(ReallocFunc reallocFunc)
 {
-	internal::s_malloc = mallocFunc;
 	internal::s_realloc = reallocFunc;
-	internal::s_free = freeFunc;
 }
 
 void SetPrint(int flags, PrintFunc print)
