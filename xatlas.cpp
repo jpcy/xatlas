@@ -32,10 +32,10 @@
 #define XA_DEBUG_ASSERT(exp) assert(exp)
 #endif
 
-#define XA_ALLOC(type) (type *)internal::s_realloc(nullptr, sizeof(type))
-#define XA_ALLOC_ARRAY(type, num) (type *)internal::s_realloc(nullptr, sizeof(type) * num)
-#define XA_REALLOC(ptr, type, num) (type *)internal::s_realloc(ptr, sizeof(type) * num)
-#define XA_FREE(ptr) internal::s_realloc(ptr, 0)
+#define XA_ALLOC(type) (type *)internal::Realloc(NULL, sizeof(type), __FILE__, __LINE__)
+#define XA_ALLOC_ARRAY(type, num) (type *)internal::Realloc(NULL, sizeof(type) * num, __FILE__, __LINE__)
+#define XA_REALLOC(ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * num, __FILE__, __LINE__)
+#define XA_FREE(ptr) internal::Realloc(ptr, 0, __FILE__, __LINE__)
 #define XA_NEW(type, ...) new (XA_ALLOC(type)) type(__VA_ARGS__)
 
 #ifndef XA_PRINT
@@ -53,6 +53,82 @@ namespace internal {
 static ReallocFunc s_realloc = realloc;
 static int s_printFlags = 0;
 static PrintFunc s_print = printf;
+
+//#define XA_DEBUG_HEAP
+
+#ifdef XA_DEBUG_HEAP
+struct AllocHeader
+{
+	size_t size;
+	const char *file;
+	int line;
+	AllocHeader *prev, *next;
+};
+
+static AllocHeader *s_allocRoot = NULL;
+static size_t s_allocTotalSize = 0;
+static size_t s_allocPeakSize = 0;
+
+static void *Realloc(void *ptr, size_t size, const char *file, int line)
+{
+	if (!size && !ptr)
+		return NULL;
+	uint8_t *realPtr = NULL;
+	AllocHeader *header = NULL;
+	if (ptr) {
+		realPtr = ((uint8_t *)ptr) - sizeof(AllocHeader);
+		header = (AllocHeader *)realPtr;
+	}
+	if (!size || realPtr) {
+		// free or realloc, either way, remove.
+		s_allocTotalSize -= header->size;
+		if (header->prev)
+			header->prev->next = header->next;
+		else
+			s_allocRoot = header->next;
+		if (header->next)
+			header->next->prev = header->prev;
+	}
+	if (!size)
+		return s_realloc(realPtr, 0); // free
+	size += sizeof(AllocHeader);
+	uint8_t *newPtr = (uint8_t *)s_realloc(realPtr, size);
+	if (!newPtr)
+		return NULL;
+	header = (AllocHeader *)newPtr;
+	header->size = size;
+	header->file = file;
+	header->line = line;
+	if (!s_allocRoot) {
+		s_allocRoot = header;
+		header->prev = header->next = 0;
+	} else {
+		header->prev = NULL;
+		header->next = s_allocRoot;
+		s_allocRoot = header;
+		header->next->prev = header;
+	}
+	s_allocTotalSize += size;
+	if (s_allocTotalSize > s_allocPeakSize)
+		s_allocPeakSize = s_allocTotalSize;
+	return newPtr + sizeof(AllocHeader);
+}
+
+static void ReportAllocs()
+{
+	AllocHeader *header = s_allocRoot;
+	while (header) {
+		printf("Leak: %d bytes %s %d\n", header->size, header->file, header->line);
+		header = header->next;
+	}
+	printf("%0.2fMB peak memory usage\n", s_allocPeakSize / 1024.0f / 1024.0f);
+}
+#else
+static void *Realloc(void *ptr, size_t size, const char * /*file*/, int /*line*/)
+{
+	return s_realloc(ptr, size);
+}
+#endif
 
 static int align(int x, int a)
 {
@@ -2329,11 +2405,16 @@ public:
 			XA_FREE(m_vertexArray[i]);
 		}
 		m_vertexArray.clear();
-		for (EdgeMap::PseudoIndex it = m_edgeMap.start(); !m_edgeMap.isDone(it); m_edgeMap.advance(it)) {
-			m_edgeMap[it].value->~Edge();
-			XA_FREE(m_edgeMap[it].value);
+		for (uint32_t i = 0; i < m_edgeArray.size(); i++) {
+			m_edgeArray[i]->~Edge();
+			XA_FREE(m_edgeArray[i]);
 		}
 		m_edgeArray.clear();
+		for (uint32_t i = 0; i < m_pairedEdgeArray.size(); i++) {
+			m_pairedEdgeArray[i]->~Edge();
+			XA_FREE(m_pairedEdgeArray[i]);
+		}
+		m_pairedEdgeArray.clear();
 		m_edgeMap.clear();
 		for (uint32_t i = 0; i < m_faceArray.size(); i++) {
 			m_faceArray[i]->~Face();
@@ -2490,6 +2571,13 @@ public:
 		if ((edge->id & 1) == 0) {
 			XA_DEBUG_ASSERT(m_edgeArray[edge->id / 2] == edge);
 			m_edgeArray[edge->id / 2] = NULL;
+		} else {
+			for (uint32_t i = 0; i < m_pairedEdgeArray.size(); i++) {
+				if (m_pairedEdgeArray[i] == edge) {
+					m_pairedEdgeArray[i] = NULL;
+					break;
+				}
+			}
 		}
 		// Remove edge from map. @@ Store map key inside edge?
 		XA_DEBUG_ASSERT(edge->from() != NULL && edge->to() != NULL);
@@ -2642,6 +2730,7 @@ public:
 				if (edge->face && edge->face->flags & FaceFlags::Ignore)
 					continue;
 				Edge *pair = XA_NEW(Edge, edge->id + 1);
+				m_pairedEdgeArray.push_back(pair);
 				uint32_t i = edge->from()->id;
 				uint32_t j = edge->next->from()->id;
 				pair->vertex = m_vertexArray[j];
@@ -2998,6 +3087,7 @@ private:
 			pair->pair = edge;
 			// @@ I'm not sure this is necessary!
 			pair->vertex->setEdge(pair);
+			m_pairedEdgeArray.push_back(edge);
 		} else {
 			// Create edge.
 			edge = XA_NEW(Edge, 2 * m_edgeArray.size());
@@ -3125,6 +3215,7 @@ private:
 	uint32_t m_id;
 	Array<Vertex *> m_vertexArray;
 	Array<Edge *> m_edgeArray;
+	Array<Edge *> m_pairedEdgeArray;
 	Array<Face *> m_faceArray;
 
 	struct Key
@@ -3420,10 +3511,10 @@ static Mesh *triangulate(const Mesh *inputMesh)
 						}
 					}
 				}
-				if (!(face->flags & FaceFlags::Ignore))
+				/*if (!(face->flags & FaceFlags::Ignore))
 				{
 					XA_DEBUG_ASSERT(minAngle <= 2 * M_PI);
-				}
+				}*/
 				// Clip best ear:
 				uint32_t i0 = (bestEar + size - 1) % size;
 				uint32_t i1 = (bestEar + 0) % size;
@@ -7761,6 +7852,9 @@ void Destroy(Atlas *atlas)
 	DestroyOutputMeshes(ctx);
 	ctx->~Context();
 	XA_FREE(ctx);
+#ifdef XA_DEBUG_HEAP
+	internal::ReportAllocs();
+#endif
 }
 
 static internal::Vector3 DecodePosition(const MeshDecl &meshDecl, uint32_t index)
