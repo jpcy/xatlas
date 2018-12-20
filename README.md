@@ -16,6 +16,15 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 * Flexible data description API for input meshes.
 * Better tolerance of bad input geometry. Zero length edges and zero area faces are ignored.
 
+## How to use
+
+1. Create an atlas with `xatlas::Create`.
+2. Add one or more meshes with `xatlas::AddMesh`. Mesh geometry should be manifold.
+3. Call `xatlas::GenerateCharts`. Meshes are segmented into disk-shaped charts, then flattened into 2D parameterizations.
+4. Call `xatlas::PackCharts`. Charts are packed into one or more atlases. You can call `xatlas::PackCharts` multiple times to tweak options like unit to texel scale and resolution.
+5. The `xatlas::Atlas` instance created in the first step now contains the result, namely meshes with a new UV channel that cross-reference input meshes. The number of vertices has likely increased compared to the input meshes, as the new UV channel duplicates some vertices that were previously shared between triangles. The number and coherence of indices remain unchanged, some are changed to reference vertices that were duplicated.
+6. Cleanup with `xatlas::Destroy`.
+
 ## Links
 [Ignacio Castaño's blog post on thekla_atlas](http://the-witness.net/news/2010/03/graphics-tech-texture-parameterization/)
 
