@@ -1367,7 +1367,7 @@ public:
 
 	explicit HashMap(uint32_t size)
 	{
-		alloc(size);
+		alloc(size > 0 ? size : 4096);
 	}
 
 	~HashMap()
@@ -2053,7 +2053,13 @@ public:
 class Mesh
 {
 public:
-	Mesh(uint32_t id = 0) : m_id(id), m_colocalVertexCount(0) {}
+	Mesh(uint32_t id = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0) : m_id(id), m_edgeMap(approxFaceCount * 3), m_colocalVertexCount(0)
+	{
+		m_vertexArray.reserve(approxVertexCount);
+		m_edgeArray.reserve(approxFaceCount * 3);
+		m_pairedEdgeArray.reserve(approxFaceCount * 3);
+		m_faceArray.reserve(approxFaceCount);
+	}
 
 	Mesh(const Mesh *mesh) : m_edgeMap(mesh->edgeCount())
 	{
@@ -2071,6 +2077,9 @@ public:
 		m_colocalVertexCount = vertexCount;
 		// Copy mesh faces.
 		const uint32_t faceCount = mesh->faceCount();
+		m_edgeArray.reserve(faceCount * 3);
+		m_pairedEdgeArray.reserve(faceCount * 3);
+		m_faceArray.reserve(faceCount);
 		Array<uint32_t> indexArray;
 		indexArray.reserve(3);
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -3084,9 +3093,10 @@ static uint32_t countMeshTriangles(const Mesh *mesh)
 
 static Mesh *unifyVertices(const Mesh *inputMesh)
 {
-	Mesh *mesh = XA_NEW(Mesh);
-	// Only add the first colocal.
 	const uint32_t vertexCount = inputMesh->vertexCount();
+	uint32_t faceCount = inputMesh->faceCount();
+	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
+	// Only add the first colocal.
 	for (uint32_t v = 0; v < vertexCount; v++) {
 		const Vertex *vertex = inputMesh->vertexAt(v);
 		if (vertex->isFirstColocal()) {
@@ -3095,7 +3105,6 @@ static Mesh *unifyVertices(const Mesh *inputMesh)
 	}
 	Array<uint32_t> indexArray;
 	// Add new faces pointing to first colocals.
-	uint32_t faceCount = inputMesh->faceCount();
 	for (uint32_t f = 0; f < faceCount; f++) {
 		const Face *face = inputMesh->faceAt(f);
 		indexArray.clear();
@@ -3119,9 +3128,10 @@ static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
 static Mesh *triangulate(const Mesh *inputMesh)
 {
-	Mesh *mesh = XA_NEW(Mesh);
-	// Add all vertices.
 	const uint32_t vertexCount = inputMesh->vertexCount();
+	const uint32_t faceCount = inputMesh->faceCount();
+	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
+	// Add all vertices.
 	for (uint32_t v = 0; v < vertexCount; v++) {
 		const Vertex *vertex = inputMesh->vertexAt(v);
 		mesh->addVertex(vertex->pos);
@@ -3129,7 +3139,6 @@ static Mesh *triangulate(const Mesh *inputMesh)
 	Array<int> polygonVertices;
 	Array<float> polygonAngles;
 	Array<Vector2> polygonPoints;
-	const uint32_t faceCount = inputMesh->faceCount();
 	for (uint32_t f = 0; f < faceCount; f++) {
 		const Face *face = inputMesh->faceAt(f);
 		XA_DEBUG_ASSERT(face != NULL);
@@ -7602,7 +7611,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			return AddMeshError::IndexOutOfRange;
 	}
 	// Build half edge mesh.
-	internal::halfedge::Mesh *heMesh = XA_NEW(internal::halfedge::Mesh, atlas->meshCount);
+	internal::halfedge::Mesh *heMesh = XA_NEW(internal::halfedge::Mesh, atlas->meshCount, meshDecl.vertexCount, meshDecl.indexCount / 3);
 	typedef internal::HashMap<internal::Vector3, uint32_t> PositionHashMap;
 	PositionHashMap positionHashMap(meshDecl.vertexCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++)
