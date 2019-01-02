@@ -9,7 +9,7 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 [![](https://user-images.githubusercontent.com/3744372/43034067-5c09c1da-8d18-11e8-8490-25770f05e8e0.png)](https://user-images.githubusercontent.com/3744372/43034066-53a62dee-8d18-11e8-9767-0b38ed3fa2d3.png)
 
 ## Changes from thekla_atlas
-* Smaller code size - from about 18 KLOC to 9 KLOC
+* Smaller code size - from about 18 KLOC to 8 KLOC
 * Easier to integrate and build - a single source/header file pair instead of around 120 files and 10 directories.
 * Atlas resolution option.
 * Can output multiple atlases.

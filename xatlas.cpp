@@ -258,13 +258,6 @@ public:
 		return
 			*this;
 	}
-	const float *ptr() const { return &x; }
-
-	void set(float _x, float _y)
-	{
-		x = _x;
-		y = _y;
-	}
 
 	Vector2 operator-() const
 	{
@@ -305,22 +298,7 @@ public:
 		return a.x != b.x || a.y != b.y;
 	}
 
-	union
-	{
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4201)
-#endif
-		struct
-		{
-			float x, y;
-		};
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
-		float component[2];
-	};
+	float x, y;
 };
 
 static Vector2 operator+(Vector2::Arg a, Vector2::Arg b)
@@ -446,15 +424,6 @@ public:
 		return Vector2(x, y);
 	}
 
-	const float *ptr() const { return &x; }
-
-	void set(float _x, float _y, float _z)
-	{
-		x = _x;
-		y = _y;
-		z = _z;
-	}
-
 	Vector3 operator-() const
 	{
 		return Vector3(-x, -y, -z);
@@ -513,22 +482,7 @@ public:
 		return a.x != b.x || a.y != b.y || a.z != b.z;
 	}
 
-	union
-	{
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4201)
-#endif
-		struct
-		{
-			float x, y, z;
-		};
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
-		float component[3];
-	};
+	float x, y, z;
 };
 
 static Vector3 add(Vector3::Arg a, Vector3::Arg b)
@@ -687,26 +641,13 @@ public:
 		return m_buffer[index];
 	}
 	
-	const T & at( uint32_t index ) const
-	{
-		XA_DEBUG_ASSERT(index < m_size);
-		return m_buffer[index];
-	}
-
 	T & operator[] ( uint32_t index )
 	{
 		XA_DEBUG_ASSERT(index < m_size);
 		return m_buffer[index];
 	}
 
-	T & at( uint32_t index )
-	{
-		XA_DEBUG_ASSERT(index < m_size);
-		return m_buffer[index];
-	}
-
 	uint32_t size() const { return m_size; }
-	uint32_t capacity() const { return m_capacity; }
 	const T * data() const { return m_buffer; }
 	T * data() { return m_buffer; }
 	T * begin() { return m_buffer; }
@@ -783,17 +724,6 @@ public:
 	void append(const Array<T> & other)
 	{
 		append(other.m_buffer, other.m_size);
-	}
-
-	void append(const T other[], uint32_t count)
-	{
-		if (count > 0) {
-			const uint32_t old_size = m_size;
-			setArraySize(m_size + count);
-			for (uint32_t i = 0; i < count; i++ ) {
-				new(m_buffer + old_size + i) T(other[i]);
-			}
-		}
 	}
 
 	void resize(uint32_t new_size)
@@ -1141,7 +1071,7 @@ public:
 		// eigenvectors are the columns; make them the rows :
 		for (int i = 0; i < 3; i++) {
 			for (int j = 0; j < 3; j++) {
-				eigenVectors[j].component[i] = (float) work[i][j];
+				(&eigenVectors[j].x)[i] = (float) work[i][j];
 			}
 		}
 		// shuffle to sort by singular value :
@@ -1298,57 +1228,6 @@ public:
 		const uint32_t dim = dimension();
 		for (uint32_t i = 0; i < dim; i++) {
 			m_array[i] = f;
-		}
-	}
-
-	void operator+=(const FullVector &v)
-	{
-		XA_DEBUG_ASSERT(dimension() == v.dimension());
-		const uint32_t dim = dimension();
-		for (uint32_t i = 0; i < dim; i++) {
-			m_array[i] += v.m_array[i];
-		}
-	}
-
-	void operator-=(const FullVector &v)
-	{
-		XA_DEBUG_ASSERT(dimension() == v.dimension());
-		const uint32_t dim = dimension();
-		for (uint32_t i = 0; i < dim; i++) {
-			m_array[i] -= v.m_array[i];
-		}
-	}
-
-	void operator*=(const FullVector &v)
-	{
-		XA_DEBUG_ASSERT(dimension() == v.dimension());
-		const uint32_t dim = dimension();
-		for (uint32_t i = 0; i < dim; i++) {
-			m_array[i] *= v.m_array[i];
-		}
-	}
-
-	void operator+=(float f)
-	{
-		const uint32_t dim = dimension();
-		for (uint32_t i = 0; i < dim; i++) {
-			m_array[i] += f;
-		}
-	}
-
-	void operator-=(float f)
-	{
-		const uint32_t dim = dimension();
-		for (uint32_t i = 0; i < dim; i++) {
-			m_array[i] -= f;
-		}
-	}
-
-	void operator*=(float f)
-	{
-		const uint32_t dim = dimension();
-		for (uint32_t i = 0; i < dim; i++) {
-			m_array[i] *= f;
 		}
 	}
 
@@ -1547,9 +1426,6 @@ public:
 	}
 
 	float length() const;
-
-	// Return angle between this edge and the previous one.
-	float angle() const;
 };
 
 class Vertex
@@ -1574,14 +1450,6 @@ public:
 	{
 		for (VertexIterator it(colocals()); !it.isDone(); it.advance()) {
 			it.current()->edge = e;
-		}
-	}
-
-	// Update position of all colocals.
-	void setPos(const Vector3 &p)
-	{
-		for (VertexIterator it(colocals()); !it.isDone(); it.advance()) {
-			it.current()->pos = p;
 		}
 	}
 
@@ -1647,88 +1515,6 @@ public:
 	bool isBoundary() const
 	{
 		return (edge && !edge->face);
-	}
-
-	// Iterator that visits the edges around this vertex in counterclockwise order.
-	class EdgeIterator //: public Iterator<Edge *>
-	{
-	public:
-		EdgeIterator(Edge *e) : m_end(NULL), m_current(e) { }
-
-		virtual void advance()
-		{
-			if (m_end == NULL) m_end = m_current;
-			m_current = m_current->pair->next;
-			//m_current = m_current->prev->pair;
-		}
-
-		virtual bool isDone() const
-		{
-			return m_end == m_current;
-		}
-		virtual Edge *current() const
-		{
-			return m_current;
-		}
-		Vertex *vertex() const
-		{
-			return m_current->vertex;
-		}
-
-	private:
-		Edge *m_end;
-		Edge *m_current;
-	};
-
-	EdgeIterator edges()
-	{
-		return EdgeIterator(edge);
-	}
-	EdgeIterator edges(Edge *e)
-	{
-		return EdgeIterator(e);
-	}
-
-	// Iterator that visits the edges around this vertex in counterclockwise order.
-	class ConstEdgeIterator //: public Iterator<Edge *>
-	{
-	public:
-		ConstEdgeIterator() : m_end(NULL), m_current(NULL) {}
-		ConstEdgeIterator(const Edge *e) : m_end(NULL), m_current(e) { }
-		ConstEdgeIterator(EdgeIterator it) : m_end(NULL), m_current(it.current()) { }
-
-		virtual void advance()
-		{
-			if (m_end == NULL) m_end = m_current;
-			m_current = m_current->pair->next;
-			//m_current = m_current->prev->pair;
-		}
-
-		virtual bool isDone() const
-		{
-			return m_end == m_current;
-		}
-		virtual const Edge *current() const
-		{
-			return m_current;
-		}
-		const Vertex *vertex() const
-		{
-			return m_current->to();
-		}
-
-	private:
-		const Edge *m_end;
-		const Edge *m_current;
-	};
-
-	ConstEdgeIterator edges() const
-	{
-		return ConstEdgeIterator(edge);
-	}
-	ConstEdgeIterator edges(const Edge *e) const
-	{
-		return ConstEdgeIterator(e);
 	}
 
 	// Iterator that visits all the colocal vertices.
@@ -1807,16 +1593,6 @@ bool Edge::isTextureSeam() const
 float Edge::length() const
 {
 	return internal::length(to()->pos - from()->pos);
-}
-
-float Edge::angle() const
-{
-	Vector3 p = vertex->pos;
-	Vector3 a = prev->vertex->pos;
-	Vector3 b = next->vertex->pos;
-	Vector3 v0 = a - p;
-	Vector3 v1 = b - p;
-	return acosf(dot(v0, v1) / (internal::length(v0) * internal::length(v1)));
 }
 
 struct FaceFlags
@@ -2000,11 +1776,6 @@ public:
 	{
 		return EdgeIterator(edge);
 	}
-	EdgeIterator edges(Edge *e)
-	{
-		XA_DEBUG_ASSERT(contains(e));
-		return EdgeIterator(e);
-	}
 
 	// The iterator that visits the edges of this face in clockwise order.
 	class ConstEdgeIterator //: public Iterator<const Edge *>
@@ -2042,6 +1813,7 @@ public:
 	{
 		return ConstEdgeIterator(edge);
 	}
+
 	ConstEdgeIterator edges(const Edge *e) const
 	{
 		XA_DEBUG_ASSERT(contains(e));
@@ -2192,31 +1964,21 @@ public:
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
-		return addFace(indexArray, 3, 0, 3, flags);
+		return addFace(indexArray, 3, flags);
 	}
 
 	Face *addFace(const Array<uint32_t> &indexArray, uint32_t flags = 0)
 	{
-		return addFace(indexArray, 0, indexArray.size(), flags);
+		return addFace(indexArray.data(), indexArray.size(), flags);
 	}
 
-	Face *addFace(const Array<uint32_t> &indexArray, uint32_t first, uint32_t num, uint32_t flags = 0)
+	Face *addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0)
 	{
-		return addFace(indexArray.data(), (uint32_t)indexArray.size(), first, num, flags);
-	}
-
-	Face *addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t first, uint32_t num, uint32_t flags = 0)
-	{
-		XA_DEBUG_ASSERT(first < indexCount);
-		XA_DEBUG_ASSERT(num <= indexCount - first);
-#ifdef NDEBUG
-		indexCount = indexCount; // silence unused parameter warning
-#endif
-		XA_DEBUG_ASSERT(num > 2);
+		XA_DEBUG_ASSERT(indexCount >= 3);
 		Face *f = XA_NEW(Face, m_faceArray.size());
-		for (uint32_t j = num - 1, i = 0; i < num; j = i++) {
-			const uint32_t edgeIndex0 = indexArray[first + j];
-			const uint32_t edgeIndex1 = indexArray[first + i];
+		for (uint32_t j = indexCount - 1, i = 0; i < indexCount; j = i++) {
+			const uint32_t edgeIndex0 = indexArray[j];
+			const uint32_t edgeIndex1 = indexArray[i];
 			// Make sure edge has not been added yet.
 			Edge *edge = findEdge(edgeIndex0, edgeIndex1);
 			// We ignore edges that don't have an adjacent face yet, since this face could become the edge's face.
@@ -2232,12 +1994,12 @@ public:
 			}
 		}
 		// We also have to make sure the face does not have any duplicate edge!
-		for (uint32_t i = 0; i < num; i++) {
-			int i0 = indexArray[first + i + 0];
-			int i1 = indexArray[first + (i + 1) % num];
-			for (uint32_t j = i + 1; j < num; j++) {
-				int j0 = indexArray[first + j + 0];
-				int j1 = indexArray[first + (j + 1) % num];
+		for (uint32_t i = 0; i < indexCount; i++) {
+			int i0 = indexArray[i + 0];
+			int i1 = indexArray[(i + 1) % indexCount];
+			for (uint32_t j = i + 1; j < indexCount; j++) {
+				int j0 = indexArray[j + 0];
+				int j1 = indexArray[(j + 1) % indexCount];
 				if (i0 == j0 && i1 == j1)
 					XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d duplicate face edge: index %d, index %d\n", m_id, i0, i1);
 			}
@@ -2245,15 +2007,15 @@ public:
 		Edge *firstEdge = NULL;
 		Edge *last = NULL;
 		Edge *current = NULL;
-		for (uint32_t i = 0; i < num - 1; i++) {
-			current = addEdge(indexArray[first + i], indexArray[first + i + 1]);
+		for (uint32_t i = 0; i < indexCount - 1; i++) {
+			current = addEdge(indexArray[i], indexArray[i + 1]);
 			XA_ASSERT(current != NULL && current->face == NULL);
 			current->face = f;
 			if (last != NULL) last->setNext(current);
 			else firstEdge = current;
 			last = current;
 		}
-		current = addEdge(indexArray[first + num - 1], indexArray[first]);
+		current = addEdge(indexArray[indexCount - 1], indexArray[0]);
 		XA_ASSERT(current != NULL && current->face == NULL);
 		current->face = f;
 		last->setNext(current);
@@ -2328,95 +2090,6 @@ public:
 				edge->next->setPrev(NULL);
 			}
 			//edge->setNext(NULL);
-		}
-	}
-
-	void remove(Edge *edge)
-	{
-		XA_DEBUG_ASSERT(edge != NULL);
-		disconnect(edge);
-		edge->~Edge();
-		XA_FREE(edge);
-	}
-
-	void remove(Vertex *vertex)
-	{
-		XA_DEBUG_ASSERT(vertex != NULL);
-		// Remove from vertex list.
-		m_vertexArray[vertex->id] = NULL;
-		// Disconnect from colocals.
-		vertex->unlinkColocal();
-		// Disconnect from edges.
-		if (vertex->edge != NULL) {
-			// @@ Removing a connected vertex is asking for trouble...
-			if (vertex->edge->vertex == vertex) {
-				// @@ Connect edge to a colocal?
-				vertex->edge->vertex = NULL;
-			}
-			vertex->setEdge(NULL);
-		}
-		vertex->~Vertex();
-		XA_FREE(vertex);
-	}
-
-	void remove(Face *face)
-	{
-		XA_DEBUG_ASSERT(face != NULL);
-		// Remove from face list.
-		m_faceArray[face->id] = NULL;
-		// Disconnect from edges.
-		if (face->edge != NULL) {
-			XA_DEBUG_ASSERT(face->edge->face == face);
-			face->edge->face = NULL;
-			face->edge = NULL;
-		}
-		face->~Face();
-		XA_FREE(face);
-	}
-
-	// Triangulate in place.
-	void triangulate()
-	{
-		bool all_triangles = true;
-		const uint32_t faceCount = m_faceArray.size();
-		for (uint32_t f = 0; f < faceCount; f++) {
-			Face *face = m_faceArray[f];
-			if (face->edgeCount() != 3) {
-				all_triangles = false;
-				break;
-			}
-		}
-		if (all_triangles) {
-			return;
-		}
-		// Do not touch vertices, but rebuild edges and faces.
-		Array<Edge *> edgeArray;
-		Array<Face *> faceArray;
-		std::swap(edgeArray, m_edgeArray);
-		std::swap(faceArray, m_faceArray);
-		m_edgeMap.clear();
-		for (uint32_t f = 0; f < faceCount; f++) {
-			Face *face = faceArray[f];
-			// Trivial fan-like triangulation.
-			const uint32_t v0 = face->edge->vertex->id;
-			uint32_t v2, v1 = (uint32_t)-1;
-			for (Face::EdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				Edge *edge = it.current();
-				v2 = edge->to()->id;
-				if (v2 == v0) break;
-				if (v1 != (uint32_t)-1) addFace(v0, v1, v2);
-				v1 = v2;
-			}
-		}
-		XA_DEBUG_ASSERT(m_faceArray.size() > faceCount); // triangle count > face count
-		linkBoundary();
-		for (uint32_t i = 0; i < edgeArray.size(); i++) {
-			edgeArray[i]->~Edge();
-			XA_FREE(edgeArray[i]);
-		}
-		for (uint32_t i = 0; i < faceArray.size(); i++) {
-			faceArray[i]->~Face();
-			XA_FREE(faceArray[i]);
 		}
 	}
 
@@ -4109,15 +3782,6 @@ public:
 		m_array[y].clear();
 	}
 
-	void scaleRow(uint32_t y, float f)
-	{
-		XA_DEBUG_ASSERT( y < height() );
-		const uint32_t count = m_array[y].size();
-		for (uint32_t i = 0; i < count; i++) {
-			m_array[y][i].v *= f;
-		}
-	}
-
 	const Array<Coefficient> &getRow(uint32_t y) const { return m_array[y]; }
 
 private:
@@ -4166,34 +3830,18 @@ static float dot(const FullVector &x, const FullVector &y)
 	return sum;
 }
 
-static void mult(Transpose TM, const Matrix &M, const FullVector &x, FullVector &y)
-{
-	uint32_t w = M.width();
-	uint32_t h = M.height();
-	if (TM == Transposed) {
-		XA_DEBUG_ASSERT( h == x.dimension() );
-		XA_DEBUG_ASSERT( w == y.dimension() );
-		y.fill(0.0f);
-		for (uint32_t i = 0; i < h; i++) {
-			M.madRow(i, x[i], y);
-		}
-	} else {
-		XA_DEBUG_ASSERT( w == x.dimension() );
-		XA_DEBUG_ASSERT( h == y.dimension() );
-		for (uint32_t i = 0; i < h; i++) {
-			y[i] = M.dotRow(i, x);
-		}
-	}
-#ifdef NDEBUG
-	w = w; // silence unused parameter warning
-	h = h;
-#endif
-}
-
 // y = M * x
 static void mult(const Matrix &M, const FullVector &x, FullVector &y)
 {
-	mult(NoTransposed, M, x, y);
+	uint32_t w = M.width();
+	uint32_t h = M.height();
+	XA_DEBUG_ASSERT( w == x.dimension() );
+	XA_DEBUG_ASSERT( h == y.dimension() );
+	for (uint32_t i = 0; i < h; i++)
+		y[i] = M.dotRow(i, x);
+#ifdef NDEBUG
+	w = w; // silence unused parameter warning
+#endif
 }
 
 static void sgemv(float alpha, Transpose TA, const Matrix &A, const FullVector &x, float beta, FullVector &y)
@@ -4238,31 +3886,6 @@ static float dotRowColumn(int y, const Matrix &A, int x, const Matrix &B)
 	return sum;
 }
 
-// dot y-row of A by x-row of B
-static float dotRowRow(int y, const Matrix &A, int x, const Matrix &B)
-{
-	const Array<Matrix::Coefficient> &row = A.getRow(y);
-	const uint32_t count = row.size();
-	float sum = 0.0f;
-	for (uint32_t i = 0; i < count; i++) {
-		const Matrix::Coefficient &c = row[i];
-		sum += c.v * B.getCoefficient(c.x, x);
-	}
-	return sum;
-}
-
-// dot y-column of A by x-column of B
-static float dotColumnColumn(int y, const Matrix &A, int x, const Matrix &B)
-{
-	XA_DEBUG_ASSERT(A.height() == B.height());
-	const uint32_t h = A.height();
-	float sum = 0.0f;
-	for (uint32_t i = 0; i < h; i++) {
-		sum += A.getCoefficient(y, i) * B.getCoefficient(x, i);
-	}
-	return sum;
-}
-
 static void transpose(const Matrix &A, Matrix &B)
 {
 	XA_DEBUG_ASSERT(A.width() == B.height());
@@ -4283,54 +3906,34 @@ static void transpose(const Matrix &A, Matrix &B)
 	}
 }
 
-static void sgemm(float alpha, Transpose TA, const Matrix &A, Transpose TB, const Matrix &B, float beta, Matrix &C)
+static void sgemm(float alpha, const Matrix &A, const Matrix &B, float beta, Matrix &C)
 {
 	const uint32_t w = C.width();
 	const uint32_t h = C.height();
-	uint32_t aw = (TA == NoTransposed) ? A.width() : A.height();
-	uint32_t ah = (TA == NoTransposed) ? A.height() : A.width();
-	uint32_t bw = (TB == NoTransposed) ? B.width() : B.height();
-	uint32_t bh = (TB == NoTransposed) ? B.height() : B.width();
+#ifdef _DEBUG
+	const uint32_t aw = A.width();
+	const uint32_t ah = A.height();
+	const uint32_t bw = B.width();
+	const uint32_t bh = B.height();
 	XA_DEBUG_ASSERT(aw == bh);
 	XA_DEBUG_ASSERT(bw == ah);
 	XA_DEBUG_ASSERT(w == bw);
 	XA_DEBUG_ASSERT(h == ah);
-#ifdef NDEBUG
-	aw = aw; // silence unused parameter warning
-	ah = ah;
-	bw = bw;
-	bh = bh;
 #endif
 	for (uint32_t y = 0; y < h; y++) {
 		for (uint32_t x = 0; x < w; x++) {
 			float c = beta * C.getCoefficient(x, y);
-			if (TA == NoTransposed && TB == NoTransposed) {
-				// dot y-row of A by x-column of B.
-				c += alpha * dotRowColumn(y, A, x, B);
-			} else if (TA == Transposed && TB == Transposed) {
-				// dot y-column of A by x-row of B.
-				c += alpha * dotRowColumn(x, B, y, A);
-			} else if (TA == Transposed && TB == NoTransposed) {
-				// dot y-column of A by x-column of B.
-				c += alpha * dotColumnColumn(y, A, x, B);
-			} else if (TA == NoTransposed && TB == Transposed) {
-				// dot y-row of A by x-row of B.
-				c += alpha * dotRowRow(y, A, x, B);
-			}
+			// dot y-row of A by x-column of B.
+			c += alpha * dotRowColumn(y, A, x, B);
 			C.setCoefficient(x, y, c);
 		}
 	}
 }
 
-static void mult(Transpose TA, const Matrix &A, Transpose TB, const Matrix &B, Matrix &C)
-{
-	sgemm(1.0f, TA, A, TB, B, 0.0f, C);
-}
-
 // C = A * B
 static void mult(const Matrix &A, const Matrix &B, Matrix &C)
 {
-	mult(NoTransposed, A, NoTransposed, B, C);
+	sgemm(1.0f, A, B, 0.0f, C);
 }
 
 } // namespace sparse
@@ -4487,56 +4090,6 @@ private:
 	* Jonhathan Richard Shewchuk.
 	*
 	**/
-	static bool ConjugateGradientSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon)
-	{
-		XA_DEBUG_ASSERT( A.isSquare() );
-		XA_DEBUG_ASSERT( A.width() == b.dimension() );
-		XA_DEBUG_ASSERT( A.width() == x.dimension() );
-		int i = 0;
-		const int D = A.width();
-		const int i_max = 4 * D;   // Convergence should be linear, but in some cases, it's not.
-		FullVector r(D);   // residual
-		FullVector p(D);   // search direction
-		FullVector q(D);   //
-		float delta_0;
-		float delta_old;
-		float delta_new;
-		float alpha;
-		float beta;
-		// r = b - A·x;
-		sparse::copy(b, r);
-		sparse::sgemv(-1, A, x, 1, r);
-		// p = r;
-		sparse::copy(r, p);
-		delta_new = sparse::dot( r, r );
-		delta_0 = delta_new;
-		while (i < i_max && delta_new > epsilon * epsilon * delta_0) {
-			i++;
-			// q = A·p
-			mult(A, p, q);
-			// alpha = delta_new / p·q
-			alpha = delta_new / sparse::dot( p, q );
-			// x = alfa·p + x
-			sparse::saxpy(alpha, p, x);
-			if ((i & 31) == 0) { // recompute r after 32 steps
-				// r = b - A·x
-				sparse::copy(b, r);
-				sparse::sgemv(-1, A, x, 1, r);
-			} else {
-				// r = r - alpha·q
-				sparse::saxpy(-alpha, q, r);
-			}
-			delta_old = delta_new;
-			delta_new = sparse::dot( r, r );
-			beta = delta_new / delta_old;
-			// p = beta·p + r
-			sparse::scal(beta, p);
-			sparse::saxpy(1, r, p);
-		}
-		return delta_new <= epsilon * epsilon * delta_0;
-	}
-
-
 	// Conjugate gradient with preconditioner.
 	static bool ConjugateGradientSolver(const JacobiPreconditioner &preconditioner, const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon)
 	{
@@ -4565,7 +4118,7 @@ private:
 		while (i < i_max && delta_new > epsilon * epsilon * delta_0) {
 			i++;
 			// q = A·p
-			mult(A, p, q);
+			sparse::mult(A, p, q);
 			// alpha = delta_new / p·q
 			alpha = delta_new / sparse::dot(p, q);
 			// x = alfa·p + x
@@ -5029,35 +4582,6 @@ struct AtlasBuilder
 		}
 		XA_DEBUG_ASSERT(facesLeft >= unchartedFaceCount);
 		facesLeft -= unchartedFaceCount;
-	}
-
-	void computeShortestPaths()
-	{
-		const uint32_t faceCount = mesh->faceCount();
-		shortestPaths.resize(faceCount * faceCount, FLT_MAX);
-		// Fill edges:
-		for (uint32_t i = 0; i < faceCount; i++) {
-			shortestPaths[i * faceCount + i] = 0.0f;
-			const halfedge::Face *face_i = mesh->faceAt(i);
-			Vector3 centroid_i = face_i->centroid();
-			for (halfedge::Face::ConstEdgeIterator it(face_i->edges()); !it.isDone(); it.advance()) {
-				const halfedge::Edge *edge = it.current();
-				if (!edge->isBoundary()) {
-					const halfedge::Face *face_j = edge->pair->face;
-					uint32_t j = face_j->id;
-					Vector3 centroid_j = face_j->centroid();
-					shortestPaths[i * faceCount + j] = shortestPaths[j * faceCount + i] = length(centroid_i - centroid_j);
-				}
-			}
-		}
-		// Use Floyd-Warshall algorithm to compute all paths:
-		for (uint32_t k = 0; k < faceCount; k++) {
-			for (uint32_t i = 0; i < faceCount; i++) {
-				for (uint32_t j = 0; j < faceCount; j++) {
-					shortestPaths[i * faceCount + j] = std::min(shortestPaths[i * faceCount + j], shortestPaths[i * faceCount + k] + shortestPaths[k * faceCount + j]);
-				}
-			}
-		}
 	}
 
 	void placeSeeds(float threshold, uint32_t maxSeedCount)
@@ -6322,48 +5846,6 @@ public:
 		return m_chartArray[i];
 	}
 
-	// Extract the charts of the input mesh.
-	void extractCharts()
-	{
-		const uint32_t faceCount = m_mesh->faceCount();
-		int first = 0;
-		Array<uint32_t> queue;
-		queue.reserve(faceCount);
-		BitArray bitFlags(faceCount);
-		bitFlags.clearAll();
-		for (uint32_t f = 0; f < faceCount; f++) {
-			if (bitFlags.bitAt(f) == false) {
-				// Start new patch. Reset queue.
-				first = 0;
-				queue.clear();
-				queue.push_back(f);
-				bitFlags.setBitAt(f);
-				while (first != (int)queue.size()) {
-					const halfedge::Face *face = m_mesh->faceAt(queue[first]);
-					// Visit face neighbors of queue[first]
-					for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-						const halfedge::Edge *edge = it.current();
-						XA_DEBUG_ASSERT(edge->pair != NULL);
-						if (!edge->isBoundary() && /*!edge->isSeam()*/
-								//!(edge->from()->tex() != edge->pair()->to()->tex() || edge->to()->tex() != edge->pair()->from()->tex()))
-								!(edge->from() != edge->pair->to() || edge->to() != edge->pair->from())) { // Preserve existing seams (not just texture seams).
-							const halfedge::Face *neighborFace = edge->pair->face;
-							XA_DEBUG_ASSERT(neighborFace != NULL);
-							if (bitFlags.bitAt(neighborFace->id) == false) {
-								queue.push_back(neighborFace->id);
-								bitFlags.setBitAt(neighborFace->id);
-							}
-						}
-					}
-					first++;
-				}
-				Chart *chart = XA_NEW(Chart);
-				chart->build(m_mesh, queue);
-				m_chartArray.push_back(chart);
-			}
-		}
-	}
-
 	/*
 	Compute charts using a simple segmentation algorithm.
 
@@ -6664,25 +6146,11 @@ public:
 		return NULL;
 	}
 
-	// Add mesh charts and takes ownership.
-	// Extract the charts and add to this atlas.
-	void addMeshCharts(MeshCharts *meshCharts)
-	{
-		m_meshChartsArray.push_back(meshCharts);
-	}
-
-	void extractCharts(const halfedge::Mesh *mesh)
-	{
-		MeshCharts *meshCharts = XA_NEW(MeshCharts, mesh);
-		meshCharts->extractCharts();
-		addMeshCharts(meshCharts);
-	}
-
 	void computeCharts(const halfedge::Mesh *mesh, const CharterOptions &options)
 	{
 		MeshCharts *meshCharts = XA_NEW(MeshCharts, mesh);
 		meshCharts->computeCharts(options);
-		addMeshCharts(meshCharts);
+		m_meshChartsArray.push_back(meshCharts);
 	}
 
 	void parameterizeCharts(ProgressCallback progressCallback, void *progressCallbackUserData)
@@ -6766,7 +6234,7 @@ struct AtlasPacker
 				resolution = 1024;
 			float meshArea = 0;
 			for (uint32_t c = 0; c < chartCount; c++) {
-				Chart *chart = m_atlas->chartAt(c);
+				const Chart *chart = m_atlas->chartAt(c);
 				if (chart->isVertexMapped() || !chart->isDisk())
 					continue;
 				meshArea += chart->computeSurfaceArea();
