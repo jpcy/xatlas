@@ -58,6 +58,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define XA_EPSILON          (0.0001f)
 #define XA_NORMAL_EPSILON   (0.001f)
 
+#define XA_USE_RAW_MESH 1
+
 namespace xatlas {
 namespace internal {
 
@@ -3207,6 +3209,155 @@ private:
 		}
 	}
 };
+
+#if XA_USE_RAW_MESH
+struct RawFace
+{
+	uint32_t firstIndex;
+	uint32_t nIndices;
+};
+
+class RawMesh
+{
+public:
+	RawMesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0)
+	{
+		m_faces.reserve(approxFaceCount);
+		m_faceFlags.reserve(approxFaceCount);
+		m_indices.reserve(approxFaceCount * 3);
+		m_positions.reserve(approxVertexCount);
+		m_normals.reserve(approxVertexCount);
+		m_texcoords.reserve(approxVertexCount);
+	}
+
+	RawMesh(const RawMesh *mesh) : m_faces(mesh->m_faces), m_faceFlags(mesh->m_faceFlags), m_indices(mesh->m_indices), m_positions(mesh->m_positions), m_normals(mesh->m_normals), m_texcoords(mesh->m_texcoords), m_colocals(mesh->m_colocals)
+	{
+	}
+
+	void clear()
+	{
+		m_indices.clear();
+		m_positions.clear();
+	}
+
+	void addVertex(const Vector3 &pos, const Vector3 &normal = Vector3(), const Vector2 &texcoord = Vector2())
+	{
+		XA_DEBUG_ASSERT(isFinite(pos));
+		m_positions.push_back(pos);
+		m_normals.push_back(normal);
+		m_texcoords.push_back(texcoord);
+	}
+
+	void addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t flags = 0)
+	{
+		uint32_t indexArray[3];
+		indexArray[0] = v0;
+		indexArray[1] = v1;
+		indexArray[2] = v2;
+		addFace(indexArray, 3, flags);
+	}
+
+	void addFace(const Array<uint32_t> &indexArray, uint32_t flags = 0)
+	{
+		return addFace(indexArray.data(), indexArray.size(), flags);
+	}
+
+	void addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0)
+	{
+		RawFace face;
+		face.firstIndex = m_indices.size();
+		face.nIndices = indexCount;
+		m_faces.push_back(face);
+		m_faceFlags.push_back(flags);
+		for (uint32_t i = 0; i < indexCount; i++)
+			m_indices.push_back(indexArray[i]);
+	}
+
+	void createColocalsWithCanonicalMap(const Array<uint32_t> &canonicalMap)
+	{
+		XA_DEBUG_ASSERT(canonicalMap.size() == m_positions.size());
+		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
+		m_colocals.resize(canonicalMap.size());
+		for (uint32_t i = 0; i < canonicalMap.size(); i++) {
+			// Find the next (with wrapping) vertex with the same colocal.
+#if 1
+			// HE mesh colocals are in reverse order.
+			for (uint32_t j = 1;; j++) {
+				int32_t k = (int32_t)i - (int32_t)j;
+				if (k < 0)
+					k += (int32_t)canonicalMap.size();
+				if ((uint32_t)k == i || canonicalMap[(uint32_t)k] == canonicalMap[i]) {
+					m_colocals[i] = (uint32_t)k;
+					break;
+				}
+			}
+#else
+			for (uint32_t j = 1;; j++) {
+				const uint32_t k = (i + j) % canonicalMap.size();
+				if (k == i || canonicalMap[k] == canonicalMap[i]) {
+					m_colocals[i] = k;
+					break;
+				}
+			}
+#endif
+		}
+	}
+
+	uint32_t vertexCount() const { return m_positions.size(); }
+	const Vector3 *positionAt(uint32_t i) const { return &m_positions[i]; }
+	Vector3 *positionAt(uint32_t i) { return &m_positions[i]; }
+	const Vector3 *normalAt(uint32_t i) const { return &m_normals[i]; }
+	Vector3 *normalAt(uint32_t i) { return &m_normals[i]; }
+	const Vector2 *texcoordAt(uint32_t i) const { return &m_texcoords[i]; }
+	Vector2 *texcoordAt(uint32_t i) { return &m_texcoords[i]; }
+	uint32_t faceCount() const { return m_faces.size(); }
+	const RawFace *faceAt(uint32_t i) const { return &m_faces[i]; }
+	RawFace *faceAt(uint32_t i) { return &m_faces[i]; }
+	uint32_t faceFlagsAt(uint32_t i) const { return m_faceFlags[i]; }
+
+	class ColocalIterator
+	{
+	public:
+		ColocalIterator(RawMesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
+
+		void advance()
+		{
+			if (m_first == UINT32_MAX)
+				m_first = m_current;
+			m_current = m_mesh->m_colocals[m_current];
+		}
+
+		bool isDone() const
+		{
+			return m_first == m_current;
+		}
+
+		uint32_t index() const
+		{
+			return m_current;
+		}
+
+		Vector3 *pos() const
+		{
+			return &m_mesh->m_positions[m_current];
+		}
+
+	private:
+		RawMesh *m_mesh;
+		uint32_t m_first;
+		uint32_t m_current;
+	};
+
+private:
+	Array<RawFace> m_faces;
+	Array<uint32_t> m_faceFlags;
+	Array<uint32_t> m_indices;
+	Array<Vector3> m_positions;
+	Array<Vector3> m_normals;
+	Array<Vector2> m_texcoords;
+	Array<uint32_t> m_colocals; // The index of the next colocal position.
+};
+#endif
 
 namespace raster {
 class ClippedTriangle
@@ -6977,6 +7128,9 @@ struct Context
 	Atlas atlas;
 	internal::param::Atlas paramAtlas;
 	internal::Array<internal::halfedge::Mesh *> heMeshes;
+#if XA_USE_RAW_MESH
+	internal::Array<internal::RawMesh *> rawMeshes;
+#endif
 };
 
 Atlas *Create()
@@ -7020,6 +7174,12 @@ void Destroy(Atlas *atlas)
 		ctx->heMeshes[i]->~Mesh();
 		XA_FREE(ctx->heMeshes[i]);
 	}
+#if XA_USE_RAW_MESH
+	for (int i = 0; i < (int)ctx->rawMeshes.size(); i++) {
+		ctx->rawMeshes[i]->~RawMesh();
+		XA_FREE(ctx->rawMeshes[i]);
+	}
+#endif
 	DestroyOutputMeshes(ctx);
 	ctx->~Context();
 	XA_FREE(ctx);
@@ -7149,6 +7309,77 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 	}
 	heMesh->linkBoundary();
 	ctx->heMeshes.push_back(heMesh);
+#if XA_USE_RAW_MESH
+	internal::RawMesh *rawMesh = XA_NEW(internal::RawMesh, meshDecl.vertexCount, meshDecl.indexCount / 3);
+	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
+		internal::Vector3 normal(0);
+		internal::Vector2 texcoord(0);
+		if (meshDecl.vertexNormalData)
+			normal = DecodeNormal(meshDecl, i);
+		if (meshDecl.vertexUvData)
+			texcoord = DecodeUv(meshDecl, i);
+		rawMesh->addVertex(DecodePosition(meshDecl, i), normal, texcoord);
+	}
+	for (uint32_t i = 0; i < meshDecl.indexCount / 3; i++) {
+		uint32_t tri[3];
+		for (int j = 0; j < 3; j++)
+			tri[j] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
+		uint32_t faceFlags = 0;
+		// Check for degenerate or zero length edges.
+		for (int j = 0; j < 3; j++) {
+			const uint32_t edges[6] = { 0, 1, 1, 2, 2, 0 };
+			const uint32_t index1 = tri[edges[j * 2 + 0]];
+			const uint32_t index2 = tri[edges[j * 2 + 1]];
+			if (index1 == index2) {
+				faceFlags |= internal::halfedge::FaceFlags::Ignore;
+				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->meshCount, index1, index2);
+				break;
+			}
+			const internal::Vector3 pos1 = DecodePosition(meshDecl, index1);
+			const internal::Vector3 pos2 = DecodePosition(meshDecl, index2);
+			if (EdgeLength(pos1, pos2) <= 0.0f) {
+				faceFlags |= internal::halfedge::FaceFlags::Ignore;
+				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->meshCount, index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
+				break;
+			}
+		}
+		// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
+		if (!(faceFlags & internal::halfedge::FaceFlags::Ignore))
+		{
+			const internal::Vector3 a = DecodePosition(meshDecl, tri[0]);
+			const internal::Vector3 b = DecodePosition(meshDecl, tri[1]);
+			const internal::Vector3 c = DecodePosition(meshDecl, tri[2]);
+			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
+			if (area <= 0.0f)
+			{
+				faceFlags |= internal::halfedge::FaceFlags::Ignore;
+				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->meshCount, i, tri[0], tri[1], tri[2]);
+			}
+		}
+		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
+			faceFlags |= internal::halfedge::FaceFlags::Ignore;
+		rawMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
+	}
+	rawMesh->createColocalsWithCanonicalMap(canonicalMap);
+	ctx->rawMeshes.push_back(rawMesh);
+	printf("half-edge\n");
+	for (uint32_t i = 0; i < 10; i++) {
+		internal::halfedge::Vertex *v = heMesh->vertexAt(i);
+		printf("   %d: ", i);
+		for (internal::halfedge::Vertex::VertexIterator it(v->colocals()); !it.isDone(); it.advance()) {
+			printf("%d ", it.current()->id);
+		}
+		printf("\n");
+	}
+	printf("raw\n");
+	for (uint32_t i = 0; i < 10; i++) {
+		printf("   %d: ", i);
+		for (internal::RawMesh::ColocalIterator it(rawMesh, i); !it.isDone(); it.advance()) {
+			printf("%d ", it.index());
+		}
+		printf("\n");
+	}
+#endif
 	atlas->meshCount++;
 	return AddMeshError::Success;
 }
@@ -7159,6 +7390,10 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	Context *ctx = (Context *)atlas;
 	if (ctx->heMeshes.isEmpty())
 		return;
+#if XA_USE_RAW_MESH
+	if (ctx->rawMeshes.isEmpty())
+		return;
+#endif
 	atlas->atlasCount = 0;
 	atlas->chartCount = 0;
 	atlas->height = 0;
