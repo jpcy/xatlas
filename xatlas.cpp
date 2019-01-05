@@ -3211,16 +3211,23 @@ private:
 };
 
 #if XA_USE_RAW_MESH
+struct RawEdge
+{
+	uint32_t index;
+	uint32_t face;
+};
+
 struct RawFace
 {
-	uint32_t firstIndex;
+	uint32_t firstEdgeIndex;
+	uint32_t firstIndex; // Index into RawMesh::m_indices.
 	uint32_t nIndices;
 };
 
 class RawMesh
 {
 public:
-	RawMesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0)
+	RawMesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0) : m_edgeMap(approxFaceCount * 3)
 	{
 		m_faces.reserve(approxFaceCount);
 		m_faceFlags.reserve(approxFaceCount);
@@ -3230,14 +3237,23 @@ public:
 		m_texcoords.reserve(approxVertexCount);
 	}
 
-	RawMesh(const RawMesh *mesh) : m_faces(mesh->m_faces), m_faceFlags(mesh->m_faceFlags), m_indices(mesh->m_indices), m_positions(mesh->m_positions), m_normals(mesh->m_normals), m_texcoords(mesh->m_texcoords), m_colocals(mesh->m_colocals)
+	RawMesh(const RawMesh *mesh) : m_faces(mesh->m_faces), m_faceFlags(mesh->m_faceFlags), m_indices(mesh->m_indices), m_positions(mesh->m_positions), m_normals(mesh->m_normals), m_texcoords(mesh->m_texcoords), m_colocals(mesh->m_colocals), m_boundaryEdges(mesh->m_boundaryEdges), m_edgeMap(mesh->faceCount() * 3)
 	{
+		for (uint32_t i = 0; i < mesh->m_faces.size(); i++)
+			addFaceEdgesToMap(i);
 	}
 
 	void clear()
 	{
+		m_faces.clear();
+		m_faceFlags.clear();
 		m_indices.clear();
 		m_positions.clear();
+		m_normals.clear();
+		m_texcoords.clear();
+		m_colocals.clear();
+		m_boundaryEdges.clear();
+		m_edgeMap.clear();
 	}
 
 	void addVertex(const Vector3 &pos, const Vector3 &normal = Vector3(), const Vector2 &texcoord = Vector2())
@@ -3259,18 +3275,25 @@ public:
 
 	void addFace(const Array<uint32_t> &indexArray, uint32_t flags = 0)
 	{
-		return addFace(indexArray.data(), indexArray.size(), flags);
+		addFace(indexArray.data(), indexArray.size(), flags);
 	}
 
 	void addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0)
 	{
 		RawFace face;
+		if (m_faces.isEmpty())
+			face.firstEdgeIndex = 0;
+		else {
+			const RawFace &prevFace = m_faces[m_faces.size() - 1];
+			face.firstEdgeIndex = prevFace.firstEdgeIndex + prevFace.nIndices;
+		}
 		face.firstIndex = m_indices.size();
 		face.nIndices = indexCount;
 		m_faces.push_back(face);
 		m_faceFlags.push_back(flags);
 		for (uint32_t i = 0; i < indexCount; i++)
 			m_indices.push_back(indexArray[i]);
+		addFaceEdgesToMap(m_faces.size() - 1);
 	}
 
 	void createColocalsWithCanonicalMap(const Array<uint32_t> &canonicalMap)
@@ -3301,6 +3324,27 @@ public:
 			}
 #endif
 		}
+	}
+
+	void createBoundaryEdges()
+	{
+		XA_PRINT(PrintFlags::MeshProcessing, "--- Creating boundaries:\n");
+		m_boundaryEdges.resize(m_indices.size(), UINT32_MAX);
+		uint32_t nBoundaryEdges = 0;
+		for (uint32_t i = 0; i < m_faces.size(); i++) {
+			const RawFace &face = m_faces[i];
+			for (uint32_t j = 0; j < face.nIndices; j++) {
+				uint32_t &boundaryEdge = m_boundaryEdges[face.firstEdgeIndex + j];
+				const uint32_t vertex0 = m_indices[face.firstIndex + j];
+				const uint32_t vertex1 = m_indices[face.firstIndex + (j + 1) % face.nIndices];
+				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
+				if (findEdge(vertex1, vertex0) != UINT32_MAX)
+					continue;
+				boundaryEdge = findBoundaryEdge(vertex1);
+				nBoundaryEdges++;
+			}
+		}
+		XA_PRINT(PrintFlags::MeshProcessing, "---   %d boundary edges.\n", nBoundaryEdges);
 	}
 
 	uint32_t vertexCount() const { return m_positions.size(); }
@@ -3348,14 +3392,118 @@ public:
 		uint32_t m_current;
 	};
 
+	class ConstColocalIterator
+	{
+	public:
+		ConstColocalIterator(const RawMesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
+
+		void advance()
+		{
+			if (m_first == UINT32_MAX)
+				m_first = m_current;
+			m_current = m_mesh->m_colocals[m_current];
+		}
+
+		bool isDone() const
+		{
+			return m_first == m_current;
+		}
+
+		uint32_t vertex() const
+		{
+			return m_current;
+		}
+
+		const Vector3 *pos() const
+		{
+			return &m_mesh->m_positions[m_current];
+		}
+
+	private:
+		const RawMesh *m_mesh;
+		uint32_t m_first;
+		uint32_t m_current;
+	};
+
 private:
+	void addFaceEdgesToMap(uint32_t faceIndex)
+	{
+		const RawFace &face = m_faces[faceIndex];
+		for (uint32_t i = 0; i < face.nIndices; i++) {
+			const uint32_t vertex0 = m_indices[face.firstIndex + i];
+			const uint32_t vertex1 = m_indices[face.firstIndex + (i + 1) % face.nIndices];
+			RawEdge edge;
+			edge.index = face.firstEdgeIndex + i;
+			edge.face = faceIndex;
+			m_edgeMap.add(EdgeKey(vertex0, vertex1), edge);
+		}
+	}
+
+	/// Find edge, test all colocals.
+	uint32_t findEdge(uint32_t vertex0, uint32_t vertex1) const
+	{
+		for (ConstColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
+			for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
+				EdgeKey key(it0.vertex(), it1.vertex());
+				const EdgeMap::Element *ele = m_edgeMap.get(key);
+				if (ele)
+					return ele->value.index;
+			}
+		}
+		return UINT32_MAX;
+	}
+
+	// Find a boundary edge that starts with the provided vertex (including colocals).
+	// Returns the boundary edge index if found, otherwise UINT32_MAX.
+	uint32_t findBoundaryEdge(uint32_t startVertex)
+	{
+		for (uint32_t i = 0; i < m_faces.size(); i++) {
+			const RawFace &face = m_faces[i];
+			for (uint32_t j = 0; j < face.nIndices; j++) {
+				const uint32_t vertex0 = m_indices[face.firstIndex + j];
+				const uint32_t vertex1 = m_indices[face.firstIndex + (j + 1) % face.nIndices];
+				if (findEdge(vertex1, vertex0) != UINT32_MAX)
+					continue; // Not a boundary edge.
+				for (ConstColocalIterator colocal(this, startVertex); !colocal.isDone(); colocal.advance()) {
+					if (colocal.vertex() == vertex0)
+						return face.firstEdgeIndex + j;
+				}
+			}
+		}
+		return UINT32_MAX;
+	}
+
 	Array<RawFace> m_faces;
 	Array<uint32_t> m_faceFlags;
 	Array<uint32_t> m_indices;
 	Array<Vector3> m_positions;
 	Array<Vector3> m_normals;
 	Array<Vector2> m_texcoords;
-	Array<uint32_t> m_colocals; // The index of the next colocal position.
+	Array<uint32_t> m_colocals; // In: vertex index. Out: the vertex index of the next colocal position.
+	Array<uint32_t> m_boundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
+
+	struct EdgeKey
+	{
+		EdgeKey() {}
+		EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
+		EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
+
+		void operator=(const EdgeKey &k)
+		{
+			v0 = k.v0;
+			v1 = k.v1;
+		}
+		bool operator==(const EdgeKey &k) const
+		{
+			return v0 == k.v0 && v1 == k.v1;
+		}
+
+		uint32_t v0;
+		uint32_t v1;
+	};
+
+	typedef HashMap<EdgeKey, RawEdge> EdgeMap;
+	EdgeMap m_edgeMap;
 };
 #endif
 
@@ -3406,7 +3554,6 @@ public:
 			dy1in = dy2in;
 		}
 		m_numVertices = p;
-		//for (uint32_t k=0; k<m_numVertices; k++) printf("(%f, %f)\n", v2[k].x, v2[k].y); printf("\n");
 	}
 
 	void clipVerticalPlane(float offset, float clipdirection )
@@ -7361,24 +7508,8 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 		rawMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
 	rawMesh->createColocalsWithCanonicalMap(canonicalMap);
+	rawMesh->createBoundaryEdges();
 	ctx->rawMeshes.push_back(rawMesh);
-	printf("half-edge\n");
-	for (uint32_t i = 0; i < 10; i++) {
-		internal::halfedge::Vertex *v = heMesh->vertexAt(i);
-		printf("   %d: ", i);
-		for (internal::halfedge::Vertex::VertexIterator it(v->colocals()); !it.isDone(); it.advance()) {
-			printf("%d ", it.current()->id);
-		}
-		printf("\n");
-	}
-	printf("raw\n");
-	for (uint32_t i = 0; i < 10; i++) {
-		printf("   %d: ", i);
-		for (internal::RawMesh::ColocalIterator it(rawMesh, i); !it.isDone(); it.advance()) {
-			printf("%d ", it.index());
-		}
-		printf("\n");
-	}
 #endif
 	atlas->meshCount++;
 	return AddMeshError::Success;
