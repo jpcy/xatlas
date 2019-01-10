@@ -3213,13 +3213,12 @@ private:
 #if XA_USE_RAW_MESH
 struct RawEdge
 {
-	uint32_t index;
+	uint32_t relativeIndex; // absolute: face.firstIndex + relativeIndex
 	uint32_t face;
 };
 
 struct RawFace
 {
-	uint32_t firstEdgeIndex;
 	uint32_t firstIndex; // Index into RawMesh::m_indices.
 	uint32_t nIndices;
 };
@@ -3241,6 +3240,73 @@ public:
 	{
 		for (uint32_t i = 0; i < mesh->m_faces.size(); i++)
 			addFaceEdgesToMap(i);
+	}
+
+	void verify(const halfedge::Mesh *heMesh)
+	{
+		XA_DEBUG_ASSERT(heMesh->vertexCount() == m_positions.size());
+		XA_DEBUG_ASSERT(heMesh->faceCount() == m_faces.size());
+		for (uint32_t v = 0; v < heMesh->vertexCount(); v++) {
+			const halfedge::Vertex *heVertex = heMesh->vertexAt(v);
+			XA_DEBUG_ASSERT(heVertex->pos == m_positions[v]);
+			XA_DEBUG_ASSERT(heVertex->nor == m_normals[v]);
+			XA_DEBUG_ASSERT(heVertex->tex == m_texcoords[v]);
+			// colocals
+			halfedge::Vertex::ConstVertexIterator heIt(heVertex->colocals());
+			ConstColocalIterator it(this, v);
+			for (;;) {
+				XA_DEBUG_ASSERT(heIt.isDone() == it.isDone());
+				if (heIt.isDone())
+					break;
+				XA_DEBUG_ASSERT(heIt.current()->pos == *it.pos());
+				heIt.advance();
+				it.advance();
+			}
+		}
+		for (uint32_t f = 0; f < m_faces.size(); f++) {
+			const halfedge::Face *heFace = heMesh->faceAt(f);
+			const RawFace &face = m_faces[f];
+			XA_DEBUG_ASSERT(heFace->edgeCount() == face.nIndices);
+			// edges
+			uint32_t edgeIndex = 0;
+			for (halfedge::Face::ConstEdgeIterator heEdgeIt(heFace->edges()); !heEdgeIt.isDone(); heEdgeIt.advance()) {
+				const halfedge::Edge *heEdge = heEdgeIt.current();
+				//printf("face %d: edge %d %d\n", f, heEdge->pair->id / 2, face.firstIndex + edgeIndex);
+				{
+					const uint32_t vertex0 = m_indices[face.firstIndex + edgeIndex];
+					const uint32_t vertex1 = m_indices[face.firstIndex + (edgeIndex + 1) % face.nIndices];
+					XA_DEBUG_ASSERT(heEdge->from()->pos == m_positions[vertex0]);
+					XA_DEBUG_ASSERT(heEdge->to()->pos == m_positions[vertex1]);
+				}
+				// boundary edges
+				if (heEdge->isBoundary()) {
+					// edge is a boundary edge
+					const halfedge::Edge * const boundaryStartEdge = heEdge->pair;
+					const halfedge::Edge *boundaryEdge = boundaryStartEdge;
+					const uint32_t rawBoundaryStartEdge = face.firstIndex + edgeIndex;//m_boundaryEdges[face.firstIndex + edgeIndex];
+					uint32_t rawBoundaryEdge = rawBoundaryStartEdge;
+					for (;;) {
+						uint32_t vertex0, vertex1;
+						bool foundVertices = findVertices(rawBoundaryEdge, &vertex1, &vertex0); // NOTE: flip winding to match HE
+						XA_DEBUG_ASSERT(foundVertices);
+						foundVertices = foundVertices; // Silence warning.
+						//printf("   from: (%g %g %g) (%g %g %g), to: (%g %g %g) (%g %g %g)\n", boundaryEdge->from()->pos.x, boundaryEdge->from()->pos.y, boundaryEdge->from()->pos.z, m_positions[vertex0].x, m_positions[vertex0].y, m_positions[vertex0].z, boundaryEdge->to()->pos.x, boundaryEdge->to()->pos.y, boundaryEdge->to()->pos.z, m_positions[vertex1].x, m_positions[vertex1].y, m_positions[vertex1].z);
+						XA_DEBUG_ASSERT(boundaryEdge->from()->pos == m_positions[vertex0]);
+						XA_DEBUG_ASSERT(boundaryEdge->to()->pos == m_positions[vertex1]);
+						boundaryEdge = boundaryEdge->next;
+						rawBoundaryEdge = m_boundaryEdges[rawBoundaryEdge];
+						if (boundaryEdge == boundaryStartEdge) {
+							XA_DEBUG_ASSERT(rawBoundaryEdge == rawBoundaryStartEdge);
+							break;
+						}
+					}
+
+				} else {
+					XA_DEBUG_ASSERT(m_boundaryEdges[face.firstIndex + edgeIndex] == UINT32_MAX);
+				}
+				edgeIndex++;
+			}
+		}
 	}
 
 	void clear()
@@ -3281,12 +3347,6 @@ public:
 	void addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0)
 	{
 		RawFace face;
-		if (m_faces.isEmpty())
-			face.firstEdgeIndex = 0;
-		else {
-			const RawFace &prevFace = m_faces[m_faces.size() - 1];
-			face.firstEdgeIndex = prevFace.firstEdgeIndex + prevFace.nIndices;
-		}
 		face.firstIndex = m_indices.size();
 		face.nIndices = indexCount;
 		m_faces.push_back(face);
@@ -3334,13 +3394,13 @@ public:
 		for (uint32_t i = 0; i < m_faces.size(); i++) {
 			const RawFace &face = m_faces[i];
 			for (uint32_t j = 0; j < face.nIndices; j++) {
-				uint32_t &boundaryEdge = m_boundaryEdges[face.firstEdgeIndex + j];
 				const uint32_t vertex0 = m_indices[face.firstIndex + j];
 				const uint32_t vertex1 = m_indices[face.firstIndex + (j + 1) % face.nIndices];
 				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
 				if (findEdge(vertex1, vertex0) != UINT32_MAX)
 					continue;
-				boundaryEdge = findBoundaryEdge(vertex1);
+				m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex0); // HE mesh boundary edge winding is backwards
+				//m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex1);
 				nBoundaryEdges++;
 			}
 		}
@@ -3433,7 +3493,7 @@ private:
 			const uint32_t vertex0 = m_indices[face.firstIndex + i];
 			const uint32_t vertex1 = m_indices[face.firstIndex + (i + 1) % face.nIndices];
 			RawEdge edge;
-			edge.index = face.firstEdgeIndex + i;
+			edge.relativeIndex = i;
 			edge.face = faceIndex;
 			m_edgeMap.add(EdgeKey(vertex0, vertex1), edge);
 		}
@@ -3446,16 +3506,31 @@ private:
 			for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 				EdgeKey key(it0.vertex(), it1.vertex());
 				const EdgeMap::Element *ele = m_edgeMap.get(key);
-				if (ele)
-					return ele->value.index;
+				if (ele) {
+					const RawEdge *edge = &ele->value;
+					return m_faces[edge->face].firstIndex + edge->relativeIndex;
+				}
 			}
 		}
 		return UINT32_MAX;
 	}
 
-	// Find a boundary edge that starts with the provided vertex (including colocals).
+	bool findVertices(uint32_t edge, uint32_t *vertex0, uint32_t *vertex1) const {
+		for (uint32_t i = 0; i < m_faces.size(); i++) {
+			const RawFace &face = m_faces[i];
+			const uint32_t relativeEdge = edge - face.firstIndex;
+			if (relativeEdge < face.nIndices) {
+				*vertex0 = m_indices[face.firstIndex + relativeEdge];
+				*vertex1 = m_indices[face.firstIndex + (relativeEdge + 1) % face.nIndices];
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Find a boundary edge that ends with the provided vertex (including colocals).
 	// Returns the boundary edge index if found, otherwise UINT32_MAX.
-	uint32_t findBoundaryEdge(uint32_t startVertex)
+	uint32_t findBoundaryEdge(uint32_t endVertex /*startVertex*/)
 	{
 		for (uint32_t i = 0; i < m_faces.size(); i++) {
 			const RawFace &face = m_faces[i];
@@ -3464,9 +3539,9 @@ private:
 				const uint32_t vertex1 = m_indices[face.firstIndex + (j + 1) % face.nIndices];
 				if (findEdge(vertex1, vertex0) != UINT32_MAX)
 					continue; // Not a boundary edge.
-				for (ConstColocalIterator colocal(this, startVertex); !colocal.isDone(); colocal.advance()) {
-					if (colocal.vertex() == vertex0)
-						return face.firstEdgeIndex + j;
+				for (ConstColocalIterator colocal(this, endVertex /*startVertex*/); !colocal.isDone(); colocal.advance()) {
+					if (colocal.vertex() == vertex1 /*vertex0*/)
+						return face.firstIndex + j;
 				}
 			}
 		}
@@ -7509,6 +7584,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 	}
 	rawMesh->createColocalsWithCanonicalMap(canonicalMap);
 	rawMesh->createBoundaryEdges();
+	rawMesh->verify(heMesh);
 	ctx->rawMeshes.push_back(rawMesh);
 #endif
 	atlas->meshCount++;
