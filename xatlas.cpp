@@ -58,6 +58,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define XA_EPSILON          (0.0001f)
 #define XA_NORMAL_EPSILON   (0.001f)
 
+#define XA_USE_HE_MESH 1
 #define XA_USE_RAW_MESH 1
 
 namespace xatlas {
@@ -3242,6 +3243,7 @@ public:
 			addFaceEdgesToMap(i);
 	}
 
+#if XA_USE_HE_MESH
 	void verify(const halfedge::Mesh *heMesh)
 	{
 		XA_DEBUG_ASSERT(heMesh->vertexCount() == m_positions.size());
@@ -3308,6 +3310,7 @@ public:
 			}
 		}
 	}
+#endif
 
 	void clear()
 	{
@@ -3408,6 +3411,7 @@ public:
 	}
 
 	uint32_t vertexCount() const { return m_positions.size(); }
+	uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
 	const Vector3 *positionAt(uint32_t i) const { return &m_positions[i]; }
 	Vector3 *positionAt(uint32_t i) { return &m_positions[i]; }
 	const Vector3 *normalAt(uint32_t i) const { return &m_normals[i]; }
@@ -4903,44 +4907,102 @@ struct ChartBuildData
 
 struct AtlasBuilder
 {
-	AtlasBuilder(const halfedge::Mesh *m, const CharterOptions &options) : mesh(m), facesLeft(m->faceCount()), m_options(options)
-	{
-		const uint32_t faceCount = m->faceCount();
-		faceChartArray.resize(faceCount, -1);
-		faceCandidateArray.resize(faceCount, (uint32_t)-1);
-		// @@ Floyd for the whole mesh is too slow. We could compute floyd progressively per patch as the patch grows. We need a better solution to compute most central faces.
-		//computeShortestPaths();
-		// Precompute edge lengths and face areas.
-		uint32_t edgeCount = m->edgeCount();
-		edgeLengths.resize(edgeCount);
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			uint32_t id = m->edgeAt(i)->id;
-			XA_DEBUG_ASSERT(id / 2 == i);
-#ifdef NDEBUG
-			id = id; // silence unused parameter warning
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+	AtlasBuilder(const halfedge::Mesh *m, const RawMesh *rm, const CharterOptions &options) : m_mesh(m), m_rawMesh(rm), m_facesLeft(m->faceCount()), m_options(options)
+#elif XA_USE_RAW_MESH
+	AtlasBuilder(const RawMesh *rm, const CharterOptions &options) : m_rawMesh(rm), m_facesLeft(rm->faceCount()), m_options(options)
+#else
+	AtlasBuilder(const halfedge::Mesh *m, const CharterOptions &options) : m_mesh(m), m_facesLeft(m->faceCount()), m_options(options)
 #endif
-			const halfedge::Edge *edge = m->edgeAt(i);
-			if (edge->face->flags & halfedge::FaceFlags::Ignore)
-				edgeLengths[i] = 0;
-			else
-				edgeLengths[i] = edge->length();
+	{
+#if XA_USE_HE_MESH
+		{
+			const uint32_t faceCount = m->faceCount();
+			m_faceChartArray.resize(faceCount, -1);
+			m_faceCandidateArray.resize(faceCount, (uint32_t)-1);
+			// @@ Floyd for the whole mesh is too slow. We could compute floyd progressively per patch as the patch grows. We need a better solution to compute most central faces.
+			//computeShortestPaths();
+			// Precompute edge lengths and face areas.
+			uint32_t edgeCount = m->edgeCount();
+			m_edgeLengths.resize(edgeCount);
+			for (uint32_t i = 0; i < edgeCount; i++) {
+				uint32_t id = m->edgeAt(i)->id;
+				XA_DEBUG_ASSERT(id / 2 == i);
+	#ifdef NDEBUG
+				id = id; // silence unused parameter warning
+	#endif
+				const halfedge::Edge *edge = m->edgeAt(i);
+				if (edge->face->flags & halfedge::FaceFlags::Ignore)
+					m_edgeLengths[i] = 0;
+				else
+					m_edgeLengths[i] = edge->length();
+			}
+			m_faceAreas.resize(faceCount);
+			for (uint32_t i = 0; i < faceCount; i++) {
+				const halfedge::Face *face = m->faceAt(i);
+				if (face->flags & halfedge::FaceFlags::Ignore)
+					m_faceAreas[i] = 0;
+				else
+					m_faceAreas[i] = face->area();
+			}
+			#if XA_USE_RAW_MESH
+			XA_DEBUG_ASSERT(m_rawMesh->faceCount() == faceCount);
+			#endif
 		}
-		faceAreas.resize(faceCount);
-		for (uint32_t i = 0; i < faceCount; i++) {
-			const halfedge::Face *face = m->faceAt(i);
-			if (face->flags & halfedge::FaceFlags::Ignore)
-				faceAreas[i] = 0;
-			else
-				faceAreas[i] = face->area();
+#endif
+#if XA_USE_RAW_MESH
+		{
+			const uint32_t faceCount = m_rawMesh->faceCount();
+			m_faceChartArray.resize(faceCount, -1);
+			m_faceCandidateArray.resize(faceCount, (uint32_t)-1);
+			// @@ Floyd for the whole mesh is too slow. We could compute floyd progressively per patch as the patch grows. We need a better solution to compute most central faces.
+			//computeShortestPaths();
+			// Precompute edge lengths and face areas.
+			uint32_t edgeCount = 0;
+			for (uint32_t f = 0; f < m_rawMesh->faceCount(); f++) {
+				const RawFace *face = m_rawMesh->faceAt(f);
+				edgeCount += face->nIndices;
+			}
+			m_rawEdgeLengths.resize(edgeCount);
+			m_rawFaceAreas.resize(m_rawMesh->faceCount());
+			uint32_t edge = 0;
+			for (uint32_t f = 0; f < m_rawMesh->faceCount(); f++) {
+				const RawFace *face = m_rawMesh->faceAt(f);
+				const bool ignoreFace = (m_rawMesh->faceFlagsAt(f) & halfedge::FaceFlags::Ignore) != 0;
+				float faceArea = 0.0f;
+				const Vector3 *firstPos = m_rawMesh->positionAt(m_rawMesh->vertexAt(face->firstIndex));
+				for (uint32_t i = 0; i < face->nIndices; i++) {
+					const uint32_t vertex0 = m_rawMesh->vertexAt(face->firstIndex + i);
+					const uint32_t vertex1 = m_rawMesh->vertexAt(face->firstIndex + (i + 1) % face->nIndices);
+					const Vector3 *pos0 = m_rawMesh->positionAt(vertex0);
+					const Vector3 *pos1 = m_rawMesh->positionAt(vertex1);
+					if (ignoreFace)
+						m_rawEdgeLengths[edge] = 0.0f;
+					else {
+						m_rawEdgeLengths[edge] = internal::length(*pos1 - *pos0);
+						if (i > 0)
+							faceArea += length(cross(*pos0 - *firstPos, *pos1 - *firstPos));
+					}
+					edge++;
+				}
+				if (ignoreFace)
+					m_rawFaceAreas[f] = 0.0f;
+				else
+					m_rawFaceAreas[f] = faceArea * 0.5f;
+				#if XA_USE_HE_MESH
+				XA_DEBUG_ASSERT(m_rawFaceAreas[f] == m_faceAreas[f]);
+				#endif
+			}
 		}
+#endif
 	}
 
 	~AtlasBuilder()
 	{
-		const uint32_t chartCount = chartArray.size();
+		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
-			chartArray[i]->~ChartBuildData();
-			XA_FREE(chartArray[i]);
+			m_chartArray[i]->~ChartBuildData();
+			XA_FREE(m_chartArray[i]);
 		}
 	}
 
@@ -4949,12 +5011,12 @@ struct AtlasBuilder
 		const uint32_t unchartedFaceCount = unchartedFaces.size();
 		for (uint32_t i = 0; i < unchartedFaceCount; i++) {
 			uint32_t f = unchartedFaces[i];
-			faceChartArray[f] = -2;
+			m_faceChartArray[f] = -2;
 			//faceCandidateArray[f] = -2; // @@ ?
 			removeCandidate(f);
 		}
-		XA_DEBUG_ASSERT(facesLeft >= unchartedFaceCount);
-		facesLeft -= unchartedFaceCount;
+		XA_DEBUG_ASSERT(m_facesLeft >= unchartedFaceCount);
+		m_facesLeft -= unchartedFaceCount;
 	}
 
 	void placeSeeds(float threshold, uint32_t maxSeedCount)
@@ -4966,7 +5028,7 @@ struct AtlasBuilder
 		//   - those points can be found using a simple flood filling algorithm.
 		//   - how do we weight the probabilities?
 		for (uint32_t i = 0; i < maxSeedCount; i++) {
-			if (facesLeft == 0) {
+			if (m_facesLeft == 0) {
 				// No faces left, stop creating seeds.
 				break;
 			}
@@ -4976,19 +5038,19 @@ struct AtlasBuilder
 
 	void createRandomChart(float threshold)
 	{
-		ChartBuildData *chart = XA_NEW(ChartBuildData, chartArray.size());
-		chartArray.push_back(chart);
+		ChartBuildData *chart = XA_NEW(ChartBuildData, m_chartArray.size());
+		m_chartArray.push_back(chart);
 		// Pick random face that is not used by any chart yet.
-		uint32_t randomFaceIdx = rand.getRange(facesLeft - 1);
+		uint32_t randomFaceIdx = m_rand.getRange(m_facesLeft - 1);
 		uint32_t i = 0;
 		for (uint32_t f = 0; f != randomFaceIdx; f++, i++) {
-			while (faceChartArray[i] != -1) i++;
+			while (m_faceChartArray[i] != -1) i++;
 		}
-		while (faceChartArray[i] != -1) i++;
+		while (m_faceChartArray[i] != -1) i++;
 		chart->seeds.push_back(i);
 		addFaceToChart(chart, i, true);
 		// Grow the chart as much as possible within the given threshold.
-		growChart(chart, threshold * 0.5f, facesLeft);
+		growChart(chart, threshold * 0.5f, m_facesLeft);
 		//growCharts(threshold - threshold * 0.75f / chartCount(), facesLeft);
 	}
 
@@ -4996,9 +5058,9 @@ struct AtlasBuilder
 	{
 		// Add face to chart.
 		chart->faces.push_back(f);
-		XA_DEBUG_ASSERT(faceChartArray[f] == -1);
-		faceChartArray[f] = chart->id;
-		facesLeft--;
+		XA_DEBUG_ASSERT(m_faceChartArray[f] == -1);
+		m_faceChartArray[f] = chart->id;
+		m_facesLeft--;
 		// Update area and boundary length.
 		chart->area = evaluateChartArea(chart, f);
 		chart->boundaryLength = evaluateBoundaryLength(chart, f);
@@ -5018,7 +5080,7 @@ struct AtlasBuilder
 	bool growCharts(float threshold, uint32_t faceCount)
 	{
 		// Using one global list.
-		faceCount = std::min(faceCount, facesLeft);
+		faceCount = std::min(faceCount, m_facesLeft);
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const Candidate &candidate = getBestCandidate();
 			if (candidate.metric > threshold) {
@@ -5026,7 +5088,7 @@ struct AtlasBuilder
 			}
 			addFaceToChart(candidate.chart, candidate.face);
 		}
-		return facesLeft != 0; // Can continue growing.
+		return m_facesLeft != 0; // Can continue growing.
 	}
 
 	bool growChart(ChartBuildData *chart, float threshold, uint32_t faceCount)
@@ -5037,7 +5099,7 @@ struct AtlasBuilder
 				return false;
 			}
 			uint32_t f = chart->candidates.pop();
-			if (faceChartArray[f] == -1) {
+			if (m_faceChartArray[f] == -1) {
 				addFaceToChart(chart, f);
 				i++;
 			}
@@ -5050,16 +5112,16 @@ struct AtlasBuilder
 
 	void resetCharts()
 	{
-		const uint32_t faceCount = mesh->faceCount();
+		const uint32_t faceCount = m_mesh->faceCount();
 		for (uint32_t i = 0; i < faceCount; i++) {
-			faceChartArray[i] = -1;
-			faceCandidateArray[i] = (uint32_t)-1;
+			m_faceChartArray[i] = -1;
+			m_faceCandidateArray[i] = (uint32_t)-1;
 		}
-		facesLeft = faceCount;
-		candidateArray.clear();
-		const uint32_t chartCount = chartArray.size();
+		m_facesLeft = faceCount;
+		m_candidateArray.clear();
+		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
-			ChartBuildData *chart = chartArray[i];
+			ChartBuildData *chart = m_chartArray[i];
 			const uint32_t seed = chart->seeds.back();
 			chart->area = 0.0f;
 			chart->boundaryLength = 0.0f;
@@ -5073,13 +5135,13 @@ struct AtlasBuilder
 
 	void updateCandidates(ChartBuildData *chart, uint32_t f)
 	{
-		const halfedge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = m_mesh->faceAt(f);
 		// Traverse neighboring faces, add the ones that do not belong to any chart yet.
 		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const halfedge::Edge *edge = it.current()->pair;
 			if (!edge->isBoundary()) {
 				uint32_t faceId = edge->face->id;
-				if (faceChartArray[faceId] == -1) {
+				if (m_faceChartArray[faceId] == -1) {
 					chart->candidates.push(faceId);
 				}
 			}
@@ -5088,9 +5150,9 @@ struct AtlasBuilder
 
 	void updateProxies()
 	{
-		const uint32_t chartCount = chartArray.size();
+		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
-			updateProxy(chartArray[i]);
+			updateProxy(m_chartArray[i]);
 		}
 	}
 
@@ -5104,9 +5166,9 @@ struct AtlasBuilder
 	bool relocateSeeds()
 	{
 		bool anySeedChanged = false;
-		const uint32_t chartCount = chartArray.size();
+		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
-			if (relocateSeed(chartArray[i])) {
+			if (relocateSeed(m_chartArray[i])) {
 				anySeedChanged = true;
 			}
 		}
@@ -5129,7 +5191,7 @@ struct AtlasBuilder
 		float maxDistance = -1;
 		const uint32_t bestCount = bestTriangles.count();
 		for (uint32_t i = 0; i < bestCount; i++) {
-			const halfedge::Face *face = mesh->faceAt(bestTriangles.pairs[i].face);
+			const halfedge::Face *face = m_mesh->faceAt(bestTriangles.pairs[i].face);
 			Vector3 faceCentroid = face->triangleCenter();
 			float distance = length(centroid - faceCentroid);
 			if (distance > maxDistance) {
@@ -5158,7 +5220,7 @@ struct AtlasBuilder
 		uint32_t candidateCount = chart->candidates.count();
 		for (uint32_t i = 0; i < candidateCount; i++) {
 			chart->candidates.pairs[i].priority = evaluatePriority(chart, chart->candidates.pairs[i].face);
-			if (faceChartArray[chart->candidates.pairs[i].face] == -1) {
+			if (m_faceChartArray[chart->candidates.pairs[i].face] == -1) {
 				updateCandidate(chart, chart->candidates.pairs[i].face, chart->candidates.pairs[i].priority);
 			}
 		}
@@ -5202,7 +5264,7 @@ struct AtlasBuilder
 	// Returns a value in [0-1].
 	float evaluateProxyFitMetric(ChartBuildData *chart, uint32_t f)
 	{
-		const halfedge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = m_mesh->faceAt(f);
 		Vector3 faceNormal = face->triangleNormal();
 		// Use plane fitting metric for now:
 		return 1 - dot(faceNormal, chart->planeNormal); // @@ normal deviations should be weighted by face area
@@ -5224,17 +5286,17 @@ struct AtlasBuilder
 	{
 		float l_out = 0.0f;
 		float l_in = 0.0f;
-		const halfedge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = m_mesh->faceAt(f);
 		if (face->flags & halfedge::FaceFlags::Ignore)
 			return 1.0f;
 		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const halfedge::Edge *edge = it.current();
-			float l = edgeLengths[edge->id / 2];
+			float l = m_edgeLengths[edge->id / 2];
 			if (edge->isBoundary()) {
 				l_out += l;
 			} else {
 				uint32_t neighborFaceId = edge->pair->face->id;
-				if (faceChartArray[neighborFaceId] != chart->id) {
+				if (m_faceChartArray[neighborFaceId] != chart->id) {
 					l_out += l;
 				} else {
 					l_in += l;
@@ -5250,18 +5312,18 @@ struct AtlasBuilder
 	{
 		float seamFactor = 0.0f;
 		float totalLength = 0.0f;
-		const halfedge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = m_mesh->faceAt(f);
 		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const halfedge::Edge *edge = it.current();
 			if (edge->isBoundary()) {
 				continue;
 			}
 			const uint32_t neighborFaceId = edge->pair->face->id;
-			if (faceChartArray[neighborFaceId] != chart->id) {
+			if (m_faceChartArray[neighborFaceId] != chart->id) {
 				continue;
 			}
 			//float l = edge->length();
-			float l = edgeLengths[edge->id / 2];
+			float l = m_edgeLengths[edge->id / 2];
 			totalLength += l;
 			if (!edge->isSeam()) {
 				continue;
@@ -5282,18 +5344,18 @@ struct AtlasBuilder
 	{
 		float seamLength = 0.0f;
 		float totalLength = 0.0f;
-		const halfedge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = m_mesh->faceAt(f);
 		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const halfedge::Edge *edge = it.current();
 			if (edge->isBoundary()) {
 				continue;
 			}
 			const uint32_t neighborFaceId = edge->pair->face->id;
-			if (faceChartArray[neighborFaceId] != chart->id) {
+			if (m_faceChartArray[neighborFaceId] != chart->id) {
 				continue;
 			}
 			//float l = edge->length();
-			float l = edgeLengths[edge->id / 2];
+			float l = m_edgeLengths[edge->id / 2];
 			totalLength += l;
 			if (!edge->isSeam()) {
 				continue;
@@ -5311,24 +5373,24 @@ struct AtlasBuilder
 
 	float evaluateChartArea(ChartBuildData *chart, uint32_t f)
 	{
-		const halfedge::Face *face = mesh->faceAt(f);
-		return chart->area + faceAreas[face->id];
+		const halfedge::Face *face = m_mesh->faceAt(f);
+		return chart->area + m_faceAreas[face->id];
 	}
 
 	float evaluateBoundaryLength(ChartBuildData *chart, uint32_t f)
 	{
 		float boundaryLength = chart->boundaryLength;
 		// Add new edges, subtract edges shared with the chart.
-		const halfedge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = m_mesh->faceAt(f);
 		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const halfedge::Edge *edge = it.current();
 			//float edgeLength = edge->length();
-			float edgeLength = edgeLengths[edge->id / 2];
+			float edgeLength = m_edgeLengths[edge->id / 2];
 			if (edge->isBoundary()) {
 				boundaryLength += edgeLength;
 			} else {
 				uint32_t neighborFaceId = edge->pair->face->id;
-				if (faceChartArray[neighborFaceId] != chart->id) {
+				if (m_faceChartArray[neighborFaceId] != chart->id) {
 					boundaryLength += edgeLength;
 				} else {
 					boundaryLength -= edgeLength;
@@ -5340,13 +5402,13 @@ struct AtlasBuilder
 
 	Vector3 evaluateChartNormalSum(ChartBuildData *chart, uint32_t f)
 	{
-		const halfedge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = m_mesh->faceAt(f);
 		return chart->normalSum + face->triangleNormalAreaScaled();
 	}
 
 	Vector3 evaluateChartCentroidSum(ChartBuildData *chart, uint32_t f)
 	{
-		const halfedge::Face *face = mesh->faceAt(f);
+		const halfedge::Face *face = m_mesh->faceAt(f);
 		return chart->centroidSum + face->centroid();
 	}
 
@@ -5355,7 +5417,7 @@ struct AtlasBuilder
 		Vector3 centroid(0);
 		const uint32_t faceCount = chart->faces.size();
 		for (uint32_t i = 0; i < faceCount; i++) {
-			const halfedge::Face *face = mesh->faceAt(chart->faces[i]);
+			const halfedge::Face *face = m_mesh->faceAt(chart->faces[i]);
 			centroid += face->triangleCenter();
 		}
 		return centroid / float(faceCount);
@@ -5363,32 +5425,32 @@ struct AtlasBuilder
 
 	void fillHoles(float threshold)
 	{
-		while (facesLeft > 0)
+		while (m_facesLeft > 0)
 			createRandomChart(threshold);
 	}
 
 	void mergeCharts()
 	{
 		Array<float> sharedBoundaryLengths;
-		const uint32_t chartCount = chartArray.size();
+		const uint32_t chartCount = m_chartArray.size();
 		for (int c = chartCount - 1; c >= 0; c--) {
 			sharedBoundaryLengths.clear();
 			sharedBoundaryLengths.resize(chartCount, 0.0f);
-			ChartBuildData *chart = chartArray[c];
+			ChartBuildData *chart = m_chartArray[c];
 			float externalBoundary = 0.0f;
 			const uint32_t faceCount = chart->faces.size();
 			for (uint32_t i = 0; i < faceCount; i++) {
 				uint32_t f = chart->faces[i];
-				const halfedge::Face *face = mesh->faceAt(f);
+				const halfedge::Face *face = m_mesh->faceAt(f);
 				for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 					const halfedge::Edge *edge = it.current();
 					//float l = edge->length();
-					float l = edgeLengths[edge->id / 2];
+					float l = m_edgeLengths[edge->id / 2];
 					if (edge->isBoundary()) {
 						externalBoundary += l;
 					} else {
 						uint32_t neighborFace = edge->pair->face->id;
-						int neighborChart = faceChartArray[neighborFace];
+						int neighborChart = m_faceChartArray[neighborFace];
 						if (neighborChart != c) {
 							if ((edge->isSeam() && (edge->isNormalSeam() || edge->isTextureSeam())) || neighborChart == -2) {
 								externalBoundary += l;
@@ -5402,7 +5464,7 @@ struct AtlasBuilder
 			for (int cc = chartCount - 1; cc >= 0; cc--) {
 				if (cc == c)
 					continue;
-				ChartBuildData *chart2 = chartArray[cc];
+				ChartBuildData *chart2 = m_chartArray[cc];
 				if (chart2 == NULL)
 					continue;
 				if (sharedBoundaryLengths[cc] > 0.8 * std::max(0.0f, chart->boundaryLength - externalBoundary)) {
@@ -5412,7 +5474,7 @@ struct AtlasBuilder
 							mergeChart(chart2, chart, sharedBoundaryLengths[cc]);
 							chart->~ChartBuildData();
 							XA_FREE(chart);
-							chartArray[c] = NULL;
+							m_chartArray[c] = NULL;
 							break;
 						}
 					}
@@ -5423,28 +5485,28 @@ struct AtlasBuilder
 						mergeChart(chart2, chart, sharedBoundaryLengths[cc]);
 						chart->~ChartBuildData();
 						XA_FREE(chart);
-						chartArray[c] = NULL;
+						m_chartArray[c] = NULL;
 						break;
 					}
 				}
 			}
 		}
 		// Remove deleted charts.
-		for (int c = 0; c < int32_t(chartArray.size()); /*do not increment if removed*/) {
-			if (chartArray[c] == NULL) {
-				chartArray.removeAt(c);
-				// Update faceChartArray.
-				const uint32_t faceCount = faceChartArray.size();
+		for (int c = 0; c < int32_t(m_chartArray.size()); /*do not increment if removed*/) {
+			if (m_chartArray[c] == NULL) {
+				m_chartArray.removeAt(c);
+				// Update m_faceChartArray.
+				const uint32_t faceCount = m_faceChartArray.size();
 				for (uint32_t i = 0; i < faceCount; i++) {
-					XA_DEBUG_ASSERT(faceChartArray[i] != -1);
-					XA_DEBUG_ASSERT(faceChartArray[i] != c);
-					XA_DEBUG_ASSERT(faceChartArray[i] <= int32_t(chartArray.size()));
-					if (faceChartArray[i] > c) {
-						faceChartArray[i]--;
+					XA_DEBUG_ASSERT(m_faceChartArray[i] != -1);
+					XA_DEBUG_ASSERT(m_faceChartArray[i] != c);
+					XA_DEBUG_ASSERT(m_faceChartArray[i] <= int32_t(m_chartArray.size()));
+					if (m_faceChartArray[i] > c) {
+						m_faceChartArray[i]--;
 					}
 				}
 			} else {
-				chartArray[c]->id = c;
+				m_chartArray[c]->id = c;
 				c++;
 			}
 		}
@@ -5462,47 +5524,47 @@ struct AtlasBuilder
 	{
 		uint32_t best = 0;
 		float bestCandidateMetric = FLT_MAX;
-		const uint32_t candidateCount = candidateArray.size();
+		const uint32_t candidateCount = m_candidateArray.size();
 		XA_ASSERT(candidateCount > 0);
 		for (uint32_t i = 0; i < candidateCount; i++) {
-			const Candidate &candidate = candidateArray[i];
+			const Candidate &candidate = m_candidateArray[i];
 			if (candidate.metric < bestCandidateMetric) {
 				bestCandidateMetric = candidate.metric;
 				best = i;
 			}
 		}
-		return candidateArray[best];
+		return m_candidateArray[best];
 	}
 
 	void removeCandidate(uint32_t f)
 	{
-		int c = faceCandidateArray[f];
+		int c = m_faceCandidateArray[f];
 		if (c != -1) {
-			faceCandidateArray[f] = (uint32_t)-1;
-			if (c == int(candidateArray.size() - 1)) {
-				candidateArray.pop_back();
+			m_faceCandidateArray[f] = (uint32_t)-1;
+			if (c == int(m_candidateArray.size() - 1)) {
+				m_candidateArray.pop_back();
 			} else {
 				// Replace with last.
-				candidateArray[c] = candidateArray[candidateArray.size() - 1];
-				candidateArray.pop_back();
-				faceCandidateArray[candidateArray[c].face] = c;
+				m_candidateArray[c] = m_candidateArray[m_candidateArray.size() - 1];
+				m_candidateArray.pop_back();
+				m_faceCandidateArray[m_candidateArray[c].face] = c;
 			}
 		}
 	}
 
 	void updateCandidate(ChartBuildData *chart, uint32_t f, float metric)
 	{
-		if (faceCandidateArray[f] == (uint32_t)-1) {
-			const uint32_t index = candidateArray.size();
-			faceCandidateArray[f] = index;
-			candidateArray.resize(index + 1);
-			candidateArray[index].face = f;
-			candidateArray[index].chart = chart;
-			candidateArray[index].metric = metric;
+		if (m_faceCandidateArray[f] == (uint32_t)-1) {
+			const uint32_t index = m_candidateArray.size();
+			m_faceCandidateArray[f] = index;
+			m_candidateArray.resize(index + 1);
+			m_candidateArray[index].face = f;
+			m_candidateArray[index].chart = chart;
+			m_candidateArray[index].metric = metric;
 		} else {
-			int c = faceCandidateArray[f];
+			int c = m_faceCandidateArray[f];
 			XA_DEBUG_ASSERT(c != -1);
-			Candidate &candidate = candidateArray[c];
+			Candidate &candidate = m_candidateArray[c];
 			XA_DEBUG_ASSERT(candidate.face == f);
 			if (metric < candidate.metric || chart == candidate.chart) {
 				candidate.metric = metric;
@@ -5516,8 +5578,8 @@ struct AtlasBuilder
 		const uint32_t faceCount = chart->faces.size();
 		for (uint32_t i = 0; i < faceCount; i++) {
 			uint32_t f = chart->faces[i];
-			XA_DEBUG_ASSERT(faceChartArray[f] == chart->id);
-			faceChartArray[f] = owner->id;
+			XA_DEBUG_ASSERT(m_faceChartArray[f] == chart->id);
+			m_faceChartArray[f] = owner->id;
 			owner->faces.push_back(f);
 		}
 		// Update adjacencies?
@@ -5529,32 +5591,46 @@ struct AtlasBuilder
 	}
 
 
-	uint32_t chartCount() const { return chartArray.size(); }
-	const Array<uint32_t> &chartFaces(uint32_t i) const { return chartArray[i]->faces; }
-
-	const halfedge::Mesh *mesh;
-	uint32_t facesLeft;
-	Array<int> faceChartArray;
-	Array<ChartBuildData *> chartArray;
-	Array<float> shortestPaths;
-	Array<float> edgeLengths;
-	Array<float> faceAreas;
-	Array<Candidate> candidateArray; //
-	Array<uint32_t> faceCandidateArray; // Map face index to candidate index.
-	MTRand rand;
+	uint32_t facesLeft() const { return m_facesLeft; }
+	uint32_t chartCount() const { return m_chartArray.size(); }
+	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_chartArray[i]->faces; }
 
 private:
+#if XA_USE_HE_MESH
+	const halfedge::Mesh *m_mesh;
+	Array<float> m_edgeLengths;
+	Array<float> m_faceAreas;
+#endif
+	uint32_t m_facesLeft;
+	Array<int> m_faceChartArray;
+	Array<ChartBuildData *> m_chartArray;
+	Array<float> m_shortestPaths;
+	Array<Candidate> m_candidateArray; //
+	Array<uint32_t> m_faceCandidateArray; // Map face index to candidate index.
+	MTRand m_rand;
 	CharterOptions m_options;
+#if XA_USE_RAW_MESH
+	const RawMesh *m_rawMesh;
+	Array<float> m_rawEdgeLengths;
+	Array<float> m_rawFaceAreas;
+#endif
 };
 
 /// A chart is a connected set of faces with a certain topology (usually a disk).
 class Chart
 {
 public:
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+	Chart() : atlasIndex(-1), scale(1.0f), blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_rawChartMesh(NULL), m_rawUnifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
+#elif XA_USE_RAW_MESH
+	Chart() : atlasIndex(-1), scale(1.0f), blockAligned(true), m_rawChartMesh(NULL), m_rawUnifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
+#else
 	Chart() : atlasIndex(-1), scale(1.0f), blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
+#endif
 
 	~Chart()
 	{
+#if XA_USE_HE_MESH
 		if (m_chartMesh) {
 			m_chartMesh->~Mesh();
 			XA_FREE(m_chartMesh);
@@ -5563,6 +5639,17 @@ public:
 			m_unifiedMesh->~Mesh();
 			XA_FREE(m_unifiedMesh);
 		}
+#endif
+#if XA_USE_RAW_MESH
+		if (m_rawChartMesh) {
+			m_rawChartMesh->~RawMesh();
+			XA_FREE(m_rawChartMesh);
+		}
+		if (m_rawUnifiedMesh) {
+			m_rawUnifiedMesh->~RawMesh();
+			XA_FREE(m_rawUnifiedMesh);
+		}
+#endif
 	}
 
 	void build(const halfedge::Mesh *originalMesh, const Array<uint32_t> &faceArray)
@@ -5669,67 +5756,122 @@ public:
 		m_isDisk = topology.isDisk();
 	}
 
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+	void buildVertexMap(const halfedge::Mesh *originalMesh, const RawMesh *originalRawMesh)
+#elif XA_USE_RAW_MESH
+	void buildVertexMap(const RawMesh *originalRawMesh)
+#else
 	void buildVertexMap(const halfedge::Mesh *originalMesh)
+#endif
 	{
-		XA_ASSERT(m_chartMesh == NULL && m_unifiedMesh == NULL);
-		m_isVertexMapped = true;
-		// Build face indices.
-		m_faceArray.clear();
-		const uint32_t meshFaceCount = originalMesh->faceCount();
-		for (uint32_t f = 0; f < meshFaceCount; f++) {
-			const halfedge::Face *face = originalMesh->faceAt(f);
-			if ((face->flags & halfedge::FaceFlags::Ignore) != 0)
-				m_faceArray.push_back(f);
-		}
-		const uint32_t faceCount = m_faceArray.size();
-		if (faceCount == 0) {
-			return;
-		}
-		// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
-		const uint32_t meshVertexCount = originalMesh->vertexCount();
-		if (m_chartMesh) {
-			m_chartMesh->~Mesh();
-			XA_FREE(m_chartMesh);
-		}
-		m_chartMesh = XA_NEW(halfedge::Mesh);
-		Array<uint32_t> chartMeshIndices;
-		chartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
-		// Vertex map mesh only has disconnected vertices.
-		for (uint32_t f = 0; f < faceCount; f++) {
-			const halfedge::Face *face = originalMesh->faceAt(m_faceArray[f]);
-			XA_DEBUG_ASSERT(face != NULL);
-			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const halfedge::Vertex *vertex = it.current()->vertex;
-				if (chartMeshIndices[vertex->id] == (uint32_t)~0) {
-					chartMeshIndices[vertex->id] = m_chartMesh->vertexCount();
-					m_chartToOriginalMap.push_back(vertex->id);
-					halfedge::Vertex *v = m_chartMesh->addVertex(vertex->pos);
-					v->nor = vertex->nor;
-					v->tex = vertex->tex; // @@ Not necessary.
+#if XA_USE_HE_MESH 
+		{
+			XA_ASSERT(m_chartMesh == NULL && m_unifiedMesh == NULL);
+			m_isVertexMapped = true;
+			// Build face indices.
+			m_faceArray.clear();
+			const uint32_t meshFaceCount = originalMesh->faceCount();
+			for (uint32_t f = 0; f < meshFaceCount; f++) {
+				const halfedge::Face *face = originalMesh->faceAt(f);
+				if ((face->flags & halfedge::FaceFlags::Ignore) != 0)
+					m_faceArray.push_back(f);
+			}
+			const uint32_t faceCount = m_faceArray.size();
+			if (faceCount != 0) {
+				// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
+				const uint32_t meshVertexCount = originalMesh->vertexCount();
+				m_chartMesh = XA_NEW(halfedge::Mesh);
+				Array<uint32_t> chartMeshIndices;
+				chartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
+				// Vertex map mesh only has disconnected vertices.
+				for (uint32_t f = 0; f < faceCount; f++) {
+					const halfedge::Face *face = originalMesh->faceAt(m_faceArray[f]);
+					XA_DEBUG_ASSERT(face != NULL);
+					for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+						const halfedge::Vertex *vertex = it.current()->vertex;
+						if (chartMeshIndices[vertex->id] == (uint32_t)~0) {
+							chartMeshIndices[vertex->id] = m_chartMesh->vertexCount();
+							m_chartToOriginalMap.push_back(vertex->id);
+							halfedge::Vertex *v = m_chartMesh->addVertex(vertex->pos);
+							v->nor = vertex->nor;
+							v->tex = vertex->tex; // @@ Not necessary.
+						}
+					}
+				}
+				// @@ Link colocals using the original mesh canonical map? Build canonical map on the fly? Do we need to link colocals at all for this?
+				//m_chartMesh->linkColocals();
+				Array<uint32_t> faceIndices;
+				faceIndices.reserve(7);
+				// Add faces.
+				for (uint32_t f = 0; f < faceCount; f++) {
+					const halfedge::Face *face = originalMesh->faceAt(m_faceArray[f]);
+					XA_DEBUG_ASSERT(face != NULL);
+					faceIndices.clear();
+					for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
+						const halfedge::Vertex *vertex = it.current()->vertex;
+						XA_DEBUG_ASSERT(vertex != NULL);
+						XA_DEBUG_ASSERT(chartMeshIndices[vertex->id] != (uint32_t)~0);
+						faceIndices.push_back(chartMeshIndices[vertex->id]);
+					}
+					halfedge::Face *new_face = m_chartMesh->addFace(faceIndices);
+					XA_DEBUG_ASSERT(new_face != NULL);
+		#ifdef NDEBUG
+					new_face = new_face; // silence unused parameter warning
+		#endif
 				}
 			}
 		}
-		// @@ Link colocals using the original mesh canonical map? Build canonical map on the fly? Do we need to link colocals at all for this?
-		//m_chartMesh->linkColocals();
-		Array<uint32_t> faceIndices;
-		faceIndices.reserve(7);
-		// Add faces.
-		for (uint32_t f = 0; f < faceCount; f++) {
-			const halfedge::Face *face = originalMesh->faceAt(m_faceArray[f]);
-			XA_DEBUG_ASSERT(face != NULL);
-			faceIndices.clear();
-			for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
-				const halfedge::Vertex *vertex = it.current()->vertex;
-				XA_DEBUG_ASSERT(vertex != NULL);
-				XA_DEBUG_ASSERT(chartMeshIndices[vertex->id] != (uint32_t)~0);
-				faceIndices.push_back(chartMeshIndices[vertex->id]);
-			}
-			halfedge::Face *new_face = m_chartMesh->addFace(faceIndices);
-			XA_DEBUG_ASSERT(new_face != NULL);
-#ifdef NDEBUG
-			new_face = new_face; // silence unused parameter warning
 #endif
+#if XA_USE_RAW_MESH
+		{
+			XA_ASSERT(m_rawChartMesh == NULL && m_rawUnifiedMesh == NULL);
+			m_isVertexMapped = true;
+			// Build face indices.
+			m_faceArray.clear();
+			const uint32_t meshFaceCount = originalRawMesh->faceCount();
+			for (uint32_t f = 0; f < meshFaceCount; f++) {
+				if ((originalRawMesh->faceFlagsAt(f) & halfedge::FaceFlags::Ignore) != 0)
+					m_faceArray.push_back(f);
+			}
+			const uint32_t faceCount = m_faceArray.size();
+			if (faceCount != 0) {
+				// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
+				const uint32_t meshVertexCount = originalRawMesh->vertexCount();
+				m_rawChartMesh = XA_NEW(RawMesh);
+				Array<uint32_t> rawChartMeshIndices;
+				rawChartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
+				// Vertex map mesh only has disconnected vertices.
+				for (uint32_t f = 0; f < faceCount; f++) {
+					const RawFace *face = originalRawMesh->faceAt(m_faceArray[f]);
+					XA_DEBUG_ASSERT(face != NULL);
+					for (uint32_t i = 0; i < face->nIndices; i++) {
+						const uint32_t vertex = originalRawMesh->vertexAt(face->firstIndex + i);
+						if (rawChartMeshIndices[vertex] == (uint32_t)~0) {
+							rawChartMeshIndices[vertex] = m_rawChartMesh->vertexCount();
+							m_rawChartToOriginalMap.push_back(vertex);
+							m_rawChartMesh->addVertex(*originalRawMesh->positionAt(vertex));
+						}
+					}
+				}
+				// @@ Link colocals using the original mesh canonical map? Build canonical map on the fly? Do we need to link colocals at all for this?
+				//m_chartMesh->linkColocals();
+				Array<uint32_t> faceIndices;
+				faceIndices.reserve(7);
+				// Add faces.
+				for (uint32_t f = 0; f < faceCount; f++) {
+					const RawFace *face = originalRawMesh->faceAt(m_faceArray[f]);
+					XA_DEBUG_ASSERT(face != NULL);
+					faceIndices.clear();
+					for (uint32_t i = 0; i < face->nIndices; i++) {
+						const uint32_t vertex = originalRawMesh->vertexAt(face->firstIndex + i);
+						XA_DEBUG_ASSERT(rawChartMeshIndices[vertex] != (uint32_t)~0);
+						faceIndices.push_back(rawChartMeshIndices[vertex]);
+					}
+					m_rawChartMesh->addFace(faceIndices);
+				}
+			}
 		}
+#endif
 	}
 
 	bool closeHoles()
@@ -6001,8 +6143,14 @@ private:
 	}
 
 	// Chart mesh.
+#if XA_USE_HE_MESH
 	halfedge::Mesh *m_chartMesh;
 	halfedge::Mesh *m_unifiedMesh;
+#endif
+#if XA_USE_RAW_MESH
+	RawMesh *m_rawChartMesh;
+	RawMesh *m_rawUnifiedMesh;
+#endif
 	bool m_isDisk;
 	bool m_isVertexMapped;
 	
@@ -6010,7 +6158,12 @@ private:
 	Array<uint32_t> m_faceArray;
 
 	// Map vertices of the chart mesh to vertices of the original mesh.
+#if XA_USE_HE_MESH
 	Array<uint32_t> m_chartToOriginalMap;
+#endif
+#if XA_USE_RAW_MESH
+	Array<uint32_t> m_rawChartToOriginalMap;
+#endif
 
 	Array<uint32_t> m_chartToUnifiedMap;
 };
@@ -6191,7 +6344,13 @@ private:
 class MeshCharts
 {
 public:
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+	MeshCharts(const halfedge::Mesh *mesh, const RawMesh *rawMesh) : m_mesh(mesh), m_rawMesh(rawMesh) {}
+#elif XA_USE_RAW_MESH
+	MeshCharts(const RawMesh *rawMesh) : m_rawMesh(rawMesh) {}
+#else
 	MeshCharts(const halfedge::Mesh *mesh) : m_mesh(mesh) {}
+#endif
 
 	~MeshCharts()
 	{
@@ -6282,21 +6441,33 @@ public:
 	void computeCharts(const CharterOptions &options)
 	{
 		Chart *vertexMap = XA_NEW(Chart);
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		vertexMap->buildVertexMap(m_mesh, m_rawMesh);
+#elif XA_USE_RAW_MESH
+		vertexMap->buildVertexMap(m_rawMesh);
+#else
 		vertexMap->buildVertexMap(m_mesh);
+#endif
 		if (vertexMap->faceCount() == 0) {
 			vertexMap->~Chart();
 			XA_FREE(vertexMap);
 			vertexMap = NULL;
 		}
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		AtlasBuilder builder(m_mesh, m_rawMesh, options);
+#elif XA_USE_RAW_MESH
+		AtlasBuilder builder(m_rawMesh, options);
+#else
 		AtlasBuilder builder(m_mesh, options);
+#endif
 		if (vertexMap != NULL) {
 			// Mark faces that do not need to be charted.
 			builder.markUnchartedFaces(vertexMap->faceArray());
 			m_chartArray.push_back(vertexMap);
 		}
-		if (builder.facesLeft != 0) {
+		if (builder.facesLeft() != 0) {
 			// This seems a reasonable estimate.
-			uint32_t maxSeedCount = std::max(6U, builder.facesLeft);
+			uint32_t maxSeedCount = std::max(6U, builder.facesLeft());
 			// Create initial charts greedely.
 			XA_PRINT(PrintFlags::ComputingCharts, "### Placing seeds\n");
 			builder.placeSeeds(options.maxThreshold, maxSeedCount);
@@ -6346,8 +6517,8 @@ public:
 			};
 	#endif
 			// Make sure no holes are left!
-			XA_DEBUG_ASSERT(builder.facesLeft == 0);
-			const uint32_t chartCount = builder.chartArray.size();
+			XA_DEBUG_ASSERT(builder.facesLeft() == 0);
+			const uint32_t chartCount = builder.chartCount();
 			for (uint32_t i = 0; i < chartCount; i++) {
 				Chart *chart = XA_NEW(Chart);
 				m_chartArray.push_back(chart);
@@ -6448,7 +6619,12 @@ public:
 
 private:
 
+#if XA_USE_HE_MESH
 	const halfedge::Mesh *m_mesh;
+#endif
+#if XA_USE_RAW_MESH
+	const RawMesh *m_rawMesh;
+#endif
 
 	Array<Chart *> m_chartArray;
 
@@ -6519,12 +6695,28 @@ public:
 		return NULL;
 	}
 
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+	void computeCharts(const halfedge::Mesh *mesh, const RawMesh *rawMesh, const CharterOptions &options)
+	{
+		MeshCharts *meshCharts = XA_NEW(MeshCharts, mesh, rawMesh);
+		meshCharts->computeCharts(options);
+		m_meshChartsArray.push_back(meshCharts);
+	}
+#elif XA_USE_RAW_MESH
+	void computeCharts(const RawMesh *rawMesh, const CharterOptions &options)
+	{
+		MeshCharts *meshCharts = XA_NEW(MeshCharts, rawMesh);
+		meshCharts->computeCharts(options);
+		m_meshChartsArray.push_back(meshCharts);
+	}
+#else
 	void computeCharts(const halfedge::Mesh *mesh, const CharterOptions &options)
 	{
 		MeshCharts *meshCharts = XA_NEW(MeshCharts, mesh);
 		meshCharts->computeCharts(options);
 		m_meshChartsArray.push_back(meshCharts);
 	}
+#endif
 
 	void parameterizeCharts(ProgressCallback progressCallback, void *progressCallbackUserData)
 	{
@@ -7349,7 +7541,9 @@ struct Context
 {
 	Atlas atlas;
 	internal::param::Atlas paramAtlas;
+#if XA_USE_HE_MESH
 	internal::Array<internal::halfedge::Mesh *> heMeshes;
+#endif
 #if XA_USE_RAW_MESH
 	internal::Array<internal::RawMesh *> rawMeshes;
 #endif
@@ -7392,10 +7586,12 @@ void Destroy(Atlas *atlas)
 	Context *ctx = (Context *)atlas;
 	if (atlas->utilization)
 		XA_FREE(atlas->utilization);
+#if XA_USE_HE_MESH
 	for (int i = 0; i < (int)ctx->heMeshes.size(); i++) {
 		ctx->heMeshes[i]->~Mesh();
 		XA_FREE(ctx->heMeshes[i]);
 	}
+#endif
 #if XA_USE_RAW_MESH
 	for (int i = 0; i < (int)ctx->rawMeshes.size(); i++) {
 		ctx->rawMeshes[i]->~RawMesh();
@@ -7460,8 +7656,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 		if (index >= meshDecl.vertexCount)
 			return AddMeshError::IndexOutOfRange;
 	}
-	// Build half edge mesh.
-	internal::halfedge::Mesh *heMesh = XA_NEW(internal::halfedge::Mesh, atlas->meshCount, meshDecl.vertexCount, meshDecl.indexCount / 3);
 	typedef internal::HashMap<internal::Vector3, uint32_t> PositionHashMap;
 	PositionHashMap positionHashMap(meshDecl.vertexCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++)
@@ -7469,14 +7663,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 	internal::Array<uint32_t> canonicalMap;
 	canonicalMap.reserve(meshDecl.vertexCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
-		internal::halfedge::Vertex *vertex = heMesh->addVertex(DecodePosition(meshDecl, i));
-		if (meshDecl.vertexNormalData)
-			vertex->nor = DecodeNormal(meshDecl, i);
-		if (meshDecl.vertexUvData)
-			vertex->tex = DecodeUv(meshDecl, i);
 		uint32_t firstColocal = i;
 		if (useColocalVertices) {
-			const PositionHashMap::Element *ele = positionHashMap.get(vertex->pos);
+			const PositionHashMap::Element *ele = positionHashMap.get(DecodePosition(meshDecl, i));
 			uint32_t lowest = i;
 			while (ele) {
 				if (ele->value < lowest)
@@ -7487,50 +7676,63 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 		}
 		canonicalMap.push_back(firstColocal);
 	}
-	heMesh->linkColocalsWithCanonicalMap(canonicalMap);
-	for (uint32_t i = 0; i < meshDecl.indexCount / 3; i++) {
-		uint32_t tri[3];
-		for (int j = 0; j < 3; j++)
-			tri[j] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
-		uint32_t faceFlags = 0;
-		// Check for degenerate or zero length edges.
-		for (int j = 0; j < 3; j++) {
-			const uint32_t edges[6] = { 0, 1, 1, 2, 2, 0 };
-			const uint32_t index1 = tri[edges[j * 2 + 0]];
-			const uint32_t index2 = tri[edges[j * 2 + 1]];
-			if (index1 == index2) {
-				faceFlags |= internal::halfedge::FaceFlags::Ignore;
-				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->meshCount, index1, index2);
-				break;
-			}
-			const internal::Vector3 pos1 = DecodePosition(meshDecl, index1);
-			const internal::Vector3 pos2 = DecodePosition(meshDecl, index2);
-			if (EdgeLength(pos1, pos2) <= 0.0f) {
-				faceFlags |= internal::halfedge::FaceFlags::Ignore;
-				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->meshCount, index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
-				break;
-			}
+#if XA_USE_HE_MESH
+	// Build half edge mesh.
+	{
+		internal::halfedge::Mesh *heMesh = XA_NEW(internal::halfedge::Mesh, atlas->meshCount, meshDecl.vertexCount, meshDecl.indexCount / 3);
+		for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
+			internal::halfedge::Vertex *vertex = heMesh->addVertex(DecodePosition(meshDecl, i));
+			if (meshDecl.vertexNormalData)
+				vertex->nor = DecodeNormal(meshDecl, i);
+			if (meshDecl.vertexUvData)
+				vertex->tex = DecodeUv(meshDecl, i);
 		}
-		// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
-		if (!(faceFlags & internal::halfedge::FaceFlags::Ignore))
-		{
-			const internal::Vector3 a = DecodePosition(meshDecl, tri[0]);
-			const internal::Vector3 b = DecodePosition(meshDecl, tri[1]);
-			const internal::Vector3 c = DecodePosition(meshDecl, tri[2]);
-			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
-			if (area <= 0.0f)
+		heMesh->linkColocalsWithCanonicalMap(canonicalMap);
+		for (uint32_t i = 0; i < meshDecl.indexCount / 3; i++) {
+			uint32_t tri[3];
+			for (int j = 0; j < 3; j++)
+				tri[j] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
+			uint32_t faceFlags = 0;
+			// Check for degenerate or zero length edges.
+			for (int j = 0; j < 3; j++) {
+				const uint32_t edges[6] = { 0, 1, 1, 2, 2, 0 };
+				const uint32_t index1 = tri[edges[j * 2 + 0]];
+				const uint32_t index2 = tri[edges[j * 2 + 1]];
+				if (index1 == index2) {
+					faceFlags |= internal::halfedge::FaceFlags::Ignore;
+					XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->meshCount, index1, index2);
+					break;
+				}
+				const internal::Vector3 pos1 = DecodePosition(meshDecl, index1);
+				const internal::Vector3 pos2 = DecodePosition(meshDecl, index2);
+				if (EdgeLength(pos1, pos2) <= 0.0f) {
+					faceFlags |= internal::halfedge::FaceFlags::Ignore;
+					XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->meshCount, index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
+					break;
+				}
+			}
+			// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
+			if (!(faceFlags & internal::halfedge::FaceFlags::Ignore))
 			{
-				faceFlags |= internal::halfedge::FaceFlags::Ignore;
-				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->meshCount, i, tri[0], tri[1], tri[2]);
+				const internal::Vector3 a = DecodePosition(meshDecl, tri[0]);
+				const internal::Vector3 b = DecodePosition(meshDecl, tri[1]);
+				const internal::Vector3 c = DecodePosition(meshDecl, tri[2]);
+				const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
+				if (area <= 0.0f)
+				{
+					faceFlags |= internal::halfedge::FaceFlags::Ignore;
+					XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->meshCount, i, tri[0], tri[1], tri[2]);
+				}
 			}
+			internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
+			XA_DEBUG_ASSERT(face);
+			if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
+				face->flags |= internal::halfedge::FaceFlags::Ignore;
 		}
-		internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
-		XA_DEBUG_ASSERT(face);
-		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
-			face->flags |= internal::halfedge::FaceFlags::Ignore;
+		heMesh->linkBoundary();
+		ctx->heMeshes.push_back(heMesh);
 	}
-	heMesh->linkBoundary();
-	ctx->heMeshes.push_back(heMesh);
+#endif
 #if XA_USE_RAW_MESH
 	internal::RawMesh *rawMesh = XA_NEW(internal::RawMesh, meshDecl.vertexCount, meshDecl.indexCount / 3);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
@@ -7584,7 +7786,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 	}
 	rawMesh->createColocalsWithCanonicalMap(canonicalMap);
 	rawMesh->createBoundaryEdges();
-	rawMesh->verify(heMesh);
+#if XA_USE_HE_MESH
+	rawMesh->verify(ctx->heMeshes[ctx->heMeshes.size() - 1]);
+#endif
 	ctx->rawMeshes.push_back(rawMesh);
 #endif
 	atlas->meshCount++;
@@ -7595,8 +7799,10 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 {
 	XA_DEBUG_ASSERT(atlas);
 	Context *ctx = (Context *)atlas;
+#if XA_USE_HE_MESH
 	if (ctx->heMeshes.isEmpty())
 		return;
+#endif
 #if XA_USE_RAW_MESH
 	if (ctx->rawMeshes.isEmpty())
 		return;
@@ -7616,12 +7822,23 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	int progress = 0;
 	if (progressCallback)
 		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
-	for (int i = 0; i < (int)ctx->heMeshes.size(); i++)
+#if XA_USE_HE_MESH
+	const uint32_t meshCount = ctx->heMeshes.size();
+#else
+	const uint32_t meshCount = ctx->rawMeshes.size();
+#endif
+	for (uint32_t i = 0; i < meshCount; i++)
 	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		ctx->paramAtlas.computeCharts(ctx->heMeshes[i], ctx->rawMeshes[i], charterOptions);
+#elif XA_USE_RAW_MESH
+		ctx->paramAtlas.computeCharts(ctx->rawMeshes[i], charterOptions);
+#else
 		ctx->paramAtlas.computeCharts(ctx->heMeshes[i], charterOptions);
+#endif
 		if (progressCallback)
 		{
-			const int newProgress = int((i + 1) / (float)ctx->heMeshes.size() * 100.0f);
+			const int newProgress = int((i + 1) / (float)meshCount * 100.0f);
 			if (newProgress != progress)
 			{
 				progress = newProgress;
@@ -7635,7 +7852,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	ctx->paramAtlas.parameterizeCharts(progressCallback, progressCallbackUserData);
 	ctx->paramAtlas.saveOriginalChartUvs();
 	// Count charts.
-	for (int i = 0; i < (int)ctx->heMeshes.size(); i++) {
+	for (uint32_t i = 0; i < meshCount; i++) {
 		const internal::param::MeshCharts *charts = ctx->paramAtlas.meshAt(i);
 		for (uint32_t j = 0; j < charts->chartCount(); j++) {
 			if (!charts->chartAt(j)->isVertexMapped())
