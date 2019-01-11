@@ -3489,6 +3489,67 @@ public:
 		uint32_t m_current;
 	};
 
+	class ConstEdgeIterator
+	{
+	public:
+		ConstEdgeIterator(const RawMesh *mesh, uint32_t face = UINT32_MAX) : m_mesh(mesh), m_restrictFace(face), m_face(0), m_edge(0), m_relativeEdge(0)
+		{
+			if (m_restrictFace != UINT32_MAX)
+				m_face = m_restrictFace;
+		}
+
+		void advance()
+		{
+			if (m_restrictFace != UINT32_MAX) {
+				const RawFace &face = m_mesh->m_faces[m_face];
+				if (m_relativeEdge < face.nIndices) {
+					m_edge++;
+					m_relativeEdge++;
+				}
+			} else if (m_face < m_mesh->m_faces.size()) {
+				const RawFace &face = m_mesh->m_faces[m_face];
+				m_edge++;
+				m_relativeEdge++;
+				if (m_relativeEdge == face.nIndices) {
+					m_face++;
+					m_relativeEdge = 0;
+				}
+			}
+		}
+
+		bool isDone() const
+		{
+			if (m_restrictFace != UINT32_MAX)
+				return m_relativeEdge == m_mesh->m_faces[m_face].nIndices;
+			return m_face == m_mesh->m_faces.size();
+		}
+
+		uint32_t edge() const { return m_edge; }
+		uint32_t face() const { return m_face; }
+
+		uint32_t vertex0() const
+		{
+			const RawFace &face = m_mesh->m_faces[m_face];
+			return m_mesh->m_indices[face.firstIndex + m_relativeEdge];
+		}
+
+		uint32_t vertex1() const
+		{
+			const RawFace &face = m_mesh->m_faces[m_face];
+			return m_mesh->m_indices[face.firstIndex + (m_relativeEdge + 1) % face.nIndices];
+		}
+
+		const Vector3 &position0() const { return m_mesh->m_positions[vertex0()]; }
+		const Vector3 &position1() const { return m_mesh->m_positions[vertex1()]; }
+
+	private:
+		const RawMesh *m_mesh;
+		uint32_t m_restrictFace; // Iterate edges of this face only.
+		uint32_t m_face;
+		uint32_t m_edge;
+		uint32_t m_relativeEdge;
+	};
+
 private:
 	void addFaceEdgesToMap(uint32_t faceIndex)
 	{
@@ -4963,34 +5024,23 @@ struct AtlasBuilder
 				const RawFace *face = m_rawMesh->faceAt(f);
 				edgeCount += face->nIndices;
 			}
-			m_rawEdgeLengths.resize(edgeCount);
-			m_rawFaceAreas.resize(m_rawMesh->faceCount());
-			uint32_t edge = 0;
+			m_rawEdgeLengths.resize(edgeCount, 0.0f);
+			m_rawFaceAreas.resize(m_rawMesh->faceCount(), 0.0f);
 			for (uint32_t f = 0; f < m_rawMesh->faceCount(); f++) {
-				const RawFace *face = m_rawMesh->faceAt(f);
-				const bool ignoreFace = (m_rawMesh->faceFlagsAt(f) & halfedge::FaceFlags::Ignore) != 0;
-				float faceArea = 0.0f;
-				const Vector3 *firstPos = m_rawMesh->positionAt(m_rawMesh->vertexAt(face->firstIndex));
-				for (uint32_t i = 0; i < face->nIndices; i++) {
-					const uint32_t vertex0 = m_rawMesh->vertexAt(face->firstIndex + i);
-					const uint32_t vertex1 = m_rawMesh->vertexAt(face->firstIndex + (i + 1) % face->nIndices);
-					const Vector3 *pos0 = m_rawMesh->positionAt(vertex0);
-					const Vector3 *pos1 = m_rawMesh->positionAt(vertex1);
-					if (ignoreFace)
-						m_rawEdgeLengths[edge] = 0.0f;
-					else {
-						m_rawEdgeLengths[edge] = internal::length(*pos1 - *pos0);
-						if (i > 0)
-							faceArea += length(cross(*pos0 - *firstPos, *pos1 - *firstPos));
-					}
-					edge++;
+				if ((m_rawMesh->faceFlagsAt(f) & halfedge::FaceFlags::Ignore) != 0)
+					continue;
+				float &faceArea = m_rawFaceAreas[f];
+				Vector3 firstPos;
+				for (RawMesh::ConstEdgeIterator it(m_rawMesh, f); !it.isDone(); it.advance()) {
+					m_rawEdgeLengths[it.edge()] = internal::length(it.position1() - it.position0());
+					if (it.edge() == 0)
+						firstPos = it.position0();
+					else
+						faceArea += length(cross(it.position0() - firstPos, it.position1() - firstPos));
 				}
-				if (ignoreFace)
-					m_rawFaceAreas[f] = 0.0f;
-				else
-					m_rawFaceAreas[f] = faceArea * 0.5f;
+				faceArea *= 0.5f;
 				#if XA_USE_HE_MESH
-				XA_DEBUG_ASSERT(m_rawFaceAreas[f] == m_faceAreas[f]);
+				XA_DEBUG_ASSERT(faceArea == m_faceAreas[f]);
 				#endif
 			}
 		}
@@ -5112,7 +5162,14 @@ struct AtlasBuilder
 
 	void resetCharts()
 	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
 		const uint32_t faceCount = m_mesh->faceCount();
+		XA_DEBUG_ASSERT(faceCount == m_rawMesh->faceCount());
+#elif XA_USE_RAW_MESH
+		const uint32_t faceCount = m_rawMesh->faceCount();
+#else
+		const uint32_t faceCount = m_mesh->faceCount();
+#endif
 		for (uint32_t i = 0; i < faceCount; i++) {
 			m_faceChartArray[i] = -1;
 			m_faceCandidateArray[i] = (uint32_t)-1;
