@@ -3429,15 +3429,66 @@ public:
 	/// Find edge, test all colocals.
 	const RawEdge *findEdge(uint32_t vertex0, uint32_t vertex1) const
 	{
-		for (ConstColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
-			for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
-				EdgeKey key(it0.vertex(), it1.vertex());
-				const EdgeMap::Element *ele = m_edgeMap.get(key);
-				if (ele)
-					return &ele->value;
+		if (m_colocals.isEmpty()) {
+			EdgeKey key(vertex0, vertex1);
+			const EdgeMap::Element *ele = m_edgeMap.get(key);
+			if (ele)
+				return &ele->value;
+		} else {
+			for (ConstColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
+				for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
+					EdgeKey key(it0.vertex(), it1.vertex());
+					const EdgeMap::Element *ele = m_edgeMap.get(key);
+					if (ele)
+						return &ele->value;
+				}
 			}
 		}
 		return NULL;
+	}
+
+	float computeSurfaceArea() const
+	{
+		float area = 0;
+		for (uint32_t f = 0; f < m_faces.size(); f++)
+			area += faceArea(f);
+		XA_DEBUG_ASSERT(area >= 0);
+		return area;
+	}
+
+	float computeParametricArea() const
+	{
+		float area = 0;
+		for (uint32_t f = 0; f < m_faces.size(); f++)
+			area += faceParametricArea(f);
+		XA_DEBUG_ASSERT(area >= 0);
+		return area;
+	}
+
+	float faceArea(uint32_t face) const
+	{
+		float area = 0;
+		Vector3 firstPos;
+		for (RawMesh::ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+			if (it.edge() == 0)
+				firstPos = it.position0();
+			else
+				area += length(cross(it.position0() - firstPos, it.position1() - firstPos));
+		}
+		return area * 0.5f;
+	}
+
+	float faceParametricArea(uint32_t face) const
+	{
+		float area = 0;
+		Vector2 firstTexcoord;
+		for (RawMesh::ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+			if (it.edge() == 0)
+				firstTexcoord = it.texcoord0();
+			else
+				area += triangleArea(firstTexcoord, it.texcoord0(), it.texcoord1());
+		}
+		return area * 0.5f;
 	}
 
 	Vector3 faceCentroid(uint32_t face) const
@@ -3526,6 +3577,7 @@ public:
 	Vector3 *normalAt(uint32_t i) { return &m_normals[i]; }
 	const Vector2 *texcoordAt(uint32_t i) const { return &m_texcoords[i]; }
 	Vector2 *texcoordAt(uint32_t i) { return &m_texcoords[i]; }
+	uint32_t firstColocal(uint32_t vertex) const { return m_colocals[vertex]; }
 	uint32_t faceCount() const { return m_faces.size(); }
 	const RawFace *faceAt(uint32_t i) const { return &m_faces[i]; }
 	RawFace *faceAt(uint32_t i) { return &m_faces[i]; }
@@ -3664,6 +3716,10 @@ public:
 
 		const Vector3 &position0() const { return m_mesh->m_positions[vertex0()]; }
 		const Vector3 &position1() const { return m_mesh->m_positions[vertex1()]; }
+		const Vector3 &normal0() const { return m_mesh->m_normals[vertex0()]; }
+		const Vector3 &normal1() const { return m_mesh->m_normals[vertex1()]; }
+		const Vector2 &texcoord0() const { return m_mesh->m_texcoords[vertex0()]; }
+		const Vector2 &texcoord1() const { return m_mesh->m_texcoords[vertex1()]; }
 
 	private:
 		const RawMesh *m_mesh;
@@ -3713,9 +3769,14 @@ private:
 				const uint32_t vertex1 = m_indices[face.firstIndex + (j + 1) % face.nIndices];
 				if (findEdge(vertex1, vertex0))
 					continue; // Not a boundary edge.
-				for (ConstColocalIterator colocal(this, endVertex /*startVertex*/); !colocal.isDone(); colocal.advance()) {
-					if (colocal.vertex() == vertex1 /*vertex0*/)
+				if (m_colocals.isEmpty()) {
+					if (vertex1 == endVertex)
 						return face.firstIndex + j;
+				} else {
+					for (ConstColocalIterator colocal(this, endVertex /*startVertex*/); !colocal.isDone(); colocal.advance()) {
+						if (colocal.vertex() == vertex1 /*vertex0*/)
+							return face.firstIndex + j;
+					}
 				}
 			}
 		}
@@ -5745,7 +5806,7 @@ struct RawAtlasBuilder
 			Vector3 firstPos;
 			for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 				m_edgeLengths[it.edge()] = internal::length(it.position1() - it.position0());
-				printf("edge %d length: %g\n", it.edge(), m_edgeLengths[it.edge()]);
+				//printf("edge %d length: %g\n", it.edge(), m_edgeLengths[it.edge()]);
 				if (it.edge() == 0)
 					firstPos = it.position0();
 				else
@@ -6483,11 +6544,11 @@ class Chart
 {
 public:
 #if XA_USE_HE_MESH && XA_USE_RAW_MESH
-	Chart() : atlasIndex(-1), scale(1.0f), blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_rawChartMesh(NULL), m_rawUnifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
+	Chart() : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false), m_rawChartMesh(NULL), m_rawUnifiedMesh(NULL), m_rawIsDisk(false), m_rawIsVertexMapped(false) {}
 #elif XA_USE_RAW_MESH
-	Chart() : atlasIndex(-1), scale(1.0f), blockAligned(true), m_rawChartMesh(NULL), m_rawUnifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
+	Chart() : atlasIndex(-1), m_blockAligned(true),m_rawChartMesh(NULL), m_rawUnifiedMesh(NULL), m_rawIsDisk(false), m_rawIsVertexMapped(false) {}
 #else
-	Chart() : atlasIndex(-1), scale(1.0f), blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
+	Chart() : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
 #endif
 
 	~Chart()
@@ -6514,9 +6575,16 @@ public:
 #endif
 	}
 
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+	void build(const halfedge::Mesh *originalMesh, const RawMesh *rawOriginalMesh, const Array<uint32_t> &faceArray)
+#elif XA_USE_RAW_MESH
+	void build(const RawMesh *rawOriginalMesh, const Array<uint32_t> &faceArray)
+#else
 	void build(const halfedge::Mesh *originalMesh, const Array<uint32_t> &faceArray)
+#endif
 	{
 		// Copy face indices.
+#if XA_USE_HE_MESH
 		m_faceArray = faceArray;
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
 		if (m_chartMesh) {
@@ -6533,7 +6601,27 @@ public:
 		chartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
 		Array<uint32_t> unifiedMeshIndices;
 		unifiedMeshIndices.resize(meshVertexCount, (uint32_t)~0);
+#endif
+#if XA_USE_RAW_MESH
+		m_rawFaceArray = faceArray;
+		const uint32_t rawMeshVertexCount = rawOriginalMesh->vertexCount();
+		if (m_rawChartMesh) {
+			m_rawChartMesh->~RawMesh();
+			XA_FREE(m_rawChartMesh);
+		}
+		m_rawChartMesh = XA_NEW(RawMesh);
+		if (m_rawUnifiedMesh) {
+			m_rawUnifiedMesh->~RawMesh();
+			XA_FREE(m_rawUnifiedMesh);
+		}
+		m_rawUnifiedMesh = XA_NEW(RawMesh);
+		Array<uint32_t> rawChartMeshIndices;
+		rawChartMeshIndices.resize(rawMeshVertexCount, (uint32_t)~0);
+		Array<uint32_t> rawUnifiedMeshIndices;
+		rawUnifiedMeshIndices.resize(rawMeshVertexCount, (uint32_t)~0);
+#endif
 		// Add vertices.
+#if XA_USE_HE_MESH
 		const uint32_t faceCount = faceArray.size();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const halfedge::Face *face = originalMesh->faceAt(faceArray[f]);
@@ -6565,6 +6653,29 @@ public:
 		// is not guaranteed to return the same vertex for two colocal vertices.
 		//XA_ASSERT(m_chartMesh->colocalVertexCount() == m_unifiedMesh->vertexCount());
 		// Is that OK? What happens in meshes were that happens? Does anything break? Apparently not...
+#endif
+#if XA_USE_RAW_MESH
+		const uint32_t rawFaceCount = faceArray.size();
+		for (uint32_t f = 0; f < rawFaceCount; f++) {
+			for (RawMesh::ConstEdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
+				uint32_t unifiedVertex = rawOriginalMesh->firstColocal(it.vertex0());
+				if (unifiedVertex == UINT32_MAX)
+					unifiedVertex = it.vertex0();
+				if (rawUnifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
+					rawUnifiedMeshIndices[unifiedVertex] = m_rawUnifiedMesh->vertexCount();
+					XA_DEBUG_ASSERT(it.position0() == *rawOriginalMesh->positionAt(unifiedVertex));
+					m_rawUnifiedMesh->addVertex(it.position0());
+				}
+				if (rawChartMeshIndices[it.vertex0()] == (uint32_t)~0) {
+					rawChartMeshIndices[it.vertex0()] = m_rawChartMesh->vertexCount();
+					m_rawChartToOriginalMap.push_back(it.vertex0());
+					m_rawChartToOriginalMap.push_back(rawUnifiedMeshIndices[unifiedVertex]);
+					m_rawChartMesh->addVertex(it.position0(), it.normal0(), it.texcoord0());
+				}
+			}
+		}
+#endif
+#if XA_USE_HE_MESH
 		Array<uint32_t> faceIndices;
 		faceIndices.reserve(7);
 		// Add faces.
@@ -6589,14 +6700,36 @@ public:
 		}
 		m_chartMesh->linkBoundary();
 		m_unifiedMesh->linkBoundary();
-		//exportMesh(m_unifiedMesh.ptr(), "debug_input.obj");
+#endif
+#if XA_USE_RAW_MESH
+		Array<uint32_t> rawFaceIndices;
+		rawFaceIndices.reserve(7);
+		// Add faces.
+		for (uint32_t f = 0; f < rawFaceCount; f++) {
+			const uint32_t faceFlags = rawOriginalMesh->faceFlagsAt(faceArray[f]);
+			rawFaceIndices.clear();
+			for (RawMesh::ConstEdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance())
+				rawFaceIndices.push_back(rawChartMeshIndices[it.vertex0()]);
+			m_rawChartMesh->addFace(rawFaceIndices, faceFlags);
+			rawFaceIndices.clear();
+			for (RawMesh::ConstEdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
+				uint32_t unifiedVertex = rawOriginalMesh->firstColocal(it.vertex0());
+				if (unifiedVertex == UINT32_MAX)
+					unifiedVertex = it.vertex0();
+				rawFaceIndices.push_back(rawUnifiedMeshIndices[unifiedVertex]);
+			}
+			m_rawUnifiedMesh->addFace(rawFaceIndices, faceFlags);
+		}
+		m_rawChartMesh->createBoundaryEdges();
+		m_rawUnifiedMesh->createBoundaryEdges();
+#endif
+#if XA_USE_HE_MESH
 		if (m_unifiedMesh->splitBoundaryEdges()) {
 			halfedge::Mesh *newUnifiedMesh = halfedge::unifyVertices(m_unifiedMesh);
 			m_unifiedMesh->~Mesh();
 			XA_FREE(m_unifiedMesh);
 			m_unifiedMesh = newUnifiedMesh;
 		}
-		//exportMesh(m_unifiedMesh.ptr(), "debug_split.obj");
 		// Closing the holes is not always the best solution and does not fix all the problems.
 		// We need to do some analysis of the holes and the genus to:
 		// - Find cuts that reduce genus.
@@ -6616,6 +6749,7 @@ public:
 		// Analyze chart topology.
 		halfedge::MeshTopology topology(m_unifiedMesh);
 		m_isDisk = topology.isDisk();
+#endif
 	}
 
 #if XA_USE_HE_MESH && XA_USE_RAW_MESH
@@ -6687,15 +6821,15 @@ public:
 #if XA_USE_RAW_MESH
 		{
 			XA_ASSERT(m_rawChartMesh == NULL && m_rawUnifiedMesh == NULL);
-			m_isVertexMapped = true;
+			m_rawIsVertexMapped = true;
 			// Build face indices.
-			m_faceArray.clear();
+			m_rawFaceArray.clear();
 			const uint32_t meshFaceCount = originalRawMesh->faceCount();
 			for (uint32_t f = 0; f < meshFaceCount; f++) {
 				if ((originalRawMesh->faceFlagsAt(f) & halfedge::FaceFlags::Ignore) != 0)
-					m_faceArray.push_back(f);
+					m_rawFaceArray.push_back(f);
 			}
-			const uint32_t faceCount = m_faceArray.size();
+			const uint32_t faceCount = m_rawFaceArray.size();
 			if (faceCount != 0) {
 				// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
 				const uint32_t meshVertexCount = originalRawMesh->vertexCount();
@@ -6704,7 +6838,7 @@ public:
 				rawChartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
 				// Vertex map mesh only has disconnected vertices.
 				for (uint32_t f = 0; f < faceCount; f++) {
-					const RawFace *face = originalRawMesh->faceAt(m_faceArray[f]);
+					const RawFace *face = originalRawMesh->faceAt(m_rawFaceArray[f]);
 					XA_DEBUG_ASSERT(face != NULL);
 					for (uint32_t i = 0; i < face->nIndices; i++) {
 						const uint32_t vertex = originalRawMesh->vertexAt(face->firstIndex + i);
@@ -6721,7 +6855,7 @@ public:
 				faceIndices.reserve(7);
 				// Add faces.
 				for (uint32_t f = 0; f < faceCount; f++) {
-					const RawFace *face = originalRawMesh->faceAt(m_faceArray[f]);
+					const RawFace *face = originalRawMesh->faceAt(m_rawFaceArray[f]);
 					XA_DEBUG_ASSERT(face != NULL);
 					faceIndices.clear();
 					for (uint32_t i = 0; i < face->nIndices; i++) {
@@ -6736,6 +6870,269 @@ public:
 #endif
 	}
 
+	bool isBlockAligned() const { return m_blockAligned; }
+
+	bool isDisk() const
+	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_isDisk == m_rawIsDisk);
+#endif
+#if XA_USE_HE_MESH
+		return m_isDisk;
+#else
+		return m_rawIsDisk;
+#endif
+	}
+
+	bool isVertexMapped() const
+	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_isVertexMapped == m_rawIsVertexMapped);
+#endif
+#if XA_USE_HE_MESH
+		return m_isVertexMapped;
+#else
+		return m_rawIsVertexMapped;
+#endif
+	}
+
+	uint32_t vertexCount() const
+	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_chartMesh->vertexCount() == m_rawChartMesh->vertexCount());
+#endif
+#if XA_USE_HE_MESH
+		return m_chartMesh->vertexCount();
+#else
+		return m_rawChartMesh->vertexCount();
+#endif
+	}
+
+	uint32_t colocalVertexCount() const
+	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_unifiedMesh->vertexCount() == m_rawUnifiedMesh->vertexCount());
+#endif
+#if XA_USE_HE_MESH
+		return m_unifiedMesh->vertexCount();
+#else
+		return m_rawUnifiedMesh->vertexCount();
+#endif
+	}
+
+	uint32_t faceCount() const
+	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_faceArray.size() == m_rawFaceArray.size());
+#endif
+#if XA_USE_HE_MESH
+		return m_faceArray.size();
+#else
+		return m_rawFaceArray.size();
+#endif
+	}
+
+	uint32_t faceAt(uint32_t i) const
+	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_faceArray[i] == m_rawFaceArray[i]);
+#endif
+#if XA_USE_HE_MESH
+		return m_faceArray[i];
+#else
+		return m_rawFaceArray[i];
+#endif
+	}
+
+#if XA_USE_HE_MESH
+	const halfedge::Mesh *chartMesh() const
+	{
+		return m_chartMesh;
+	}
+
+	halfedge::Mesh *chartMesh()
+	{
+		return m_chartMesh;
+	}
+
+	const halfedge::Mesh *unifiedMesh() const
+	{
+		return m_unifiedMesh;
+	}
+
+	halfedge::Mesh *unifiedMesh()
+	{
+		return m_unifiedMesh;
+	}
+#endif
+
+#if XA_USE_RAW_MESH
+	const RawMesh *rawChartMesh() const
+	{
+		return m_rawChartMesh;
+	}
+
+	RawMesh *rawChartMesh()
+	{
+		return m_rawChartMesh;
+	}
+
+	const RawMesh *rawUnifiedMesh() const
+	{
+		return m_rawUnifiedMesh;
+	}
+
+	RawMesh *rawUnifiedMesh()
+	{
+		return m_rawUnifiedMesh;
+	}
+#endif
+
+	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const
+	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_chartToOriginalMap[i] == m_rawChartToOriginalMap[i]);
+#endif
+#if XA_USE_HE_MESH
+		return m_chartToOriginalMap[i];
+#else
+		return m_rawChartToOriginalMap[i];
+#endif
+	}
+
+	uint32_t mapChartVertexToUnifiedVertex(uint32_t i) const
+	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_chartToUnifiedMap[i] == m_rawChartToUnifiedMap[i]);
+#endif
+#if XA_USE_HE_MESH
+		return m_chartToUnifiedMap[i];
+#else
+		return m_rawChartToUnifiedMap[i];
+#endif
+	}
+
+	const Array<uint32_t> &faceArray() const
+	{
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_faceArray.size() == m_rawFaceArray.size());
+		for (uint32_t f = 0; f < m_faceArray.size(); f++) {
+			XA_DEBUG_ASSERT(m_faceArray[f] == m_rawFaceArray[f]);
+		}
+#endif
+#if XA_USE_HE_MESH
+		return m_faceArray;
+#else
+		return m_rawFaceArray;
+#endif
+	}
+
+	// Transfer parameterization from unified mesh to chart mesh.
+	void transferParameterization()
+	{
+#if XA_USE_HE_MESH
+		XA_DEBUG_ASSERT(!m_isVertexMapped);
+		uint32_t vertexCount = m_chartMesh->vertexCount();
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			halfedge::Vertex *vertex = m_chartMesh->vertexAt(v);
+			halfedge::Vertex *unifiedVertex = m_unifiedMesh->vertexAt(mapChartVertexToUnifiedVertex(v));
+			vertex->tex = unifiedVertex->tex;
+		}
+#endif
+#if XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(!m_rawIsVertexMapped);
+		const uint32_t rawVertexCount = m_rawChartMesh->vertexCount();
+		for (uint32_t v = 0; v < rawVertexCount; v++) {
+			Vector2 *texcoord = m_rawChartMesh->texcoordAt(v);
+			*texcoord = *m_rawUnifiedMesh->texcoordAt(mapChartVertexToUnifiedVertex(v));
+		}
+#endif
+	}
+
+	float computeSurfaceArea() const
+	{
+#if XA_USE_HE_MESH
+		float area = halfedge::computeSurfaceArea(m_chartMesh);
+#endif
+#if XA_USE_RAW_MESH
+		float rawArea = m_rawChartMesh->computeSurfaceArea();
+		#if XA_USE_HE_MESH
+		XA_DEBUG_ASSERT(area == rawArea);
+		#else
+		return rawArea;
+		#endif
+#endif
+#if XA_USE_HE_MESH
+		return area;
+#endif
+	}
+
+	float computeParametricArea() const
+	{
+		// This only makes sense in parameterized meshes.
+#if XA_USE_HE_MESH
+		XA_DEBUG_ASSERT(m_isDisk);
+		XA_DEBUG_ASSERT(!m_isVertexMapped);
+		float area = halfedge::computeParametricArea(m_chartMesh);
+#endif
+#if XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_rawIsDisk);
+		XA_DEBUG_ASSERT(!m_rawIsVertexMapped);
+		float rawArea = m_rawChartMesh->computeParametricArea();
+#if XA_USE_HE_MESH
+		XA_DEBUG_ASSERT(area == rawArea);
+#else
+		return rawArea;
+#endif
+#endif
+#if XA_USE_HE_MESH
+		return area;
+#endif
+	}
+
+	Vector2 computeParametricBounds() const
+	{
+		// This only makes sense in parameterized meshes.
+#if XA_USE_HE_MESH
+		XA_DEBUG_ASSERT(m_isDisk);
+		XA_DEBUG_ASSERT(!m_isVertexMapped);
+		Vector2 minCorner(FLT_MAX, FLT_MAX);
+		Vector2 maxCorner(-FLT_MAX, -FLT_MAX);
+		uint32_t vertexCount = m_chartMesh->vertexCount();
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			halfedge::Vertex *vertex = m_chartMesh->vertexAt(v);
+			minCorner = min(minCorner, vertex->tex);
+			maxCorner = max(maxCorner, vertex->tex);
+		}
+		Vector2 bounds = (maxCorner - minCorner) * 0.5f;
+#endif
+#if XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(m_rawIsDisk);
+		XA_DEBUG_ASSERT(!m_rawIsVertexMapped);
+		Vector2 rawMinCorner(FLT_MAX, FLT_MAX);
+		Vector2 rawMaxCorner(-FLT_MAX, -FLT_MAX);
+		const uint32_t rawVertexCount = m_rawChartMesh->vertexCount();
+		for (uint32_t v = 0; v < rawVertexCount; v++) {
+			const Vector2 *tex = m_rawChartMesh->texcoordAt(v);
+			rawMinCorner = min(rawMinCorner, *tex);
+			rawMaxCorner = max(rawMaxCorner, *tex);
+		}
+		Vector2 rawBounds = (rawMaxCorner - rawMinCorner) * 0.5f;
+#if XA_USE_HE_MESH
+		XA_DEBUG_ASSERT(bounds == rawBounds);
+#else
+		return rawBounds;
+#endif
+#endif
+#if XA_USE_HE_MESH
+		return bounds;
+#endif
+	}
+
+	int32_t atlasIndex;
+
+private:
+#if XA_USE_HE_MESH
 	bool closeHoles()
 	{
 		XA_DEBUG_ASSERT(!m_isVertexMapped);
@@ -6824,119 +7221,6 @@ public:
 		return boundaryCount == 1;
 	}
 
-	bool isDisk() const
-	{
-		return m_isDisk;
-	}
-
-	bool isVertexMapped() const
-	{
-		return m_isVertexMapped;
-	}
-
-	uint32_t vertexCount() const
-	{
-		return m_chartMesh->vertexCount();
-	}
-
-	uint32_t colocalVertexCount() const
-	{
-		return m_unifiedMesh->vertexCount();
-	}
-
-	uint32_t faceCount() const
-	{
-		return m_faceArray.size();
-	}
-
-	uint32_t faceAt(uint32_t i) const
-	{
-		return m_faceArray[i];
-	}
-
-	const halfedge::Mesh *chartMesh() const
-	{
-		return m_chartMesh;
-	}
-
-	halfedge::Mesh *chartMesh()
-	{
-		return m_chartMesh;
-	}
-
-	const halfedge::Mesh *unifiedMesh() const
-	{
-		return m_unifiedMesh;
-	}
-
-	halfedge::Mesh *unifiedMesh()
-	{
-		return m_unifiedMesh;
-	}
-
-	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const
-	{
-		return m_chartToOriginalMap[i];
-	}
-
-	uint32_t mapChartVertexToUnifiedVertex(uint32_t i) const
-	{
-		return m_chartToUnifiedMap[i];
-	}
-
-	const Array<uint32_t> &faceArray() const
-	{
-		return m_faceArray;
-	}
-
-	// Transfer parameterization from unified mesh to chart mesh.
-	void transferParameterization()
-	{
-		XA_DEBUG_ASSERT(!m_isVertexMapped);
-		uint32_t vertexCount = m_chartMesh->vertexCount();
-		for (uint32_t v = 0; v < vertexCount; v++) {
-			halfedge::Vertex *vertex = m_chartMesh->vertexAt(v);
-			halfedge::Vertex *unifiedVertex = m_unifiedMesh->vertexAt(mapChartVertexToUnifiedVertex(v));
-			vertex->tex = unifiedVertex->tex;
-		}
-	}
-
-	float computeSurfaceArea() const
-	{
-		return halfedge::computeSurfaceArea(m_chartMesh) * scale;
-	}
-
-	float computeParametricArea() const
-	{
-		// This only makes sense in parameterized meshes.
-		XA_DEBUG_ASSERT(m_isDisk);
-		XA_DEBUG_ASSERT(!m_isVertexMapped);
-		return halfedge::computeParametricArea(m_chartMesh);
-	}
-
-	Vector2 computeParametricBounds() const
-	{
-		// This only makes sense in parameterized meshes.
-		XA_DEBUG_ASSERT(m_isDisk);
-		XA_DEBUG_ASSERT(!m_isVertexMapped);
-		Vector2 minCorner(FLT_MAX, FLT_MAX);
-		Vector2 maxCorner(-FLT_MAX, -FLT_MAX);
-		uint32_t vertexCount = m_chartMesh->vertexCount();
-		for (uint32_t v = 0; v < vertexCount; v++) {
-			halfedge::Vertex *vertex = m_chartMesh->vertexAt(v);
-			minCorner = min(minCorner, vertex->tex);
-			maxCorner = max(maxCorner, vertex->tex);
-		}
-		return (maxCorner - minCorner) * 0.5f;
-	}
-
-	int32_t atlasIndex;
-	float scale;
-	uint32_t vertexMapWidth;
-	uint32_t vertexMapHeight;
-	bool blockAligned;
-
-private:
 	bool closeLoop(uint32_t start, const Array<halfedge::Edge *> &loop)
 	{
 		const uint32_t vertexCount = loop.size() - start;
@@ -7008,31 +7292,39 @@ private:
 			}
 		}
 	}
+#endif
 
-	// Chart mesh.
+	bool m_blockAligned;
+
 #if XA_USE_HE_MESH
 	halfedge::Mesh *m_chartMesh;
 	halfedge::Mesh *m_unifiedMesh;
-#endif
-#if XA_USE_RAW_MESH
-	RawMesh *m_rawChartMesh;
-	RawMesh *m_rawUnifiedMesh;
-#endif
 	bool m_isDisk;
 	bool m_isVertexMapped;
 	
 	// List of faces of the original mesh that belong to this chart.
 	Array<uint32_t> m_faceArray;
-
+	
 	// Map vertices of the chart mesh to vertices of the original mesh.
-#if XA_USE_HE_MESH
 	Array<uint32_t> m_chartToOriginalMap;
-#endif
-#if XA_USE_RAW_MESH
-	Array<uint32_t> m_rawChartToOriginalMap;
-#endif
 
 	Array<uint32_t> m_chartToUnifiedMap;
+#endif
+
+#if XA_USE_RAW_MESH
+	RawMesh *m_rawChartMesh;
+	RawMesh *m_rawUnifiedMesh;
+	bool m_rawIsDisk;
+	bool m_rawIsVertexMapped;
+
+	// List of faces of the original mesh that belong to this chart.
+	Array<uint32_t> m_rawFaceArray;
+
+	// Map vertices of the chart mesh to vertices of the original mesh.
+	Array<uint32_t> m_rawChartToOriginalMap;
+
+	Array<uint32_t> m_rawChartToUnifiedMap;
+#endif
 };
 
 // Estimate quality of existing parameterization.
@@ -7323,9 +7615,9 @@ public:
 #if XA_USE_HE_MESH && XA_USE_RAW_MESH
 		AtlasBuilderWrapper builder(m_mesh, m_rawMesh, options);
 #elif XA_USE_HE_MESH
-		AtlasBuilderWrapper rawBuilder(m_mesh, options);
+		AtlasBuilderWrapper builder(m_mesh, options);
 #else
-		AtlasBuilderWrapper rawBuilder(m_rawMesh, options);
+		AtlasBuilderWrapper builder(m_rawMesh, options);
 #endif
 		if (vertexMap != NULL) {
 			// Mark faces that do not need to be charted.
@@ -7389,13 +7681,24 @@ public:
 			for (uint32_t i = 0; i < chartCount; i++) {
 				Chart *chart = XA_NEW(Chart);
 				m_chartArray.push_back(chart);
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+				chart->build(m_mesh, m_rawMesh, builder.chartFaces(i));
+#elif XA_USE_RAW_MESH
+				chart->build(m_rawMesh, builder.chartFaces(i));
+#else
 				chart->build(m_mesh, builder.chartFaces(i));
+#endif
 			}
 		}
 		const uint32_t chartCount = m_chartArray.size();
 		// Build face indices.
+#if XA_USE_HE_MESH
 		m_faceChart.resize(m_mesh->faceCount());
 		m_faceIndex.resize(m_mesh->faceCount());
+#else
+		m_faceChart.resize(m_rawMesh->faceCount());
+		m_faceIndex.resize(m_rawMesh->faceCount());
+#endif
 		for (uint32_t i = 0; i < chartCount; i++) {
 			const Chart *chart = m_chartArray[i];
 			const uint32_t faceCount = chart->faceCount();
@@ -7610,20 +7913,42 @@ public:
 	{
 		m_originalChartUvs.resize(chartCount());
 		for (uint32_t i = 0; i < chartCount(); i++) {
+#if XA_USE_HE_MESH
 			const halfedge::Mesh *mesh = chartAt(i)->chartMesh();
 			m_originalChartUvs[i].resize(mesh->vertexCount());
 			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
 				m_originalChartUvs[i][j] = mesh->vertexAt(j)->tex;
+#endif
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+			const RawMesh *rawMesh = chartAt(i)->rawChartMesh();
+			for (uint32_t j = 0; j < mesh->vertexCount(); j++) {
+				XA_DEBUG_ASSERT(m_originalChartUvs[i][j] == *rawMesh->texcoordAt(j));
+			}
+#else
+			const RawMesh *mesh = chartAt(i)->rawChartMesh();
+			m_originalChartUvs[i].resize(mesh->vertexCount());
+			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
+				m_originalChartUvs[i][j] = *mesh->texcoordAt(j);
+#endif
 		}
 	}
 
 	void restoreOriginalChartUvs()
 	{
+#if XA_USE_HE_MESH
 		for (uint32_t i = 0; i < chartCount(); i++) {
 			halfedge::Mesh *mesh = chartAt(i)->chartMesh();
 			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
 				mesh->vertexAt(j)->tex = m_originalChartUvs[i][j];
 		}
+#endif
+#if XA_USE_RAW_MESH
+		for (uint32_t i = 0; i < chartCount(); i++) {
+			RawMesh *mesh = chartAt(i)->rawChartMesh();
+			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
+				*mesh->texcoordAt(j) = m_originalChartUvs[i][j];
+		}
+#endif
 	}
 
 private:
@@ -7762,7 +8087,7 @@ struct AtlasPacker
 			float divide_y = 1.0f;
 			if (extents.x > 0) {
 				int cw = ftoi_ceil(extents.x);
-				if (options.blockAlign && chart->blockAligned) {
+				if (options.blockAlign && chart->isBlockAligned()) {
 					// Align all chart extents to 4x4 blocks, but taking padding into account.
 					if (options.conservative) {
 						cw = align(cw + 2, 4) - 2;
@@ -7776,7 +8101,7 @@ struct AtlasPacker
 			}
 			if (extents.y > 0) {
 				int ch = ftoi_ceil(extents.y);
-				if (options.blockAlign && chart->blockAligned) {
+				if (options.blockAlign && chart->isBlockAligned()) {
 					// Align all chart extents to 4x4 blocks, but taking padding into account.
 					if (options.conservative) {
 						ch = align(ch + 2, 4) - 2;
@@ -7856,7 +8181,7 @@ struct AtlasPacker
 					m_bitmaps.push_back(bm);
 					firstChartInBitmap = true;
 				}
-				const bool foundLocation = findChartLocation(options.attempts, m_bitmaps[currentBitmapIndex], &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, chart->blockAligned, options.resolution <= 0);
+				const bool foundLocation = findChartLocation(options.attempts, m_bitmaps[currentBitmapIndex], &chart_bitmap, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, chart->isBlockAligned(), options.resolution <= 0);
 				if (firstChartInBitmap && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitmap. texelsPerUnit must be too large for the resolution.
 					XA_ASSERT(true && "chart doesn't fit");
