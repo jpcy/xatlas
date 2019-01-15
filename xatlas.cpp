@@ -3240,7 +3240,7 @@ public:
 		m_texcoords.reserve(approxVertexCount);
 	}
 
-	RawMesh(const RawMesh *mesh) : m_edges(mesh->m_edges), m_oppositeEdges(mesh->m_oppositeEdges), m_faces(mesh->m_faces), m_faceFlags(mesh->m_faceFlags), m_indices(mesh->m_indices), m_positions(mesh->m_positions), m_normals(mesh->m_normals), m_texcoords(mesh->m_texcoords), m_colocals(mesh->m_colocals), m_boundaryEdges(mesh->m_boundaryEdges), m_edgeMap(mesh->faceCount() * 3)
+	RawMesh(const RawMesh *mesh) : m_edges(mesh->m_edges), m_oppositeEdges(mesh->m_oppositeEdges), m_faces(mesh->m_faces), m_faceFlags(mesh->m_faceFlags), m_indices(mesh->m_indices), m_positions(mesh->m_positions), m_normals(mesh->m_normals), m_texcoords(mesh->m_texcoords), m_colocals(mesh->m_colocals), m_boundaryEdges(mesh->m_boundaryEdges), m_boundaryVertices(mesh->m_boundaryVertices), m_edgeMap(mesh->faceCount() * 3)
 	{
 		for (uint32_t i = 0; i < mesh->m_faces.size(); i++)
 			addFaceEdgesToMap(i);
@@ -3327,6 +3327,7 @@ public:
 		m_texcoords.clear();
 		m_colocals.clear();
 		m_boundaryEdges.clear();
+		m_boundaryVertices.clear();
 		m_edgeMap.clear();
 	}
 
@@ -3405,6 +3406,7 @@ public:
 	{
 		XA_PRINT(PrintFlags::MeshProcessing, "--- Creating boundaries:\n");
 		m_boundaryEdges.resize(m_edges.size(), UINT32_MAX);
+		m_boundaryVertices.resize(m_positions.size(), false);
 		m_oppositeEdges.resize(m_edges.size(), UINT32_MAX);
 		uint32_t nBoundaryEdges = 0;
 		for (uint32_t i = 0; i < m_faces.size(); i++) {
@@ -3418,6 +3420,7 @@ public:
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
 					continue;
 				}
+				m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
 				m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex0); // HE mesh boundary edge winding is backwards
 				//m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex1);
 				nBoundaryEdges++;
@@ -3465,6 +3468,19 @@ public:
 		return area;
 	}
 
+	uint32_t countTriangles() const
+	{
+		const uint32_t faceCount = m_faces.size();
+		uint32_t triangleCount = 0;
+		for (uint32_t f = 0; f < faceCount; f++) {
+			const RawFace &face = m_faces[f];
+			const uint32_t edgeCount = face.nIndices;
+			XA_DEBUG_ASSERT(edgeCount > 2);
+			triangleCount += edgeCount - 2;
+		}
+		return triangleCount;
+	}
+
 	float faceArea(uint32_t face) const
 	{
 		float area = 0;
@@ -3476,6 +3492,35 @@ public:
 				area += length(cross(it.position0() - firstPos, it.position1() - firstPos));
 		}
 		return area * 0.5f;
+	}
+
+	Vector3 faceCentroid(uint32_t face) const
+	{
+		Vector3 sum(0.0f);
+		uint32_t count = 0;
+		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+			sum += it.position0();
+			count++;
+		}
+		return sum / float(count);
+	}
+
+	Vector3 faceNormal(uint32_t face) const
+	{
+		Vector3 n(0);
+		Vector3 p0;
+		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+			if (it.edge() == 0) {
+				p0 = it.position0();
+			} else if (it.position1() != p0) {
+				const Vector3 &p1 = it.position0();
+				const Vector3 &p2 = it.position1();
+				const Vector3 v10 = p1 - p0;
+				const Vector3 v20 = p2 - p0;
+				n += cross(v10, v20);
+			}
+		}
+		return normalizeSafe(n, Vector3(0, 0, 1), 0.0f);
 	}
 
 	float faceParametricArea(uint32_t face) const
@@ -3491,16 +3536,6 @@ public:
 		return area * 0.5f;
 	}
 
-	Vector3 faceCentroid(uint32_t face) const
-	{
-		Vector3 sum(0.0f);
-		uint32_t count = 0;
-		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
-			sum += it.position0();
-			count++;
-		}
-		return sum / float(count);
-	}
 
 	// Average of the edge midpoints weighted by the edge length.
 	// I want a point inside the triangle, but closer to the cirumcenter.
@@ -3569,6 +3604,7 @@ public:
 	const RawEdge *edgeAt(uint32_t edge) const { return &m_edges[edge]; }
 	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
 	bool isBoundaryEdge(uint32_t edge) const { return m_boundaryEdges[edge] == UINT32_MAX; }
+	bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
 	uint32_t vertexCount() const { return m_positions.size(); }
 	uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
 	const Vector3 *positionAt(uint32_t i) const { return &m_positions[i]; }
@@ -3793,6 +3829,7 @@ private:
 	Array<Vector2> m_texcoords;
 	Array<uint32_t> m_colocals; // In: vertex index. Out: the vertex index of the next colocal position.
 	Array<uint32_t> m_boundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
+	Array<bool> m_boundaryVertices;
 
 	struct EdgeKey
 	{
@@ -4767,6 +4804,7 @@ namespace param {
 class Atlas;
 class Chart;
 
+#if XA_USE_HE_MESH
 // Fast sweep in 3 directions
 static bool findApproximateDiameterVertices(halfedge::Mesh *mesh, halfedge::Vertex **a, halfedge::Vertex **b)
 {
@@ -4821,6 +4859,66 @@ static bool findApproximateDiameterVertices(halfedge::Mesh *mesh, halfedge::Vert
 	}
 	return true;
 }
+#endif
+
+#if XA_USE_RAW_MESH
+// Fast sweep in 3 directions
+static bool findApproximateDiameterVertices(RawMesh *mesh, uint32_t *a, uint32_t *b)
+{
+	XA_DEBUG_ASSERT(a != NULL);
+	XA_DEBUG_ASSERT(b != NULL);
+	const uint32_t vertexCount = mesh->vertexCount();
+	uint32_t minVertex[3];
+	uint32_t maxVertex[3];
+	minVertex[0] = minVertex[1] = minVertex[2] = UINT32_MAX;
+	maxVertex[0] = maxVertex[1] = maxVertex[2] = UINT32_MAX;
+	for (uint32_t v = 1; v < vertexCount; v++) {
+		if (mesh->isBoundaryVertex(v)) {
+			minVertex[0] = minVertex[1] = minVertex[2] = v;
+			maxVertex[0] = maxVertex[1] = maxVertex[2] = v;
+			break;
+		}
+	}
+	if (minVertex[0] == NULL) {
+		// Input mesh has not boundaries.
+		return false;
+	}
+	for (uint32_t v = 1; v < vertexCount; v++) {
+		if (!mesh->isBoundaryVertex(v)) {
+			// Skip interior vertices.
+			continue;
+		}
+		const Vector3 *pos = mesh->positionAt(v);
+		if (pos->x < mesh->positionAt(minVertex[0])->x)
+			minVertex[0] = v;
+		else if (pos->x > mesh->positionAt(maxVertex[0])->x)
+			maxVertex[0] = v;
+		if (pos->y < mesh->positionAt(minVertex[1])->y)
+			minVertex[1] = v;
+		else if (pos->y > mesh->positionAt(maxVertex[1])->y)
+			maxVertex[1] = v;
+		if (pos->z < mesh->positionAt(minVertex[2])->z)
+			minVertex[2] = v;
+		else if (pos->z > mesh->positionAt(maxVertex[2])->z)
+			maxVertex[2] = v;
+	}
+	float lengths[3];
+	for (int i = 0; i < 3; i++) {
+		lengths[i] = length(*mesh->positionAt(minVertex[i]) - *mesh->positionAt(maxVertex[i]));
+	}
+	if (lengths[0] > lengths[1] && lengths[0] > lengths[2]) {
+		*a = minVertex[0];
+		*b = maxVertex[0];
+	} else if (lengths[1] > lengths[2]) {
+		*a = minVertex[1];
+		*b = maxVertex[1];
+	} else {
+		*a = minVertex[2];
+		*b = maxVertex[2];
+	}
+	return true;
+}
+#endif
 
 // Conformal relations from Brecht Van Lommel (based on ABF):
 
@@ -4844,14 +4942,8 @@ static void triangle_angles(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3, f
 	*a3 = float(M_PI - *a2 - *a1);
 }
 
-static void setup_abf_relations(sparse::Matrix &A, int row, const halfedge::Vertex *v0, const halfedge::Vertex *v1, const halfedge::Vertex *v2)
+static void setup_abf_relations(sparse::Matrix &A, int row, int id0, int id1, int id2, const Vector3 &p0, const Vector3 &p1, const Vector3 &p2)
 {
-	int id0 = v0->id;
-	int id1 = v1->id;
-	int id2 = v2->id;
-	Vector3 p0 = v0->pos;
-	Vector3 p1 = v1->pos;
-	Vector3 p2 = v2->pos;
 	// @@ IC: Wouldn't it be more accurate to return cos and compute 1-cos^2?
 	// It does indeed seem to be a little bit more robust.
 	// @@ Need to revisit this more carefully!
@@ -4901,6 +4993,7 @@ static void setup_abf_relations(sparse::Matrix &A, int row, const halfedge::Vert
 	A.setCoefficient(v2_id, 2 * row + 1, 1);
 }
 
+#if XA_USE_HE_MESH
 static bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 {
 	XA_DEBUG_ASSERT(mesh != NULL);
@@ -4952,7 +5045,7 @@ static bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 			} else if (edge->next->vertex != vertex0) {
 				const halfedge::Vertex *vertex1 = edge->from();
 				const halfedge::Vertex *vertex2 = edge->to();
-				setup_abf_relations(A, t, vertex0, vertex1, vertex2);
+				setup_abf_relations(A, t, vertex0->id, vertex1->id, vertex2->id, vertex0->pos, vertex1->pos, vertex2->pos);
 				//setup_conformal_map_relations(A, t, vertex0, vertex1, vertex2);
 				t++;
 			}
@@ -4974,7 +5067,74 @@ static bool computeLeastSquaresConformalMap(halfedge::Mesh *mesh)
 	}
 	return true;
 }
+#endif
 
+#if XA_USE_RAW_MESH
+static bool computeLeastSquaresConformalMap(RawMesh *mesh)
+{
+	// For this to work properly, mesh should not have colocals that have the same
+	// attributes, unless you want the vertices to actually have different texcoords.
+	const uint32_t vertexCount = mesh->vertexCount();
+	const uint32_t D = 2 * vertexCount;
+	const uint32_t N = 2 * mesh->countTriangles();
+	// N is the number of equations (one per triangle)
+	// D is the number of variables (one per vertex; there are 2 pinned vertices).
+	if (N < D - 4) {
+		return false;
+	}
+	sparse::Matrix A(D, N);
+	FullVector b(N);
+	FullVector x(D);
+	// Fill b:
+	b.fill(0.0f);
+	// Fill x:
+	uint32_t v0, v1;
+	if (!findApproximateDiameterVertices(mesh, &v0, &v1)) {
+		// Mesh has no boundaries.
+		return false;
+	}
+	if (*mesh->texcoordAt(v0) == *mesh->texcoordAt(v1)) {
+		// LSCM expects an existing parameterization.
+		return false;
+	}
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		const Vector2 *texcoord = mesh->texcoordAt(v);
+		// Initial solution.
+		x[2 * v + 0] = texcoord->x;
+		x[2 * v + 1] = texcoord->y;
+	}
+	// Fill A:
+	const uint32_t faceCount = mesh->faceCount();
+	for (uint32_t f = 0, t = 0; f < faceCount; f++) {
+		const RawFace *face = mesh->faceAt(f);
+		XA_DEBUG_ASSERT(face->nIndices == 3);
+		uint32_t vertex0 = UINT32_MAX;
+		for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+			if (vertex0 == UINT32_MAX) {
+				vertex0 = it.vertex0();
+			} else if (it.vertex1() != vertex0) {
+				setup_abf_relations(A, t, vertex0, it.vertex0(), it.vertex1(), *mesh->positionAt(vertex0), it.position0(), it.position1());
+				t++;
+			}
+		}
+	}
+	const uint32_t lockedParameters[] = {
+		2 * v0 + 0,
+		2 * v0 + 1,
+		2 * v1 + 0,
+		2 * v1 + 1
+	};
+	// Solve
+	Solver::LeastSquaresSolver(A, b, x, lockedParameters, 4, 0.000001f);
+	// Map x back to texcoords:
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		*mesh->texcoordAt(v) = Vector2(x[2 * v + 0], x[2 * v + 1]);
+	}
+	return true;
+}
+#endif
+
+#if XA_USE_HE_MESH
 static bool computeOrthogonalProjectionMap(halfedge::Mesh *mesh)
 {
 	Vector3 axis[2];
@@ -5005,7 +5165,38 @@ static bool computeOrthogonalProjectionMap(halfedge::Mesh *mesh)
 	}
 	return true;
 }
+#endif
 
+#if XA_USE_RAW_MESH
+static bool computeOrthogonalProjectionMap(RawMesh *mesh)
+{
+	Vector3 axis[2];
+	uint32_t vertexCount = mesh->vertexCount();
+	Array<Vector3> points(vertexCount);
+	points.resize(vertexCount);
+	for (uint32_t i = 0; i < vertexCount; i++)
+		points[i] = *mesh->positionAt(i);
+	// Avoid redundant computations.
+	float matrix[6];
+	Fit::computeCovariance(vertexCount, points.data(), matrix);
+	if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0) {
+		return false;
+	}
+	float eigenValues[3];
+	Vector3 eigenVectors[3];
+	if (!Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors)) {
+		return false;
+	}
+	axis[0] = normalize(eigenVectors[0]);
+	axis[1] = normalize(eigenVectors[1]);
+	// Project vertices to plane.
+	for (uint32_t i = 0; i < vertexCount; i++)
+		*mesh->texcoordAt(i) = Vector2(dot(axis[0], *mesh->positionAt(i)), dot(axis[1], *mesh->positionAt(i)));
+	return true;
+}
+#endif
+
+#if XA_USE_HE_MESH
 static void computeSingleFaceMap(halfedge::Mesh *mesh)
 {
 	XA_DEBUG_ASSERT(mesh != NULL);
@@ -5031,6 +5222,33 @@ static void computeSingleFaceMap(halfedge::Mesh *mesh)
 		}
 	}
 }
+#endif
+
+#if XA_USE_RAW_MESH
+static void computeSingleFaceMap(RawMesh *mesh)
+{
+	XA_DEBUG_ASSERT(mesh != NULL);
+	XA_DEBUG_ASSERT(mesh->faceCount() == 1);
+	RawFace *face = mesh->faceAt(0);
+	XA_ASSERT(face != NULL);
+	Vector3 p0 = *mesh->positionAt(mesh->vertexAt(face->firstIndex + 0));
+	Vector3 p1 = *mesh->positionAt(mesh->vertexAt(face->firstIndex + 1));
+	Vector3 X = normalizeSafe(p1 - p0, Vector3(0.0f), 0.0f);
+	Vector3 Z = mesh->faceNormal(0);
+	Vector3 Y = normalizeSafe(cross(Z, X), Vector3(0.0f), 0.0f);
+	uint32_t i = 0;
+	for (RawMesh::ConstEdgeIterator it(mesh, 0); !it.isDone(); it.advance(), i++) {
+		if (i == 0) {
+			*mesh->texcoordAt(it.vertex0()) = Vector2(0);
+		} else {
+			Vector3 pn = it.position0();
+			const float xn = dot((pn - p0), X);
+			const float yn = dot((pn - p0), Y);
+			*mesh->texcoordAt(it.vertex0()) = Vector2(xn, yn);
+		}
+	}
+}
+#endif
 
 // Dummy implementation of a priority queue using sort at insertion.
 // - Insertion is o(n)
@@ -7344,6 +7562,7 @@ public:
 		m_authalicMetric = 0.0f;
 	}
 
+#if XA_USE_HE_MESH
 	ParameterizationQuality(const halfedge::Mesh *mesh)
 	{
 		XA_DEBUG_ASSERT(mesh != NULL);
@@ -7388,6 +7607,52 @@ public:
 		XA_DEBUG_ASSERT(std::isfinite(m_conformalMetric));
 		XA_DEBUG_ASSERT(std::isfinite(m_authalicMetric));
 	}
+#endif
+
+#if XA_USE_RAW_MESH
+	ParameterizationQuality(const RawMesh *mesh)
+	{
+		XA_DEBUG_ASSERT(mesh != NULL);
+		m_totalTriangleCount = 0;
+		m_flippedTriangleCount = 0;
+		m_zeroAreaTriangleCount = 0;
+		m_parametricArea = 0.0f;
+		m_geometricArea = 0.0f;
+		m_stretchMetric = 0.0f;
+		m_maxStretchMetric = 0.0f;
+		m_conformalMetric = 0.0f;
+		m_authalicMetric = 0.0f;
+		const uint32_t faceCount = mesh->faceCount();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			uint32_t vertex0 = UINT32_MAX;
+			Vector3 p[3];
+			Vector2 t[3];
+			for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+				if (vertex0 == UINT32_MAX) {
+					vertex0 = it.vertex0();
+					p[0] = it.position0();
+					t[0] = it.texcoord0();
+				} else if (it.vertex1() != vertex0) {
+					p[1] = it.position0();
+					p[2] = it.position1();
+					t[1] = it.texcoord0();
+					t[2] = it.texcoord1();
+					processTriangle(p, t);
+				}
+			}
+		}
+		if (m_flippedTriangleCount + m_zeroAreaTriangleCount == faceCount) {
+			// If all triangles are flipped, then none is.
+			m_flippedTriangleCount = 0;
+		}
+		XA_DEBUG_ASSERT(std::isfinite(m_parametricArea) && m_parametricArea >= 0);
+		XA_DEBUG_ASSERT(std::isfinite(m_geometricArea) && m_geometricArea >= 0);
+		XA_DEBUG_ASSERT(std::isfinite(m_stretchMetric));
+		XA_DEBUG_ASSERT(std::isfinite(m_maxStretchMetric));
+		XA_DEBUG_ASSERT(std::isfinite(m_conformalMetric));
+		XA_DEBUG_ASSERT(std::isfinite(m_authalicMetric));
+	}
+#endif
 
 	bool isValid() const
 	{
@@ -7418,6 +7683,25 @@ public:
 	{
 		if (m_geometricArea == 0) return 0.0f;
 		return sqrtf(m_authalicMetric / m_geometricArea);
+	}
+
+	bool operator==(const ParameterizationQuality &pq)
+	{
+		if (m_totalTriangleCount != pq.m_totalTriangleCount || m_flippedTriangleCount != pq.m_flippedTriangleCount || m_zeroAreaTriangleCount != pq.m_zeroAreaTriangleCount)
+			return false;
+		if (!equal(m_parametricArea, pq.m_parametricArea))
+			return false;
+		if (!equal(m_geometricArea, pq.m_geometricArea))
+			return false;
+		if (!equal(m_stretchMetric, pq.m_stretchMetric))
+			return false;
+		if (!equal(m_maxStretchMetric, pq.m_maxStretchMetric))
+			return false;
+		if (!equal(m_conformalMetric, pq.m_conformalMetric))
+			return false;
+		if (!equal(m_authalicMetric, pq.m_authalicMetric))
+			return false;
+		return true;
 	}
 
 	void operator+=(const ParameterizationQuality &pq)
@@ -7744,14 +8028,45 @@ public:
 				diskCount++;
 				ParameterizationQuality chartParameterizationQuality;
 				if (chart->faceCount() == 1) {
+#if XA_USE_HE_MESH
 					computeSingleFaceMap(chart->unifiedMesh());
 					chartParameterizationQuality = ParameterizationQuality(chart->unifiedMesh());
+#endif
+#if XA_USE_RAW_MESH
+					computeSingleFaceMap(chart->rawUnifiedMesh());
+					ParameterizationQuality rawQuality = ParameterizationQuality(chart->rawUnifiedMesh());
+					#if XA_USE_HE_MESH
+					XA_DEBUG_ASSERT(chartParameterizationQuality == rawQuality);
+					#endif
+					chartParameterizationQuality = rawQuality;
+#endif
 				} else {
+					ParameterizationQuality orthogonalQuality;
+#if XA_USE_HE_MESH
 					computeOrthogonalProjectionMap(chart->unifiedMesh());
-					ParameterizationQuality orthogonalQuality(chart->unifiedMesh());
+					orthogonalQuality = ParameterizationQuality(chart->unifiedMesh());
+#endif
+#if XA_USE_RAW_MESH
+					computeOrthogonalProjectionMap(chart->rawUnifiedMesh());
+					ParameterizationQuality rawOrthogonalQuality(chart->rawUnifiedMesh());
+					#if XA_USE_HE_MESH
+					XA_DEBUG_ASSERT(orthogonalQuality == rawOrthogonalQuality);
+					#endif
+					orthogonalQuality = rawOrthogonalQuality;
+#endif
+#if XA_USE_HE_MESH
 					computeLeastSquaresConformalMap(chart->unifiedMesh());
 					ParameterizationQuality lscmQuality(chart->unifiedMesh());
 					chartParameterizationQuality = lscmQuality;
+#endif
+#if XA_USE_RAW_MESH
+					computeLeastSquaresConformalMap(chart->rawUnifiedMesh());
+					ParameterizationQuality rawLscmQuality(chart->rawUnifiedMesh());
+					#if XA_USE_HE_MESH
+					XA_DEBUG_ASSERT(lscmQuality == rawLscmQuality);
+					#endif
+					chartParameterizationQuality = rawLscmQuality;
+#endif
 				}
 				isValid = chartParameterizationQuality.isValid();
 				if (!isValid) {
