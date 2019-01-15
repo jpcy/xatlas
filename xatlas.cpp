@@ -1352,6 +1352,15 @@ private:
 	internal::Array<Element> m_elements;
 };
 
+struct FaceFlags
+{
+	enum
+	{
+		Ignore = 1<<0
+	};
+};
+
+#if XA_USE_HE_MESH
 namespace halfedge {
 class Face;
 class Vertex;
@@ -1597,14 +1606,6 @@ float Edge::length() const
 {
 	return internal::length(to()->pos - from()->pos);
 }
-
-struct FaceFlags
-{
-	enum
-	{
-		Ignore = 1<<0
-	};
-};
 
 class Face
 {
@@ -2913,6 +2914,7 @@ static Mesh *triangulate(const Mesh *inputMesh)
 }
 
 } //  namespace halfedge
+#endif // XA_USE_HE_MESH
 
 /// Mersenne twister random number generator.
 class MTRand
@@ -5356,6 +5358,7 @@ struct ChartBuildData
 	PriorityQueue candidates;
 };
 
+#if XA_USE_HE_MESH
 struct AtlasBuilder
 {
 	AtlasBuilder(const halfedge::Mesh *m, const CharterOptions &options) : m_mesh(m), m_facesLeft(m->faceCount()), m_options(options)
@@ -5375,7 +5378,7 @@ struct AtlasBuilder
 			id = id; // silence unused parameter warning
 #endif
 			const halfedge::Edge *edge = m->edgeAt(i);
-			if (edge->face->flags & halfedge::FaceFlags::Ignore)
+			if (edge->face->flags & FaceFlags::Ignore)
 				m_edgeLengths[i] = 0;
 			else
 				m_edgeLengths[i] = edge->length();
@@ -5383,7 +5386,7 @@ struct AtlasBuilder
 		m_faceAreas.resize(faceCount);
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const halfedge::Face *face = m->faceAt(i);
-			if (face->flags & halfedge::FaceFlags::Ignore)
+			if (face->flags & FaceFlags::Ignore)
 				m_faceAreas[i] = 0;
 			else
 				m_faceAreas[i] = face->area();
@@ -5679,7 +5682,7 @@ struct AtlasBuilder
 		float l_out = 0.0f;
 		float l_in = 0.0f;
 		const halfedge::Face *face = m_mesh->faceAt(f);
-		if (face->flags & halfedge::FaceFlags::Ignore)
+		if (face->flags & FaceFlags::Ignore)
 			return 1.0f;
 		for (halfedge::Face::ConstEdgeIterator it(face->edges()); !it.isDone(); it.advance()) {
 			const halfedge::Edge *edge = it.current();
@@ -5998,6 +6001,7 @@ private:
 	MTRand m_rand;
 	CharterOptions m_options;
 };
+#endif
 
 #if XA_USE_RAW_MESH
 struct RawAtlasBuilder
@@ -6018,7 +6022,7 @@ struct RawAtlasBuilder
 		m_edgeLengths.resize(edgeCount, 0.0f);
 		m_faceAreas.resize(m_mesh->faceCount(), 0.0f);
 		for (uint32_t f = 0; f < m_mesh->faceCount(); f++) {
-			if ((m_mesh->faceFlagsAt(f) & halfedge::FaceFlags::Ignore) != 0)
+			if ((m_mesh->faceFlagsAt(f) & FaceFlags::Ignore) != 0)
 				continue;
 			float &faceArea = m_faceAreas[f];
 			Vector3 firstPos;
@@ -6318,7 +6322,7 @@ struct RawAtlasBuilder
 	{
 		float l_out = 0.0f;
 		float l_in = 0.0f;
-		if (m_mesh->faceFlagsAt(f) & halfedge::FaceFlags::Ignore)
+		if (m_mesh->faceFlagsAt(f) & FaceFlags::Ignore)
 			return 1.0f;
 		for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			float l = m_edgeLengths[it.edge()];
@@ -6887,7 +6891,7 @@ public:
 				if (rawChartMeshIndices[it.vertex0()] == (uint32_t)~0) {
 					rawChartMeshIndices[it.vertex0()] = m_rawChartMesh->vertexCount();
 					m_rawChartToOriginalMap.push_back(it.vertex0());
-					m_rawChartToOriginalMap.push_back(rawUnifiedMeshIndices[unifiedVertex]);
+					m_rawChartToUnifiedMap.push_back(rawUnifiedMeshIndices[unifiedVertex]);
 					m_rawChartMesh->addVertex(it.position0(), it.normal0(), it.texcoord0());
 				}
 			}
@@ -6987,7 +6991,7 @@ public:
 			const uint32_t meshFaceCount = originalMesh->faceCount();
 			for (uint32_t f = 0; f < meshFaceCount; f++) {
 				const halfedge::Face *face = originalMesh->faceAt(f);
-				if ((face->flags & halfedge::FaceFlags::Ignore) != 0)
+				if ((face->flags & FaceFlags::Ignore) != 0)
 					m_faceArray.push_back(f);
 			}
 			const uint32_t faceCount = m_faceArray.size();
@@ -7044,7 +7048,7 @@ public:
 			m_rawFaceArray.clear();
 			const uint32_t meshFaceCount = originalRawMesh->faceCount();
 			for (uint32_t f = 0; f < meshFaceCount; f++) {
-				if ((originalRawMesh->faceFlagsAt(f) & halfedge::FaceFlags::Ignore) != 0)
+				if ((originalRawMesh->faceFlagsAt(f) & FaceFlags::Ignore) != 0)
 					m_rawFaceArray.push_back(f);
 			}
 			const uint32_t faceCount = m_rawFaceArray.size();
@@ -7807,6 +7811,17 @@ public:
 	{
 		return m_chartArray.size();
 	}
+
+	uint32_t faceCount() const
+	{
+#if XA_USE_HE_MESH
+		return m_mesh->faceCount();
+#endif
+#if XA_USE_RAW_MESH
+		return m_rawMesh->faceCount();
+#endif
+	}
+
 	uint32_t vertexCount () const
 	{
 		return m_totalVertexCount;
@@ -8359,14 +8374,30 @@ struct AtlasPacker
 			// Sort charts by perimeter. @@ This is sometimes producing somewhat unexpected results. Is this right?
 			//chartOrderArray[c] = ((end.x - origin.x) + (end.y - origin.y)) * scale;
 			// Translate, rotate and scale vertices. Compute extents.
+#if XA_USE_HE_MESH
 			halfedge::Mesh *mesh = chart->chartMesh();
 			const uint32_t vertexCount = mesh->vertexCount();
+#endif
+#if XA_USE_RAW_MESH
+			RawMesh *rawMesh = chart->rawChartMesh();
+			#if XA_USE_HE_MESH
+			XA_DEBUG_ASSERT(vertexCount == rawMesh->vertexCount());
+			#else
+			const uint32_t vertexCount = rawMesh->vertexCount();
+			#endif
+#endif
 			for (uint32_t i = 0; i < vertexCount; i++) {
-				halfedge::Vertex *vertex = mesh->vertexAt(i);
-				//Vector2 t = vertex->tex - origin;
 				Vector2 tmp;
+#if XA_USE_HE_MESH
+				halfedge::Vertex *vertex = mesh->vertexAt(i);
 				tmp.x = dot(vertex->tex, majorAxis);
 				tmp.y = dot(vertex->tex, minorAxis);
+#endif
+#if XA_USE_RAW_MESH
+				const Vector2 *texcoord = rawMesh->texcoordAt(i);
+				tmp.x = dot(*texcoord, majorAxis);
+				tmp.y = dot(*texcoord, minorAxis);
+#endif
 				tmp -= origin;
 				tmp *= scale;
 				if (tmp.x < 0 || tmp.y < 0) {
@@ -8378,8 +8409,13 @@ struct AtlasPacker
 					XA_DEBUG_ASSERT(false);
 				}
 				//XA_ASSERT(tmp.x >= 0 && tmp.y >= 0);
+				XA_ASSERT(std::isfinite(tmp.x) && std::isfinite(tmp.y));
+#if XA_USE_HE_MESH
 				vertex->tex = tmp;
-				XA_ASSERT(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
+#endif
+#if XA_USE_RAW_MESH
+				*rawMesh->texcoordAt(i) = tmp;
+#endif
 				extents = max(extents, tmp);
 			}
 			XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
@@ -8388,8 +8424,14 @@ struct AtlasPacker
 				float limit = std::max(extents.x, extents.y);
 				scale = 1024 / (limit + 1);
 				for (uint32_t i = 0; i < vertexCount; i++) {
+#if XA_USE_HE_MESH
 					halfedge::Vertex *vertex = mesh->vertexAt(i);
 					vertex->tex *= scale;
+#endif
+#if XA_USE_RAW_MESH
+					Vector2 *texcoord = rawMesh->texcoordAt(i);
+					*texcoord *= scale;
+#endif
 				}
 				extents *= scale;
 				XA_DEBUG_ASSERT(extents.x <= 1024 && extents.y <= 1024);
@@ -8429,12 +8471,22 @@ struct AtlasPacker
 				extents.y = float(ch);
 			}
 			for (uint32_t v = 0; v < vertexCount; v++) {
+#if XA_USE_HE_MESH
 				halfedge::Vertex *vertex = mesh->vertexAt(v);
 				vertex->tex.x /= divide_x;
 				vertex->tex.y /= divide_y;
 				vertex->tex.x *= scale_x;
 				vertex->tex.y *= scale_y;
 				XA_ASSERT(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
+#endif
+#if XA_USE_RAW_MESH
+				Vector2 *texcoord = rawMesh->texcoordAt(v);
+				texcoord->x /= divide_x;
+				texcoord->y /= divide_y;
+				texcoord->x *= scale_x;
+				texcoord->y *= scale_y;
+				XA_ASSERT(std::isfinite(texcoord->x) && std::isfinite(texcoord->y));
+#endif
 			}
 			chartExtents[c] = extents;
 			// Sort charts by perimeter.
@@ -8532,6 +8584,7 @@ struct AtlasPacker
 			chart->atlasIndex = (int32_t)currentBitmapIndex;
 			//float best_angle = 2 * M_PI * best_r;
 			// Translate and rotate chart texture coordinates.
+#if XA_USE_HE_MESH
 			halfedge::Mesh *mesh = chart->chartMesh();
 			const uint32_t vertexCount = mesh->vertexCount();
 			for (uint32_t v = 0; v < vertexCount; v++) {
@@ -8545,6 +8598,22 @@ struct AtlasPacker
 				XA_ASSERT(vertex->tex.x >= 0 && vertex->tex.y >= 0);
 				XA_ASSERT(std::isfinite(vertex->tex.x) && std::isfinite(vertex->tex.y));
 			}
+#endif
+#if XA_USE_RAW_MESH
+			RawMesh *rawMesh = chart->rawChartMesh();
+			const uint32_t rawVertexCount = rawMesh->vertexCount();
+			for (uint32_t v = 0; v < rawVertexCount; v++) {
+				Vector2 *texcoord = rawMesh->texcoordAt(v);
+				Vector2 t = *texcoord;
+				if (best_r) std::swap(t.x, t.y);
+				//vertex->tex.x = best_x + t.x * cosf(best_angle) - t.y * sinf(best_angle);
+				//vertex->tex.y = best_y + t.x * sinf(best_angle) + t.y * cosf(best_angle);
+				texcoord->x = best_x + t.x + 0.5f;
+				texcoord->y = best_y + t.y + 0.5f;
+				XA_ASSERT(texcoord->x >= 0 && texcoord->y >= 0);
+				XA_ASSERT(std::isfinite(texcoord->x) && std::isfinite(texcoord->y));
+			}
+#endif
 			if (progressCallback)
 			{
 				const int newProgress = int((i + 1) / (float)chartCount * 100.0f);
@@ -8703,6 +8772,7 @@ private:
 		const int h = bitmap->height();
 		const Vector2 extents = Vector2(float(w), float(h));
 		// Rasterize chart faces, check that all bits are not set.
+#if XA_USE_HE_MESH
 		const uint32_t faceCount = chart->faceCount();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const halfedge::Face *face = chart->chartMesh()->faceAt(f);
@@ -8716,6 +8786,21 @@ private:
 			XA_DEBUG_ASSERT(edgeCount == 3);
 			raster::drawTriangle(raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitmap);
 		}
+#else
+		const uint32_t faceCount = chart->faceCount();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			const RawMesh *mesh = chart->rawChartMesh();
+			Vector2 vertices[3];
+			uint32_t edgeCount = 0;
+			for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+				if (edgeCount < 3)
+					vertices[edgeCount] = it.texcoord0() + Vector2(0.5f) + Vector2(float(padding), float(padding));
+				edgeCount++;
+			}
+			XA_DEBUG_ASSERT(edgeCount == 3);
+			raster::drawTriangle(raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitmap);
+		}
+#endif
 		// Expand chart by padding pixels. (dilation)
 		BitMap tmp(w, h);
 		for (int i = 0; i < padding; i++) {
@@ -8758,6 +8843,7 @@ private:
 		// Rasterize 4 times to add proper padding.
 		for (int i = 0; i < 4; i++) {
 			// Rasterize chart faces, check that all bits are not set.
+#if XA_USE_HE_MESH
 			const uint32_t faceCount = chart->chartMesh()->faceCount();
 			for (uint32_t f = 0; f < faceCount; f++) {
 				const halfedge::Face *face = chart->chartMesh()->faceAt(f);
@@ -8776,6 +8862,26 @@ private:
 				XA_ASSERT(edgeCount == 3);
 				raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitmap);
 			}
+#else
+			const uint32_t faceCount = chart->rawChartMesh()->faceCount();
+			for (uint32_t f = 0; f < faceCount; f++) {
+				const RawMesh *mesh = chart->rawChartMesh();
+				Vector2 vertices[3];
+				uint32_t edgeCount = 0;
+				for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+					if (edgeCount < 3) {
+						vertices[edgeCount] = it.texcoord0() * scale + offset + pad[i];
+						XA_ASSERT(ftoi_ceil(vertices[edgeCount].x) >= 0);
+						XA_ASSERT(ftoi_ceil(vertices[edgeCount].y) >= 0);
+						XA_ASSERT(ftoi_ceil(vertices[edgeCount].x) <= w);
+						XA_ASSERT(ftoi_ceil(vertices[edgeCount].y) <= h);
+					}
+					edgeCount++;
+				}
+				XA_ASSERT(edgeCount == 3);
+				raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitmap);
+			}
+#endif
 		}
 		// Expand chart by padding pixels. (dilation)
 		BitMap tmp(w, h);
@@ -8971,6 +9077,7 @@ private:
 		// Compute list of boundary points.
 		Array<Vector2> points;
 		points.reserve(16);
+#if XA_USE_HE_MESH
 		const halfedge::Mesh *mesh = chart->chartMesh();
 		const uint32_t vertexCount = mesh->vertexCount();
 		for (uint32_t i = 0; i < vertexCount; i++) {
@@ -8979,6 +9086,22 @@ private:
 				points.push_back(vertex->tex);
 			}
 		}
+#endif
+#if XA_USE_RAW_MESH
+		const RawMesh *rawMesh = chart->rawChartMesh();
+		const uint32_t rawVertexCount = rawMesh->vertexCount();
+		uint32_t bp = 0;
+		for (uint32_t v = 0; v < rawVertexCount; v++) {
+			if (rawMesh->isBoundaryVertex(v)) {
+				#if XA_USE_HE_MESH
+				XA_DEBUG_ASSERT(*rawMesh->texcoordAt(v) == points[bp]);
+				#else
+				points.push_back(*rawMesh->texcoordAt(v));
+				#endif
+				bp++;
+			}
+		}
+#endif
 		XA_DEBUG_ASSERT(points.size() > 0);
 		Array<Vector2> hull;
 		convexHull(points, hull, 0.00001f);
@@ -9016,9 +9139,17 @@ private:
 			}
 		}
 		// Consider all points, not only boundary points, in case the input chart is malformed.
+#if XA_USE_HE_MESH
 		for (uint32_t i = 0; i < vertexCount; i++) {
+#else
+		for (uint32_t i = 0; i < rawVertexCount; i++) {
+#endif
+#if XA_USE_HE_MESH
 			const halfedge::Vertex *vertex = mesh->vertexAt(i);
 			Vector2 point = vertex->tex;
+#else
+			Vector2 point = *rawMesh->texcoordAt(i);
+#endif
 			float x = dot(best_axis, point);
 			if (x < best_min.x) best_min.x = x;
 			if (x > best_max.x) best_max.x = x;
@@ -9206,20 +9337,20 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 				const uint32_t index1 = tri[edges[j * 2 + 0]];
 				const uint32_t index2 = tri[edges[j * 2 + 1]];
 				if (index1 == index2) {
-					faceFlags |= internal::halfedge::FaceFlags::Ignore;
+					faceFlags |= internal::FaceFlags::Ignore;
 					XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->meshCount, index1, index2);
 					break;
 				}
 				const internal::Vector3 pos1 = DecodePosition(meshDecl, index1);
 				const internal::Vector3 pos2 = DecodePosition(meshDecl, index2);
 				if (EdgeLength(pos1, pos2) <= 0.0f) {
-					faceFlags |= internal::halfedge::FaceFlags::Ignore;
+					faceFlags |= internal::FaceFlags::Ignore;
 					XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->meshCount, index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
 					break;
 				}
 			}
 			// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
-			if (!(faceFlags & internal::halfedge::FaceFlags::Ignore))
+			if (!(faceFlags & internal::FaceFlags::Ignore))
 			{
 				const internal::Vector3 a = DecodePosition(meshDecl, tri[0]);
 				const internal::Vector3 b = DecodePosition(meshDecl, tri[1]);
@@ -9227,14 +9358,14 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 				const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
 				if (area <= 0.0f)
 				{
-					faceFlags |= internal::halfedge::FaceFlags::Ignore;
+					faceFlags |= internal::FaceFlags::Ignore;
 					XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->meshCount, i, tri[0], tri[1], tri[2]);
 				}
 			}
 			internal::halfedge::Face *face = heMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 			XA_DEBUG_ASSERT(face);
 			if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
-				face->flags |= internal::halfedge::FaceFlags::Ignore;
+				face->flags |= internal::FaceFlags::Ignore;
 		}
 		heMesh->linkBoundary();
 		ctx->heMeshes.push_back(heMesh);
@@ -9262,20 +9393,20 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			const uint32_t index1 = tri[edges[j * 2 + 0]];
 			const uint32_t index2 = tri[edges[j * 2 + 1]];
 			if (index1 == index2) {
-				faceFlags |= internal::halfedge::FaceFlags::Ignore;
+				faceFlags |= internal::FaceFlags::Ignore;
 				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->meshCount, index1, index2);
 				break;
 			}
 			const internal::Vector3 pos1 = DecodePosition(meshDecl, index1);
 			const internal::Vector3 pos2 = DecodePosition(meshDecl, index2);
 			if (EdgeLength(pos1, pos2) <= 0.0f) {
-				faceFlags |= internal::halfedge::FaceFlags::Ignore;
+				faceFlags |= internal::FaceFlags::Ignore;
 				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->meshCount, index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
 				break;
 			}
 		}
 		// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
-		if (!(faceFlags & internal::halfedge::FaceFlags::Ignore))
+		if (!(faceFlags & internal::FaceFlags::Ignore))
 		{
 			const internal::Vector3 a = DecodePosition(meshDecl, tri[0]);
 			const internal::Vector3 b = DecodePosition(meshDecl, tri[1]);
@@ -9283,12 +9414,12 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
 			if (area <= 0.0f)
 			{
-				faceFlags |= internal::halfedge::FaceFlags::Ignore;
+				faceFlags |= internal::FaceFlags::Ignore;
 				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->meshCount, i, tri[0], tri[1], tri[2]);
 			}
 		}
 		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
-			faceFlags |= internal::halfedge::FaceFlags::Ignore;
+			faceFlags |= internal::FaceFlags::Ignore;
 		rawMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
 	rawMesh->createColocalsWithCanonicalMap(canonicalMap);
@@ -9399,7 +9530,6 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
 	atlas->meshes = XA_ALLOC_ARRAY(Mesh *, atlas->meshCount);
 	for (int i = 0; i < (int)atlas->meshCount; i++) {
-		const internal::halfedge::Mesh *heMesh = ctx->heMeshes[i];
 		Mesh *outputMesh = atlas->meshes[i] = XA_ALLOC(Mesh);
 		const internal::param::MeshCharts *charts = ctx->paramAtlas.meshAt(i);
 		// Vertices.
@@ -9411,27 +9541,40 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			for (uint32_t k = 0; k < chart->vertexCount(); k++) {
 				Vertex &v = outputMesh->vertexArray[vertexOffset + k];
 				v.atlasIndex = chart->atlasIndex;
+#if XA_USE_HE_MESH
 				const internal::Vector2 &uv = chart->chartMesh()->vertexAt(k)->tex;
+#else
+				const internal::Vector2 &uv = *chart->rawChartMesh()->texcoordAt(k);
+#endif
 				v.uv[0] = std::max(0.0f, uv.x);
 				v.uv[1] = std::max(0.0f, uv.y);
 				v.xref = chart->mapChartVertexToOriginalVertex(k);
 			}
 		}
 		// Indices.
-		outputMesh->indexCount = heMesh->faceCount() * 3;
+		outputMesh->indexCount = charts->faceCount() * 3;
 		outputMesh->indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh->indexCount);
-		for (uint32_t f = 0; f < heMesh->faceCount(); f++) {
+		for (uint32_t f = 0; f < charts->faceCount(); f++) {
 			const uint32_t c = charts->faceChartAt(f);
 			const uint32_t fi = charts->faceIndexWithinChartAt(f);
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
 			const internal::param::Chart *chart = charts->chartAt(c);
-			XA_DEBUG_ASSERT(fi < chart->chartMesh()->faceCount());
 			XA_DEBUG_ASSERT(chart->faceAt(fi) == f);
+#if XA_USE_HE_MESH
+			XA_DEBUG_ASSERT(fi < chart->chartMesh()->faceCount());
 			const internal::halfedge::Face *face = chart->chartMesh()->faceAt(fi);
 			const internal::halfedge::Edge *edge = face->edge;
 			outputMesh->indexArray[3 * f + 0] = vertexOffset + edge->vertex->id;
 			outputMesh->indexArray[3 * f + 1] = vertexOffset + edge->next->vertex->id;
 			outputMesh->indexArray[3 * f + 2] = vertexOffset + edge->next->next->vertex->id;
+#endif
+#if XA_USE_RAW_MESH
+			const internal::RawMesh *mesh = chart->rawChartMesh();
+			const internal::RawFace *rawFace = mesh->faceAt(fi);
+			outputMesh->indexArray[3 * f + 0] = vertexOffset + rawFace->firstIndex + 0;
+			outputMesh->indexArray[3 * f + 1] = vertexOffset + rawFace->firstIndex + 1;
+			outputMesh->indexArray[3 * f + 2] = vertexOffset + rawFace->firstIndex + 2;
+#endif
 		}
 		// Charts.
 		// Ignore vertex mapped charts.
@@ -9451,15 +9594,26 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
 			outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
+#if XA_USE_HE_MESH
 			const internal::halfedge::Mesh *mesh = chart->chartMesh();
+#else
+			const internal::RawMesh *mesh = chart->rawChartMesh();
+#endif
 			outputChart->indexCount = mesh->faceCount() * 3;
 			outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
 			for (uint32_t k = 0; k < mesh->faceCount(); k++) {
+#if XA_USE_HE_MESH
 				const internal::halfedge::Face *face = mesh->faceAt(k);
 				const internal::halfedge::Edge *edge = face->edge;
 				outputChart->indexArray[3 * k + 0] = vertexOffset + edge->vertex->id;
 				outputChart->indexArray[3 * k + 1] = vertexOffset + edge->next->vertex->id;
 				outputChart->indexArray[3 * k + 2] = vertexOffset + edge->next->next->vertex->id;
+#else
+				const internal::RawFace *face = mesh->faceAt(k);
+				outputChart->indexArray[3 * k + 0] = vertexOffset + face->firstIndex + 0;
+				outputChart->indexArray[3 * k + 1] = vertexOffset + face->firstIndex + 1;
+				outputChart->indexArray[3 * k + 2] = vertexOffset + face->firstIndex + 2;
+#endif
 			}
 			chartIndex++;
 		}
