@@ -3231,7 +3231,7 @@ struct RawFace
 class RawMesh
 {
 public:
-	RawMesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0) : m_edgeMap(approxFaceCount * 3)
+	RawMesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0) : m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3)
 	{
 		m_edges.reserve(approxFaceCount * 3);
 		m_faces.reserve(approxFaceCount);
@@ -3242,7 +3242,7 @@ public:
 		m_texcoords.reserve(approxVertexCount);
 	}
 
-	RawMesh(const RawMesh *mesh) : m_edges(mesh->m_edges), m_oppositeEdges(mesh->m_oppositeEdges), m_faces(mesh->m_faces), m_faceFlags(mesh->m_faceFlags), m_indices(mesh->m_indices), m_positions(mesh->m_positions), m_normals(mesh->m_normals), m_texcoords(mesh->m_texcoords), m_colocals(mesh->m_colocals), m_boundaryEdges(mesh->m_boundaryEdges), m_boundaryVertices(mesh->m_boundaryVertices), m_edgeMap(mesh->faceCount() * 3)
+	RawMesh(const RawMesh *mesh) : m_edges(mesh->m_edges), m_oppositeEdges(mesh->m_oppositeEdges), m_faces(mesh->m_faces), m_faceFlags(mesh->m_faceFlags), m_indices(mesh->m_indices), m_positions(mesh->m_positions), m_normals(mesh->m_normals), m_texcoords(mesh->m_texcoords), m_colocalVertexCount(mesh->m_colocalVertexCount), m_colocals(mesh->m_colocals), m_boundaryEdges(mesh->m_boundaryEdges), m_boundaryVertices(mesh->m_boundaryVertices), m_edgeMap(mesh->faceCount() * 3)
 	{
 		for (uint32_t i = 0; i < mesh->m_faces.size(); i++)
 			addFaceEdgesToMap(i);
@@ -3251,6 +3251,7 @@ public:
 #if XA_USE_HE_MESH
 	void verify(const halfedge::Mesh *heMesh)
 	{
+		XA_DEBUG_ASSERT(heMesh->colocalVertexCount() == m_colocalVertexCount);
 		XA_DEBUG_ASSERT(heMesh->vertexCount() == m_positions.size());
 		XA_DEBUG_ASSERT(heMesh->faceCount() == m_faces.size());
 		for (uint32_t v = 0; v < heMesh->vertexCount(); v++) {
@@ -3378,8 +3379,14 @@ public:
 	{
 		XA_DEBUG_ASSERT(canonicalMap.size() == m_positions.size());
 		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
+		Array<uint32_t> vertexMap;
+		vertexMap.resize(canonicalMap.size(), UINT32_MAX);
 		m_colocals.resize(canonicalMap.size());
 		for (uint32_t i = 0; i < canonicalMap.size(); i++) {
+			if (vertexMap[canonicalMap[i]] == UINT32_MAX) {
+				vertexMap[canonicalMap[i]] = i;
+				m_colocalVertexCount++;
+			}
 			// Find the next (with wrapping) vertex with the same colocal.
 #if 1
 			// HE mesh colocals are in reverse order.
@@ -3487,8 +3494,8 @@ public:
 	{
 		float area = 0;
 		Vector3 firstPos;
-		for (RawMesh::ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
-			if (it.edge() == 0)
+		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+			if (it.relativeEdge() == 0)
 				firstPos = it.position0();
 			else
 				area += length(cross(it.position0() - firstPos, it.position1() - firstPos));
@@ -3512,7 +3519,7 @@ public:
 		Vector3 n(0);
 		Vector3 p0;
 		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
-			if (it.edge() == 0) {
+			if (it.relativeEdge() == 0) {
 				p0 = it.position0();
 			} else if (it.position1() != p0) {
 				const Vector3 &p1 = it.position0();
@@ -3529,8 +3536,8 @@ public:
 	{
 		float area = 0;
 		Vector2 firstTexcoord;
-		for (RawMesh::ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
-			if (it.edge() == 0)
+		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+			if (it.relativeEdge() == 0)
 				firstTexcoord = it.texcoord0();
 			else
 				area += triangleArea(firstTexcoord, it.texcoord0(), it.texcoord1());
@@ -3605,8 +3612,9 @@ public:
 	uint32_t edgeCount() const { return m_edges.size(); }
 	const RawEdge *edgeAt(uint32_t edge) const { return &m_edges[edge]; }
 	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
-	bool isBoundaryEdge(uint32_t edge) const { return m_boundaryEdges[edge] == UINT32_MAX; }
+	bool isBoundaryEdge(uint32_t edge) const { return m_boundaryEdges[edge] != UINT32_MAX; }
 	bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
+	uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
 	uint32_t vertexCount() const { return m_positions.size(); }
 	uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
 	const Vector3 *positionAt(uint32_t i) const { return &m_positions[i]; }
@@ -3620,6 +3628,34 @@ public:
 	const RawFace *faceAt(uint32_t i) const { return &m_faces[i]; }
 	RawFace *faceAt(uint32_t i) { return &m_faces[i]; }
 	uint32_t faceFlagsAt(uint32_t i) const { return m_faceFlags[i]; }
+
+	class ConstBoundaryEdgeIterator
+	{
+	public:
+		ConstBoundaryEdgeIterator(const RawMesh *mesh, uint32_t edge) : m_mesh(mesh), m_first(UINT32_MAX), m_current(edge) {}
+
+		void advance()
+		{
+			if (m_first == UINT32_MAX)
+				m_first = m_current;
+			m_current = m_mesh->m_boundaryEdges[m_current];
+		}
+
+		bool isDone() const
+		{
+			return m_first == m_current;
+		}
+
+		uint32_t edge() const
+		{
+			return m_current;
+		}
+
+	private:
+		const RawMesh *m_mesh;
+		uint32_t m_first;
+		uint32_t m_current;
+	};
 
 	class ColocalIterator
 	{
@@ -3729,6 +3765,7 @@ public:
 		bool isNormalSeam() const { return m_mesh->isNormalSeam(m_edge); }
 		bool isTextureSeam() const { return m_mesh->isTextureSeam(m_edge); }
 		uint32_t edge() const { return m_edge; }
+		uint32_t relativeEdge() const { return m_relativeEdge; }
 		uint32_t face() const { return m_face; }
 		uint32_t oppositeEdge() const { return m_mesh->m_oppositeEdges[m_edge]; }
 		
@@ -3829,6 +3866,7 @@ private:
 	Array<Vector3> m_positions;
 	Array<Vector3> m_normals;
 	Array<Vector2> m_texcoords;
+	uint32_t m_colocalVertexCount;
 	Array<uint32_t> m_colocals; // In: vertex index. Out: the vertex index of the next colocal position.
 	Array<uint32_t> m_boundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
 	Array<bool> m_boundaryVertices;
@@ -3856,6 +3894,106 @@ private:
 	typedef HashMap<EdgeKey, RawEdge> EdgeMap;
 	EdgeMap m_edgeMap;
 };
+
+class RawMeshTopology
+{
+public:
+	RawMeshTopology(const RawMesh *mesh)
+	{
+		buildTopologyInfo(mesh);
+	}
+
+	/// Determine if the mesh is connected.
+	bool isConnected() const
+	{
+		return m_connectedCount == 1;
+	}
+
+	/// Determine if the mesh is closed. (Each edge is shared by two faces)
+	bool isClosed() const
+	{
+		return m_boundaryCount == 0;
+	}
+
+	/// Return true if the mesh has the topology of a disk.
+	bool isDisk() const
+	{
+		return isConnected() && m_boundaryCount == 1/* && m_eulerNumber == 1*/;
+	}
+
+private:
+	void buildTopologyInfo(const RawMesh *mesh)
+	{
+		const uint32_t vertexCount = mesh->colocalVertexCount();
+		const uint32_t faceCount = mesh->faceCount();
+		const uint32_t edgeCount = mesh->edgeCount();
+		XA_PRINT(PrintFlags::ComputingCharts, "--- Building mesh topology:\n" );
+		Array<uint32_t> stack(faceCount);
+		BitArray bitFlags(faceCount);
+		bitFlags.clearAll();
+		// Compute connectivity.
+		XA_PRINT(PrintFlags::ComputingCharts, "---   Computing connectivity.\n" );
+		m_connectedCount = 0;
+		for (uint32_t f = 0; f < faceCount; f++ ) {
+			if (bitFlags.bitAt(f) == false) {
+				m_connectedCount++;
+				stack.push_back(f);
+				while (!stack.isEmpty()) {
+					const uint32_t top = stack.back();
+					XA_ASSERT(top != uint32_t(~0));
+					stack.pop_back();
+					if (bitFlags.bitAt(top) == false) {
+						bitFlags.setBitAt(top);
+						for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+							const uint32_t oppositeFace = it.oppositeFace();
+							if (oppositeFace != UINT32_MAX)
+								stack.push_back(oppositeFace);
+						}
+					}
+				}
+			}
+		}
+		XA_ASSERT(stack.isEmpty());
+		XA_PRINT(PrintFlags::ComputingCharts, "---   %d connected components.\n", m_connectedCount);
+		// Count boundary loops.
+		XA_PRINT(PrintFlags::ComputingCharts, "---   Counting boundary loops.\n" );
+		m_boundaryCount = 0;
+		bitFlags.resize(edgeCount);
+		bitFlags.clearAll();
+		// Don't forget to link the boundary otherwise this won't work.
+		for (uint32_t e = 0; e < edgeCount; e++) {
+			if (bitFlags.bitAt(e) || !mesh->isBoundaryEdge(e))
+				continue;
+			m_boundaryCount++;
+			for (RawMesh::ConstBoundaryEdgeIterator it(mesh, e); !it.isDone(); it.advance())
+				bitFlags.setBitAt(it.edge());
+		}
+		XA_PRINT(PrintFlags::ComputingCharts, "---   %d boundary loops found.\n", m_boundaryCount);
+		// Compute euler number.
+		m_eulerNumber = vertexCount - edgeCount + faceCount;
+		XA_PRINT(PrintFlags::ComputingCharts, "---   Euler number: %d.\n", m_eulerNumber);
+		// Compute genus. (only valid on closed connected surfaces)
+		m_genus = -1;
+		if (isClosed() && isConnected()) {
+			m_genus = (2 - m_eulerNumber) / 2;
+			XA_PRINT(PrintFlags::ComputingCharts, "---   Genus: %d.\n", m_genus);
+		}
+	}
+
+private:
+	///< Number of boundary loops.
+	int m_boundaryCount;
+
+	///< Number of connected components.
+	int m_connectedCount;
+
+	///< Euler number.
+	int m_eulerNumber;
+
+	/// Mesh genus.
+	int m_genus;
+};
+
 #endif
 
 namespace raster {
@@ -6029,7 +6167,7 @@ struct RawAtlasBuilder
 			for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 				m_edgeLengths[it.edge()] = internal::length(it.position1() - it.position0());
 				//printf("edge %d length: %g\n", it.edge(), m_edgeLengths[it.edge()]);
-				if (it.edge() == 0)
+				if (it.relativeEdge() == 0)
 					firstPos = it.position0();
 				else
 					faceArea += length(cross(it.position0() - firstPos, it.position1() - firstPos));
@@ -6972,6 +7110,13 @@ public:
 		halfedge::MeshTopology topology(m_unifiedMesh);
 		m_isDisk = topology.isDisk();
 #endif
+#if XA_USE_RAW_MESH
+		RawMeshTopology rawTopology(m_rawUnifiedMesh);
+		m_rawIsDisk = rawTopology.isDisk();
+		#if XA_USE_HE_MESH
+		XA_DEBUG_ASSERT(m_isDisk == m_rawIsDisk);
+		#endif
+#endif
 	}
 
 #if XA_USE_HE_MESH && XA_USE_RAW_MESH
@@ -7816,8 +7961,7 @@ public:
 	{
 #if XA_USE_HE_MESH
 		return m_mesh->faceCount();
-#endif
-#if XA_USE_RAW_MESH
+#elif XA_USE_RAW_MESH
 		return m_rawMesh->faceCount();
 #endif
 	}
@@ -8254,7 +8398,7 @@ public:
 			for (uint32_t j = 0; j < mesh->vertexCount(); j++) {
 				XA_DEBUG_ASSERT(m_originalChartUvs[i][j] == *rawMesh->texcoordAt(j));
 			}
-#else
+#elif XA_USE_RAW_MESH
 			const RawMesh *mesh = chartAt(i)->rawChartMesh();
 			m_originalChartUvs[i].resize(mesh->vertexCount());
 			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
@@ -9571,9 +9715,9 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 #if XA_USE_RAW_MESH
 			const internal::RawMesh *mesh = chart->rawChartMesh();
 			const internal::RawFace *rawFace = mesh->faceAt(fi);
-			outputMesh->indexArray[3 * f + 0] = vertexOffset + rawFace->firstIndex + 0;
-			outputMesh->indexArray[3 * f + 1] = vertexOffset + rawFace->firstIndex + 1;
-			outputMesh->indexArray[3 * f + 2] = vertexOffset + rawFace->firstIndex + 2;
+			outputMesh->indexArray[3 * f + 0] = vertexOffset + mesh->vertexAt(rawFace->firstIndex + 0);
+			outputMesh->indexArray[3 * f + 1] = vertexOffset + mesh->vertexAt(rawFace->firstIndex + 1);
+			outputMesh->indexArray[3 * f + 2] = vertexOffset + mesh->vertexAt(rawFace->firstIndex + 2);
 #endif
 		}
 		// Charts.
@@ -9610,9 +9754,9 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 				outputChart->indexArray[3 * k + 2] = vertexOffset + edge->next->next->vertex->id;
 #else
 				const internal::RawFace *face = mesh->faceAt(k);
-				outputChart->indexArray[3 * k + 0] = vertexOffset + face->firstIndex + 0;
-				outputChart->indexArray[3 * k + 1] = vertexOffset + face->firstIndex + 1;
-				outputChart->indexArray[3 * k + 2] = vertexOffset + face->firstIndex + 2;
+				outputChart->indexArray[3 * k + 0] = vertexOffset + mesh->vertexAt(face->firstIndex + 0);
+				outputChart->indexArray[3 * k + 1] = vertexOffset + mesh->vertexAt(face->firstIndex + 1);
+				outputChart->indexArray[3 * k + 2] = vertexOffset + mesh->vertexAt(face->firstIndex + 2);
 #endif
 			}
 			chartIndex++;
