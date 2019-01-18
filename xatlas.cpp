@@ -3249,7 +3249,7 @@ public:
 	}
 
 #if XA_USE_HE_MESH
-	void verify(const halfedge::Mesh *heMesh)
+	void verify(const halfedge::Mesh *heMesh) const
 	{
 		XA_DEBUG_ASSERT(heMesh->colocalVertexCount() == m_colocalVertexCount);
 		XA_DEBUG_ASSERT(heMesh->vertexCount() == m_positions.size());
@@ -3270,6 +3270,8 @@ public:
 				heIt.advance();
 				it.advance();
 			}
+			// boundaries
+			XA_DEBUG_ASSERT(heVertex->isBoundary() == isBoundaryVertex(v));
 		}
 		for (uint32_t f = 0; f < m_faces.size(); f++) {
 			const halfedge::Face *heFace = heMesh->faceAt(f);
@@ -3334,7 +3336,7 @@ public:
 		m_edgeMap.clear();
 	}
 
-	void addVertex(const Vector3 &pos, const Vector3 &normal = Vector3(), const Vector2 &texcoord = Vector2())
+	void addVertex(const Vector3 &pos, const Vector3 &normal = Vector3(0.0f), const Vector2 &texcoord = Vector2(0.0f))
 	{
 		XA_DEBUG_ASSERT(isFinite(pos));
 		m_positions.push_back(pos);
@@ -3373,6 +3375,27 @@ public:
 			m_edges.push_back(edge);
 		}
 		addFaceEdgesToMap(m_faces.size() - 1);
+	}
+
+	void createColocals()
+	{
+		typedef internal::HashMap<internal::Vector3, uint32_t> PositionHashMap;
+		PositionHashMap positionHashMap(m_positions.size());
+		for (uint32_t i = 0; i < m_positions.size(); i++)
+			positionHashMap.add(m_positions[i], i);
+		internal::Array<uint32_t> canonicalMap;
+		canonicalMap.reserve(m_positions.size());
+		for (uint32_t i = 0; i < m_positions.size(); i++) {
+			uint32_t firstColocal = i;
+			const PositionHashMap::Element *ele = positionHashMap.get(m_positions[i]);
+			while (ele) {
+				if (ele->value < firstColocal)
+					firstColocal = ele->value;
+				ele = positionHashMap.getNext(ele);
+			}
+			canonicalMap.push_back(firstColocal);
+		}
+		createColocalsWithCanonicalMap(canonicalMap);
 	}
 
 	void createColocalsWithCanonicalMap(const Array<uint32_t> &canonicalMap)
@@ -3429,7 +3452,7 @@ public:
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
 					continue;
 				}
-				m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
+				m_boundaryVertices[vertex1] = true; // Should be both vertices, but match HE mesh behavior instead.
 				m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex0); // HE mesh boundary edge winding is backwards
 				//m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex1);
 				nBoundaryEdges++;
@@ -3609,6 +3632,15 @@ public:
 		return m_texcoords[m_indices[e.index0]] != m_texcoords[m_indices[oe.index1]] || m_texcoords[m_indices[e.index1]] != m_texcoords[m_indices[oe.index0]];
 	}
 
+	uint32_t firstColocal(uint32_t vertex) const
+	{
+		for (ConstColocalIterator it(this, vertex); !it.isDone(); it.advance()) {
+			if (it.vertex() < vertex)
+				vertex = it.vertex();
+		}
+		return vertex;
+	}
+
 	uint32_t edgeCount() const { return m_edges.size(); }
 	const RawEdge *edgeAt(uint32_t edge) const { return &m_edges[edge]; }
 	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
@@ -3623,7 +3655,6 @@ public:
 	Vector3 *normalAt(uint32_t i) { return &m_normals[i]; }
 	const Vector2 *texcoordAt(uint32_t i) const { return &m_texcoords[i]; }
 	Vector2 *texcoordAt(uint32_t i) { return &m_texcoords[i]; }
-	uint32_t firstColocal(uint32_t vertex) const { return m_colocals[vertex]; }
 	uint32_t faceCount() const { return m_faces.size(); }
 	const RawFace *faceAt(uint32_t i) const { return &m_faces[i]; }
 	RawFace *faceAt(uint32_t i) { return &m_faces[i]; }
@@ -3699,7 +3730,8 @@ public:
 		{
 			if (m_first == UINT32_MAX)
 				m_first = m_current;
-			m_current = m_mesh->m_colocals[m_current];
+			if (!m_mesh->m_colocals.isEmpty())
+				m_current = m_mesh->m_colocals[m_current];
 		}
 
 		bool isDone() const
@@ -3944,7 +3976,7 @@ private:
 					stack.pop_back();
 					if (bitFlags.bitAt(top) == false) {
 						bitFlags.setBitAt(top);
-						for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+						for (RawMesh::ConstEdgeIterator it(mesh, top); !it.isDone(); it.advance()) {
 							const uint32_t oppositeFace = it.oppositeFace();
 							if (oppositeFace != UINT32_MAX)
 								stack.push_back(oppositeFace);
@@ -7018,22 +7050,24 @@ public:
 		const uint32_t rawFaceCount = faceArray.size();
 		for (uint32_t f = 0; f < rawFaceCount; f++) {
 			for (RawMesh::ConstEdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
-				uint32_t unifiedVertex = rawOriginalMesh->firstColocal(it.vertex0());
-				if (unifiedVertex == UINT32_MAX)
-					unifiedVertex = it.vertex0();
+				const uint32_t vertex = it.vertex0();
+				const uint32_t unifiedVertex = rawOriginalMesh->firstColocal(vertex);
 				if (rawUnifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
 					rawUnifiedMeshIndices[unifiedVertex] = m_rawUnifiedMesh->vertexCount();
 					XA_DEBUG_ASSERT(it.position0() == *rawOriginalMesh->positionAt(unifiedVertex));
 					m_rawUnifiedMesh->addVertex(it.position0());
 				}
-				if (rawChartMeshIndices[it.vertex0()] == (uint32_t)~0) {
-					rawChartMeshIndices[it.vertex0()] = m_rawChartMesh->vertexCount();
-					m_rawChartToOriginalMap.push_back(it.vertex0());
+				if (rawChartMeshIndices[vertex] == (uint32_t)~0) {
+					rawChartMeshIndices[vertex] = m_rawChartMesh->vertexCount();
+					m_rawChartToOriginalMap.push_back(vertex);
 					m_rawChartToUnifiedMap.push_back(rawUnifiedMeshIndices[unifiedVertex]);
 					m_rawChartMesh->addVertex(it.position0(), it.normal0(), it.texcoord0());
 				}
 			}
 		}
+		// This is ignoring the canonical map:
+		// - Is it really necessary to link colocals?
+		m_rawChartMesh->createColocals();
 #endif
 #if XA_USE_HE_MESH
 		Array<uint32_t> faceIndices;
@@ -7083,6 +7117,10 @@ public:
 		m_rawChartMesh->createBoundaryEdges();
 		m_rawUnifiedMesh->createBoundaryEdges();
 #endif
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		m_rawChartMesh->verify(m_chartMesh);
+		m_rawUnifiedMesh->verify(m_unifiedMesh);
+#endif
 #if XA_USE_HE_MESH
 		if (m_unifiedMesh->splitBoundaryEdges()) {
 			halfedge::Mesh *newUnifiedMesh = halfedge::unifyVertices(m_unifiedMesh);
@@ -7107,6 +7145,8 @@ public:
 		m_unifiedMesh = newUnifiedMesh;
 		//exportMesh(m_unifiedMesh.ptr(), "debug_triangulated.obj");
 		// Analyze chart topology.
+#endif
+#if XA_USE_HE_MESH
 		halfedge::MeshTopology topology(m_unifiedMesh);
 		m_isDisk = topology.isDisk();
 #endif
