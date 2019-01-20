@@ -403,6 +403,11 @@ static float triangleArea(Vector2::Arg a, Vector2::Arg b, Vector2::Arg c)
 	return triangleArea(a - c, b - c);
 }
 
+static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c)
+{
+	return triangleArea(a, b, p) >= 0.00001f && triangleArea(b, c, p) >= 0.00001f && triangleArea(c, a, p) >= 0.00001f;
+}
+
 class Vector3
 {
 public:
@@ -2796,11 +2801,6 @@ static Mesh *unifyVertices(const Mesh *inputMesh)
 	return mesh;
 }
 
-static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c)
-{
-	return triangleArea(a, b, p) >= 0.00001f && triangleArea(b, c, p) >= 0.00001f && triangleArea(c, a, p) >= 0.00001f;
-}
-
 // This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
 static Mesh *triangulate(const Mesh *inputMesh)
@@ -3641,6 +3641,19 @@ public:
 		return vertex;
 	}
 
+	bool areColocal(uint32_t vertex0, uint32_t vertex1) const
+	{
+		if (vertex0 == vertex1)
+			return true;
+		if (m_colocals.isEmpty())
+			return false;
+		for (ConstColocalIterator it(this, vertex0); !it.isDone(); it.advance()) {
+			if (it.vertex() == vertex1)
+				return true;
+		}
+		return false;
+	}
+
 	uint32_t edgeCount() const { return m_edges.size(); }
 	const RawEdge *edgeAt(uint32_t edge) const { return &m_edges[edge]; }
 	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
@@ -3680,6 +3693,11 @@ public:
 		uint32_t edge() const
 		{
 			return m_current;
+		}
+
+		uint32_t nextEdge() const
+		{
+			return m_mesh->m_boundaryEdges[m_current];
 		}
 
 	private:
@@ -3876,15 +3894,8 @@ private:
 				const uint32_t vertex1 = m_indices[face.firstIndex + (j + 1) % face.nIndices];
 				if (findEdge(vertex1, vertex0))
 					continue; // Not a boundary edge.
-				if (m_colocals.isEmpty()) {
-					if (vertex1 == endVertex)
-						return face.firstIndex + j;
-				} else {
-					for (ConstColocalIterator colocal(this, endVertex /*startVertex*/); !colocal.isDone(); colocal.advance()) {
-						if (colocal.vertex() == vertex1 /*vertex0*/)
-							return face.firstIndex + j;
-					}
-				}
+				if (areColocal(endVertex, vertex1))
+					return face.firstIndex + j;
 			}
 		}
 		return UINT32_MAX;
@@ -3926,6 +3937,229 @@ private:
 	typedef HashMap<EdgeKey, RawEdge> EdgeMap;
 	EdgeMap m_edgeMap;
 };
+
+/*
+Fixing T-junctions.
+
+- Find T-junctions. Find  vertices that are on an edge.
+- This test is approximate.
+- Insert edges on a spatial index to speedup queries.
+- Consider only open edges, that is edges that have no pairs.
+- Consider only vertices on boundaries.
+- Close T-junction.
+- Split edge.
+
+*/
+struct SplitEdge
+{
+	uint32_t vertex;
+	uint32_t edge;
+	float t;
+};
+
+static RawMesh *rawMeshSplitBoundaryEdges(const RawMesh &inputMesh) // Returns NULL if no split was made.
+{
+	XA_PRINT(PrintFlags::MeshProcessing, "Fixing T-junctions:\n");
+	Array<SplitEdge> splitEdges;
+	const uint32_t vertexCount = inputMesh.vertexCount();
+	const uint32_t edgeCount = inputMesh.edgeCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		if (!inputMesh.isBoundaryVertex(v))
+			continue;
+		// Find edges that this vertex overlaps with.
+		const Vector3 x0 = *inputMesh.positionAt(v);
+		for (uint32_t e = 0; e < edgeCount; e++) {
+			if (!inputMesh.isBoundaryEdge(e))
+				continue;
+			const RawEdge *edge = inputMesh.edgeAt(e);
+			const Vector3 x1 = *inputMesh.positionAt(inputMesh.vertexAt(edge->index0));
+			const Vector3 x2 = *inputMesh.positionAt(inputMesh.vertexAt(edge->index1));
+			if (x1 == x0 || x2 == x0)
+				continue; // Vertex lies on either edge vertex.
+			const Vector3 v01 = x0 - x1;
+			const Vector3 v21 = x2 - x1;
+			const float l = length(v21);
+			const float d = length(cross(v01, v21)) / l;
+			if (!isZero(d))
+				continue;
+			float t = dot(v01, v21) / (l * l);
+			if (t < XA_EPSILON || t > 1.0f - XA_EPSILON)
+				continue;
+			XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
+			SplitEdge splitEdge;
+			splitEdge.vertex = v;
+			splitEdge.edge = e;
+			splitEdge.t = t;
+			splitEdges.push_back(splitEdge);
+		}
+	}
+	if (splitEdges.isEmpty())
+		return NULL;
+	const uint32_t faceCount = inputMesh.faceCount();
+	RawMesh *mesh = XA_NEW(RawMesh, vertexCount + splitEdges.size(), faceCount);
+	for (uint32_t v = 0; v < vertexCount; v++)
+		mesh->addVertex(*inputMesh.positionAt(v), *inputMesh.normalAt(v), *inputMesh.texcoordAt(v));
+	for (uint32_t se = 0; se < splitEdges.size(); se++) {
+		const SplitEdge &splitEdge = splitEdges[se];
+		const RawEdge *edge = inputMesh.edgeAt(splitEdge.edge);
+		Vector3 normal = lerp(*inputMesh.normalAt(inputMesh.vertexAt(edge->index0)), *inputMesh.normalAt(inputMesh.vertexAt(edge->index1)), splitEdge.t);
+		Vector2 texcoord = lerp(*inputMesh.texcoordAt(inputMesh.vertexAt(edge->index0)), *inputMesh.texcoordAt(inputMesh.vertexAt(edge->index1)), splitEdge.t);
+		mesh->addVertex(*inputMesh.positionAt(splitEdge.vertex), normal, texcoord);
+	}
+	Array<uint32_t> indexArray;
+	for (uint32_t f = 0; f < faceCount; f++) {
+		indexArray.clear();
+		for (RawMesh::ConstEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
+			indexArray.push_back(it.vertex0());
+			for (uint32_t se = 0; se < splitEdges.size(); se++) {
+				const SplitEdge &splitEdge = splitEdges[se];
+				if (splitEdge.edge == it.edge()) {
+					indexArray.push_back(vertexCount + se);
+					break;
+				}
+			}
+		}
+		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
+	}
+	XA_PRINT(PrintFlags::MeshProcessing, " - %d edges split.\n", splitEdges.size());
+	return mesh;
+}
+
+// This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
+// also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
+static RawMesh *rawMeshTriangulate(const RawMesh &inputMesh)
+{
+	const uint32_t vertexCount = inputMesh.vertexCount();
+	const uint32_t faceCount = inputMesh.faceCount();
+	RawMesh *mesh = XA_NEW(RawMesh, vertexCount, faceCount);
+	// Add all vertices.
+	for (uint32_t v = 0; v < vertexCount; v++)
+		mesh->addVertex(*inputMesh.positionAt(v), *inputMesh.normalAt(v), *inputMesh.texcoordAt(v));
+	Array<uint32_t> polygonVertices;
+	Array<float> polygonAngles;
+	Array<Vector2> polygonPoints;
+	for (uint32_t f = 0; f < faceCount; f++) {
+		const RawFace *face = inputMesh.faceAt(f);
+		const uint32_t edgeCount = face->nIndices;
+		XA_DEBUG_ASSERT(edgeCount >= 3);
+		polygonVertices.clear();
+		polygonVertices.reserve(edgeCount);
+		if (edgeCount == 3) {
+			// Simple case for triangles.
+			for (RawMesh::ConstEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
+				polygonVertices.push_back(it.vertex0());
+			mesh->addFace(polygonVertices[0], polygonVertices[1], polygonVertices[2]);
+		} else {
+			// Build 2D polygon projecting vertices onto normal plane.
+			// Faces are not necesarily planar, this is for example the case, when the face comes from filling a hole. In such cases
+			// it's much better to use the best fit plane.
+			const Vector3 fn = inputMesh.faceNormal(f);
+			Basis basis;
+			basis.buildFrameForDirection(fn);
+			polygonPoints.clear();
+			polygonPoints.reserve(edgeCount);
+			polygonAngles.clear();
+			polygonAngles.reserve(edgeCount);
+			for (RawMesh::ConstEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
+				polygonVertices.push_back(it.vertex0());
+				const Vector3 &pos = it.position0();
+				polygonPoints.push_back(Vector2(dot(basis.tangent, pos), dot(basis.bitangent, pos)));
+			}
+			polygonAngles.resize(edgeCount);
+			while (polygonVertices.size() > 2) {
+				const uint32_t size = polygonVertices.size();
+				// Update polygon angles. @@ Update only those that have changed.
+				float minAngle = float(2.0f * M_PI);
+				uint32_t bestEar = 0; // Use first one if none of them is valid.
+				bool bestIsValid = false;
+				for (uint32_t i = 0; i < size; i++) {
+					uint32_t i0 = i;
+					uint32_t i1 = (i + 1) % size; // Use Sean's polygon interation trick.
+					uint32_t i2 = (i + 2) % size;
+					Vector2 p0 = polygonPoints[i0];
+					Vector2 p1 = polygonPoints[i1];
+					Vector2 p2 = polygonPoints[i2];
+					float d = clamp(dot(p0 - p1, p2 - p1) / (length(p0 - p1) * length(p2 - p1)), -1.0f, 1.0f);
+					float angle = acosf(d);
+					float area = triangleArea(p0, p1, p2);
+					if (area < 0.0f)
+						angle = float(2.0f * M_PI - angle);
+					polygonAngles[i1] = angle;
+					if (angle < minAngle || !bestIsValid) {
+						// Make sure this is a valid ear, if not, skip this point.
+						bool valid = true;
+						for (uint32_t j = 0; j < size; j++) {
+							if (j == i0 || j == i1 || j == i2)
+								continue;
+							Vector2 p = polygonPoints[j];
+							if (pointInTriangle(p, p0, p1, p2)) {
+								valid = false;
+								break;
+							}
+						}
+						if (valid || !bestIsValid) {
+							minAngle = angle;
+							bestEar = i1;
+							bestIsValid = valid;
+						}
+					}
+				}
+				// Clip best ear:
+				const uint32_t i0 = (bestEar + size - 1) % size;
+				const uint32_t i1 = (bestEar + 0) % size;
+				const uint32_t i2 = (bestEar + 1) % size;
+				mesh->addFace(polygonVertices[i0], polygonVertices[i1], polygonVertices[i2]);
+				polygonVertices.removeAt(i1);
+				polygonPoints.removeAt(i1);
+				polygonAngles.removeAt(i1);
+			}
+		}
+	}
+	mesh->createBoundaryEdges();
+	return mesh;
+}
+
+static RawMesh *rawMeshUnifyVertices(const RawMesh &inputMesh)
+{
+	const uint32_t vertexCount = inputMesh.vertexCount();
+	const uint32_t faceCount = inputMesh.faceCount();
+	RawMesh *mesh = XA_NEW(RawMesh, vertexCount, faceCount);
+	// Only add the first colocal.
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		if (inputMesh.firstColocal(v) == v)
+			mesh->addVertex(*inputMesh.positionAt(v), *inputMesh.normalAt(v), *inputMesh.texcoordAt(v));
+	}
+	Array<uint32_t> indexArray;
+	// Add new faces pointing to first colocals.
+	for (uint32_t f = 0; f < faceCount; f++) {
+		indexArray.clear();
+		for (RawMesh::ConstEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
+			indexArray.push_back(inputMesh.firstColocal(it.vertex0()));
+		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
+	}
+	mesh->createBoundaryEdges();
+	return mesh;
+}
+
+// boundaryEdges are the first edges for each boundary loop.
+static void rawMeshGetBoundaryEdges(const RawMesh &mesh, Array<uint32_t> &boundaryEdges)
+{
+	//printf("\nRaw mesh boundary edge loops\n");
+	const uint32_t edgeCount = mesh.edgeCount();
+	BitArray bitFlags(edgeCount);
+	bitFlags.clearAll();
+	boundaryEdges.clear();
+	// Search for boundary edges. Mark all the edges that belong to the same boundary.
+	for (uint32_t e = 0; e < edgeCount; e++) {
+		if (bitFlags.bitAt(e) || !mesh.isBoundaryEdge(e))
+			continue;
+		for (RawMesh::ConstBoundaryEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
+			bitFlags.setBitAt(it.edge());
+		boundaryEdges.push_back(e);
+		//const Vector3 *pos = mesh.positionAt(mesh.vertexAt(mesh.edgeAt(e)->index1)); // NOTE: index1, not index0. HE mesh version iterates edge pairs, so winding is backwards.
+		//printf("   edge %d: %g %g %g\n", e, pos->x, pos->y, pos->z);
+	}
+}
 
 class RawMeshTopology
 {
@@ -7122,12 +7356,43 @@ public:
 		m_rawUnifiedMesh->verify(m_unifiedMesh);
 #endif
 #if XA_USE_HE_MESH
-		if (m_unifiedMesh->splitBoundaryEdges()) {
+		bool split = m_unifiedMesh->splitBoundaryEdges();
+#endif
+#if XA_USE_RAW_MESH
+		RawMesh *splitUnifiedMesh = rawMeshSplitBoundaryEdges(*m_rawUnifiedMesh);
+		#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		XA_DEBUG_ASSERT(split == (splitUnifiedMesh != NULL));
+		if (splitUnifiedMesh)
+			splitUnifiedMesh->verify(m_unifiedMesh);
+		#endif
+		if (splitUnifiedMesh) {
+			m_rawUnifiedMesh->~RawMesh();
+			XA_FREE(m_rawUnifiedMesh);
+			m_rawUnifiedMesh = splitUnifiedMesh;
+		}
+#endif
+#if XA_USE_HE_MESH
+		if (split) {
 			halfedge::Mesh *newUnifiedMesh = halfedge::unifyVertices(m_unifiedMesh);
 			m_unifiedMesh->~Mesh();
 			XA_FREE(m_unifiedMesh);
 			m_unifiedMesh = newUnifiedMesh;
 		}
+#endif
+#if XA_USE_RAW_MESH
+		if (splitUnifiedMesh) {
+			RawMesh *newUnifiedMesh = rawMeshUnifyVertices(m_rawUnifiedMesh);
+			m_rawUnifiedMesh->~RawMesh();
+			XA_FREE(m_rawUnifiedMesh);
+			m_rawUnifiedMesh = newUnifiedMesh;
+			#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+			m_rawUnifiedMesh->verify(m_unifiedMesh);
+			#endif
+		}
+#endif
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		m_rawUnifiedMesh->verify(m_unifiedMesh);
+#endif
 		// Closing the holes is not always the best solution and does not fix all the problems.
 		// We need to do some analysis of the holes and the genus to:
 		// - Find cuts that reduce genus.
@@ -7139,12 +7404,25 @@ public:
 			fileName.format("debug_hole_%d.obj", pieceCount++);
 			exportMesh(m_unifiedMesh.ptr(), fileName.str());*/
 		}
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		m_rawUnifiedMesh->verify(m_unifiedMesh);
+#endif
+#if XA_USE_HE_MESH
 		halfedge::Mesh *newUnifiedMesh = halfedge::triangulate(m_unifiedMesh);
 		m_unifiedMesh->~Mesh();
 		XA_FREE(m_unifiedMesh);
 		m_unifiedMesh = newUnifiedMesh;
 		//exportMesh(m_unifiedMesh.ptr(), "debug_triangulated.obj");
 		// Analyze chart topology.
+#endif
+#if XA_USE_RAW_MESH
+		RawMesh *newRawUnifiedMesh = rawMeshTriangulate(m_rawUnifiedMesh);
+		m_rawUnifiedMesh->~RawMesh();
+		XA_FREE(m_rawUnifiedMesh);
+		m_rawUnifiedMesh = newRawUnifiedMesh;
+#endif
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		m_rawUnifiedMesh->verify(m_unifiedMesh);
 #endif
 #if XA_USE_HE_MESH
 		halfedge::MeshTopology topology(m_unifiedMesh);
@@ -7539,36 +7817,56 @@ public:
 	int32_t atlasIndex;
 
 private:
-#if XA_USE_HE_MESH
 	bool closeHoles()
 	{
+#if XA_USE_HE_MESH
 		XA_DEBUG_ASSERT(!m_isVertexMapped);
 		Array<halfedge::Edge *> boundaryEdges;
 		getBoundaryEdges(m_unifiedMesh, boundaryEdges);
 		uint32_t boundaryCount = boundaryEdges.size();
+#endif
+#if XA_USE_RAW_MESH
+		Array<uint32_t> rawBoundaryEdges;
+		rawMeshGetBoundaryEdges(*m_rawUnifiedMesh, rawBoundaryEdges);
+		#if XA_USE_HE_MESH
+		XA_DEBUG_ASSERT(boundaryCount == rawBoundaryEdges.size());
+		#else
+		uint32_t boundaryCount = rawBoundaryEdges.size();
+		#endif
+#endif
 		if (boundaryCount <= 1) {
 			// Nothing to close.
 			return true;
 		}
-		// Compute lengths and areas.
+		// Compute lengths.
 		Array<float> boundaryLengths;
 		for (uint32_t i = 0; i < boundaryCount; i++) {
+			float boundaryLength = 0.0f;
+#if XA_USE_HE_MESH
 			const halfedge::Edge *startEdge = boundaryEdges[i];
 			XA_ASSERT(startEdge->face == NULL);
-			//float boundaryEdgeCount = 0;
-			float boundaryLength = 0.0f;
-			//Vector3 boundaryCentroid(zero);
 			const halfedge::Edge *edge = startEdge;
 			do {
 				Vector3 t0 = edge->from()->pos;
 				Vector3 t1 = edge->to()->pos;
-				//boundaryEdgeCount++;
 				boundaryLength += length(t1 - t0);
-				//boundaryCentroid += edge->vertex()->pos;
 				edge = edge->next;
 			} while (edge != startEdge);
+#endif
+#if XA_USE_RAW_MESH
+			float rawBoundaryLength = 0.0f;
+			for (RawMesh::ConstBoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
+				const RawEdge *rawEdge = m_rawUnifiedMesh->edgeAt(it.edge());
+				Vector3 t0 = *m_rawUnifiedMesh->positionAt(m_rawUnifiedMesh->vertexAt(rawEdge->index0));
+				Vector3 t1 = *m_rawUnifiedMesh->positionAt(m_rawUnifiedMesh->vertexAt(rawEdge->index1));
+				rawBoundaryLength += length(t1 - t0);
+			}
+			#if XA_USE_HE_MESH
+			XA_DEBUG_ASSERT(boundaryLength == rawBoundaryLength);
+			#endif
+			boundaryLength = rawBoundaryLength;
+#endif
 			boundaryLengths.push_back(boundaryLength);
-			//boundaryCentroids.append(boundaryCentroid / boundaryEdgeCount);
 		}
 		// Find disk boundary.
 		uint32_t diskBoundary = 0;
@@ -7585,6 +7883,7 @@ private:
 				// Skip disk boundary.
 				continue;
 			}
+#if XA_USE_HE_MESH
 			halfedge::Edge *startEdge = boundaryEdges[i];
 			XA_DEBUG_ASSERT(startEdge != NULL);
 			XA_DEBUG_ASSERT(startEdge->face == NULL);
@@ -7593,6 +7892,7 @@ private:
 			halfedge::Edge *edge = startEdge;
 			do {
 				halfedge::Vertex *vertex = edge->next->vertex;  // edge->to()
+				//printf("he: %g %g %g\n", vertex->pos.x, vertex->pos.y, vertex->pos.z);
 				uint32_t j;
 				for (j = 0; j < vertexLoop.size(); j++) {
 					if (vertex->isColocal(vertexLoop[j])) {
@@ -7621,18 +7921,64 @@ private:
 				edge = edge->next;
 			} while (edge != startEdge);
 			closeLoop(0, edgeLoop);
+#endif
+#if XA_USE_RAW_MESH
+			Array<uint32_t> rawVertexLoop;
+			Array<const RawEdge *> rawEdgeLoop;
+			startOver:
+			for (RawMesh::ConstBoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
+				const RawEdge *rawEdge = m_rawUnifiedMesh->edgeAt(it.nextEdge()); // why next edge??? matching HE mesh behavior
+				const uint32_t vertex = m_rawUnifiedMesh->vertexAt(rawEdge->index1);
+				//printf("raw: %g %g %g\n", m_rawUnifiedMesh->positionAt(vertex)->x, m_rawUnifiedMesh->positionAt(vertex)->y, m_rawUnifiedMesh->positionAt(vertex)->z);
+				uint32_t j;
+				for (j = 0; j < rawVertexLoop.size(); j++) {
+					if (m_rawUnifiedMesh->areColocal(vertex, rawVertexLoop[j]))
+						break;
+				}
+				bool isCrossing = (j != rawVertexLoop.size());
+				if (isCrossing) {
+					// Close loop.
+					rawEdgeLoop.push_back(rawEdge);
+					closeLoop(j + 1, rawEdgeLoop);
+					// Start over again.
+					rawVertexLoop.clear();
+					rawEdgeLoop.clear();
+					goto startOver; // HE mesh version is bugged, actually breaks at end of edge iteration instead.
+				}
+				rawVertexLoop.push_back(vertex);
+				rawEdgeLoop.push_back(rawEdge);
+			}
+			closeLoop(0, rawEdgeLoop);
+			#if XA_USE_HE_MESH
+			XA_DEBUG_ASSERT(edgeLoop.size() == rawEdgeLoop.size());
+			#endif
+#endif
 		}
+#if XA_USE_RAW_MESH
+		m_rawUnifiedMesh->createBoundaryEdges();
+#endif
+#if XA_USE_HE_MESH
 		getBoundaryEdges(m_unifiedMesh, boundaryEdges);
 		boundaryCount = boundaryEdges.size();
 		XA_DEBUG_ASSERT(boundaryCount == 1);
+#endif
+#if XA_USE_RAW_MESH
+		rawMeshGetBoundaryEdges(m_rawUnifiedMesh, rawBoundaryEdges);
+		#if XA_USE_HE_MESH
+		XA_DEBUG_ASSERT(boundaryCount == rawBoundaryEdges.size());
+		#endif
+		boundaryCount = rawBoundaryEdges.size();
+#endif
 		return boundaryCount == 1;
 	}
 
+#if XA_USE_HE_MESH
 	bool closeLoop(uint32_t start, const Array<halfedge::Edge *> &loop)
 	{
 		const uint32_t vertexCount = loop.size() - start;
 		XA_DEBUG_ASSERT(vertexCount >= 3);
 		if (vertexCount < 3) return false;
+		//printf("\nCloseloop HE\n");
 		XA_DEBUG_ASSERT(loop[start]->vertex->isColocal(loop[start + vertexCount - 1]->to()));
 		// If the hole is planar, then we add a single face that will be properly triangulated later.
 		// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
@@ -7641,6 +7987,7 @@ private:
 		points.resize(vertexCount);
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			points[i] = loop[start + i]->vertex->pos;
+			//printf("   %g %g %g\n", points[i].x, points[i].y, points[i].z);
 		}
 		bool isPlanar = Fit::isPlanar(vertexCount, points.data());
 		if (isPlanar) {
@@ -7681,6 +8028,7 @@ private:
 		BitArray bitFlags(edgeCount);
 		bitFlags.clearAll();
 		boundaryEdges.clear();
+		//printf("\nHE mesh boundary edge loops\n");
 		// Search for boundary edges. Mark all the edges that belong to the same boundary.
 		for (uint32_t e = 0; e < edgeCount; e++) {
 			halfedge::Edge *startEdge = mesh->edgeAt(e);
@@ -7696,8 +8044,53 @@ private:
 					edge = edge->next;
 				} while (startEdge != edge);
 				boundaryEdges.push_back(startEdge);
+				//printf("   edge %d: %g %g %g\n", startEdge->id, startEdge->vertex->pos.x, startEdge->vertex->pos.y, startEdge->vertex->pos.z);
 			}
 		}
+	}
+#endif
+
+#if XA_USE_RAW_MESH
+	bool closeLoop(uint32_t startVertex, const Array<const RawEdge *> &loop)
+	{
+		const uint32_t vertexCount = loop.size() - startVertex;
+		XA_DEBUG_ASSERT(vertexCount >= 3);
+		if (vertexCount < 3)
+			return false;
+		//printf("\nCloseloop raw\n");
+		// If the hole is planar, then we add a single face that will be properly triangulated later.
+		// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
+		// This is still a bit of a hack. There surely are better hole filling algorithms out there.
+		Array<Vector3> points;
+		points.resize(vertexCount);
+		for (uint32_t i = 0; i < vertexCount; i++) {
+			points[i] = *m_rawUnifiedMesh->positionAt(m_rawUnifiedMesh->vertexAt(loop[startVertex + i]->index0));
+			//printf("   %g %g %g\n", points[i].x, points[i].y, points[i].z);
+		}
+		const bool isPlanar = Fit::isPlanar(vertexCount, points.data());
+		if (isPlanar) {
+			Array<uint32_t> indices;
+			indices.resize(loop.size());
+			for (uint32_t i = 0; i < vertexCount; i++) 
+				indices[i] = m_rawUnifiedMesh->vertexAt(loop[startVertex + i]->index0);
+			m_rawUnifiedMesh->addFace(indices);
+		} else {
+			// If the polygon is not planar, we just cross our fingers, and hope this will work:
+			// Compute boundary centroid:
+			Vector3 centroidPos(0.0f);
+			for (uint32_t i = 0; i < vertexCount; i++)
+				centroidPos += points[i];
+			centroidPos *= (1.0f / vertexCount);
+			const uint32_t centroidVertex = m_rawUnifiedMesh->vertexCount();
+			m_rawUnifiedMesh->addVertex(centroidPos);
+			// Add one pair of edges for each boundary vertex.
+			for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
+				const uint32_t vertex1 = m_rawUnifiedMesh->vertexAt(loop[startVertex + j]->index0);
+				const uint32_t vertex2 = m_rawUnifiedMesh->vertexAt(loop[startVertex + i]->index0);
+				m_rawUnifiedMesh->addFace(centroidVertex, vertex1, vertex2);
+			}
+		}
+		return true;
 	}
 #endif
 
