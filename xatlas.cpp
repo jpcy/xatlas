@@ -3437,11 +3437,20 @@ public:
 	void createBoundaryEdges()
 	{
 		XA_PRINT(PrintFlags::MeshProcessing, "--- Creating boundaries:\n");
-		m_boundaryEdges.resize(m_edges.size(), UINT32_MAX);
-		m_boundaryVertices.resize(m_positions.size(), false);
-		m_oppositeEdges.resize(m_edges.size(), UINT32_MAX);
+		const uint32_t edgeCount = m_edges.size();
+		const uint32_t faceCount = m_faces.size();
+		const uint32_t vertexCount = m_positions.size();
+		m_boundaryEdges.resize(edgeCount);
+		m_boundaryVertices.resize(vertexCount);
+		m_oppositeEdges.resize(edgeCount);
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			m_boundaryEdges[i] = UINT32_MAX;
+			m_oppositeEdges[i] = UINT32_MAX;
+		}
+		for (uint32_t i = 0; i < vertexCount; i++)
+			m_boundaryVertices[i] = false;
 		uint32_t nBoundaryEdges = 0;
-		for (uint32_t i = 0; i < m_faces.size(); i++) {
+		for (uint32_t i = 0; i < faceCount; i++) {
 			const RawFace &face = m_faces[i];
 			for (uint32_t j = 0; j < face.nIndices; j++) {
 				const uint32_t vertex0 = m_indices[face.firstIndex + j];
@@ -3450,12 +3459,12 @@ public:
 				const RawEdge *oppositeEdge = findEdge(vertex1, vertex0);
 				if (oppositeEdge) {
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
-					continue;
+				} else {
+					m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex0); // HE mesh boundary edge winding is backwards
+					//m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex1);
+					m_boundaryVertices[vertex1] = true; // Should be both vertices, but match HE mesh behavior instead.
+					nBoundaryEdges++;
 				}
-				m_boundaryVertices[vertex1] = true; // Should be both vertices, but match HE mesh behavior instead.
-				m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex0); // HE mesh boundary edge winding is backwards
-				//m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex1);
-				nBoundaryEdges++;
 			}
 		}
 		XA_PRINT(PrintFlags::MeshProcessing, "---   %d boundary edges.\n", nBoundaryEdges);
@@ -7878,6 +7887,18 @@ private:
 			}
 		}
 		// Close holes.
+		/*{
+			printf("\nhe boundaries:  ");
+			for (uint32_t v = 0; v < m_unifiedMesh->vertexCount(); v++) {
+				const halfedge::Vertex *heVertex = m_unifiedMesh->vertexAt(v);
+				printf("%d", heVertex->isBoundary() ? 1 : 0);
+			}
+			printf("\nraw boundaries: ");
+			for (uint32_t v = 0; v < m_rawUnifiedMesh->vertexCount(); v++) {
+				printf("%d", m_rawUnifiedMesh->isBoundaryVertex(v) ? 1 : 0);
+			}
+			printf("\n");
+		}*/
 		for (uint32_t i = 0; i < boundaryCount; i++) {
 			if (diskBoundary == i) {
 				// Skip disk boundary.
@@ -7924,11 +7945,12 @@ private:
 #endif
 #if XA_USE_RAW_MESH
 			Array<uint32_t> rawVertexLoop;
-			Array<const RawEdge *> rawEdgeLoop;
+			Array<const RawEdge *> rawEdgeLoop, rawEdgeLoop2;
 			startOver:
 			for (RawMesh::ConstBoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
-				const RawEdge *rawEdge = m_rawUnifiedMesh->edgeAt(it.nextEdge()); // why next edge??? matching HE mesh behavior
-				const uint32_t vertex = m_rawUnifiedMesh->vertexAt(rawEdge->index1);
+				const RawEdge *rawEdge = m_rawUnifiedMesh->edgeAt(it.edge());
+				const RawEdge *rawNextEdge = m_rawUnifiedMesh->edgeAt(it.nextEdge());
+				const uint32_t vertex = m_rawUnifiedMesh->vertexAt(rawNextEdge->index1); // why next edge??? matching HE mesh behavior
 				//printf("raw: %g %g %g\n", m_rawUnifiedMesh->positionAt(vertex)->x, m_rawUnifiedMesh->positionAt(vertex)->y, m_rawUnifiedMesh->positionAt(vertex)->z);
 				uint32_t j;
 				for (j = 0; j < rawVertexLoop.size(); j++) {
@@ -7948,7 +7970,13 @@ private:
 				rawVertexLoop.push_back(vertex);
 				rawEdgeLoop.push_back(rawEdge);
 			}
-			closeLoop(0, rawEdgeLoop);
+			{
+				// HACK: match HE mesh
+				rawEdgeLoop2.resize(rawEdgeLoop.size());
+				for (uint32_t j = 0; j < rawEdgeLoop.size(); j++)
+					rawEdgeLoop2[j] = rawEdgeLoop[(j + rawEdgeLoop.size() - 1) % rawEdgeLoop.size()];
+			}
+			closeLoop(0, rawEdgeLoop2);
 			#if XA_USE_HE_MESH
 			XA_DEBUG_ASSERT(edgeLoop.size() == rawEdgeLoop.size());
 			#endif
@@ -7956,6 +7984,21 @@ private:
 		}
 #if XA_USE_RAW_MESH
 		m_rawUnifiedMesh->createBoundaryEdges();
+#endif
+#if XA_USE_HE_MESH && XA_USE_RAW_MESH
+		/*{
+			printf("\nhe boundaries:  ");
+			for (uint32_t v = 0; v < m_unifiedMesh->vertexCount(); v++) {
+				const halfedge::Vertex *heVertex = m_unifiedMesh->vertexAt(v);
+				printf("%d", heVertex->isBoundary() ? 1 : 0);
+			}
+			printf("\nraw boundaries: ");
+			for (uint32_t v = 0; v < m_rawUnifiedMesh->vertexCount(); v++) {
+				printf("%d", m_rawUnifiedMesh->isBoundaryVertex(v) ? 1 : 0);
+			}
+			printf("\n");
+		}*/
+		m_rawUnifiedMesh->verify(m_unifiedMesh);
 #endif
 #if XA_USE_HE_MESH
 		getBoundaryEdges(m_unifiedMesh, boundaryEdges);
@@ -7993,12 +8036,15 @@ private:
 		if (isPlanar) {
 			// Add face and connect edges.
 			halfedge::Face *face = m_unifiedMesh->addFace();
+			//printf("   ");
 			for (uint32_t i = 0; i < vertexCount; i++) {
 				halfedge::Edge *edge = loop[start + i];
 				edge->face = face;
 				edge->setNext(loop[start + (i + 1) % vertexCount]);
+				//printf("%d ", edge->vertex->id);
 			}
 			face->edge = loop[start];
+			//printf("\n");
 			XA_DEBUG_ASSERT(face->isValid());
 		} else {
 			// If the polygon is not planar, we just cross our fingers, and hope this will work:
@@ -8070,9 +8116,13 @@ private:
 		const bool isPlanar = Fit::isPlanar(vertexCount, points.data());
 		if (isPlanar) {
 			Array<uint32_t> indices;
-			indices.resize(loop.size());
-			for (uint32_t i = 0; i < vertexCount; i++) 
+			indices.resize(vertexCount);
+			//printf("   ");
+			for (uint32_t i = 0; i < vertexCount; i++) {
 				indices[i] = m_rawUnifiedMesh->vertexAt(loop[startVertex + i]->index0);
+				//printf("%d ", indices[i]);
+			}
+			//printf("\n");
 			m_rawUnifiedMesh->addFace(indices);
 		} else {
 			// If the polygon is not planar, we just cross our fingers, and hope this will work:
