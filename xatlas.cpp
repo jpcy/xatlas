@@ -1880,6 +1880,8 @@ public:
 		clear();
 	}
 
+	uint32_t id() const { return m_id; }
+
 	void clear()
 	{
 		for (uint32_t i = 0; i < m_vertexArray.size(); i++) {
@@ -3254,6 +3256,25 @@ public:
 		XA_DEBUG_ASSERT(heMesh->colocalVertexCount() == m_colocalVertexCount);
 		XA_DEBUG_ASSERT(heMesh->vertexCount() == m_positions.size());
 		XA_DEBUG_ASSERT(heMesh->faceCount() == m_faces.size());
+		if (heMesh->id() == 7) {
+			printf("\nhe:  ");
+			for (uint32_t v = 0; v < 15/*heMesh->vertexCount()*/; v++) {
+				const halfedge::Vertex *heVertex = heMesh->vertexAt(v);
+				printf("%d", heVertex->isBoundary() ? 1 : 0);
+			}
+			/*const halfedge::Vertex *heVertex = heMesh->vertexAt(0);
+			for (halfedge::Vertex::ConstVertexIterator it(heVertex->colocals()); !it.isDone(); it.advance()) {
+				printf("%d ", it.current()->id);
+			}*/
+			printf("\nraw: ");
+			for (uint32_t v = 0; v < 15/*heMesh->vertexCount()*/; v++) {
+				printf("%d", isBoundaryVertex(v) ? 1 : 0);
+			}
+			/*for (ConstColocalIterator it(this, 0); !it.isDone(); it.advance()) {
+				printf("%d ", it.vertex());
+			}*/
+			printf("\n");
+		}
 		for (uint32_t v = 0; v < heMesh->vertexCount(); v++) {
 			const halfedge::Vertex *heVertex = heMesh->vertexAt(v);
 			XA_DEBUG_ASSERT(heVertex->pos == m_positions[v]);
@@ -3270,12 +3291,16 @@ public:
 				heIt.advance();
 				it.advance();
 			}
+		}
+		for (uint32_t v = 0; v < heMesh->vertexCount(); v++) {
+			const halfedge::Vertex *heVertex = heMesh->vertexAt(v);
 			// boundaries
 			XA_DEBUG_ASSERT(heVertex->isBoundary() == isBoundaryVertex(v));
 		}
 		for (uint32_t f = 0; f < m_faces.size(); f++) {
 			const halfedge::Face *heFace = heMesh->faceAt(f);
 			const RawFace &face = m_faces[f];
+			XA_DEBUG_ASSERT(heFace->flags == m_faceFlags[f]);
 			XA_DEBUG_ASSERT(heFace->edgeCount() == face.nIndices);
 			// edges
 			uint32_t edgeIndex = 0;
@@ -3404,7 +3429,7 @@ public:
 		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
 		Array<uint32_t> vertexMap;
 		vertexMap.resize(canonicalMap.size(), UINT32_MAX);
-		m_colocals.resize(canonicalMap.size());
+		m_colocals.resize(canonicalMap.size(), UINT32_MAX);
 		for (uint32_t i = 0; i < canonicalMap.size(); i++) {
 			if (vertexMap[canonicalMap[i]] == UINT32_MAX) {
 				vertexMap[canonicalMap[i]] = i;
@@ -3451,6 +3476,8 @@ public:
 			m_boundaryVertices[i] = false;
 		uint32_t nBoundaryEdges = 0;
 		for (uint32_t i = 0; i < faceCount; i++) {
+			if (m_faceFlags[i] & FaceFlags::Ignore)
+				continue;
 			const RawFace &face = m_faces[i];
 			for (uint32_t j = 0; j < face.nIndices; j++) {
 				const uint32_t vertex0 = m_indices[face.firstIndex + j];
@@ -3458,6 +3485,7 @@ public:
 				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
 				const RawEdge *oppositeEdge = findEdge(vertex1, vertex0);
 				if (oppositeEdge) {
+					XA_DEBUG_ASSERT(!(m_faceFlags[oppositeEdge->face] & FaceFlags::Ignore));
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
 				} else {
 					m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex0); // HE mesh boundary edge winding is backwards
@@ -3483,8 +3511,10 @@ public:
 				for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 					EdgeKey key(it0.vertex(), it1.vertex());
 					const EdgeMap::Element *ele = m_edgeMap.get(key);
-					if (ele)
+					if (ele) {
+						XA_DEBUG_ASSERT(!(m_faceFlags[ele->value.face] & FaceFlags::Ignore));
 						return &ele->value;
+					}
 				}
 			}
 		}
@@ -3868,15 +3898,45 @@ private:
 	{
 		const RawFace &face = m_faces[faceIndex];
 		for (uint32_t i = 0; i < face.nIndices; i++) {
-			const uint32_t vertex0 = m_indices[face.firstIndex + i];
-			const uint32_t vertex1 = m_indices[face.firstIndex + (i + 1) % face.nIndices];
 			RawEdge edge;
 			edge.relativeIndex = i;
 			edge.face = faceIndex;
 			edge.index0 = face.firstIndex + i;
 			edge.index1 = face.firstIndex + (i + 1) % face.nIndices;
-			m_edgeMap.add(EdgeKey(vertex0, vertex1), edge);
+			const uint32_t vertex0 = m_indices[edge.index0];
+			const uint32_t vertex1 = m_indices[edge.index1];
+			// Copy HE mesh behavior: disconnect colocals belonging to duplicate edges.
+			if (!m_colocals.isEmpty()) {
+				bool foundDuplicate = false;
+				for (ConstColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
+					for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
+						if (m_edgeMap.get(EdgeKey(it0.vertex(), it1.vertex()))) {
+							foundDuplicate = true;
+							break;
+						}
+					}
+					if (foundDuplicate)
+						break;
+				}
+				if (foundDuplicate) {
+					disconnectColocal(vertex0);
+					disconnectColocal(vertex1);
+				}
+			}
+			EdgeKey key(vertex0, vertex1);
+			//if (!m_edgeMap.get(key))
+			m_edgeMap.add(key, edge);
 		}
+	}
+
+	void disconnectColocal(uint32_t vertex)
+	{
+		const uint32_t vertexCount = m_colocals.size();
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			if (m_colocals[v] == vertex)
+				m_colocals[v] = m_colocals[vertex];
+		}
+		m_colocals[vertex] = vertex;
 	}
 
 	bool findVertices(uint32_t edge, uint32_t *vertex0, uint32_t *vertex1) const {
@@ -3898,6 +3958,7 @@ private:
 	{
 		for (uint32_t i = 0; i < m_faces.size(); i++) {
 			const RawFace &face = m_faces[i];
+			XA_DEBUG_ASSERT(!(m_faceFlags[i] & FaceFlags::Ignore));
 			for (uint32_t j = 0; j < face.nIndices; j++) {
 				const uint32_t vertex0 = m_indices[face.firstIndex + j];
 				const uint32_t vertex1 = m_indices[face.firstIndex + (j + 1) % face.nIndices];
@@ -10009,6 +10070,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			texcoord = DecodeUv(meshDecl, i);
 		rawMesh->addVertex(DecodePosition(meshDecl, i), normal, texcoord);
 	}
+	rawMesh->createColocalsWithCanonicalMap(canonicalMap);
 	for (uint32_t i = 0; i < meshDecl.indexCount / 3; i++) {
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
@@ -10049,7 +10111,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			faceFlags |= internal::FaceFlags::Ignore;
 		rawMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
-	rawMesh->createColocalsWithCanonicalMap(canonicalMap);
 	rawMesh->createBoundaryEdges();
 #if XA_USE_HE_MESH
 	rawMesh->verify(ctx->heMeshes[ctx->heMeshes.size() - 1]);
