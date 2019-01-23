@@ -3371,10 +3371,11 @@ public:
 			edge.index0 = face.firstIndex + i;
 			edge.index1 = face.firstIndex + (i + 1) % face.nIndices;
 			m_edges.push_back(edge);
+			const uint32_t edgeIndex = m_edges.size() - 1;
 			const uint32_t vertex0 = m_indices[edge.index0];
 			const uint32_t vertex1 = m_indices[edge.index1];
-			m_vertexToEdgeMap.add(vertex0, m_edges.size() - 1);
-			m_vertexToEdgeMap.add(vertex1, m_edges.size() - 1);
+			m_vertexToEdgeMap.add(vertex0, edgeIndex);
+			m_vertexToEdgeMap.add(vertex1, edgeIndex);
 			// Copy HE mesh behavior: disconnect colocals belonging to duplicate edges.
 			if (!m_colocals.isEmpty()) {
 				bool foundDuplicate = false;
@@ -3395,7 +3396,7 @@ public:
 			}
 			EdgeKey key(vertex0, vertex1);
 			//if (!m_edgeMap.get(key))
-			m_edgeMap.add(key, edge);
+			m_edgeMap.add(key, edgeIndex);
 		}
 	}
 
@@ -3502,15 +3503,16 @@ public:
 			EdgeKey key(vertex0, vertex1);
 			const EdgeMap::Element *ele = m_edgeMap.get(key);
 			if (ele)
-				return &ele->value;
+				return &m_edges[ele->value];
 		} else {
 			for (ConstColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
 				for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 					EdgeKey key(it0.vertex(), it1.vertex());
 					const EdgeMap::Element *ele = m_edgeMap.get(key);
 					if (ele) {
-						XA_DEBUG_ASSERT(!(m_faceFlags[ele->value.face] & FaceFlags::Ignore));
-						return &ele->value;
+						const RawEdge *edge = &m_edges[ele->value];
+						XA_DEBUG_ASSERT(!(m_faceFlags[edge->face] & FaceFlags::Ignore));
+						return edge;
 					}
 				}
 			}
@@ -3953,7 +3955,7 @@ private:
 		uint32_t v1;
 	};
 
-	typedef HashMap<EdgeKey, RawEdge> EdgeMap;
+	typedef HashMap<EdgeKey, uint32_t> EdgeMap;
 	EdgeMap m_edgeMap;
 	typedef HashMap<uint32_t, uint32_t> VertexToEdgeMap;
 	VertexToEdgeMap m_vertexToEdgeMap;
