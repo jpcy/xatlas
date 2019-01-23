@@ -3307,7 +3307,7 @@ public:
 					// edge is a boundary edge
 					const halfedge::Edge * const boundaryStartEdge = heEdge->pair;
 					const halfedge::Edge *boundaryEdge = boundaryStartEdge;
-					const uint32_t rawBoundaryStartEdge = face.firstIndex + edgeIndex;//m_boundaryEdges[face.firstIndex + edgeIndex];
+					const uint32_t rawBoundaryStartEdge = face.firstIndex + edgeIndex;//m_nextBoundaryEdges[face.firstIndex + edgeIndex];
 					uint32_t rawBoundaryEdge = rawBoundaryStartEdge;
 					for (;;) {
 						// NOTE: flip winding to match HE
@@ -3317,7 +3317,7 @@ public:
 						XA_DEBUG_ASSERT(boundaryEdge->from()->pos == m_positions[vertex0]);
 						XA_DEBUG_ASSERT(boundaryEdge->to()->pos == m_positions[vertex1]);
 						boundaryEdge = boundaryEdge->next;
-						rawBoundaryEdge = m_boundaryEdges[rawBoundaryEdge];
+						rawBoundaryEdge = m_nextBoundaryEdges[rawBoundaryEdge];
 						if (boundaryEdge == boundaryStartEdge) {
 							XA_DEBUG_ASSERT(rawBoundaryEdge == rawBoundaryStartEdge);
 							break;
@@ -3325,7 +3325,7 @@ public:
 					}
 
 				} else {
-					XA_DEBUG_ASSERT(m_boundaryEdges[face.firstIndex + edgeIndex] == UINT32_MAX);
+					XA_DEBUG_ASSERT(m_nextBoundaryEdges[face.firstIndex + edgeIndex] == UINT32_MAX);
 				}
 				edgeIndex++;
 			}
@@ -3464,10 +3464,12 @@ public:
 		const uint32_t faceCount = m_faces.size();
 		const uint32_t vertexCount = m_positions.size();
 		m_boundaryEdges.resize(edgeCount);
-		m_boundaryVertices.resize(vertexCount);
+		m_nextBoundaryEdges.resize(edgeCount);
 		m_oppositeEdges.resize(edgeCount);
+		m_boundaryVertices.resize(vertexCount);
 		for (uint32_t i = 0; i < edgeCount; i++) {
-			m_boundaryEdges[i] = UINT32_MAX;
+			m_boundaryEdges[i] = false;
+			m_nextBoundaryEdges[i] = UINT32_MAX;
 			m_oppositeEdges[i] = UINT32_MAX;
 		}
 		for (uint32_t i = 0; i < vertexCount; i++)
@@ -3486,10 +3488,30 @@ public:
 					XA_DEBUG_ASSERT(!(m_faceFlags[oppositeEdge->face] & FaceFlags::Ignore));
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
 				} else {
-					m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex0); // HE mesh boundary edge winding is backwards
-					//m_boundaryEdges[face.firstIndex + j] = findBoundaryEdge(vertex1);
+					m_boundaryEdges[face.firstIndex + j] = true;
 					m_boundaryVertices[vertex1] = true; // Should be both vertices, but match HE mesh behavior instead.
 					nBoundaryEdges++;
+				}
+			}
+		}
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			if (!m_boundaryEdges[i])
+				continue;
+			const RawEdge &edge = m_edges[i];
+			// Find a boundary edge that ends with the provided vertex (including colocals).
+			const uint32_t endVertex = m_indices[edge.index0]; // HE mesh boundary edge winding is backwards
+			for (ColocalIterator it(this, endVertex); !it.isDone(); it.advance()) {
+				const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
+				while (ele) {
+					const RawEdge &otherEdge = m_edges[ele->value];
+					const uint32_t vertex0 = m_indices[otherEdge.index0];
+					const uint32_t vertex1 = m_indices[otherEdge.index1];
+					// Must be a boundary edge.
+					if (vertex1 == it.vertex() && !(m_faceFlags[otherEdge.face] & FaceFlags::Ignore) && !findEdge(vertex1, vertex0)) {
+						m_nextBoundaryEdges[i] = ele->value;
+						break;
+					}
+					ele = m_vertexToEdgeMap.getNext(ele);
 				}
 			}
 		}
@@ -3695,7 +3717,7 @@ public:
 	uint32_t edgeCount() const { return m_edges.size(); }
 	const RawEdge *edgeAt(uint32_t edge) const { return &m_edges[edge]; }
 	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
-	bool isBoundaryEdge(uint32_t edge) const { return m_boundaryEdges[edge] != UINT32_MAX; }
+	bool isBoundaryEdge(uint32_t edge) const { return m_nextBoundaryEdges[edge] != UINT32_MAX; }
 	bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
 	uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
 	uint32_t vertexCount() const { return m_positions.size(); }
@@ -3720,7 +3742,7 @@ public:
 		{
 			if (m_first == UINT32_MAX)
 				m_first = m_current;
-			m_current = m_mesh->m_boundaryEdges[m_current];
+			m_current = m_mesh->m_nextBoundaryEdges[m_current];
 		}
 
 		bool isDone() const
@@ -3735,7 +3757,7 @@ public:
 
 		uint32_t nextEdge() const
 		{
-			return m_mesh->m_boundaryEdges[m_current];
+			return m_mesh->m_nextBoundaryEdges[m_current];
 		}
 
 	private:
@@ -3862,31 +3884,14 @@ public:
 private:
 	void disconnectColocal(uint32_t vertex)
 	{
+		if (m_colocals[vertex] == vertex)
+			return;
 		const uint32_t vertexCount = m_colocals.size();
 		for (uint32_t v = 0; v < vertexCount; v++) {
 			if (m_colocals[v] == vertex)
 				m_colocals[v] = m_colocals[vertex];
 		}
 		m_colocals[vertex] = vertex;
-	}
-
-	// Find a boundary edge that ends with the provided vertex (including colocals).
-	// Returns the boundary edge index if found, otherwise UINT32_MAX.
-	uint32_t findBoundaryEdge(uint32_t endVertex /*startVertex*/)
-	{
-		for (ColocalIterator it(this, endVertex); !it.isDone(); it.advance()) {
-			const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
-			while (ele) {
-				const RawEdge &edge = m_edges[ele->value];
-				const uint32_t vertex0 = m_indices[edge.index0];
-				const uint32_t vertex1 = m_indices[edge.index1];
-				// Must be a boundary edge.
-				if (vertex1 == it.vertex() && !(m_faceFlags[edge.face] & FaceFlags::Ignore) && !findEdge(vertex1, vertex0))
-					return ele->value;
-				ele = m_vertexToEdgeMap.getNext(ele);
-			}
-		}
-		return UINT32_MAX;
 	}
 
 	Array<RawEdge> m_edges;
@@ -3899,7 +3904,8 @@ private:
 	Array<Vector2> m_texcoords;
 	uint32_t m_colocalVertexCount;
 	Array<uint32_t> m_colocals; // In: vertex index. Out: the vertex index of the next colocal position.
-	Array<uint32_t> m_boundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
+	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
+	Array<bool> m_boundaryEdges;
 	Array<bool> m_boundaryVertices;
 
 	struct EdgeKey
