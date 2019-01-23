@@ -3259,7 +3259,7 @@ public:
 			for (uint32_t v = 0; v < 15/*heMesh->vertexCount()*/; v++) {
 				printf("%d", isBoundaryVertex(v) ? 1 : 0);
 			}
-			/*for (ConstColocalIterator it(this, 0); !it.isDone(); it.advance()) {
+			/*for (ColocalIterator it(this, 0); !it.isDone(); it.advance()) {
 				printf("%d ", it.vertex());
 			}*/
 			printf("\n");
@@ -3271,7 +3271,7 @@ public:
 			XA_DEBUG_ASSERT(heVertex->tex == m_texcoords[v]);
 			// colocals
 			halfedge::Vertex::ConstVertexIterator heIt(heVertex->colocals());
-			ConstColocalIterator it(this, v);
+			ColocalIterator it(this, v);
 			for (;;) {
 				XA_DEBUG_ASSERT(heIt.isDone() == it.isDone());
 				if (heIt.isDone())
@@ -3379,8 +3379,8 @@ public:
 			// Copy HE mesh behavior: disconnect colocals belonging to duplicate edges.
 			if (!m_colocals.isEmpty()) {
 				bool foundDuplicate = false;
-				for (ConstColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
-					for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
+				for (ColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
+					for (ColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 						if (m_edgeMap.get(EdgeKey(it0.vertex(), it1.vertex()))) {
 							foundDuplicate = true;
 							break;
@@ -3505,8 +3505,8 @@ public:
 			if (ele)
 				return &m_edges[ele->value];
 		} else {
-			for (ConstColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
-				for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
+			for (ColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
+				for (ColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 					EdgeKey key(it0.vertex(), it1.vertex());
 					const EdgeMap::Element *ele = m_edgeMap.get(key);
 					if (ele) {
@@ -3555,7 +3555,7 @@ public:
 	{
 		float area = 0;
 		Vector3 firstPos;
-		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+		for (EdgeIterator it(this, face); !it.isDone(); it.advance()) {
 			if (it.relativeEdge() == 0)
 				firstPos = it.position0();
 			else
@@ -3568,7 +3568,7 @@ public:
 	{
 		Vector3 sum(0.0f);
 		uint32_t count = 0;
-		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+		for (EdgeIterator it(this, face); !it.isDone(); it.advance()) {
 			sum += it.position0();
 			count++;
 		}
@@ -3579,7 +3579,7 @@ public:
 	{
 		Vector3 n(0);
 		Vector3 p0;
-		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+		for (EdgeIterator it(this, face); !it.isDone(); it.advance()) {
 			if (it.relativeEdge() == 0) {
 				p0 = it.position0();
 			} else if (it.position1() != p0) {
@@ -3597,7 +3597,7 @@ public:
 	{
 		float area = 0;
 		Vector2 firstTexcoord;
-		for (ConstEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+		for (EdgeIterator it(this, face); !it.isDone(); it.advance()) {
 			if (it.relativeEdge() == 0)
 				firstTexcoord = it.texcoord0();
 			else
@@ -3672,7 +3672,7 @@ public:
 
 	uint32_t firstColocal(uint32_t vertex) const
 	{
-		for (ConstColocalIterator it(this, vertex); !it.isDone(); it.advance()) {
+		for (ColocalIterator it(this, vertex); !it.isDone(); it.advance()) {
 			if (it.vertex() < vertex)
 				vertex = it.vertex();
 		}
@@ -3685,7 +3685,7 @@ public:
 			return true;
 		if (m_colocals.isEmpty())
 			return false;
-		for (ConstColocalIterator it(this, vertex0); !it.isDone(); it.advance()) {
+		for (ColocalIterator it(this, vertex0); !it.isDone(); it.advance()) {
 			if (it.vertex() == vertex1)
 				return true;
 		}
@@ -3711,10 +3711,10 @@ public:
 	RawFace *faceAt(uint32_t i) { return &m_faces[i]; }
 	uint32_t faceFlagsAt(uint32_t i) const { return m_faceFlags[i]; }
 
-	class ConstBoundaryEdgeIterator
+	class BoundaryEdgeIterator
 	{
 	public:
-		ConstBoundaryEdgeIterator(const RawMesh *mesh, uint32_t edge) : m_mesh(mesh), m_first(UINT32_MAX), m_current(edge) {}
+		BoundaryEdgeIterator(const RawMesh *mesh, uint32_t edge) : m_mesh(mesh), m_first(UINT32_MAX), m_current(edge) {}
 
 		void advance()
 		{
@@ -3747,40 +3747,7 @@ public:
 	class ColocalIterator
 	{
 	public:
-		ColocalIterator(RawMesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
-
-		void advance()
-		{
-			if (m_first == UINT32_MAX)
-				m_first = m_current;
-			m_current = m_mesh->m_colocals[m_current];
-		}
-
-		bool isDone() const
-		{
-			return m_first == m_current;
-		}
-
-		uint32_t index() const
-		{
-			return m_current;
-		}
-
-		Vector3 *pos() const
-		{
-			return &m_mesh->m_positions[m_current];
-		}
-
-	private:
-		RawMesh *m_mesh;
-		uint32_t m_first;
-		uint32_t m_current;
-	};
-
-	class ConstColocalIterator
-	{
-	public:
-		ConstColocalIterator(const RawMesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
+		ColocalIterator(const RawMesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
 
 		void advance()
 		{
@@ -3811,10 +3778,10 @@ public:
 		uint32_t m_current;
 	};
 
-	class ConstEdgeIterator
+	class EdgeIterator
 	{
 	public:
-		ConstEdgeIterator(const RawMesh *mesh, uint32_t face = UINT32_MAX) : m_mesh(mesh), m_restrictFace(face), m_face(0), m_edge(0), m_relativeEdge(0)
+		EdgeIterator(const RawMesh *mesh, uint32_t face = UINT32_MAX) : m_mesh(mesh), m_restrictFace(face), m_face(0), m_edge(0), m_relativeEdge(0)
 		{
 			if (m_restrictFace != UINT32_MAX) {
 				m_face = m_restrictFace;
@@ -3907,7 +3874,7 @@ private:
 	// Returns the boundary edge index if found, otherwise UINT32_MAX.
 	uint32_t findBoundaryEdge(uint32_t endVertex /*startVertex*/)
 	{
-		for (ConstColocalIterator it(this, endVertex); !it.isDone(); it.advance()) {
+		for (ColocalIterator it(this, endVertex); !it.isDone(); it.advance()) {
 			const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
 			while (ele) {
 				const RawEdge &edge = m_edges[ele->value];
@@ -4032,7 +3999,7 @@ static RawMesh *rawMeshSplitBoundaryEdges(const RawMesh &inputMesh) // Returns N
 	Array<uint32_t> indexArray;
 	for (uint32_t f = 0; f < faceCount; f++) {
 		indexArray.clear();
-		for (RawMesh::ConstEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
+		for (RawMesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
 			indexArray.push_back(it.vertex0());
 			for (uint32_t se = 0; se < splitEdges.size(); se++) {
 				const SplitEdge &splitEdge = splitEdges[se];
@@ -4069,7 +4036,7 @@ static RawMesh *rawMeshTriangulate(const RawMesh &inputMesh)
 		polygonVertices.reserve(edgeCount);
 		if (edgeCount == 3) {
 			// Simple case for triangles.
-			for (RawMesh::ConstEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
+			for (RawMesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
 				polygonVertices.push_back(it.vertex0());
 			mesh->addFace(polygonVertices[0], polygonVertices[1], polygonVertices[2]);
 		} else {
@@ -4083,7 +4050,7 @@ static RawMesh *rawMeshTriangulate(const RawMesh &inputMesh)
 			polygonPoints.reserve(edgeCount);
 			polygonAngles.clear();
 			polygonAngles.reserve(edgeCount);
-			for (RawMesh::ConstEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
+			for (RawMesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
 				polygonVertices.push_back(it.vertex0());
 				const Vector3 &pos = it.position0();
 				polygonPoints.push_back(Vector2(dot(basis.tangent, pos), dot(basis.bitangent, pos)));
@@ -4156,7 +4123,7 @@ static RawMesh *rawMeshUnifyVertices(const RawMesh &inputMesh)
 	// Add new faces pointing to first colocals.
 	for (uint32_t f = 0; f < faceCount; f++) {
 		indexArray.clear();
-		for (RawMesh::ConstEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
+		for (RawMesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
 			indexArray.push_back(inputMesh.firstColocal(it.vertex0()));
 		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
 	}
@@ -4176,7 +4143,7 @@ static void rawMeshGetBoundaryEdges(const RawMesh &mesh, Array<uint32_t> &bounda
 	for (uint32_t e = 0; e < edgeCount; e++) {
 		if (bitFlags.bitAt(e) || !mesh.isBoundaryEdge(e))
 			continue;
-		for (RawMesh::ConstBoundaryEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
+		for (RawMesh::BoundaryEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
 			bitFlags.setBitAt(it.edge());
 		boundaryEdges.push_back(e);
 		//const Vector3 *pos = mesh.positionAt(mesh.vertexAt(mesh.edgeAt(e)->index1)); // NOTE: index1, not index0. HE mesh version iterates edge pairs, so winding is backwards.
@@ -4233,7 +4200,7 @@ private:
 					stack.pop_back();
 					if (bitFlags.bitAt(top) == false) {
 						bitFlags.setBitAt(top);
-						for (RawMesh::ConstEdgeIterator it(mesh, top); !it.isDone(); it.advance()) {
+						for (RawMesh::EdgeIterator it(mesh, top); !it.isDone(); it.advance()) {
 							const uint32_t oppositeFace = it.oppositeFace();
 							if (oppositeFace != UINT32_MAX)
 								stack.push_back(oppositeFace);
@@ -4254,7 +4221,7 @@ private:
 			if (bitFlags.bitAt(e) || !mesh->isBoundaryEdge(e))
 				continue;
 			m_boundaryCount++;
-			for (RawMesh::ConstBoundaryEdgeIterator it(mesh, e); !it.isDone(); it.advance())
+			for (RawMesh::BoundaryEdgeIterator it(mesh, e); !it.isDone(); it.advance())
 				bitFlags.setBitAt(it.edge());
 		}
 		XA_PRINT(PrintFlags::ComputingCharts, "---   %d boundary loops found.\n", m_boundaryCount);
@@ -5538,7 +5505,7 @@ static bool computeLeastSquaresConformalMap(RawMesh *mesh)
 		const RawFace *face = mesh->faceAt(f);
 		XA_DEBUG_ASSERT(face->nIndices == 3);
 		uint32_t vertex0 = UINT32_MAX;
-		for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+		for (RawMesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
 			if (vertex0 == UINT32_MAX) {
 				vertex0 = it.vertex0();
 			} else if (it.vertex1() != vertex0) {
@@ -5666,7 +5633,7 @@ static void computeSingleFaceMap(RawMesh *mesh)
 	Vector3 Z = mesh->faceNormal(0);
 	Vector3 Y = normalizeSafe(cross(Z, X), Vector3(0.0f), 0.0f);
 	uint32_t i = 0;
-	for (RawMesh::ConstEdgeIterator it(mesh, 0); !it.isDone(); it.advance(), i++) {
+	for (RawMesh::EdgeIterator it(mesh, 0); !it.isDone(); it.advance(), i++) {
 		if (i == 0) {
 			*mesh->texcoordAt(it.vertex0()) = Vector2(0);
 		} else {
@@ -6453,7 +6420,7 @@ struct RawAtlasBuilder
 				continue;
 			float &faceArea = m_faceAreas[f];
 			Vector3 firstPos;
-			for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+			for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 				m_edgeLengths[it.edge()] = internal::length(it.position1() - it.position0());
 				//printf("edge %d length: %g\n", it.edge(), m_edgeLengths[it.edge()]);
 				if (it.relativeEdge() == 0)
@@ -6604,7 +6571,7 @@ struct RawAtlasBuilder
 	void updateCandidates(ChartBuildData *chart, uint32_t f)
 	{
 		// Traverse neighboring faces, add the ones that do not belong to any chart yet.
-		for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			const RawEdge *oppositeEdge = m_mesh->findEdge(it.vertex1(), it.vertex0());
 			if (!oppositeEdge)
 				continue;
@@ -6751,7 +6718,7 @@ struct RawAtlasBuilder
 		float l_in = 0.0f;
 		if (m_mesh->faceFlagsAt(f) & FaceFlags::Ignore)
 			return 1.0f;
-		for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			float l = m_edgeLengths[it.edge()];
 			if (it.isBoundary()) {
 				l_out += l;
@@ -6772,7 +6739,7 @@ struct RawAtlasBuilder
 	{
 		float seamFactor = 0.0f;
 		float totalLength = 0.0f;
-		for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			if (it.isBoundary())
 				continue;
 			if (m_faceChartArray[it.oppositeFace()] != chart->id)
@@ -6803,7 +6770,7 @@ struct RawAtlasBuilder
 	{
 		float seamLength = 0.0f;
 		float totalLength = 0.0f;
-		for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			if (it.isBoundary())
 				continue;
 			if (m_faceChartArray[it.oppositeFace()] != chart->id)
@@ -6830,7 +6797,7 @@ struct RawAtlasBuilder
 	{
 		float boundaryLength = chart->boundaryLength;
 		// Add new edges, subtract edges shared with the chart.
-		for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			const float edgeLength = m_edgeLengths[it.edge()];
 			if (it.isBoundary()) {
 				boundaryLength += edgeLength;
@@ -6881,7 +6848,7 @@ struct RawAtlasBuilder
 			const uint32_t faceCount = chart->faces.size();
 			for (uint32_t i = 0; i < faceCount; i++) {
 				uint32_t f = chart->faces[i];
-				for (RawMesh::ConstEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+				for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 					const float l = m_edgeLengths[it.edge()];
 					if (it.isBoundary()) {
 						externalBoundary += l;
@@ -7306,7 +7273,7 @@ public:
 #if XA_USE_RAW_MESH
 		const uint32_t rawFaceCount = faceArray.size();
 		for (uint32_t f = 0; f < rawFaceCount; f++) {
-			for (RawMesh::ConstEdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
+			for (RawMesh::EdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
 				const uint32_t vertex = it.vertex0();
 				const uint32_t unifiedVertex = rawOriginalMesh->firstColocal(vertex);
 				if (rawUnifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
@@ -7359,11 +7326,11 @@ public:
 		for (uint32_t f = 0; f < rawFaceCount; f++) {
 			const uint32_t faceFlags = rawOriginalMesh->faceFlagsAt(faceArray[f]);
 			rawFaceIndices.clear();
-			for (RawMesh::ConstEdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance())
+			for (RawMesh::EdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance())
 				rawFaceIndices.push_back(rawChartMeshIndices[it.vertex0()]);
 			m_rawChartMesh->addFace(rawFaceIndices, faceFlags);
 			rawFaceIndices.clear();
-			for (RawMesh::ConstEdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
+			for (RawMesh::EdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
 				uint32_t unifiedVertex = rawOriginalMesh->firstColocal(it.vertex0());
 				if (unifiedVertex == UINT32_MAX)
 					unifiedVertex = it.vertex0();
@@ -7878,7 +7845,7 @@ private:
 #endif
 #if XA_USE_RAW_MESH
 			float rawBoundaryLength = 0.0f;
-			for (RawMesh::ConstBoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
+			for (RawMesh::BoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
 				const RawEdge *rawEdge = m_rawUnifiedMesh->edgeAt(it.edge());
 				Vector3 t0 = *m_rawUnifiedMesh->positionAt(m_rawUnifiedMesh->vertexAt(rawEdge->index0));
 				Vector3 t1 = *m_rawUnifiedMesh->positionAt(m_rawUnifiedMesh->vertexAt(rawEdge->index1));
@@ -7961,7 +7928,7 @@ private:
 			Array<uint32_t> rawVertexLoop;
 			Array<const RawEdge *> rawEdgeLoop, rawEdgeLoop2;
 			startOver:
-			for (RawMesh::ConstBoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
+			for (RawMesh::BoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
 				const RawEdge *rawEdge = m_rawUnifiedMesh->edgeAt(it.edge());
 				const RawEdge *rawNextEdge = m_rawUnifiedMesh->edgeAt(it.nextEdge());
 				const uint32_t vertex = m_rawUnifiedMesh->vertexAt(rawNextEdge->index1); // why next edge??? matching HE mesh behavior
@@ -8273,7 +8240,7 @@ public:
 			uint32_t vertex0 = UINT32_MAX;
 			Vector3 p[3];
 			Vector2 t[3];
-			for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+			for (RawMesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
 				if (vertex0 == UINT32_MAX) {
 					vertex0 = it.vertex0();
 					p[0] = it.position0();
@@ -9433,7 +9400,7 @@ private:
 			const RawMesh *mesh = chart->rawChartMesh();
 			Vector2 vertices[3];
 			uint32_t edgeCount = 0;
-			for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+			for (RawMesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
 				if (edgeCount < 3)
 					vertices[edgeCount] = it.texcoord0() + Vector2(0.5f) + Vector2(float(padding), float(padding));
 				edgeCount++;
@@ -9509,7 +9476,7 @@ private:
 				const RawMesh *mesh = chart->rawChartMesh();
 				Vector2 vertices[3];
 				uint32_t edgeCount = 0;
-				for (RawMesh::ConstEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+				for (RawMesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
 					if (edgeCount < 3) {
 						vertices[edgeCount] = it.texcoord0() * scale + offset + pad[i];
 						XA_ASSERT(ftoi_ceil(vertices[edgeCount].x) >= 0);
