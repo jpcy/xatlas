@@ -1259,7 +1259,9 @@ public:
 
 	~HashMap()
 	{
-		clear();
+		if (m_slots)
+			XA_FREE(m_slots);
+		m_elements.clear();
 	}
 
 	void add(const Key &key, const Value &value)
@@ -1293,13 +1295,6 @@ public:
 			i = element->next;
 		}
 		return false;
-	}
-
-	void clear()
-	{
-		if (m_slots)
-			XA_FREE(m_slots);
-		m_elements.clear();
 	}
 
 	struct Element
@@ -3244,12 +3239,6 @@ public:
 		m_texcoords.reserve(approxVertexCount);
 	}
 
-	RawMesh(const RawMesh *mesh) : m_edges(mesh->m_edges), m_oppositeEdges(mesh->m_oppositeEdges), m_faces(mesh->m_faces), m_faceFlags(mesh->m_faceFlags), m_indices(mesh->m_indices), m_positions(mesh->m_positions), m_normals(mesh->m_normals), m_texcoords(mesh->m_texcoords), m_colocalVertexCount(mesh->m_colocalVertexCount), m_colocals(mesh->m_colocals), m_boundaryEdges(mesh->m_boundaryEdges), m_boundaryVertices(mesh->m_boundaryVertices), m_edgeMap(mesh->faceCount() * 3), m_vertexToEdgeMap(mesh->vertexCount())
-	{
-		for (uint32_t i = 0; i < mesh->m_faces.size(); i++)
-			addFaceEdgesToMap(i);
-	}
-
 #if XA_USE_HE_MESH
 	void verify(const halfedge::Mesh *heMesh) const
 	{
@@ -3344,23 +3333,6 @@ public:
 	}
 #endif
 
-	void clear()
-	{
-		m_edges.clear();
-		m_oppositeEdges.clear();
-		m_faces.clear();
-		m_faceFlags.clear();
-		m_indices.clear();
-		m_positions.clear();
-		m_normals.clear();
-		m_texcoords.clear();
-		m_colocals.clear();
-		m_boundaryEdges.clear();
-		m_boundaryVertices.clear();
-		m_edgeMap.clear();
-		m_vertexToEdgeMap.clear();
-	}
-
 	void addVertex(const Vector3 &pos, const Vector3 &normal = Vector3(0.0f), const Vector2 &texcoord = Vector2(0.0f))
 	{
 		XA_DEBUG_ASSERT(isFinite(pos));
@@ -3399,10 +3371,32 @@ public:
 			edge.index0 = face.firstIndex + i;
 			edge.index1 = face.firstIndex + (i + 1) % face.nIndices;
 			m_edges.push_back(edge);
-			m_vertexToEdgeMap.add(m_indices[edge.index0], m_edges.size() - 1);
-			m_vertexToEdgeMap.add(m_indices[edge.index1], m_edges.size() - 1);
+			const uint32_t vertex0 = m_indices[edge.index0];
+			const uint32_t vertex1 = m_indices[edge.index1];
+			m_vertexToEdgeMap.add(vertex0, m_edges.size() - 1);
+			m_vertexToEdgeMap.add(vertex1, m_edges.size() - 1);
+			// Copy HE mesh behavior: disconnect colocals belonging to duplicate edges.
+			if (!m_colocals.isEmpty()) {
+				bool foundDuplicate = false;
+				for (ConstColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
+					for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
+						if (m_edgeMap.get(EdgeKey(it0.vertex(), it1.vertex()))) {
+							foundDuplicate = true;
+							break;
+						}
+					}
+					if (foundDuplicate)
+						break;
+				}
+				if (foundDuplicate) {
+					disconnectColocal(vertex0);
+					disconnectColocal(vertex1);
+				}
+			}
+			EdgeKey key(vertex0, vertex1);
+			//if (!m_edgeMap.get(key))
+			m_edgeMap.add(key, edge);
 		}
-		addFaceEdgesToMap(m_faces.size() - 1);
 	}
 
 	void createColocals()
@@ -3897,41 +3891,6 @@ public:
 	};
 
 private:
-	void addFaceEdgesToMap(uint32_t faceIndex)
-	{
-		const RawFace &face = m_faces[faceIndex];
-		for (uint32_t i = 0; i < face.nIndices; i++) {
-			RawEdge edge;
-			edge.relativeIndex = i;
-			edge.face = faceIndex;
-			edge.index0 = face.firstIndex + i;
-			edge.index1 = face.firstIndex + (i + 1) % face.nIndices;
-			const uint32_t vertex0 = m_indices[edge.index0];
-			const uint32_t vertex1 = m_indices[edge.index1];
-			// Copy HE mesh behavior: disconnect colocals belonging to duplicate edges.
-			if (!m_colocals.isEmpty()) {
-				bool foundDuplicate = false;
-				for (ConstColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
-					for (ConstColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
-						if (m_edgeMap.get(EdgeKey(it0.vertex(), it1.vertex()))) {
-							foundDuplicate = true;
-							break;
-						}
-					}
-					if (foundDuplicate)
-						break;
-				}
-				if (foundDuplicate) {
-					disconnectColocal(vertex0);
-					disconnectColocal(vertex1);
-				}
-			}
-			EdgeKey key(vertex0, vertex1);
-			//if (!m_edgeMap.get(key))
-			m_edgeMap.add(key, edge);
-		}
-	}
-
 	void disconnectColocal(uint32_t vertex)
 	{
 		const uint32_t vertexCount = m_colocals.size();
@@ -7443,7 +7402,7 @@ public:
 #endif
 #if XA_USE_RAW_MESH
 		if (splitUnifiedMesh) {
-			RawMesh *newUnifiedMesh = rawMeshUnifyVertices(m_rawUnifiedMesh);
+			RawMesh *newUnifiedMesh = rawMeshUnifyVertices(*m_rawUnifiedMesh);
 			m_rawUnifiedMesh->~RawMesh();
 			XA_FREE(m_rawUnifiedMesh);
 			m_rawUnifiedMesh = newUnifiedMesh;
@@ -7478,7 +7437,7 @@ public:
 		// Analyze chart topology.
 #endif
 #if XA_USE_RAW_MESH
-		RawMesh *newRawUnifiedMesh = rawMeshTriangulate(m_rawUnifiedMesh);
+		RawMesh *newRawUnifiedMesh = rawMeshTriangulate(*m_rawUnifiedMesh);
 		m_rawUnifiedMesh->~RawMesh();
 		XA_FREE(m_rawUnifiedMesh);
 		m_rawUnifiedMesh = newRawUnifiedMesh;
@@ -8059,7 +8018,7 @@ private:
 		XA_DEBUG_ASSERT(boundaryCount == 1);
 #endif
 #if XA_USE_RAW_MESH
-		rawMeshGetBoundaryEdges(m_rawUnifiedMesh, rawBoundaryEdges);
+		rawMeshGetBoundaryEdges(*m_rawUnifiedMesh, rawBoundaryEdges);
 		#if XA_USE_HE_MESH
 		XA_DEBUG_ASSERT(boundaryCount == rawBoundaryEdges.size());
 		#endif
