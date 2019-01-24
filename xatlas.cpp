@@ -58,8 +58,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define XA_EPSILON          (0.0001f)
 #define XA_NORMAL_EPSILON   (0.001f)
 
-#define XA_USE_RAW_MESH 1
-
 namespace xatlas {
 namespace internal {
 
@@ -1656,7 +1654,6 @@ private:
 	}
 };
 
-#if XA_USE_RAW_MESH
 struct RawEdge
 {
 	uint32_t relativeIndex; // absolute: face.firstIndex + relativeIndex
@@ -2608,8 +2605,6 @@ private:
 	int m_genus;
 };
 
-#endif
-
 namespace raster {
 class ClippedTriangle
 {
@@ -3558,7 +3553,6 @@ namespace param {
 class Atlas;
 class Chart;
 
-#if XA_USE_RAW_MESH
 // Fast sweep in 3 directions
 static bool findApproximateDiameterVertices(RawMesh *mesh, uint32_t *a, uint32_t *b)
 {
@@ -3615,7 +3609,6 @@ static bool findApproximateDiameterVertices(RawMesh *mesh, uint32_t *a, uint32_t
 	}
 	return true;
 }
-#endif
 
 // Conformal relations from Brecht Van Lommel (based on ABF):
 
@@ -3690,7 +3683,6 @@ static void setup_abf_relations(sparse::Matrix &A, int row, int id0, int id1, in
 	A.setCoefficient(v2_id, 2 * row + 1, 1);
 }
 
-#if XA_USE_RAW_MESH
 static bool computeLeastSquaresConformalMap(RawMesh *mesh)
 {
 	// For this to work properly, mesh should not have colocals that have the same
@@ -3753,9 +3745,7 @@ static bool computeLeastSquaresConformalMap(RawMesh *mesh)
 	}
 	return true;
 }
-#endif
 
-#if XA_USE_RAW_MESH
 static bool computeOrthogonalProjectionMap(RawMesh *mesh)
 {
 	Vector3 axis[2];
@@ -3782,9 +3772,7 @@ static bool computeOrthogonalProjectionMap(RawMesh *mesh)
 		*mesh->texcoordAt(i) = Vector2(dot(axis[0], *mesh->positionAt(i)), dot(axis[1], *mesh->positionAt(i)));
 	return true;
 }
-#endif
 
-#if XA_USE_RAW_MESH
 static void computeSingleFaceMap(RawMesh *mesh)
 {
 	XA_DEBUG_ASSERT(mesh != NULL);
@@ -3808,7 +3796,6 @@ static void computeSingleFaceMap(RawMesh *mesh)
 		}
 	}
 }
-#endif
 
 // Dummy implementation of a priority queue using sort at insertion.
 // - Insertion is o(n)
@@ -3916,7 +3903,6 @@ struct ChartBuildData
 	PriorityQueue candidates;
 };
 
-#if XA_USE_RAW_MESH
 struct RawAtlasBuilder
 {
 	RawAtlasBuilder(const RawMesh *rm, const CharterOptions &options) : m_mesh(rm), m_facesLeft(rm->faceCount()), m_options(options)
@@ -4528,7 +4514,6 @@ private:
 	MTRand m_rand;
 	CharterOptions m_options;
 };
-#endif
 
 /// A chart is a connected set of faces with a certain topology (usually a disk).
 class Chart
@@ -4538,7 +4523,6 @@ public:
 
 	~Chart()
 	{
-#if XA_USE_RAW_MESH
 		if (m_rawChartMesh) {
 			m_rawChartMesh->~RawMesh();
 			XA_FREE(m_rawChartMesh);
@@ -4547,13 +4531,11 @@ public:
 			m_rawUnifiedMesh->~RawMesh();
 			XA_FREE(m_rawUnifiedMesh);
 		}
-#endif
 	}
 
 	void build(const RawMesh *rawOriginalMesh, const Array<uint32_t> &faceArray)
 	{
 		// Copy face indices.
-#if XA_USE_RAW_MESH
 		m_rawFaceArray = faceArray;
 		const uint32_t rawMeshVertexCount = rawOriginalMesh->vertexCount();
 		if (m_rawChartMesh) {
@@ -4570,9 +4552,7 @@ public:
 		rawChartMeshIndices.resize(rawMeshVertexCount, (uint32_t)~0);
 		Array<uint32_t> rawUnifiedMeshIndices;
 		rawUnifiedMeshIndices.resize(rawMeshVertexCount, (uint32_t)~0);
-#endif
 		// Add vertices.
-#if XA_USE_RAW_MESH
 		const uint32_t rawFaceCount = faceArray.size();
 		for (uint32_t f = 0; f < rawFaceCount; f++) {
 			for (RawMesh::EdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
@@ -4594,8 +4574,6 @@ public:
 		// This is ignoring the canonical map:
 		// - Is it really necessary to link colocals?
 		m_rawChartMesh->createColocals();
-#endif
-#if XA_USE_RAW_MESH
 		Array<uint32_t> rawFaceIndices;
 		rawFaceIndices.reserve(7);
 		// Add faces.
@@ -4616,23 +4594,18 @@ public:
 		}
 		m_rawChartMesh->createBoundaryEdges();
 		m_rawUnifiedMesh->createBoundaryEdges();
-#endif
-#if XA_USE_RAW_MESH
 		RawMesh *splitUnifiedMesh = rawMeshSplitBoundaryEdges(*m_rawUnifiedMesh);
 		if (splitUnifiedMesh) {
 			m_rawUnifiedMesh->~RawMesh();
 			XA_FREE(m_rawUnifiedMesh);
 			m_rawUnifiedMesh = splitUnifiedMesh;
 		}
-#endif
-#if XA_USE_RAW_MESH
 		if (splitUnifiedMesh) {
 			RawMesh *newUnifiedMesh = rawMeshUnifyVertices(*m_rawUnifiedMesh);
 			m_rawUnifiedMesh->~RawMesh();
 			XA_FREE(m_rawUnifiedMesh);
 			m_rawUnifiedMesh = newUnifiedMesh;
 		}
-#endif
 		// Closing the holes is not always the best solution and does not fix all the problems.
 		// We need to do some analysis of the holes and the genus to:
 		// - Find cuts that reduce genus.
@@ -4644,71 +4617,63 @@ public:
 			fileName.format("debug_hole_%d.obj", pieceCount++);
 			exportMesh(m_unifiedMesh.ptr(), fileName.str());*/
 		}
-#if XA_USE_RAW_MESH
 		RawMesh *newRawUnifiedMesh = rawMeshTriangulate(*m_rawUnifiedMesh);
 		m_rawUnifiedMesh->~RawMesh();
 		XA_FREE(m_rawUnifiedMesh);
 		m_rawUnifiedMesh = newRawUnifiedMesh;
-#endif
-#if XA_USE_RAW_MESH
 		RawMeshTopology rawTopology(m_rawUnifiedMesh);
 		m_rawIsDisk = rawTopology.isDisk();
 		XA_DEBUG_ASSERT(m_rawIsDisk);
-#endif
 	}
 
 	void buildVertexMap(const RawMesh *originalRawMesh)
 	{
-#if XA_USE_RAW_MESH
-		{
-			XA_ASSERT(m_rawChartMesh == NULL && m_rawUnifiedMesh == NULL);
-			m_rawIsVertexMapped = true;
-			// Build face indices.
-			m_rawFaceArray.clear();
-			const uint32_t meshFaceCount = originalRawMesh->faceCount();
-			for (uint32_t f = 0; f < meshFaceCount; f++) {
-				if ((originalRawMesh->faceFlagsAt(f) & FaceFlags::Ignore) != 0)
-					m_rawFaceArray.push_back(f);
+		XA_ASSERT(m_rawChartMesh == NULL && m_rawUnifiedMesh == NULL);
+		m_rawIsVertexMapped = true;
+		// Build face indices.
+		m_rawFaceArray.clear();
+		const uint32_t meshFaceCount = originalRawMesh->faceCount();
+		for (uint32_t f = 0; f < meshFaceCount; f++) {
+			if ((originalRawMesh->faceFlagsAt(f) & FaceFlags::Ignore) != 0)
+				m_rawFaceArray.push_back(f);
+		}
+		const uint32_t faceCount = m_rawFaceArray.size();
+		if (faceCount != 0) {
+			// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
+			const uint32_t meshVertexCount = originalRawMesh->vertexCount();
+			m_rawChartMesh = XA_NEW(RawMesh);
+			Array<uint32_t> rawChartMeshIndices;
+			rawChartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
+			// Vertex map mesh only has disconnected vertices.
+			for (uint32_t f = 0; f < faceCount; f++) {
+				const RawFace *face = originalRawMesh->faceAt(m_rawFaceArray[f]);
+				XA_DEBUG_ASSERT(face != NULL);
+				for (uint32_t i = 0; i < face->nIndices; i++) {
+					const uint32_t vertex = originalRawMesh->vertexAt(face->firstIndex + i);
+					if (rawChartMeshIndices[vertex] == (uint32_t)~0) {
+						rawChartMeshIndices[vertex] = m_rawChartMesh->vertexCount();
+						m_rawChartToOriginalMap.push_back(vertex);
+						m_rawChartMesh->addVertex(*originalRawMesh->positionAt(vertex));
+					}
+				}
 			}
-			const uint32_t faceCount = m_rawFaceArray.size();
-			if (faceCount != 0) {
-				// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
-				const uint32_t meshVertexCount = originalRawMesh->vertexCount();
-				m_rawChartMesh = XA_NEW(RawMesh);
-				Array<uint32_t> rawChartMeshIndices;
-				rawChartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
-				// Vertex map mesh only has disconnected vertices.
-				for (uint32_t f = 0; f < faceCount; f++) {
-					const RawFace *face = originalRawMesh->faceAt(m_rawFaceArray[f]);
-					XA_DEBUG_ASSERT(face != NULL);
-					for (uint32_t i = 0; i < face->nIndices; i++) {
-						const uint32_t vertex = originalRawMesh->vertexAt(face->firstIndex + i);
-						if (rawChartMeshIndices[vertex] == (uint32_t)~0) {
-							rawChartMeshIndices[vertex] = m_rawChartMesh->vertexCount();
-							m_rawChartToOriginalMap.push_back(vertex);
-							m_rawChartMesh->addVertex(*originalRawMesh->positionAt(vertex));
-						}
-					}
+			// @@ Link colocals using the original mesh canonical map? Build canonical map on the fly? Do we need to link colocals at all for this?
+			//m_chartMesh->linkColocals();
+			Array<uint32_t> faceIndices;
+			faceIndices.reserve(7);
+			// Add faces.
+			for (uint32_t f = 0; f < faceCount; f++) {
+				const RawFace *face = originalRawMesh->faceAt(m_rawFaceArray[f]);
+				XA_DEBUG_ASSERT(face != NULL);
+				faceIndices.clear();
+				for (uint32_t i = 0; i < face->nIndices; i++) {
+					const uint32_t vertex = originalRawMesh->vertexAt(face->firstIndex + i);
+					XA_DEBUG_ASSERT(rawChartMeshIndices[vertex] != (uint32_t)~0);
+					faceIndices.push_back(rawChartMeshIndices[vertex]);
 				}
-				// @@ Link colocals using the original mesh canonical map? Build canonical map on the fly? Do we need to link colocals at all for this?
-				//m_chartMesh->linkColocals();
-				Array<uint32_t> faceIndices;
-				faceIndices.reserve(7);
-				// Add faces.
-				for (uint32_t f = 0; f < faceCount; f++) {
-					const RawFace *face = originalRawMesh->faceAt(m_rawFaceArray[f]);
-					XA_DEBUG_ASSERT(face != NULL);
-					faceIndices.clear();
-					for (uint32_t i = 0; i < face->nIndices; i++) {
-						const uint32_t vertex = originalRawMesh->vertexAt(face->firstIndex + i);
-						XA_DEBUG_ASSERT(rawChartMeshIndices[vertex] != (uint32_t)~0);
-						faceIndices.push_back(rawChartMeshIndices[vertex]);
-					}
-					m_rawChartMesh->addFace(faceIndices);
-				}
+				m_rawChartMesh->addFace(faceIndices);
 			}
 		}
-#endif
 	}
 
 	bool isBlockAligned() const { return m_blockAligned; }
@@ -4743,7 +4708,6 @@ public:
 		return m_rawFaceArray[i];
 	}
 
-#if XA_USE_RAW_MESH
 	const RawMesh *rawChartMesh() const
 	{
 		return m_rawChartMesh;
@@ -4763,7 +4727,6 @@ public:
 	{
 		return m_rawUnifiedMesh;
 	}
-#endif
 
 	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const
 	{
@@ -4783,14 +4746,12 @@ public:
 	// Transfer parameterization from unified mesh to chart mesh.
 	void transferParameterization()
 	{
-#if XA_USE_RAW_MESH
 		XA_DEBUG_ASSERT(!m_rawIsVertexMapped);
 		const uint32_t rawVertexCount = m_rawChartMesh->vertexCount();
 		for (uint32_t v = 0; v < rawVertexCount; v++) {
 			Vector2 *texcoord = m_rawChartMesh->texcoordAt(v);
 			*texcoord = *m_rawUnifiedMesh->texcoordAt(mapChartVertexToUnifiedVertex(v));
 		}
-#endif
 	}
 
 	float computeSurfaceArea() const
@@ -4801,18 +4762,15 @@ public:
 	float computeParametricArea() const
 	{
 		// This only makes sense in parameterized meshes.
-#if XA_USE_RAW_MESH
 		XA_DEBUG_ASSERT(m_rawIsDisk);
 		XA_DEBUG_ASSERT(!m_rawIsVertexMapped);
 		float rawArea = m_rawChartMesh->computeParametricArea();
 		return rawArea;
-#endif
 	}
 
 	Vector2 computeParametricBounds() const
 	{
 		// This only makes sense in parameterized meshes.
-#if XA_USE_RAW_MESH
 		XA_DEBUG_ASSERT(m_rawIsDisk);
 		XA_DEBUG_ASSERT(!m_rawIsVertexMapped);
 		Vector2 rawMinCorner(FLT_MAX, FLT_MAX);
@@ -4825,7 +4783,6 @@ public:
 		}
 		Vector2 rawBounds = (rawMaxCorner - rawMinCorner) * 0.5f;
 		return rawBounds;
-#endif
 	}
 
 	int32_t atlasIndex;
@@ -4833,11 +4790,9 @@ public:
 private:
 	bool closeHoles()
 	{
-#if XA_USE_RAW_MESH
 		Array<uint32_t> rawBoundaryEdges;
 		rawMeshGetBoundaryEdges(*m_rawUnifiedMesh, rawBoundaryEdges);
 		uint32_t boundaryCount = rawBoundaryEdges.size();
-#endif
 		if (boundaryCount <= 1) {
 			// Nothing to close.
 			return true;
@@ -4846,7 +4801,6 @@ private:
 		Array<float> boundaryLengths;
 		for (uint32_t i = 0; i < boundaryCount; i++) {
 			float boundaryLength = 0.0f;
-#if XA_USE_RAW_MESH
 			float rawBoundaryLength = 0.0f;
 			for (RawMesh::BoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
 				const RawEdge *rawEdge = m_rawUnifiedMesh->edgeAt(it.edge());
@@ -4855,7 +4809,6 @@ private:
 				rawBoundaryLength += length(t1 - t0);
 			}
 			boundaryLength = rawBoundaryLength;
-#endif
 			boundaryLengths.push_back(boundaryLength);
 		}
 		// Find disk boundary.
@@ -4873,7 +4826,6 @@ private:
 				// Skip disk boundary.
 				continue;
 			}
-#if XA_USE_RAW_MESH
 			Array<uint32_t> rawVertexLoop;
 			Array<const RawEdge *> rawEdgeLoop, rawEdgeLoop2;
 			startOver:
@@ -4907,19 +4859,13 @@ private:
 					rawEdgeLoop2[j] = rawEdgeLoop[(j + rawEdgeLoop.size() - 1) % rawEdgeLoop.size()];
 			}
 			closeLoop(0, rawEdgeLoop2);
-#endif
 		}
-#if XA_USE_RAW_MESH
 		m_rawUnifiedMesh->createBoundaryEdges();
-#endif
-#if XA_USE_RAW_MESH
 		rawMeshGetBoundaryEdges(*m_rawUnifiedMesh, rawBoundaryEdges);
 		boundaryCount = rawBoundaryEdges.size();
-#endif
 		return boundaryCount == 1;
 	}
 
-#if XA_USE_RAW_MESH
 	bool closeLoop(uint32_t startVertex, const Array<const RawEdge *> &loop)
 	{
 		const uint32_t vertexCount = loop.size() - startVertex;
@@ -4965,11 +4911,9 @@ private:
 		}
 		return true;
 	}
-#endif
 
 	bool m_blockAligned;
 
-#if XA_USE_RAW_MESH
 	RawMesh *m_rawChartMesh;
 	RawMesh *m_rawUnifiedMesh;
 	bool m_rawIsDisk;
@@ -4982,7 +4926,6 @@ private:
 	Array<uint32_t> m_rawChartToOriginalMap;
 
 	Array<uint32_t> m_rawChartToUnifiedMap;
-#endif
 };
 
 // Estimate quality of existing parameterization.
@@ -5002,7 +4945,6 @@ public:
 		m_authalicMetric = 0.0f;
 	}
 
-#if XA_USE_RAW_MESH
 	ParameterizationQuality(const RawMesh *mesh)
 	{
 		XA_DEBUG_ASSERT(mesh != NULL);
@@ -5045,7 +4987,6 @@ public:
 		XA_DEBUG_ASSERT(std::isfinite(m_conformalMetric));
 		XA_DEBUG_ASSERT(std::isfinite(m_authalicMetric));
 	}
-#endif
 
 	bool isValid() const
 	{
@@ -5398,23 +5339,17 @@ public:
 				diskCount++;
 				ParameterizationQuality chartParameterizationQuality;
 				if (chart->faceCount() == 1) {
-#if XA_USE_RAW_MESH
 					computeSingleFaceMap(chart->rawUnifiedMesh());
 					ParameterizationQuality rawQuality = ParameterizationQuality(chart->rawUnifiedMesh());
 					chartParameterizationQuality = rawQuality;
-#endif
 				} else {
 					ParameterizationQuality orthogonalQuality;
-#if XA_USE_RAW_MESH
 					computeOrthogonalProjectionMap(chart->rawUnifiedMesh());
 					ParameterizationQuality rawOrthogonalQuality(chart->rawUnifiedMesh());
 					orthogonalQuality = rawOrthogonalQuality;
-#endif
-#if XA_USE_RAW_MESH
 					computeLeastSquaresConformalMap(chart->rawUnifiedMesh());
 					ParameterizationQuality rawLscmQuality(chart->rawUnifiedMesh());
 					chartParameterizationQuality = rawLscmQuality;
-#endif
 				}
 				isValid = chartParameterizationQuality.isValid();
 				if (!isValid) {
@@ -5451,16 +5386,10 @@ public:
 	}
 
 private:
-
-#if XA_USE_RAW_MESH
 	const RawMesh *m_rawMesh;
-#endif
-
 	Array<Chart *> m_chartArray;
-
 	Array<uint32_t> m_chartVertexCountPrefixSum;
 	uint32_t m_totalVertexCount;
-
 	Array<uint32_t> m_faceChart; // the chart of every face of the input mesh.
 	Array<uint32_t> m_faceIndex; // the index within the chart for every face of the input mesh.
 };
@@ -5666,17 +5595,13 @@ struct AtlasPacker
 			// Sort charts by perimeter. @@ This is sometimes producing somewhat unexpected results. Is this right?
 			//chartOrderArray[c] = ((end.x - origin.x) + (end.y - origin.y)) * scale;
 			// Translate, rotate and scale vertices. Compute extents.
-#if XA_USE_RAW_MESH
 			RawMesh *rawMesh = chart->rawChartMesh();
 			const uint32_t vertexCount = rawMesh->vertexCount();
-#endif
 			for (uint32_t i = 0; i < vertexCount; i++) {
 				Vector2 tmp;
-#if XA_USE_RAW_MESH
 				const Vector2 *texcoord = rawMesh->texcoordAt(i);
 				tmp.x = dot(*texcoord, majorAxis);
 				tmp.y = dot(*texcoord, minorAxis);
-#endif
 				tmp -= origin;
 				tmp *= scale;
 				if (tmp.x < 0 || tmp.y < 0) {
@@ -5689,9 +5614,7 @@ struct AtlasPacker
 				}
 				//XA_ASSERT(tmp.x >= 0 && tmp.y >= 0);
 				XA_ASSERT(std::isfinite(tmp.x) && std::isfinite(tmp.y));
-#if XA_USE_RAW_MESH
 				*rawMesh->texcoordAt(i) = tmp;
-#endif
 				extents = max(extents, tmp);
 			}
 			XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
@@ -5700,10 +5623,8 @@ struct AtlasPacker
 				float limit = std::max(extents.x, extents.y);
 				scale = 1024 / (limit + 1);
 				for (uint32_t i = 0; i < vertexCount; i++) {
-#if XA_USE_RAW_MESH
 					Vector2 *texcoord = rawMesh->texcoordAt(i);
 					*texcoord *= scale;
-#endif
 				}
 				extents *= scale;
 				XA_DEBUG_ASSERT(extents.x <= 1024 && extents.y <= 1024);
@@ -5743,14 +5664,12 @@ struct AtlasPacker
 				extents.y = float(ch);
 			}
 			for (uint32_t v = 0; v < vertexCount; v++) {
-#if XA_USE_RAW_MESH
 				Vector2 *texcoord = rawMesh->texcoordAt(v);
 				texcoord->x /= divide_x;
 				texcoord->y /= divide_y;
 				texcoord->x *= scale_x;
 				texcoord->y *= scale_y;
 				XA_ASSERT(std::isfinite(texcoord->x) && std::isfinite(texcoord->y));
-#endif
 			}
 			chartExtents[c] = extents;
 			// Sort charts by perimeter.
@@ -5848,7 +5767,6 @@ struct AtlasPacker
 			chart->atlasIndex = (int32_t)currentBitmapIndex;
 			//float best_angle = 2 * M_PI * best_r;
 			// Translate and rotate chart texture coordinates.
-#if XA_USE_RAW_MESH
 			RawMesh *rawMesh = chart->rawChartMesh();
 			const uint32_t rawVertexCount = rawMesh->vertexCount();
 			for (uint32_t v = 0; v < rawVertexCount; v++) {
@@ -5862,7 +5780,6 @@ struct AtlasPacker
 				XA_ASSERT(texcoord->x >= 0 && texcoord->y >= 0);
 				XA_ASSERT(std::isfinite(texcoord->x) && std::isfinite(texcoord->y));
 			}
-#endif
 			if (progressCallback)
 			{
 				const int newProgress = int((i + 1) / (float)chartCount * 100.0f);
@@ -6289,7 +6206,6 @@ private:
 		// Compute list of boundary points.
 		Array<Vector2> points;
 		points.reserve(16);
-#if XA_USE_RAW_MESH
 		const RawMesh *rawMesh = chart->rawChartMesh();
 		const uint32_t rawVertexCount = rawMesh->vertexCount();
 		uint32_t bp = 0;
@@ -6299,7 +6215,6 @@ private:
 				bp++;
 			}
 		}
-#endif
 		XA_DEBUG_ASSERT(points.size() > 0);
 		Array<Vector2> hull;
 		convexHull(points, hull, 0.00001f);
@@ -6368,9 +6283,7 @@ struct Context
 {
 	Atlas atlas;
 	internal::param::Atlas paramAtlas;
-#if XA_USE_RAW_MESH
 	internal::Array<internal::RawMesh *> rawMeshes;
-#endif
 };
 
 Atlas *Create()
@@ -6410,12 +6323,10 @@ void Destroy(Atlas *atlas)
 	Context *ctx = (Context *)atlas;
 	if (atlas->utilization)
 		XA_FREE(atlas->utilization);
-#if XA_USE_RAW_MESH
 	for (int i = 0; i < (int)ctx->rawMeshes.size(); i++) {
 		ctx->rawMeshes[i]->~RawMesh();
 		XA_FREE(ctx->rawMeshes[i]);
 	}
-#endif
 	DestroyOutputMeshes(ctx);
 	ctx->~Context();
 	XA_FREE(ctx);
@@ -6494,7 +6405,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 		}
 		canonicalMap.push_back(firstColocal);
 	}
-#if XA_USE_RAW_MESH
 	internal::RawMesh *rawMesh = XA_NEW(internal::RawMesh, meshDecl.vertexCount, meshDecl.indexCount / 3);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0);
@@ -6548,7 +6458,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 	}
 	rawMesh->createBoundaryEdges();
 	ctx->rawMeshes.push_back(rawMesh);
-#endif
 	atlas->meshCount++;
 	return AddMeshError::Success;
 }
@@ -6557,10 +6466,8 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 {
 	XA_DEBUG_ASSERT(atlas);
 	Context *ctx = (Context *)atlas;
-#if XA_USE_RAW_MESH
 	if (ctx->rawMeshes.isEmpty())
 		return;
-#endif
 	atlas->atlasCount = 0;
 	atlas->chartCount = 0;
 	atlas->height = 0;
@@ -6662,13 +6569,11 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
 			const internal::param::Chart *chart = charts->chartAt(c);
 			XA_DEBUG_ASSERT(chart->faceAt(fi) == f);
-#if XA_USE_RAW_MESH
 			const internal::RawMesh *mesh = chart->rawChartMesh();
 			const internal::RawFace *rawFace = mesh->faceAt(fi);
 			outputMesh->indexArray[3 * f + 0] = vertexOffset + mesh->vertexAt(rawFace->firstIndex + 0);
 			outputMesh->indexArray[3 * f + 1] = vertexOffset + mesh->vertexAt(rawFace->firstIndex + 1);
 			outputMesh->indexArray[3 * f + 2] = vertexOffset + mesh->vertexAt(rawFace->firstIndex + 2);
-#endif
 		}
 		// Charts.
 		// Ignore vertex mapped charts.
