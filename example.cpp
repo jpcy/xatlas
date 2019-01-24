@@ -8,7 +8,6 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 */
 #include <chrono>
 #include <stdio.h>
@@ -19,7 +18,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #pragma warning(push)
 #pragma warning(disable : 4996)
 #endif
-#include "stb_image_write.h"
+#include "thirdparty/stb_image_write.h"
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -30,12 +29,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #pragma warning(disable : 4201)
 #pragma warning(disable : 4706)
 #endif
-#include "tiny_obj_loader.h"
+#include "thirdparty/tiny_obj_loader.h"
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
 
-#include "../xatlas.h"
+#include "xatlas.h"
 
 #ifdef _MSC_VER
 #define STRICMP _stricmp
