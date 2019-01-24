@@ -1654,7 +1654,7 @@ private:
 	}
 };
 
-struct RawEdge
+struct Edge
 {
 	uint32_t relativeIndex; // absolute: face.firstIndex + relativeIndex
 	uint32_t face;
@@ -1662,16 +1662,16 @@ struct RawEdge
 	uint32_t index1;
 };
 
-struct RawFace
+struct Face
 {
-	uint32_t firstIndex; // Index into RawMesh::m_indices.
+	uint32_t firstIndex; // Index into Mesh::m_indices.
 	uint32_t nIndices;
 };
 
-class RawMesh
+class Mesh
 {
 public:
-	RawMesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0) : m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3), m_vertexToEdgeMap(approxVertexCount)
+	Mesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0) : m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3), m_vertexToEdgeMap(approxVertexCount)
 	{
 		m_edges.reserve(approxFaceCount * 3);
 		m_faces.reserve(approxFaceCount);
@@ -1706,7 +1706,7 @@ public:
 
 	void addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0)
 	{
-		RawFace face;
+		Face face;
 		face.firstIndex = m_indices.size();
 		face.nIndices = indexCount;
 		m_faces.push_back(face);
@@ -1714,7 +1714,7 @@ public:
 		for (uint32_t i = 0; i < indexCount; i++)
 			m_indices.push_back(indexArray[i]);
 		for (uint32_t i = 0; i < indexCount; i++) {
-			RawEdge edge;
+			Edge edge;
 			edge.face = m_faces.size() - 1;
 			edge.relativeIndex = i;
 			edge.index0 = face.firstIndex + i;
@@ -1827,12 +1827,12 @@ public:
 		for (uint32_t i = 0; i < faceCount; i++) {
 			if (m_faceFlags[i] & FaceFlags::Ignore)
 				continue;
-			const RawFace &face = m_faces[i];
+			const Face &face = m_faces[i];
 			for (uint32_t j = 0; j < face.nIndices; j++) {
 				const uint32_t vertex0 = m_indices[face.firstIndex + j];
 				const uint32_t vertex1 = m_indices[face.firstIndex + (j + 1) % face.nIndices];
 				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
-				const RawEdge *oppositeEdge = findEdge(vertex1, vertex0);
+				const Edge *oppositeEdge = findEdge(vertex1, vertex0);
 				if (oppositeEdge) {
 					XA_DEBUG_ASSERT(!(m_faceFlags[oppositeEdge->face] & FaceFlags::Ignore));
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
@@ -1846,13 +1846,13 @@ public:
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			if (!m_boundaryEdges[i])
 				continue;
-			const RawEdge &edge = m_edges[i];
+			const Edge &edge = m_edges[i];
 			// Find a boundary edge that ends with the provided vertex (including colocals).
 			const uint32_t endVertex = m_indices[edge.index0]; // HE mesh boundary edge winding is backwards
 			for (ColocalIterator it(this, endVertex); !it.isDone(); it.advance()) {
 				const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
 				while (ele) {
-					const RawEdge &otherEdge = m_edges[ele->value];
+					const Edge &otherEdge = m_edges[ele->value];
 					const uint32_t vertex0 = m_indices[otherEdge.index0];
 					const uint32_t vertex1 = m_indices[otherEdge.index1];
 					// Must be a boundary edge.
@@ -1868,7 +1868,7 @@ public:
 	}
 
 	/// Find edge, test all colocals.
-	const RawEdge *findEdge(uint32_t vertex0, uint32_t vertex1) const
+	const Edge *findEdge(uint32_t vertex0, uint32_t vertex1) const
 	{
 		if (m_colocals.isEmpty()) {
 			EdgeKey key(vertex0, vertex1);
@@ -1881,7 +1881,7 @@ public:
 					EdgeKey key(it0.vertex(), it1.vertex());
 					const EdgeMap::Element *ele = m_edgeMap.get(key);
 					if (ele) {
-						const RawEdge *edge = &m_edges[ele->value];
+						const Edge *edge = &m_edges[ele->value];
 						XA_DEBUG_ASSERT(!(m_faceFlags[edge->face] & FaceFlags::Ignore));
 						return edge;
 					}
@@ -1914,7 +1914,7 @@ public:
 		const uint32_t faceCount = m_faces.size();
 		uint32_t triangleCount = 0;
 		for (uint32_t f = 0; f < faceCount; f++) {
-			const RawFace &face = m_faces[f];
+			const Face &face = m_faces[f];
 			const uint32_t edgeCount = face.nIndices;
 			XA_DEBUG_ASSERT(edgeCount > 2);
 			triangleCount += edgeCount - 2;
@@ -1925,7 +1925,7 @@ public:
 	float faceArea(uint32_t face) const
 	{
 		float area = 0;
-		Vector3 firstPos;
+		Vector3 firstPos(0.0f);
 		for (EdgeIterator it(this, face); !it.isDone(); it.advance()) {
 			if (it.relativeEdge() == 0)
 				firstPos = it.position0();
@@ -1948,8 +1948,8 @@ public:
 
 	Vector3 faceNormal(uint32_t face) const
 	{
-		Vector3 n(0);
-		Vector3 p0;
+		Vector3 n(0.0f);
+		Vector3 p0(0.0f);
 		for (EdgeIterator it(this, face); !it.isDone(); it.advance()) {
 			if (it.relativeEdge() == 0) {
 				p0 = it.position0();
@@ -1967,7 +1967,7 @@ public:
 	float faceParametricArea(uint32_t face) const
 	{
 		float area = 0;
-		Vector2 firstTexcoord;
+		Vector2 firstTexcoord(0.0f);
 		for (EdgeIterator it(this, face); !it.isDone(); it.advance()) {
 			if (it.relativeEdge() == 0)
 				firstTexcoord = it.texcoord0();
@@ -2016,8 +2016,8 @@ public:
 		const uint32_t oppositeEdge = m_oppositeEdges[edge];
 		if (oppositeEdge == UINT32_MAX)
 			return true; // boundary edge
-		const RawEdge &e = m_edges[edge];
-		const RawEdge &oe = m_edges[oppositeEdge];
+		const Edge &e = m_edges[edge];
+		const Edge &oe = m_edges[oppositeEdge];
 		return m_indices[e.index0] != m_indices[oe.index1] || m_indices[e.index1] != m_indices[oe.index0];
 	}
 
@@ -2026,8 +2026,8 @@ public:
 		const uint32_t oppositeEdge = m_oppositeEdges[edge];
 		if (oppositeEdge == UINT32_MAX)
 			return true; // boundary edge
-		const RawEdge &e = m_edges[edge];
-		const RawEdge &oe = m_edges[oppositeEdge];
+		const Edge &e = m_edges[edge];
+		const Edge &oe = m_edges[oppositeEdge];
 		return m_normals[m_indices[e.index0]] != m_normals[m_indices[oe.index1]] || m_normals[m_indices[e.index1]] != m_normals[m_indices[oe.index0]];
 	}
 
@@ -2036,8 +2036,8 @@ public:
 		const uint32_t oppositeEdge = m_oppositeEdges[edge];
 		if (oppositeEdge == UINT32_MAX)
 			return true; // boundary edge
-		const RawEdge &e = m_edges[edge];
-		const RawEdge &oe = m_edges[oppositeEdge];
+		const Edge &e = m_edges[edge];
+		const Edge &oe = m_edges[oppositeEdge];
 		return m_texcoords[m_indices[e.index0]] != m_texcoords[m_indices[oe.index1]] || m_texcoords[m_indices[e.index1]] != m_texcoords[m_indices[oe.index0]];
 	}
 
@@ -2064,7 +2064,7 @@ public:
 	}
 
 	uint32_t edgeCount() const { return m_edges.size(); }
-	const RawEdge *edgeAt(uint32_t edge) const { return &m_edges[edge]; }
+	const Edge *edgeAt(uint32_t edge) const { return &m_edges[edge]; }
 	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
 	bool isBoundaryEdge(uint32_t edge) const { return m_nextBoundaryEdges[edge] != UINT32_MAX; }
 	bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
@@ -2078,14 +2078,14 @@ public:
 	const Vector2 *texcoordAt(uint32_t i) const { return &m_texcoords[i]; }
 	Vector2 *texcoordAt(uint32_t i) { return &m_texcoords[i]; }
 	uint32_t faceCount() const { return m_faces.size(); }
-	const RawFace *faceAt(uint32_t i) const { return &m_faces[i]; }
-	RawFace *faceAt(uint32_t i) { return &m_faces[i]; }
+	const Face *faceAt(uint32_t i) const { return &m_faces[i]; }
+	Face *faceAt(uint32_t i) { return &m_faces[i]; }
 	uint32_t faceFlagsAt(uint32_t i) const { return m_faceFlags[i]; }
 
 	class BoundaryEdgeIterator
 	{
 	public:
-		BoundaryEdgeIterator(const RawMesh *mesh, uint32_t edge) : m_mesh(mesh), m_first(UINT32_MAX), m_current(edge) {}
+		BoundaryEdgeIterator(const Mesh *mesh, uint32_t edge) : m_mesh(mesh), m_first(UINT32_MAX), m_current(edge) {}
 
 		void advance()
 		{
@@ -2110,7 +2110,7 @@ public:
 		}
 
 	private:
-		const RawMesh *m_mesh;
+		const Mesh *m_mesh;
 		uint32_t m_first;
 		uint32_t m_current;
 	};
@@ -2118,7 +2118,7 @@ public:
 	class ColocalIterator
 	{
 	public:
-		ColocalIterator(const RawMesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
+		ColocalIterator(const Mesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
 
 		void advance()
 		{
@@ -2144,7 +2144,7 @@ public:
 		}
 
 	private:
-		const RawMesh *m_mesh;
+		const Mesh *m_mesh;
 		uint32_t m_first;
 		uint32_t m_current;
 	};
@@ -2152,7 +2152,7 @@ public:
 	class EdgeIterator
 	{
 	public:
-		EdgeIterator(const RawMesh *mesh, uint32_t face = UINT32_MAX) : m_mesh(mesh), m_restrictFace(face), m_face(0), m_edge(0), m_relativeEdge(0)
+		EdgeIterator(const Mesh *mesh, uint32_t face = UINT32_MAX) : m_mesh(mesh), m_restrictFace(face), m_face(0), m_edge(0), m_relativeEdge(0)
 		{
 			if (m_restrictFace != UINT32_MAX) {
 				m_face = m_restrictFace;
@@ -2163,13 +2163,13 @@ public:
 		void advance()
 		{
 			if (m_restrictFace != UINT32_MAX) {
-				const RawFace &face = m_mesh->m_faces[m_face];
+				const Face &face = m_mesh->m_faces[m_face];
 				if (m_relativeEdge < face.nIndices) {
 					m_edge++;
 					m_relativeEdge++;
 				}
 			} else if (m_face < m_mesh->m_faces.size()) {
-				const RawFace &face = m_mesh->m_faces[m_face];
+				const Face &face = m_mesh->m_faces[m_face];
 				m_edge++;
 				m_relativeEdge++;
 				if (m_relativeEdge == face.nIndices) {
@@ -2205,13 +2205,13 @@ public:
 
 		uint32_t vertex0() const
 		{
-			const RawFace &face = m_mesh->m_faces[m_face];
+			const Face &face = m_mesh->m_faces[m_face];
 			return m_mesh->m_indices[face.firstIndex + m_relativeEdge];
 		}
 
 		uint32_t vertex1() const
 		{
-			const RawFace &face = m_mesh->m_faces[m_face];
+			const Face &face = m_mesh->m_faces[m_face];
 			return m_mesh->m_indices[face.firstIndex + (m_relativeEdge + 1) % face.nIndices];
 		}
 
@@ -2223,7 +2223,7 @@ public:
 		const Vector2 &texcoord1() const { return m_mesh->m_texcoords[vertex1()]; }
 
 	private:
-		const RawMesh *m_mesh;
+		const Mesh *m_mesh;
 		uint32_t m_restrictFace; // Iterate edges of this face only.
 		uint32_t m_face;
 		uint32_t m_edge;
@@ -2243,9 +2243,9 @@ private:
 		m_colocals[vertex] = vertex;
 	}
 
-	Array<RawEdge> m_edges;
+	Array<Edge> m_edges;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
-	Array<RawFace> m_faces;
+	Array<Face> m_faces;
 	Array<uint32_t> m_faceFlags;
 	Array<uint32_t> m_indices;
 	Array<Vector3> m_positions;
@@ -2302,7 +2302,7 @@ struct SplitEdge
 	float t;
 };
 
-static RawMesh *rawMeshSplitBoundaryEdges(const RawMesh &inputMesh) // Returns NULL if no split was made.
+static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no split was made.
 {
 	XA_PRINT(PrintFlags::MeshProcessing, "Fixing T-junctions:\n");
 	Array<SplitEdge> splitEdges;
@@ -2316,7 +2316,7 @@ static RawMesh *rawMeshSplitBoundaryEdges(const RawMesh &inputMesh) // Returns N
 		for (uint32_t e = 0; e < edgeCount; e++) {
 			if (!inputMesh.isBoundaryEdge(e))
 				continue;
-			const RawEdge *edge = inputMesh.edgeAt(e);
+			const Edge *edge = inputMesh.edgeAt(e);
 			const Vector3 x1 = *inputMesh.positionAt(inputMesh.vertexAt(edge->index0));
 			const Vector3 x2 = *inputMesh.positionAt(inputMesh.vertexAt(edge->index1));
 			if (x1 == x0 || x2 == x0)
@@ -2341,12 +2341,12 @@ static RawMesh *rawMeshSplitBoundaryEdges(const RawMesh &inputMesh) // Returns N
 	if (splitEdges.isEmpty())
 		return NULL;
 	const uint32_t faceCount = inputMesh.faceCount();
-	RawMesh *mesh = XA_NEW(RawMesh, vertexCount + splitEdges.size(), faceCount);
+	Mesh *mesh = XA_NEW(Mesh, vertexCount + splitEdges.size(), faceCount);
 	for (uint32_t v = 0; v < vertexCount; v++)
 		mesh->addVertex(*inputMesh.positionAt(v), *inputMesh.normalAt(v), *inputMesh.texcoordAt(v));
 	for (uint32_t se = 0; se < splitEdges.size(); se++) {
 		const SplitEdge &splitEdge = splitEdges[se];
-		const RawEdge *edge = inputMesh.edgeAt(splitEdge.edge);
+		const Edge *edge = inputMesh.edgeAt(splitEdge.edge);
 		Vector3 normal = lerp(*inputMesh.normalAt(inputMesh.vertexAt(edge->index0)), *inputMesh.normalAt(inputMesh.vertexAt(edge->index1)), splitEdge.t);
 		Vector2 texcoord = lerp(*inputMesh.texcoordAt(inputMesh.vertexAt(edge->index0)), *inputMesh.texcoordAt(inputMesh.vertexAt(edge->index1)), splitEdge.t);
 		mesh->addVertex(*inputMesh.positionAt(splitEdge.vertex), normal, texcoord);
@@ -2354,7 +2354,7 @@ static RawMesh *rawMeshSplitBoundaryEdges(const RawMesh &inputMesh) // Returns N
 	Array<uint32_t> indexArray;
 	for (uint32_t f = 0; f < faceCount; f++) {
 		indexArray.clear();
-		for (RawMesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
+		for (Mesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
 			indexArray.push_back(it.vertex0());
 			for (uint32_t se = 0; se < splitEdges.size(); se++) {
 				const SplitEdge &splitEdge = splitEdges[se];
@@ -2372,11 +2372,11 @@ static RawMesh *rawMeshSplitBoundaryEdges(const RawMesh &inputMesh) // Returns N
 
 // This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
-static RawMesh *rawMeshTriangulate(const RawMesh &inputMesh)
+static Mesh *meshTriangulate(const Mesh &inputMesh)
 {
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t faceCount = inputMesh.faceCount();
-	RawMesh *mesh = XA_NEW(RawMesh, vertexCount, faceCount);
+	Mesh *mesh = XA_NEW(Mesh, vertexCount, faceCount);
 	// Add all vertices.
 	for (uint32_t v = 0; v < vertexCount; v++)
 		mesh->addVertex(*inputMesh.positionAt(v), *inputMesh.normalAt(v), *inputMesh.texcoordAt(v));
@@ -2384,14 +2384,14 @@ static RawMesh *rawMeshTriangulate(const RawMesh &inputMesh)
 	Array<float> polygonAngles;
 	Array<Vector2> polygonPoints;
 	for (uint32_t f = 0; f < faceCount; f++) {
-		const RawFace *face = inputMesh.faceAt(f);
+		const Face *face = inputMesh.faceAt(f);
 		const uint32_t edgeCount = face->nIndices;
 		XA_DEBUG_ASSERT(edgeCount >= 3);
 		polygonVertices.clear();
 		polygonVertices.reserve(edgeCount);
 		if (edgeCount == 3) {
 			// Simple case for triangles.
-			for (RawMesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
+			for (Mesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
 				polygonVertices.push_back(it.vertex0());
 			mesh->addFace(polygonVertices[0], polygonVertices[1], polygonVertices[2]);
 		} else {
@@ -2405,7 +2405,7 @@ static RawMesh *rawMeshTriangulate(const RawMesh &inputMesh)
 			polygonPoints.reserve(edgeCount);
 			polygonAngles.clear();
 			polygonAngles.reserve(edgeCount);
-			for (RawMesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
+			for (Mesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
 				polygonVertices.push_back(it.vertex0());
 				const Vector3 &pos = it.position0();
 				polygonPoints.push_back(Vector2(dot(basis.tangent, pos), dot(basis.bitangent, pos)));
@@ -2464,11 +2464,11 @@ static RawMesh *rawMeshTriangulate(const RawMesh &inputMesh)
 	return mesh;
 }
 
-static RawMesh *rawMeshUnifyVertices(const RawMesh &inputMesh)
+static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 {
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t faceCount = inputMesh.faceCount();
-	RawMesh *mesh = XA_NEW(RawMesh, vertexCount, faceCount);
+	Mesh *mesh = XA_NEW(Mesh, vertexCount, faceCount);
 	// Only add the first colocal.
 	for (uint32_t v = 0; v < vertexCount; v++) {
 		if (inputMesh.firstColocal(v) == v)
@@ -2478,7 +2478,7 @@ static RawMesh *rawMeshUnifyVertices(const RawMesh &inputMesh)
 	// Add new faces pointing to first colocals.
 	for (uint32_t f = 0; f < faceCount; f++) {
 		indexArray.clear();
-		for (RawMesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
+		for (Mesh::EdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
 			indexArray.push_back(inputMesh.firstColocal(it.vertex0()));
 		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
 	}
@@ -2487,9 +2487,8 @@ static RawMesh *rawMeshUnifyVertices(const RawMesh &inputMesh)
 }
 
 // boundaryEdges are the first edges for each boundary loop.
-static void rawMeshGetBoundaryEdges(const RawMesh &mesh, Array<uint32_t> &boundaryEdges)
+static void meshGetBoundaryEdges(const Mesh &mesh, Array<uint32_t> &boundaryEdges)
 {
-	//printf("\nRaw mesh boundary edge loops\n");
 	const uint32_t edgeCount = mesh.edgeCount();
 	BitArray bitFlags(edgeCount);
 	bitFlags.clearAll();
@@ -2498,18 +2497,16 @@ static void rawMeshGetBoundaryEdges(const RawMesh &mesh, Array<uint32_t> &bounda
 	for (uint32_t e = 0; e < edgeCount; e++) {
 		if (bitFlags.bitAt(e) || !mesh.isBoundaryEdge(e))
 			continue;
-		for (RawMesh::BoundaryEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
+		for (Mesh::BoundaryEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
 			bitFlags.setBitAt(it.edge());
 		boundaryEdges.push_back(e);
-		//const Vector3 *pos = mesh.positionAt(mesh.vertexAt(mesh.edgeAt(e)->index1)); // NOTE: index1, not index0. HE mesh version iterates edge pairs, so winding is backwards.
-		//printf("   edge %d: %g %g %g\n", e, pos->x, pos->y, pos->z);
 	}
 }
 
-class RawMeshTopology
+class MeshTopology
 {
 public:
-	RawMeshTopology(const RawMesh *mesh)
+	MeshTopology(const Mesh *mesh)
 	{
 		buildTopologyInfo(mesh);
 	}
@@ -2533,7 +2530,7 @@ public:
 	}
 
 private:
-	void buildTopologyInfo(const RawMesh *mesh)
+	void buildTopologyInfo(const Mesh *mesh)
 	{
 		const uint32_t vertexCount = mesh->colocalVertexCount();
 		const uint32_t faceCount = mesh->faceCount();
@@ -2555,7 +2552,7 @@ private:
 					stack.pop_back();
 					if (bitFlags.bitAt(top) == false) {
 						bitFlags.setBitAt(top);
-						for (RawMesh::EdgeIterator it(mesh, top); !it.isDone(); it.advance()) {
+						for (Mesh::EdgeIterator it(mesh, top); !it.isDone(); it.advance()) {
 							const uint32_t oppositeFace = it.oppositeFace();
 							if (oppositeFace != UINT32_MAX)
 								stack.push_back(oppositeFace);
@@ -2576,7 +2573,7 @@ private:
 			if (bitFlags.bitAt(e) || !mesh->isBoundaryEdge(e))
 				continue;
 			m_boundaryCount++;
-			for (RawMesh::BoundaryEdgeIterator it(mesh, e); !it.isDone(); it.advance())
+			for (Mesh::BoundaryEdgeIterator it(mesh, e); !it.isDone(); it.advance())
 				bitFlags.setBitAt(it.edge());
 		}
 		XA_PRINT(PrintFlags::ComputingCharts, "---   %d boundary loops found.\n", m_boundaryCount);
@@ -3554,7 +3551,7 @@ class Atlas;
 class Chart;
 
 // Fast sweep in 3 directions
-static bool findApproximateDiameterVertices(RawMesh *mesh, uint32_t *a, uint32_t *b)
+static bool findApproximateDiameterVertices(Mesh *mesh, uint32_t *a, uint32_t *b)
 {
 	XA_DEBUG_ASSERT(a != NULL);
 	XA_DEBUG_ASSERT(b != NULL);
@@ -3570,7 +3567,7 @@ static bool findApproximateDiameterVertices(RawMesh *mesh, uint32_t *a, uint32_t
 			break;
 		}
 	}
-	if (minVertex[0] == NULL) {
+	if (minVertex[0] == UINT32_MAX) {
 		// Input mesh has not boundaries.
 		return false;
 	}
@@ -3683,7 +3680,7 @@ static void setup_abf_relations(sparse::Matrix &A, int row, int id0, int id1, in
 	A.setCoefficient(v2_id, 2 * row + 1, 1);
 }
 
-static bool computeLeastSquaresConformalMap(RawMesh *mesh)
+static bool computeLeastSquaresConformalMap(Mesh *mesh)
 {
 	// For this to work properly, mesh should not have colocals that have the same
 	// attributes, unless you want the vertices to actually have different texcoords.
@@ -3719,10 +3716,9 @@ static bool computeLeastSquaresConformalMap(RawMesh *mesh)
 	// Fill A:
 	const uint32_t faceCount = mesh->faceCount();
 	for (uint32_t f = 0, t = 0; f < faceCount; f++) {
-		const RawFace *face = mesh->faceAt(f);
-		XA_DEBUG_ASSERT(face->nIndices == 3);
+		XA_DEBUG_ASSERT(mesh->faceAt(f)->nIndices == 3);
 		uint32_t vertex0 = UINT32_MAX;
-		for (RawMesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+		for (Mesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
 			if (vertex0 == UINT32_MAX) {
 				vertex0 = it.vertex0();
 			} else if (it.vertex1() != vertex0) {
@@ -3746,7 +3742,7 @@ static bool computeLeastSquaresConformalMap(RawMesh *mesh)
 	return true;
 }
 
-static bool computeOrthogonalProjectionMap(RawMesh *mesh)
+static bool computeOrthogonalProjectionMap(Mesh *mesh)
 {
 	Vector3 axis[2];
 	uint32_t vertexCount = mesh->vertexCount();
@@ -3773,11 +3769,11 @@ static bool computeOrthogonalProjectionMap(RawMesh *mesh)
 	return true;
 }
 
-static void computeSingleFaceMap(RawMesh *mesh)
+static void computeSingleFaceMap(Mesh *mesh)
 {
 	XA_DEBUG_ASSERT(mesh != NULL);
 	XA_DEBUG_ASSERT(mesh->faceCount() == 1);
-	RawFace *face = mesh->faceAt(0);
+	Face *face = mesh->faceAt(0);
 	XA_ASSERT(face != NULL);
 	Vector3 p0 = *mesh->positionAt(mesh->vertexAt(face->firstIndex + 0));
 	Vector3 p1 = *mesh->positionAt(mesh->vertexAt(face->firstIndex + 1));
@@ -3785,7 +3781,7 @@ static void computeSingleFaceMap(RawMesh *mesh)
 	Vector3 Z = mesh->faceNormal(0);
 	Vector3 Y = normalizeSafe(cross(Z, X), Vector3(0.0f), 0.0f);
 	uint32_t i = 0;
-	for (RawMesh::EdgeIterator it(mesh, 0); !it.isDone(); it.advance(), i++) {
+	for (Mesh::EdgeIterator it(mesh, 0); !it.isDone(); it.advance(), i++) {
 		if (i == 0) {
 			*mesh->texcoordAt(it.vertex0()) = Vector2(0);
 		} else {
@@ -3903,9 +3899,9 @@ struct ChartBuildData
 	PriorityQueue candidates;
 };
 
-struct RawAtlasBuilder
+struct AtlasBuilder
 {
-	RawAtlasBuilder(const RawMesh *rm, const CharterOptions &options) : m_mesh(rm), m_facesLeft(rm->faceCount()), m_options(options)
+	AtlasBuilder(const Mesh *rm, const CharterOptions &options) : m_mesh(rm), m_facesLeft(rm->faceCount()), m_options(options)
 	{
 		const uint32_t faceCount = m_mesh->faceCount();
 		m_faceChartArray.resize(faceCount, -1);
@@ -3915,7 +3911,7 @@ struct RawAtlasBuilder
 		// Precompute edge lengths and face areas.
 		uint32_t edgeCount = 0;
 		for (uint32_t f = 0; f < m_mesh->faceCount(); f++) {
-			const RawFace *face = m_mesh->faceAt(f);
+			const Face *face = m_mesh->faceAt(f);
 			edgeCount += face->nIndices;
 		}
 		m_edgeLengths.resize(edgeCount, 0.0f);
@@ -3924,10 +3920,9 @@ struct RawAtlasBuilder
 			if ((m_mesh->faceFlagsAt(f) & FaceFlags::Ignore) != 0)
 				continue;
 			float &faceArea = m_faceAreas[f];
-			Vector3 firstPos;
-			for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+			Vector3 firstPos(0.0f);
+			for (Mesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 				m_edgeLengths[it.edge()] = internal::length(it.position1() - it.position0());
-				//printf("edge %d length: %g\n", it.edge(), m_edgeLengths[it.edge()]);
 				if (it.relativeEdge() == 0)
 					firstPos = it.position0();
 				else
@@ -3937,7 +3932,7 @@ struct RawAtlasBuilder
 		}
 	}
 
-	~RawAtlasBuilder()
+	~AtlasBuilder()
 	{
 		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
@@ -4076,8 +4071,8 @@ struct RawAtlasBuilder
 	void updateCandidates(ChartBuildData *chart, uint32_t f)
 	{
 		// Traverse neighboring faces, add the ones that do not belong to any chart yet.
-		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			const RawEdge *oppositeEdge = m_mesh->findEdge(it.vertex1(), it.vertex0());
+		for (Mesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+			const Edge *oppositeEdge = m_mesh->findEdge(it.vertex1(), it.vertex0());
 			if (!oppositeEdge)
 				continue;
 			if (m_faceChartArray[oppositeEdge->face] == -1) {
@@ -4223,7 +4218,7 @@ struct RawAtlasBuilder
 		float l_in = 0.0f;
 		if (m_mesh->faceFlagsAt(f) & FaceFlags::Ignore)
 			return 1.0f;
-		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+		for (Mesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			float l = m_edgeLengths[it.edge()];
 			if (it.isBoundary()) {
 				l_out += l;
@@ -4244,7 +4239,7 @@ struct RawAtlasBuilder
 	{
 		float seamFactor = 0.0f;
 		float totalLength = 0.0f;
-		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+		for (Mesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			if (it.isBoundary())
 				continue;
 			if (m_faceChartArray[it.oppositeFace()] != chart->id)
@@ -4257,7 +4252,7 @@ struct RawAtlasBuilder
 			if (it.isNormalSeam()) {
 				const Vector3 *n0 = m_mesh->normalAt(it.vertex0());
 				const Vector3 *n1 = m_mesh->normalAt(it.vertex1());
-				const RawEdge *oedge = m_mesh->edgeAt(it.oppositeEdge());
+				const Edge *oedge = m_mesh->edgeAt(it.oppositeEdge());
 				const Vector3 *on0 = m_mesh->normalAt(m_mesh->vertexAt(oedge->index0));
 				const Vector3 *on1 = m_mesh->normalAt(m_mesh->vertexAt(oedge->index1));
 				const float d0 = clamp(dot(*n0, *on1), 0.0f, 1.0f);
@@ -4275,7 +4270,7 @@ struct RawAtlasBuilder
 	{
 		float seamLength = 0.0f;
 		float totalLength = 0.0f;
-		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+		for (Mesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			if (it.isBoundary())
 				continue;
 			if (m_faceChartArray[it.oppositeFace()] != chart->id)
@@ -4302,7 +4297,7 @@ struct RawAtlasBuilder
 	{
 		float boundaryLength = chart->boundaryLength;
 		// Add new edges, subtract edges shared with the chart.
-		for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+		for (Mesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			const float edgeLength = m_edgeLengths[it.edge()];
 			if (it.isBoundary()) {
 				boundaryLength += edgeLength;
@@ -4353,7 +4348,7 @@ struct RawAtlasBuilder
 			const uint32_t faceCount = chart->faces.size();
 			for (uint32_t i = 0; i < faceCount; i++) {
 				uint32_t f = chart->faces[i];
-				for (RawMesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+				for (Mesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 					const float l = m_edgeLengths[it.edge()];
 					if (it.isBoundary()) {
 						externalBoundary += l;
@@ -4503,7 +4498,7 @@ struct RawAtlasBuilder
 	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_chartArray[i]->faces; }
 
 private:
-	const RawMesh *m_mesh;
+	const Mesh *m_mesh;
 	Array<float> m_edgeLengths;
 	Array<float> m_faceAreas;
 	uint32_t m_facesLeft;
@@ -4519,92 +4514,92 @@ private:
 class Chart
 {
 public:
-	Chart() : atlasIndex(-1), m_blockAligned(true),m_rawChartMesh(NULL), m_rawUnifiedMesh(NULL), m_rawIsDisk(false), m_rawIsVertexMapped(false) {}
+	Chart() : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
 
 	~Chart()
 	{
-		if (m_rawChartMesh) {
-			m_rawChartMesh->~RawMesh();
-			XA_FREE(m_rawChartMesh);
+		if (m_chartMesh) {
+			m_chartMesh->~Mesh();
+			XA_FREE(m_chartMesh);
 		}
-		if (m_rawUnifiedMesh) {
-			m_rawUnifiedMesh->~RawMesh();
-			XA_FREE(m_rawUnifiedMesh);
+		if (m_unifiedMesh) {
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
 		}
 	}
 
-	void build(const RawMesh *rawOriginalMesh, const Array<uint32_t> &faceArray)
+	void build(const Mesh *originalMesh, const Array<uint32_t> &faceArray)
 	{
 		// Copy face indices.
-		m_rawFaceArray = faceArray;
-		const uint32_t rawMeshVertexCount = rawOriginalMesh->vertexCount();
-		if (m_rawChartMesh) {
-			m_rawChartMesh->~RawMesh();
-			XA_FREE(m_rawChartMesh);
+		m_faceArray = faceArray;
+		const uint32_t meshVertexCount = originalMesh->vertexCount();
+		if (m_chartMesh) {
+			m_chartMesh->~Mesh();
+			XA_FREE(m_chartMesh);
 		}
-		m_rawChartMesh = XA_NEW(RawMesh);
-		if (m_rawUnifiedMesh) {
-			m_rawUnifiedMesh->~RawMesh();
-			XA_FREE(m_rawUnifiedMesh);
+		m_chartMesh = XA_NEW(Mesh);
+		if (m_unifiedMesh) {
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
 		}
-		m_rawUnifiedMesh = XA_NEW(RawMesh);
-		Array<uint32_t> rawChartMeshIndices;
-		rawChartMeshIndices.resize(rawMeshVertexCount, (uint32_t)~0);
-		Array<uint32_t> rawUnifiedMeshIndices;
-		rawUnifiedMeshIndices.resize(rawMeshVertexCount, (uint32_t)~0);
+		m_unifiedMesh = XA_NEW(Mesh);
+		Array<uint32_t> chartMeshIndices;
+		chartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
+		Array<uint32_t> unifiedMeshIndices;
+		unifiedMeshIndices.resize(meshVertexCount, (uint32_t)~0);
 		// Add vertices.
-		const uint32_t rawFaceCount = faceArray.size();
-		for (uint32_t f = 0; f < rawFaceCount; f++) {
-			for (RawMesh::EdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
+		const uint32_t faceCount = faceArray.size();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			for (Mesh::EdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance()) {
 				const uint32_t vertex = it.vertex0();
-				const uint32_t unifiedVertex = rawOriginalMesh->firstColocal(vertex);
-				if (rawUnifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
-					rawUnifiedMeshIndices[unifiedVertex] = m_rawUnifiedMesh->vertexCount();
-					XA_DEBUG_ASSERT(it.position0() == *rawOriginalMesh->positionAt(unifiedVertex));
-					m_rawUnifiedMesh->addVertex(it.position0());
+				const uint32_t unifiedVertex = originalMesh->firstColocal(vertex);
+				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
+					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
+					XA_DEBUG_ASSERT(it.position0() == *originalMesh->positionAt(unifiedVertex));
+					m_unifiedMesh->addVertex(it.position0());
 				}
-				if (rawChartMeshIndices[vertex] == (uint32_t)~0) {
-					rawChartMeshIndices[vertex] = m_rawChartMesh->vertexCount();
-					m_rawChartToOriginalMap.push_back(vertex);
-					m_rawChartToUnifiedMap.push_back(rawUnifiedMeshIndices[unifiedVertex]);
-					m_rawChartMesh->addVertex(it.position0(), it.normal0(), it.texcoord0());
+				if (chartMeshIndices[vertex] == (uint32_t)~0) {
+					chartMeshIndices[vertex] = m_chartMesh->vertexCount();
+					m_chartToOriginalMap.push_back(vertex);
+					m_chartToUnifiedMap.push_back(unifiedMeshIndices[unifiedVertex]);
+					m_chartMesh->addVertex(it.position0(), it.normal0(), it.texcoord0());
 				}
 			}
 		}
 		// This is ignoring the canonical map:
 		// - Is it really necessary to link colocals?
-		m_rawChartMesh->createColocals();
-		Array<uint32_t> rawFaceIndices;
-		rawFaceIndices.reserve(7);
+		m_chartMesh->createColocals();
+		Array<uint32_t> faceIndices;
+		faceIndices.reserve(7);
 		// Add faces.
-		for (uint32_t f = 0; f < rawFaceCount; f++) {
-			const uint32_t faceFlags = rawOriginalMesh->faceFlagsAt(faceArray[f]);
-			rawFaceIndices.clear();
-			for (RawMesh::EdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance())
-				rawFaceIndices.push_back(rawChartMeshIndices[it.vertex0()]);
-			m_rawChartMesh->addFace(rawFaceIndices, faceFlags);
-			rawFaceIndices.clear();
-			for (RawMesh::EdgeIterator it(rawOriginalMesh, faceArray[f]); !it.isDone(); it.advance()) {
-				uint32_t unifiedVertex = rawOriginalMesh->firstColocal(it.vertex0());
+		for (uint32_t f = 0; f < faceCount; f++) {
+			const uint32_t faceFlags = originalMesh->faceFlagsAt(faceArray[f]);
+			faceIndices.clear();
+			for (Mesh::EdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance())
+				faceIndices.push_back(chartMeshIndices[it.vertex0()]);
+			m_chartMesh->addFace(faceIndices, faceFlags);
+			faceIndices.clear();
+			for (Mesh::EdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance()) {
+				uint32_t unifiedVertex = originalMesh->firstColocal(it.vertex0());
 				if (unifiedVertex == UINT32_MAX)
 					unifiedVertex = it.vertex0();
-				rawFaceIndices.push_back(rawUnifiedMeshIndices[unifiedVertex]);
+				faceIndices.push_back(unifiedMeshIndices[unifiedVertex]);
 			}
-			m_rawUnifiedMesh->addFace(rawFaceIndices, faceFlags);
+			m_unifiedMesh->addFace(faceIndices, faceFlags);
 		}
-		m_rawChartMesh->createBoundaryEdges();
-		m_rawUnifiedMesh->createBoundaryEdges();
-		RawMesh *splitUnifiedMesh = rawMeshSplitBoundaryEdges(*m_rawUnifiedMesh);
+		m_chartMesh->createBoundaryEdges();
+		m_unifiedMesh->createBoundaryEdges();
+		Mesh *splitUnifiedMesh = meshSplitBoundaryEdges(*m_unifiedMesh);
 		if (splitUnifiedMesh) {
-			m_rawUnifiedMesh->~RawMesh();
-			XA_FREE(m_rawUnifiedMesh);
-			m_rawUnifiedMesh = splitUnifiedMesh;
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
+			m_unifiedMesh = splitUnifiedMesh;
 		}
 		if (splitUnifiedMesh) {
-			RawMesh *newUnifiedMesh = rawMeshUnifyVertices(*m_rawUnifiedMesh);
-			m_rawUnifiedMesh->~RawMesh();
-			XA_FREE(m_rawUnifiedMesh);
-			m_rawUnifiedMesh = newUnifiedMesh;
+			Mesh *newUnifiedMesh = meshUnifyVertices(*m_unifiedMesh);
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
+			m_unifiedMesh = newUnifiedMesh;
 		}
 		// Closing the holes is not always the best solution and does not fix all the problems.
 		// We need to do some analysis of the holes and the genus to:
@@ -4617,43 +4612,43 @@ public:
 			fileName.format("debug_hole_%d.obj", pieceCount++);
 			exportMesh(m_unifiedMesh.ptr(), fileName.str());*/
 		}
-		RawMesh *newRawUnifiedMesh = rawMeshTriangulate(*m_rawUnifiedMesh);
-		m_rawUnifiedMesh->~RawMesh();
-		XA_FREE(m_rawUnifiedMesh);
-		m_rawUnifiedMesh = newRawUnifiedMesh;
-		RawMeshTopology rawTopology(m_rawUnifiedMesh);
-		m_rawIsDisk = rawTopology.isDisk();
-		XA_DEBUG_ASSERT(m_rawIsDisk);
+		Mesh *newUnifiedMesh = meshTriangulate(*m_unifiedMesh);
+		m_unifiedMesh->~Mesh();
+		XA_FREE(m_unifiedMesh);
+		m_unifiedMesh = newUnifiedMesh;
+		MeshTopology topology(m_unifiedMesh);
+		m_isDisk = topology.isDisk();
+		XA_DEBUG_ASSERT(m_isDisk);
 	}
 
-	void buildVertexMap(const RawMesh *originalRawMesh)
+	void buildVertexMap(const Mesh *originalMesh)
 	{
-		XA_ASSERT(m_rawChartMesh == NULL && m_rawUnifiedMesh == NULL);
-		m_rawIsVertexMapped = true;
+		XA_ASSERT(m_chartMesh == NULL && m_unifiedMesh == NULL);
+		m_isVertexMapped = true;
 		// Build face indices.
-		m_rawFaceArray.clear();
-		const uint32_t meshFaceCount = originalRawMesh->faceCount();
+		m_faceArray.clear();
+		const uint32_t meshFaceCount = originalMesh->faceCount();
 		for (uint32_t f = 0; f < meshFaceCount; f++) {
-			if ((originalRawMesh->faceFlagsAt(f) & FaceFlags::Ignore) != 0)
-				m_rawFaceArray.push_back(f);
+			if ((originalMesh->faceFlagsAt(f) & FaceFlags::Ignore) != 0)
+				m_faceArray.push_back(f);
 		}
-		const uint32_t faceCount = m_rawFaceArray.size();
+		const uint32_t faceCount = m_faceArray.size();
 		if (faceCount != 0) {
 			// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
-			const uint32_t meshVertexCount = originalRawMesh->vertexCount();
-			m_rawChartMesh = XA_NEW(RawMesh);
-			Array<uint32_t> rawChartMeshIndices;
-			rawChartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
+			const uint32_t meshVertexCount = originalMesh->vertexCount();
+			m_chartMesh = XA_NEW(Mesh);
+			Array<uint32_t> chartMeshIndices;
+			chartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
 			// Vertex map mesh only has disconnected vertices.
 			for (uint32_t f = 0; f < faceCount; f++) {
-				const RawFace *face = originalRawMesh->faceAt(m_rawFaceArray[f]);
+				const Face *face = originalMesh->faceAt(m_faceArray[f]);
 				XA_DEBUG_ASSERT(face != NULL);
 				for (uint32_t i = 0; i < face->nIndices; i++) {
-					const uint32_t vertex = originalRawMesh->vertexAt(face->firstIndex + i);
-					if (rawChartMeshIndices[vertex] == (uint32_t)~0) {
-						rawChartMeshIndices[vertex] = m_rawChartMesh->vertexCount();
-						m_rawChartToOriginalMap.push_back(vertex);
-						m_rawChartMesh->addVertex(*originalRawMesh->positionAt(vertex));
+					const uint32_t vertex = originalMesh->vertexAt(face->firstIndex + i);
+					if (chartMeshIndices[vertex] == (uint32_t)~0) {
+						chartMeshIndices[vertex] = m_chartMesh->vertexCount();
+						m_chartToOriginalMap.push_back(vertex);
+						m_chartMesh->addVertex(*originalMesh->positionAt(vertex));
 					}
 				}
 			}
@@ -4663,15 +4658,15 @@ public:
 			faceIndices.reserve(7);
 			// Add faces.
 			for (uint32_t f = 0; f < faceCount; f++) {
-				const RawFace *face = originalRawMesh->faceAt(m_rawFaceArray[f]);
+				const Face *face = originalMesh->faceAt(m_faceArray[f]);
 				XA_DEBUG_ASSERT(face != NULL);
 				faceIndices.clear();
 				for (uint32_t i = 0; i < face->nIndices; i++) {
-					const uint32_t vertex = originalRawMesh->vertexAt(face->firstIndex + i);
-					XA_DEBUG_ASSERT(rawChartMeshIndices[vertex] != (uint32_t)~0);
-					faceIndices.push_back(rawChartMeshIndices[vertex]);
+					const uint32_t vertex = originalMesh->vertexAt(face->firstIndex + i);
+					XA_DEBUG_ASSERT(chartMeshIndices[vertex] != (uint32_t)~0);
+					faceIndices.push_back(chartMeshIndices[vertex]);
 				}
-				m_rawChartMesh->addFace(faceIndices);
+				m_chartMesh->addFace(faceIndices);
 			}
 		}
 	}
@@ -4680,109 +4675,107 @@ public:
 
 	bool isDisk() const
 	{
-		return m_rawIsDisk;
+		return m_isDisk;
 	}
 
 	bool isVertexMapped() const
 	{
-		return m_rawIsVertexMapped;
+		return m_isVertexMapped;
 	}
 
 	uint32_t vertexCount() const
 	{
-		return m_rawChartMesh->vertexCount();
+		return m_chartMesh->vertexCount();
 	}
 
 	uint32_t colocalVertexCount() const
 	{
-		return m_rawUnifiedMesh->vertexCount();
+		return m_unifiedMesh->vertexCount();
 	}
 
 	uint32_t faceCount() const
 	{
-		return m_rawFaceArray.size();
+		return m_faceArray.size();
 	}
 
 	uint32_t faceAt(uint32_t i) const
 	{
-		return m_rawFaceArray[i];
+		return m_faceArray[i];
 	}
 
-	const RawMesh *rawChartMesh() const
+	const Mesh *chartMesh() const
 	{
-		return m_rawChartMesh;
+		return m_chartMesh;
 	}
 
-	RawMesh *rawChartMesh()
+	Mesh *chartMesh()
 	{
-		return m_rawChartMesh;
+		return m_chartMesh;
 	}
 
-	const RawMesh *rawUnifiedMesh() const
+	const Mesh *unifiedMesh() const
 	{
-		return m_rawUnifiedMesh;
+		return m_unifiedMesh;
 	}
 
-	RawMesh *rawUnifiedMesh()
+	Mesh *unifiedMesh()
 	{
-		return m_rawUnifiedMesh;
+		return m_unifiedMesh;
 	}
 
 	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const
 	{
-		return m_rawChartToOriginalMap[i];
+		return m_chartToOriginalMap[i];
 	}
 
 	uint32_t mapChartVertexToUnifiedVertex(uint32_t i) const
 	{
-		return m_rawChartToUnifiedMap[i];
+		return m_chartToUnifiedMap[i];
 	}
 
 	const Array<uint32_t> &faceArray() const
 	{
-		return m_rawFaceArray;
+		return m_faceArray;
 	}
 
 	// Transfer parameterization from unified mesh to chart mesh.
 	void transferParameterization()
 	{
-		XA_DEBUG_ASSERT(!m_rawIsVertexMapped);
-		const uint32_t rawVertexCount = m_rawChartMesh->vertexCount();
-		for (uint32_t v = 0; v < rawVertexCount; v++) {
-			Vector2 *texcoord = m_rawChartMesh->texcoordAt(v);
-			*texcoord = *m_rawUnifiedMesh->texcoordAt(mapChartVertexToUnifiedVertex(v));
+		XA_DEBUG_ASSERT(!m_isVertexMapped);
+		const uint32_t vertexCount = m_chartMesh->vertexCount();
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			Vector2 *texcoord = m_chartMesh->texcoordAt(v);
+			*texcoord = *m_unifiedMesh->texcoordAt(mapChartVertexToUnifiedVertex(v));
 		}
 	}
 
 	float computeSurfaceArea() const
 	{
-		return m_rawChartMesh->computeSurfaceArea();
+		return m_chartMesh->computeSurfaceArea();
 	}
 
 	float computeParametricArea() const
 	{
 		// This only makes sense in parameterized meshes.
-		XA_DEBUG_ASSERT(m_rawIsDisk);
-		XA_DEBUG_ASSERT(!m_rawIsVertexMapped);
-		float rawArea = m_rawChartMesh->computeParametricArea();
-		return rawArea;
+		XA_DEBUG_ASSERT(m_isDisk);
+		XA_DEBUG_ASSERT(!m_isVertexMapped);
+		return m_chartMesh->computeParametricArea();
 	}
 
 	Vector2 computeParametricBounds() const
 	{
 		// This only makes sense in parameterized meshes.
-		XA_DEBUG_ASSERT(m_rawIsDisk);
-		XA_DEBUG_ASSERT(!m_rawIsVertexMapped);
-		Vector2 rawMinCorner(FLT_MAX, FLT_MAX);
-		Vector2 rawMaxCorner(-FLT_MAX, -FLT_MAX);
-		const uint32_t rawVertexCount = m_rawChartMesh->vertexCount();
-		for (uint32_t v = 0; v < rawVertexCount; v++) {
-			const Vector2 *tex = m_rawChartMesh->texcoordAt(v);
-			rawMinCorner = min(rawMinCorner, *tex);
-			rawMaxCorner = max(rawMaxCorner, *tex);
+		XA_DEBUG_ASSERT(m_isDisk);
+		XA_DEBUG_ASSERT(!m_isVertexMapped);
+		Vector2 minCorner(FLT_MAX, FLT_MAX);
+		Vector2 maxCorner(-FLT_MAX, -FLT_MAX);
+		const uint32_t vertexCount = m_chartMesh->vertexCount();
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			const Vector2 *tex = m_chartMesh->texcoordAt(v);
+			minCorner = min(minCorner, *tex);
+			maxCorner = max(maxCorner, *tex);
 		}
-		Vector2 rawBounds = (rawMaxCorner - rawMinCorner) * 0.5f;
-		return rawBounds;
+		return (maxCorner - minCorner) * 0.5f;
 	}
 
 	int32_t atlasIndex;
@@ -4790,9 +4783,9 @@ public:
 private:
 	bool closeHoles()
 	{
-		Array<uint32_t> rawBoundaryEdges;
-		rawMeshGetBoundaryEdges(*m_rawUnifiedMesh, rawBoundaryEdges);
-		uint32_t boundaryCount = rawBoundaryEdges.size();
+		Array<uint32_t> boundaryEdges;
+		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
+		uint32_t boundaryCount = boundaryEdges.size();
 		if (boundaryCount <= 1) {
 			// Nothing to close.
 			return true;
@@ -4801,14 +4794,13 @@ private:
 		Array<float> boundaryLengths;
 		for (uint32_t i = 0; i < boundaryCount; i++) {
 			float boundaryLength = 0.0f;
-			float rawBoundaryLength = 0.0f;
-			for (RawMesh::BoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
-				const RawEdge *rawEdge = m_rawUnifiedMesh->edgeAt(it.edge());
-				Vector3 t0 = *m_rawUnifiedMesh->positionAt(m_rawUnifiedMesh->vertexAt(rawEdge->index0));
-				Vector3 t1 = *m_rawUnifiedMesh->positionAt(m_rawUnifiedMesh->vertexAt(rawEdge->index1));
-				rawBoundaryLength += length(t1 - t0);
+			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryEdges[i]); !it.isDone(); it.advance()) {
+				const Edge *edge = m_unifiedMesh->edgeAt(it.edge());
+				Vector3 t0 = *m_unifiedMesh->positionAt(m_unifiedMesh->vertexAt(edge->index0));
+				Vector3 t1 = *m_unifiedMesh->positionAt(m_unifiedMesh->vertexAt(edge->index1));
+				boundaryLength += length(t1 - t0);
 			}
-			boundaryLength = rawBoundaryLength;
+			boundaryLength = boundaryLength;
 			boundaryLengths.push_back(boundaryLength);
 		}
 		// Find disk boundary.
@@ -4826,73 +4818,65 @@ private:
 				// Skip disk boundary.
 				continue;
 			}
-			Array<uint32_t> rawVertexLoop;
-			Array<const RawEdge *> rawEdgeLoop, rawEdgeLoop2;
+			Array<uint32_t> vertexLoop;
+			Array<const Edge *> edgeLoop, edgeLoop2;
 			startOver:
-			for (RawMesh::BoundaryEdgeIterator it(m_rawUnifiedMesh, rawBoundaryEdges[i]); !it.isDone(); it.advance()) {
-				const RawEdge *rawEdge = m_rawUnifiedMesh->edgeAt(it.edge());
-				const RawEdge *rawNextEdge = m_rawUnifiedMesh->edgeAt(it.nextEdge());
-				const uint32_t vertex = m_rawUnifiedMesh->vertexAt(rawNextEdge->index1); // why next edge??? matching HE mesh behavior
-				//printf("raw: %g %g %g\n", m_rawUnifiedMesh->positionAt(vertex)->x, m_rawUnifiedMesh->positionAt(vertex)->y, m_rawUnifiedMesh->positionAt(vertex)->z);
+			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryEdges[i]); !it.isDone(); it.advance()) {
+				const Edge *edge = m_unifiedMesh->edgeAt(it.edge());
+				const Edge *nextEdge = m_unifiedMesh->edgeAt(it.nextEdge());
+				const uint32_t vertex = m_unifiedMesh->vertexAt(nextEdge->index1); // why next edge??? matching HE mesh behavior
 				uint32_t j;
-				for (j = 0; j < rawVertexLoop.size(); j++) {
-					if (m_rawUnifiedMesh->areColocal(vertex, rawVertexLoop[j]))
+				for (j = 0; j < vertexLoop.size(); j++) {
+					if (m_unifiedMesh->areColocal(vertex, vertexLoop[j]))
 						break;
 				}
-				bool isCrossing = (j != rawVertexLoop.size());
+				bool isCrossing = (j != vertexLoop.size());
 				if (isCrossing) {
 					// Close loop.
-					rawEdgeLoop.push_back(rawEdge);
-					closeLoop(j + 1, rawEdgeLoop);
+					edgeLoop.push_back(edge);
+					closeLoop(j + 1, edgeLoop);
 					// Start over again.
-					rawVertexLoop.clear();
-					rawEdgeLoop.clear();
+					vertexLoop.clear();
+					edgeLoop.clear();
 					goto startOver; // HE mesh version is bugged, actually breaks at end of edge iteration instead.
 				}
-				rawVertexLoop.push_back(vertex);
-				rawEdgeLoop.push_back(rawEdge);
+				vertexLoop.push_back(vertex);
+				edgeLoop.push_back(edge);
 			}
 			{
 				// HACK: match HE mesh
-				rawEdgeLoop2.resize(rawEdgeLoop.size());
-				for (uint32_t j = 0; j < rawEdgeLoop.size(); j++)
-					rawEdgeLoop2[j] = rawEdgeLoop[(j + rawEdgeLoop.size() - 1) % rawEdgeLoop.size()];
+				edgeLoop2.resize(edgeLoop.size());
+				for (uint32_t j = 0; j < edgeLoop.size(); j++)
+					edgeLoop2[j] = edgeLoop[(j + edgeLoop.size() - 1) % edgeLoop.size()];
 			}
-			closeLoop(0, rawEdgeLoop2);
+			closeLoop(0, edgeLoop2);
 		}
-		m_rawUnifiedMesh->createBoundaryEdges();
-		rawMeshGetBoundaryEdges(*m_rawUnifiedMesh, rawBoundaryEdges);
-		boundaryCount = rawBoundaryEdges.size();
+		m_unifiedMesh->createBoundaryEdges();
+		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
+		boundaryCount = boundaryEdges.size();
 		return boundaryCount == 1;
 	}
 
-	bool closeLoop(uint32_t startVertex, const Array<const RawEdge *> &loop)
+	bool closeLoop(uint32_t startVertex, const Array<const Edge *> &loop)
 	{
 		const uint32_t vertexCount = loop.size() - startVertex;
 		XA_DEBUG_ASSERT(vertexCount >= 3);
 		if (vertexCount < 3)
 			return false;
-		//printf("\nCloseloop raw\n");
 		// If the hole is planar, then we add a single face that will be properly triangulated later.
 		// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
 		// This is still a bit of a hack. There surely are better hole filling algorithms out there.
 		Array<Vector3> points;
 		points.resize(vertexCount);
-		for (uint32_t i = 0; i < vertexCount; i++) {
-			points[i] = *m_rawUnifiedMesh->positionAt(m_rawUnifiedMesh->vertexAt(loop[startVertex + i]->index0));
-			//printf("   %g %g %g\n", points[i].x, points[i].y, points[i].z);
-		}
+		for (uint32_t i = 0; i < vertexCount; i++)
+			points[i] = *m_unifiedMesh->positionAt(m_unifiedMesh->vertexAt(loop[startVertex + i]->index0));
 		const bool isPlanar = Fit::isPlanar(vertexCount, points.data());
 		if (isPlanar) {
 			Array<uint32_t> indices;
 			indices.resize(vertexCount);
-			//printf("   ");
-			for (uint32_t i = 0; i < vertexCount; i++) {
-				indices[i] = m_rawUnifiedMesh->vertexAt(loop[startVertex + i]->index0);
-				//printf("%d ", indices[i]);
-			}
-			//printf("\n");
-			m_rawUnifiedMesh->addFace(indices);
+			for (uint32_t i = 0; i < vertexCount; i++)
+				indices[i] = m_unifiedMesh->vertexAt(loop[startVertex + i]->index0);
+			m_unifiedMesh->addFace(indices);
 		} else {
 			// If the polygon is not planar, we just cross our fingers, and hope this will work:
 			// Compute boundary centroid:
@@ -4900,13 +4884,13 @@ private:
 			for (uint32_t i = 0; i < vertexCount; i++)
 				centroidPos += points[i];
 			centroidPos *= (1.0f / vertexCount);
-			const uint32_t centroidVertex = m_rawUnifiedMesh->vertexCount();
-			m_rawUnifiedMesh->addVertex(centroidPos);
+			const uint32_t centroidVertex = m_unifiedMesh->vertexCount();
+			m_unifiedMesh->addVertex(centroidPos);
 			// Add one pair of edges for each boundary vertex.
 			for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
-				const uint32_t vertex1 = m_rawUnifiedMesh->vertexAt(loop[startVertex + j]->index0);
-				const uint32_t vertex2 = m_rawUnifiedMesh->vertexAt(loop[startVertex + i]->index0);
-				m_rawUnifiedMesh->addFace(centroidVertex, vertex1, vertex2);
+				const uint32_t vertex1 = m_unifiedMesh->vertexAt(loop[startVertex + j]->index0);
+				const uint32_t vertex2 = m_unifiedMesh->vertexAt(loop[startVertex + i]->index0);
+				m_unifiedMesh->addFace(centroidVertex, vertex1, vertex2);
 			}
 		}
 		return true;
@@ -4914,18 +4898,18 @@ private:
 
 	bool m_blockAligned;
 
-	RawMesh *m_rawChartMesh;
-	RawMesh *m_rawUnifiedMesh;
-	bool m_rawIsDisk;
-	bool m_rawIsVertexMapped;
+	Mesh *m_chartMesh;
+	Mesh *m_unifiedMesh;
+	bool m_isDisk;
+	bool m_isVertexMapped;
 
 	// List of faces of the original mesh that belong to this chart.
-	Array<uint32_t> m_rawFaceArray;
+	Array<uint32_t> m_faceArray;
 
 	// Map vertices of the chart mesh to vertices of the original mesh.
-	Array<uint32_t> m_rawChartToOriginalMap;
+	Array<uint32_t> m_chartToOriginalMap;
 
-	Array<uint32_t> m_rawChartToUnifiedMap;
+	Array<uint32_t> m_chartToUnifiedMap;
 };
 
 // Estimate quality of existing parameterization.
@@ -4945,7 +4929,7 @@ public:
 		m_authalicMetric = 0.0f;
 	}
 
-	ParameterizationQuality(const RawMesh *mesh)
+	ParameterizationQuality(const Mesh *mesh)
 	{
 		XA_DEBUG_ASSERT(mesh != NULL);
 		m_totalTriangleCount = 0;
@@ -4962,7 +4946,7 @@ public:
 			uint32_t vertex0 = UINT32_MAX;
 			Vector3 p[3];
 			Vector2 t[3];
-			for (RawMesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+			for (Mesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
 				if (vertex0 == UINT32_MAX) {
 					vertex0 = it.vertex0();
 					p[0] = it.position0();
@@ -5121,7 +5105,7 @@ private:
 class MeshCharts
 {
 public:
-	MeshCharts(const RawMesh *rawMesh) : m_rawMesh(rawMesh) {}
+	MeshCharts(const Mesh *mesh) : m_mesh(mesh) {}
 
 	~MeshCharts()
 	{
@@ -5138,7 +5122,7 @@ public:
 
 	uint32_t faceCount() const
 	{
-		return m_rawMesh->faceCount();
+		return m_mesh->faceCount();
 	}
 
 	uint32_t vertexCount () const
@@ -5218,13 +5202,13 @@ public:
 	void computeCharts(const CharterOptions &options)
 	{
 		Chart *vertexMap = XA_NEW(Chart);
-		vertexMap->buildVertexMap(m_rawMesh);
+		vertexMap->buildVertexMap(m_mesh);
 		if (vertexMap->faceCount() == 0) {
 			vertexMap->~Chart();
 			XA_FREE(vertexMap);
 			vertexMap = NULL;
 		}
-		RawAtlasBuilder builder(m_rawMesh, options);
+		AtlasBuilder builder(m_mesh, options);
 		if (vertexMap != NULL) {
 			// Mark faces that do not need to be charted.
 			builder.markUnchartedFaces(vertexMap->faceArray());
@@ -5287,13 +5271,13 @@ public:
 			for (uint32_t i = 0; i < chartCount; i++) {
 				Chart *chart = XA_NEW(Chart);
 				m_chartArray.push_back(chart);
-				chart->build(m_rawMesh, builder.chartFaces(i));
+				chart->build(m_mesh, builder.chartFaces(i));
 			}
 		}
 		const uint32_t chartCount = m_chartArray.size();
 		// Build face indices.
-		m_faceChart.resize(m_rawMesh->faceCount());
-		m_faceIndex.resize(m_rawMesh->faceCount());
+		m_faceChart.resize(m_mesh->faceCount());
+		m_faceIndex.resize(m_mesh->faceCount());
 		for (uint32_t i = 0; i < chartCount; i++) {
 			const Chart *chart = m_chartArray[i];
 			const uint32_t faceCount = chart->faceCount();
@@ -5339,17 +5323,15 @@ public:
 				diskCount++;
 				ParameterizationQuality chartParameterizationQuality;
 				if (chart->faceCount() == 1) {
-					computeSingleFaceMap(chart->rawUnifiedMesh());
-					ParameterizationQuality rawQuality = ParameterizationQuality(chart->rawUnifiedMesh());
-					chartParameterizationQuality = rawQuality;
+					computeSingleFaceMap(chart->unifiedMesh());
+					ParameterizationQuality quality = ParameterizationQuality(chart->unifiedMesh());
+					chartParameterizationQuality = quality;
 				} else {
-					ParameterizationQuality orthogonalQuality;
-					computeOrthogonalProjectionMap(chart->rawUnifiedMesh());
-					ParameterizationQuality rawOrthogonalQuality(chart->rawUnifiedMesh());
-					orthogonalQuality = rawOrthogonalQuality;
-					computeLeastSquaresConformalMap(chart->rawUnifiedMesh());
-					ParameterizationQuality rawLscmQuality(chart->rawUnifiedMesh());
-					chartParameterizationQuality = rawLscmQuality;
+					computeOrthogonalProjectionMap(chart->unifiedMesh());
+					ParameterizationQuality orthogonalQuality(chart->unifiedMesh());
+					computeLeastSquaresConformalMap(chart->unifiedMesh());
+					ParameterizationQuality lscmQuality(chart->unifiedMesh());
+					chartParameterizationQuality = lscmQuality;
 				}
 				isValid = chartParameterizationQuality.isValid();
 				if (!isValid) {
@@ -5386,7 +5368,7 @@ public:
 	}
 
 private:
-	const RawMesh *m_rawMesh;
+	const Mesh *m_mesh;
 	Array<Chart *> m_chartArray;
 	Array<uint32_t> m_chartVertexCountPrefixSum;
 	uint32_t m_totalVertexCount;
@@ -5454,9 +5436,9 @@ public:
 		return NULL;
 	}
 
-	void computeCharts(const RawMesh *rawMesh, const CharterOptions &options)
+	void computeCharts(const Mesh *mesh, const CharterOptions &options)
 	{
-		MeshCharts *meshCharts = XA_NEW(MeshCharts, rawMesh);
+		MeshCharts *meshCharts = XA_NEW(MeshCharts, mesh);
 		meshCharts->computeCharts(options);
 		m_meshChartsArray.push_back(meshCharts);
 	}
@@ -5486,7 +5468,7 @@ public:
 	{
 		m_originalChartUvs.resize(chartCount());
 		for (uint32_t i = 0; i < chartCount(); i++) {
-			const RawMesh *mesh = chartAt(i)->rawChartMesh();
+			const Mesh *mesh = chartAt(i)->chartMesh();
 			m_originalChartUvs[i].resize(mesh->vertexCount());
 			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
 				m_originalChartUvs[i][j] = *mesh->texcoordAt(j);
@@ -5496,7 +5478,7 @@ public:
 	void restoreOriginalChartUvs()
 	{
 		for (uint32_t i = 0; i < chartCount(); i++) {
-			RawMesh *mesh = chartAt(i)->rawChartMesh();
+			Mesh *mesh = chartAt(i)->chartMesh();
 			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
 				*mesh->texcoordAt(j) = m_originalChartUvs[i][j];
 		}
@@ -5595,11 +5577,11 @@ struct AtlasPacker
 			// Sort charts by perimeter. @@ This is sometimes producing somewhat unexpected results. Is this right?
 			//chartOrderArray[c] = ((end.x - origin.x) + (end.y - origin.y)) * scale;
 			// Translate, rotate and scale vertices. Compute extents.
-			RawMesh *rawMesh = chart->rawChartMesh();
-			const uint32_t vertexCount = rawMesh->vertexCount();
+			Mesh *mesh = chart->chartMesh();
+			const uint32_t vertexCount = mesh->vertexCount();
 			for (uint32_t i = 0; i < vertexCount; i++) {
 				Vector2 tmp;
-				const Vector2 *texcoord = rawMesh->texcoordAt(i);
+				const Vector2 *texcoord = mesh->texcoordAt(i);
 				tmp.x = dot(*texcoord, majorAxis);
 				tmp.y = dot(*texcoord, minorAxis);
 				tmp -= origin;
@@ -5614,7 +5596,7 @@ struct AtlasPacker
 				}
 				//XA_ASSERT(tmp.x >= 0 && tmp.y >= 0);
 				XA_ASSERT(std::isfinite(tmp.x) && std::isfinite(tmp.y));
-				*rawMesh->texcoordAt(i) = tmp;
+				*mesh->texcoordAt(i) = tmp;
 				extents = max(extents, tmp);
 			}
 			XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
@@ -5623,7 +5605,7 @@ struct AtlasPacker
 				float limit = std::max(extents.x, extents.y);
 				scale = 1024 / (limit + 1);
 				for (uint32_t i = 0; i < vertexCount; i++) {
-					Vector2 *texcoord = rawMesh->texcoordAt(i);
+					Vector2 *texcoord = mesh->texcoordAt(i);
 					*texcoord *= scale;
 				}
 				extents *= scale;
@@ -5664,7 +5646,7 @@ struct AtlasPacker
 				extents.y = float(ch);
 			}
 			for (uint32_t v = 0; v < vertexCount; v++) {
-				Vector2 *texcoord = rawMesh->texcoordAt(v);
+				Vector2 *texcoord = mesh->texcoordAt(v);
 				texcoord->x /= divide_x;
 				texcoord->y /= divide_y;
 				texcoord->x *= scale_x;
@@ -5709,12 +5691,12 @@ struct AtlasPacker
 				// Init all bits to 0.
 				chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, false);  // + 2 to add padding on both sides.
 				// Rasterize chart and dilate.
-				drawChartBitmapDilate(chart, &chart_bitmap, options.padding);
+				dchartBitmapDilate(chart, &chart_bitmap, options.padding);
 			} else {
 				// Init all bits to 0.
 				chart_bitmap.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1, false);  // Add half a texels on each side.
 				// Rasterize chart and dilate.
-				drawChartBitmap(chart, &chart_bitmap, Vector2(1), Vector2(0.5));
+				dchartBitmap(chart, &chart_bitmap, Vector2(1), Vector2(0.5));
 			}
 			uint32_t currentBitmapIndex = 0;
 			int best_x = 0, best_y = 0;
@@ -5767,10 +5749,10 @@ struct AtlasPacker
 			chart->atlasIndex = (int32_t)currentBitmapIndex;
 			//float best_angle = 2 * M_PI * best_r;
 			// Translate and rotate chart texture coordinates.
-			RawMesh *rawMesh = chart->rawChartMesh();
-			const uint32_t rawVertexCount = rawMesh->vertexCount();
-			for (uint32_t v = 0; v < rawVertexCount; v++) {
-				Vector2 *texcoord = rawMesh->texcoordAt(v);
+			Mesh *mesh = chart->chartMesh();
+			const uint32_t vertexCount = mesh->vertexCount();
+			for (uint32_t v = 0; v < vertexCount; v++) {
+				Vector2 *texcoord = mesh->texcoordAt(v);
 				Vector2 t = *texcoord;
 				if (best_r) std::swap(t.x, t.y);
 				//vertex->tex.x = best_x + t.x * cosf(best_angle) - t.y * sinf(best_angle);
@@ -5932,7 +5914,7 @@ private:
 		return result;
 	}
 
-	void drawChartBitmapDilate(const Chart *chart, BitMap *bitmap, int padding)
+	void dchartBitmapDilate(const Chart *chart, BitMap *bitmap, int padding)
 	{
 		const int w = bitmap->width();
 		const int h = bitmap->height();
@@ -5940,10 +5922,10 @@ private:
 		// Rasterize chart faces, check that all bits are not set.
 		const uint32_t faceCount = chart->faceCount();
 		for (uint32_t f = 0; f < faceCount; f++) {
-			const RawMesh *mesh = chart->rawChartMesh();
+			const Mesh *mesh = chart->chartMesh();
 			Vector2 vertices[3];
 			uint32_t edgeCount = 0;
-			for (RawMesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+			for (Mesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
 				if (edgeCount < 3)
 					vertices[edgeCount] = it.texcoord0() + Vector2(0.5f) + Vector2(float(padding), float(padding));
 				edgeCount++;
@@ -5979,7 +5961,7 @@ private:
 		}
 	}
 
-	void drawChartBitmap(const Chart *chart, BitMap *bitmap, const Vector2 &scale, const Vector2 &offset)
+	void dchartBitmap(const Chart *chart, BitMap *bitmap, const Vector2 &scale, const Vector2 &offset)
 	{
 		const int w = bitmap->width();
 		const int h = bitmap->height();
@@ -5993,12 +5975,12 @@ private:
 		// Rasterize 4 times to add proper padding.
 		for (int i = 0; i < 4; i++) {
 			// Rasterize chart faces, check that all bits are not set.
-			const uint32_t faceCount = chart->rawChartMesh()->faceCount();
+			const uint32_t faceCount = chart->chartMesh()->faceCount();
 			for (uint32_t f = 0; f < faceCount; f++) {
-				const RawMesh *mesh = chart->rawChartMesh();
+				const Mesh *mesh = chart->chartMesh();
 				Vector2 vertices[3];
 				uint32_t edgeCount = 0;
-				for (RawMesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+				for (Mesh::EdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
 					if (edgeCount < 3) {
 						vertices[edgeCount] = it.texcoord0() * scale + offset + pad[i];
 						XA_ASSERT(ftoi_ceil(vertices[edgeCount].x) >= 0);
@@ -6206,12 +6188,12 @@ private:
 		// Compute list of boundary points.
 		Array<Vector2> points;
 		points.reserve(16);
-		const RawMesh *rawMesh = chart->rawChartMesh();
-		const uint32_t rawVertexCount = rawMesh->vertexCount();
+		const Mesh *mesh = chart->chartMesh();
+		const uint32_t vertexCount = mesh->vertexCount();
 		uint32_t bp = 0;
-		for (uint32_t v = 0; v < rawVertexCount; v++) {
-			if (rawMesh->isBoundaryVertex(v)) {
-				points.push_back(*rawMesh->texcoordAt(v));
+		for (uint32_t v = 0; v < vertexCount; v++) {
+			if (mesh->isBoundaryVertex(v)) {
+				points.push_back(*mesh->texcoordAt(v));
 				bp++;
 			}
 		}
@@ -6252,8 +6234,8 @@ private:
 			}
 		}
 		// Consider all points, not only boundary points, in case the input chart is malformed.
-		for (uint32_t i = 0; i < rawVertexCount; i++) {
-			Vector2 point = *rawMesh->texcoordAt(i);
+		for (uint32_t i = 0; i < vertexCount; i++) {
+			Vector2 point = *mesh->texcoordAt(i);
 			float x = dot(best_axis, point);
 			if (x < best_min.x) best_min.x = x;
 			if (x > best_max.x) best_max.x = x;
@@ -6283,7 +6265,7 @@ struct Context
 {
 	Atlas atlas;
 	internal::param::Atlas paramAtlas;
-	internal::Array<internal::RawMesh *> rawMeshes;
+	internal::Array<internal::Mesh *> meshes;
 };
 
 Atlas *Create()
@@ -6323,9 +6305,9 @@ void Destroy(Atlas *atlas)
 	Context *ctx = (Context *)atlas;
 	if (atlas->utilization)
 		XA_FREE(atlas->utilization);
-	for (int i = 0; i < (int)ctx->rawMeshes.size(); i++) {
-		ctx->rawMeshes[i]->~RawMesh();
-		XA_FREE(ctx->rawMeshes[i]);
+	for (int i = 0; i < (int)ctx->meshes.size(); i++) {
+		ctx->meshes[i]->~Mesh();
+		XA_FREE(ctx->meshes[i]);
 	}
 	DestroyOutputMeshes(ctx);
 	ctx->~Context();
@@ -6405,7 +6387,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 		}
 		canonicalMap.push_back(firstColocal);
 	}
-	internal::RawMesh *rawMesh = XA_NEW(internal::RawMesh, meshDecl.vertexCount, meshDecl.indexCount / 3);
+	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.vertexCount, meshDecl.indexCount / 3);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0);
 		internal::Vector2 texcoord(0);
@@ -6413,9 +6395,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			normal = DecodeNormal(meshDecl, i);
 		if (meshDecl.vertexUvData)
 			texcoord = DecodeUv(meshDecl, i);
-		rawMesh->addVertex(DecodePosition(meshDecl, i), normal, texcoord);
+		mesh->addVertex(DecodePosition(meshDecl, i), normal, texcoord);
 	}
-	rawMesh->createColocalsWithCanonicalMap(canonicalMap);
+	mesh->createColocalsWithCanonicalMap(canonicalMap);
 	for (uint32_t i = 0; i < meshDecl.indexCount / 3; i++) {
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
@@ -6454,10 +6436,10 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 		}
 		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
 			faceFlags |= internal::FaceFlags::Ignore;
-		rawMesh->addFace(tri[0], tri[1], tri[2], faceFlags);
+		mesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
-	rawMesh->createBoundaryEdges();
-	ctx->rawMeshes.push_back(rawMesh);
+	mesh->createBoundaryEdges();
+	ctx->meshes.push_back(mesh);
 	atlas->meshCount++;
 	return AddMeshError::Success;
 }
@@ -6466,7 +6448,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 {
 	XA_DEBUG_ASSERT(atlas);
 	Context *ctx = (Context *)atlas;
-	if (ctx->rawMeshes.isEmpty())
+	if (ctx->meshes.isEmpty())
 		return;
 	atlas->atlasCount = 0;
 	atlas->chartCount = 0;
@@ -6483,10 +6465,10 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	int progress = 0;
 	if (progressCallback)
 		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
-	const uint32_t meshCount = ctx->rawMeshes.size();
+	const uint32_t meshCount = ctx->meshes.size();
 	for (uint32_t i = 0; i < meshCount; i++)
 	{
-		ctx->paramAtlas.computeCharts(ctx->rawMeshes[i], charterOptions);
+		ctx->paramAtlas.computeCharts(ctx->meshes[i], charterOptions);
 		if (progressCallback)
 		{
 			const int newProgress = int((i + 1) / (float)meshCount * 100.0f);
@@ -6554,7 +6536,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			for (uint32_t k = 0; k < chart->vertexCount(); k++) {
 				Vertex &v = outputMesh->vertexArray[vertexOffset + k];
 				v.atlasIndex = chart->atlasIndex;
-				const internal::Vector2 &uv = *chart->rawChartMesh()->texcoordAt(k);
+				const internal::Vector2 &uv = *chart->chartMesh()->texcoordAt(k);
 				v.uv[0] = std::max(0.0f, uv.x);
 				v.uv[1] = std::max(0.0f, uv.y);
 				v.xref = chart->mapChartVertexToOriginalVertex(k);
@@ -6569,11 +6551,11 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
 			const internal::param::Chart *chart = charts->chartAt(c);
 			XA_DEBUG_ASSERT(chart->faceAt(fi) == f);
-			const internal::RawMesh *mesh = chart->rawChartMesh();
-			const internal::RawFace *rawFace = mesh->faceAt(fi);
-			outputMesh->indexArray[3 * f + 0] = vertexOffset + mesh->vertexAt(rawFace->firstIndex + 0);
-			outputMesh->indexArray[3 * f + 1] = vertexOffset + mesh->vertexAt(rawFace->firstIndex + 1);
-			outputMesh->indexArray[3 * f + 2] = vertexOffset + mesh->vertexAt(rawFace->firstIndex + 2);
+			const internal::Mesh *mesh = chart->chartMesh();
+			const internal::Face *face = mesh->faceAt(fi);
+			outputMesh->indexArray[3 * f + 0] = vertexOffset + mesh->vertexAt(face->firstIndex + 0);
+			outputMesh->indexArray[3 * f + 1] = vertexOffset + mesh->vertexAt(face->firstIndex + 1);
+			outputMesh->indexArray[3 * f + 2] = vertexOffset + mesh->vertexAt(face->firstIndex + 2);
 		}
 		// Charts.
 		// Ignore vertex mapped charts.
@@ -6593,11 +6575,11 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
 			outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
 			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
-			const internal::RawMesh *mesh = chart->rawChartMesh();
+			const internal::Mesh *mesh = chart->chartMesh();
 			outputChart->indexCount = mesh->faceCount() * 3;
 			outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
 			for (uint32_t k = 0; k < mesh->faceCount(); k++) {
-				const internal::RawFace *face = mesh->faceAt(k);
+				const internal::Face *face = mesh->faceAt(k);
 				outputChart->indexArray[3 * k + 0] = vertexOffset + mesh->vertexAt(face->firstIndex + 0);
 				outputChart->indexArray[3 * k + 1] = vertexOffset + mesh->vertexAt(face->firstIndex + 1);
 				outputChart->indexArray[3 * k + 2] = vertexOffset + mesh->vertexAt(face->firstIndex + 2);
