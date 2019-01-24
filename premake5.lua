@@ -35,9 +35,15 @@ project "example"
 	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
-	files { "example/*.cpp" }
-	links { "xatlas" }
-	filter { "system:windows", "action:gmake", "platforms:x86" }
-		gccprefix "i686-w64-mingw32-"
-	filter { "system:windows", "action:gmake", "platforms:x86_64" }
-		gccprefix "x86_64-w64-mingw32-"
+	files "example.cpp"
+	links "xatlas"
+
+project "test"
+	kind "ConsoleApp"
+	language "C++"
+	cppdialect "C++11"
+	exceptionhandling "Off"
+	rtti "Off"
+	warnings "Extra"
+	files "test.cpp"
+	links "xatlas"
