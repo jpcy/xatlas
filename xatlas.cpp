@@ -8,7 +8,6 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 */
 #include <algorithm>
 #define _USE_MATH_DEFINES
@@ -1725,24 +1724,6 @@ public:
 			const uint32_t vertex1 = m_indices[edge.index1];
 			m_vertexToEdgeMap.add(vertex0, edgeIndex);
 			m_vertexToEdgeMap.add(vertex1, edgeIndex);
-			// Copy HE mesh behavior: disconnect colocals belonging to duplicate edges.
-			if (!m_colocals.isEmpty()) {
-				bool foundDuplicate = false;
-				for (ColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
-					for (ColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
-						if (m_edgeMap.get(EdgeKey(it0.vertex(), it1.vertex()))) {
-							foundDuplicate = true;
-							break;
-						}
-					}
-					if (foundDuplicate)
-						break;
-				}
-				if (foundDuplicate) {
-					disconnectColocal(vertex0);
-					disconnectColocal(vertex1);
-				}
-			}
 			EdgeKey key(vertex0, vertex1);
 			//if (!m_edgeMap.get(key))
 			m_edgeMap.add(key, edgeIndex);
@@ -1783,30 +1764,17 @@ public:
 				m_colocalVertexCount++;
 			}
 			// Find the next (with wrapping) vertex with the same colocal.
-#if 1
-			// HE mesh colocals are in reverse order.
-			for (uint32_t j = 1;; j++) {
-				int32_t k = (int32_t)i - (int32_t)j;
-				if (k < 0)
-					k += (int32_t)canonicalMap.size();
-				if ((uint32_t)k == i || canonicalMap[(uint32_t)k] == canonicalMap[i]) {
-					m_colocals[i] = (uint32_t)k;
-					break;
-				}
-			}
-#else
-			for (uint32_t j = 1;; j++) {
-				const uint32_t k = (i + j) % canonicalMap.size();
+			for (uint32_t j = i + 1;; j++) {
+				const uint32_t k = j % canonicalMap.size();
 				if (k == i || canonicalMap[k] == canonicalMap[i]) {
 					m_colocals[i] = k;
 					break;
 				}
 			}
-#endif
 		}
 	}
 
-	void createBoundaryEdges()
+	void createBoundaries()
 	{
 		XA_PRINT(PrintFlags::MeshProcessing, "--- Creating boundaries:\n");
 		const uint32_t edgeCount = m_edges.size();
@@ -1838,11 +1806,12 @@ public:
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
 				} else {
 					m_boundaryEdges[face.firstIndex + j] = true;
-					m_boundaryVertices[vertex1] = true; // Should be both vertices, but match HE mesh behavior instead.
+					m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
 					nBoundaryEdges++;
 				}
 			}
 		}
+#if 1
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			if (!m_boundaryEdges[i])
 				continue;
@@ -1857,13 +1826,42 @@ public:
 					const uint32_t vertex1 = m_indices[otherEdge.index1];
 					// Must be a boundary edge.
 					if (vertex1 == it.vertex() && !(m_faceFlags[otherEdge.face] & FaceFlags::Ignore) && !findEdge(vertex1, vertex0)) {
+						XA_DEBUG_ASSERT(m_nextBoundaryEdges[i] == UINT32_MAX); // duplicate boundary edge
 						m_nextBoundaryEdges[i] = ele->value;
+#if NDEBUG
 						break;
+#endif
 					}
 					ele = m_vertexToEdgeMap.getNext(ele);
 				}
 			}
 		}
+#else
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			if (!m_boundaryEdges[i])
+				continue;
+			const Edge &edge = m_edges[i];
+			// Find a boundary edge that starts with the provided vertex (including colocals).
+			const uint32_t startVertex = m_indices[edge.index1];
+			for (ColocalIterator it(this, startVertex); !it.isDone(); it.advance()) {
+				const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
+				while (ele) {
+					const Edge &otherEdge = m_edges[ele->value];
+					const uint32_t vertex0 = m_indices[otherEdge.index0];
+					const uint32_t vertex1 = m_indices[otherEdge.index1];
+					// Must be a boundary edge.
+					if (vertex0 == it.vertex() && !(m_faceFlags[otherEdge.face] & FaceFlags::Ignore) && m_boundaryEdges[ele->value]) {
+						XA_DEBUG_ASSERT(m_nextBoundaryEdges[i] == UINT32_MAX);
+						m_nextBoundaryEdges[i] = ele->value;
+#if NDEBUG
+						break;
+#endif
+					}
+					ele = m_vertexToEdgeMap.getNext(ele);
+				}
+			}
+		}
+#endif
 		XA_PRINT(PrintFlags::MeshProcessing, "---   %d boundary edges.\n", nBoundaryEdges);
 	}
 
@@ -2231,18 +2229,6 @@ public:
 	};
 
 private:
-	void disconnectColocal(uint32_t vertex)
-	{
-		if (m_colocals[vertex] == vertex)
-			return;
-		const uint32_t vertexCount = m_colocals.size();
-		for (uint32_t v = 0; v < vertexCount; v++) {
-			if (m_colocals[v] == vertex)
-				m_colocals[v] = m_colocals[vertex];
-		}
-		m_colocals[vertex] = vertex;
-	}
-
 	Array<Edge> m_edges;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
 	Array<Face> m_faces;
@@ -2460,7 +2446,7 @@ static Mesh *meshTriangulate(const Mesh &inputMesh)
 			}
 		}
 	}
-	mesh->createBoundaryEdges();
+	mesh->createBoundaries();
 	return mesh;
 }
 
@@ -2482,7 +2468,7 @@ static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 			indexArray.push_back(inputMesh.firstColocal(it.vertex0()));
 		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
 	}
-	mesh->createBoundaryEdges();
+	mesh->createBoundaries();
 	return mesh;
 }
 
@@ -4587,8 +4573,8 @@ public:
 			}
 			m_unifiedMesh->addFace(faceIndices, faceFlags);
 		}
-		m_chartMesh->createBoundaryEdges();
-		m_unifiedMesh->createBoundaryEdges();
+		m_chartMesh->createBoundaries();
+		m_unifiedMesh->createBoundaries();
 		Mesh *splitUnifiedMesh = meshSplitBoundaryEdges(*m_unifiedMesh);
 		if (splitUnifiedMesh) {
 			m_unifiedMesh->~Mesh();
@@ -4819,7 +4805,7 @@ private:
 				continue;
 			}
 			Array<uint32_t> vertexLoop;
-			Array<const Edge *> edgeLoop, edgeLoop2;
+			Array<const Edge *> edgeLoop;
 			startOver:
 			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryEdges[i]); !it.isDone(); it.advance()) {
 				const Edge *edge = m_unifiedMesh->edgeAt(it.edge());
@@ -4843,15 +4829,9 @@ private:
 				vertexLoop.push_back(vertex);
 				edgeLoop.push_back(edge);
 			}
-			{
-				// HACK: match HE mesh
-				edgeLoop2.resize(edgeLoop.size());
-				for (uint32_t j = 0; j < edgeLoop.size(); j++)
-					edgeLoop2[j] = edgeLoop[(j + edgeLoop.size() - 1) % edgeLoop.size()];
-			}
-			closeLoop(0, edgeLoop2);
+			closeLoop(0, edgeLoop);
 		}
-		m_unifiedMesh->createBoundaryEdges();
+		m_unifiedMesh->createBoundaries();
 		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
 		boundaryCount = boundaryEdges.size();
 		return boundaryCount == 1;
@@ -6438,7 +6418,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			faceFlags |= internal::FaceFlags::Ignore;
 		mesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
-	mesh->createBoundaryEdges();
+	mesh->createBoundaries();
 	ctx->meshes.push_back(mesh);
 	atlas->meshCount++;
 	return AddMeshError::Success;
