@@ -115,8 +115,7 @@ struct MeshDecl
 	}
 };
 
-// useColocalVertices - generates fewer charts (good), but is more sensitive to bad geometry.
-AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColocalVertices = true);
+AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl);
 
 struct ProgressCategory
 {

@@ -1835,6 +1835,7 @@ public:
 
 	void createColocals()
 	{
+		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
 		typedef internal::HashMap<internal::Vector3, uint32_t> PositionHashMap;
 		PositionHashMap positionHashMap(m_positions.size());
 		for (uint32_t i = 0; i < m_positions.size(); i++)
@@ -1851,13 +1852,6 @@ public:
 			}
 			canonicalMap.push_back(firstColocal);
 		}
-		createColocalsWithCanonicalMap(canonicalMap);
-	}
-
-	void createColocalsWithCanonicalMap(const Array<uint32_t> &canonicalMap)
-	{
-		XA_DEBUG_ASSERT(canonicalMap.size() == m_positions.size());
-		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
 		Array<uint32_t> vertexMap;
 		vertexMap.resize(canonicalMap.size(), UINT32_MAX);
 		m_colocals.resize(canonicalMap.size(), UINT32_MAX);
@@ -2358,18 +2352,22 @@ public:
 
 private:
 	Array<Edge> m_edges;
-	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
 	Array<Face> m_faces;
 	Array<uint32_t> m_faceFlags;
 	Array<uint32_t> m_indices;
 	Array<Vector3> m_positions;
 	Array<Vector3> m_normals;
 	Array<Vector2> m_texcoords;
+
+	// Populated by createColocals
 	uint32_t m_colocalVertexCount;
 	Array<uint32_t> m_colocals; // In: vertex index. Out: the vertex index of the next colocal position.
+
+	// Populated by createBoundaries
 	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
 	Array<bool> m_boundaryEdges;
 	Array<bool> m_boundaryVertices;
+	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
 
 	struct EdgeKey
 	{
@@ -6466,7 +6464,7 @@ static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
 	return internal::length(pos2 - pos1);
 }
 
-AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColocalVertices)
+AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 {
 	XA_DEBUG_ASSERT(atlas);
 	XA_DEBUG_ASSERT(meshDecl.vertexCount > 0);
@@ -6483,25 +6481,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			return AddMeshError::IndexOutOfRange;
 	}
 	typedef internal::HashMap<internal::Vector3, uint32_t> PositionHashMap;
-	PositionHashMap positionHashMap(meshDecl.vertexCount);
-	for (uint32_t i = 0; i < meshDecl.vertexCount; i++)
-		positionHashMap.add(DecodePosition(meshDecl, i), i);
-	internal::Array<uint32_t> canonicalMap;
-	canonicalMap.reserve(meshDecl.vertexCount);
-	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
-		uint32_t firstColocal = i;
-		if (useColocalVertices) {
-			const PositionHashMap::Element *ele = positionHashMap.get(DecodePosition(meshDecl, i));
-			uint32_t lowest = i;
-			while (ele) {
-				if (ele->value < lowest)
-					lowest = ele->value;
-				ele = positionHashMap.getNext(ele);
-			}
-			firstColocal = lowest;
-		}
-		canonicalMap.push_back(firstColocal);
-	}
 	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.vertexCount, meshDecl.indexCount / 3);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0);
@@ -6512,7 +6491,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			texcoord = DecodeUv(meshDecl, i);
 		mesh->addVertex(DecodePosition(meshDecl, i), normal, texcoord);
 	}
-	mesh->createColocalsWithCanonicalMap(canonicalMap);
+	mesh->createColocals();
 	for (uint32_t i = 0; i < meshDecl.indexCount / 3; i++) {
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
