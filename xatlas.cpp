@@ -64,9 +64,10 @@ static ReallocFunc s_realloc = realloc;
 static int s_printFlags = 0;
 static PrintFunc s_print = printf;
 
-//#define XA_DEBUG_HEAP
+#define XA_DEBUG_HEAP 0
+#define XA_DEBUG_EXPORT_OBJ 0
 
-#ifdef XA_DEBUG_HEAP
+#if XA_DEBUG_HEAP
 struct AllocHeader
 {
 	size_t size;
@@ -1888,6 +1889,31 @@ public:
 		}
 		return NULL;
 	}
+
+#if XA_DEBUG_EXPORT_OBJ
+	void writeObj(const char *filename)
+	{
+		FILE *file = fopen(filename, "w");
+		if (!file)
+			return;
+		for (uint32_t i = 0; i < m_positions.size(); i++)
+			fprintf(file, "v %g %g %g\n", m_positions[i].x, m_positions[i].y, m_positions[i].z);
+		for (uint32_t i = 0; i < m_normals.size(); i++)
+			fprintf(file, "vn %g %g %g\n", m_normals[i].x, m_normals[i].y, m_normals[i].z);
+		for (uint32_t i = 0; i < m_texcoords.size(); i++)
+			fprintf(file, "vt %g %g\n", m_texcoords[i].x, m_texcoords[i].y);
+		fprintf(file, "s off\n");
+		for (uint32_t i = 0; i < m_faces.size(); i++) {
+			const Face &f = m_faces[i];
+			fprintf(file, "f ");
+			for (uint32_t j = 0; j < f.nIndices; j++) {
+				const uint32_t index = m_indices[f.firstIndex + j] + 1; // 1-indexed
+				fprintf(file, "%d/%d/%d%c", index, index, index, j == f.nIndices - 1 ? '\n' : ' ');
+			}
+		}
+		fclose(file);
+	}
+#endif
 
 	float computeSurfaceArea() const
 	{
@@ -5252,6 +5278,13 @@ public:
 				Chart *chart = XA_NEW(Chart);
 				m_chartArray.push_back(chart);
 				chart->build(m_mesh, builder.chartFaces(i));
+#if XA_DEBUG_EXPORT_OBJ
+				char filename[256];
+				sprintf(filename, "chart_%0.3d.obj", i);
+				chart->chartMesh()->writeObj(filename);
+				sprintf(filename, "chart_%0.3d_unified.obj", i);
+				chart->unifiedMesh()->writeObj(filename);
+#endif
 			}
 		}
 		const uint32_t chartCount = m_chartArray.size();
@@ -6292,7 +6325,7 @@ void Destroy(Atlas *atlas)
 	DestroyOutputMeshes(ctx);
 	ctx->~Context();
 	XA_FREE(ctx);
-#ifdef XA_DEBUG_HEAP
+#if XA_DEBUG_HEAP
 	internal::ReportAllocs();
 #endif
 }
