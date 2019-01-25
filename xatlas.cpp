@@ -1276,7 +1276,7 @@ public:
 	{
 		const uint32_t hash = computeHash(key);
 		uint32_t i = m_slots[hash];
-		Element *prevElement = i == UINT32_MAX ? NULL : &m_elements[i];
+		Element *prevElement = NULL;
 		E equal;
 		while (i != UINT32_MAX) {
 			Element *element = &m_elements[i];
@@ -1300,6 +1300,27 @@ public:
 		Value value;
 		uint32_t next;
 	};
+
+	bool removeElement(const Element *element)
+	{
+		const uint32_t hash = computeHash(element->key);
+		uint32_t i = m_slots[hash];
+		Element *prevElement = NULL;
+		while (i != UINT32_MAX) {
+			Element *e = &m_elements[i];
+			if (e == element) {
+				if (prevElement)
+					prevElement->next = e->next;
+				else
+					m_slots[hash] = e->next;
+				// Don't remove from m_elements, that would mess up Element::next indices.
+				return true;
+			}
+			prevElement = e;
+			i = e->next;
+		}
+		return false;
+	}
 
 	const Element *get(const Key &key) const
 	{
@@ -1347,14 +1368,6 @@ private:
 	uint32_t m_numSlots;
 	uint32_t *m_slots;
 	internal::Array<Element> m_elements;
-};
-
-struct FaceFlags
-{
-	enum
-	{
-		Ignore = 1<<0
-	};
 };
 
 /// Mersenne twister random number generator.
@@ -1668,6 +1681,15 @@ struct Face
 	uint32_t nIndices;
 };
 
+struct FaceFlags
+{
+	enum
+	{
+		Flipped = 1<<0,
+		Ignore = 1<<1
+	};
+};
+
 class Mesh
 {
 public:
@@ -1729,6 +1751,86 @@ public:
 			//if (!m_edgeMap.get(key))
 			m_edgeMap.add(key, edgeIndex);
 		}
+	}
+
+	void fixFlippedFaces()
+	{
+		XA_DEBUG_ASSERT(!m_colocals.isEmpty());
+		// Find faces with backwards edge winding.
+		// All face edges must either be duplicates or on a boundary.
+		Array<uint32_t> oldIndices;
+		const uint32_t faceCount = m_faces.size();
+		uint32_t numFacesFlipped = 0;
+		for (uint32_t f = 0; f < faceCount; f++) {
+			bool anyEdgeDuplicate = false, anyEdgeClosed = false;
+			for (EdgeIterator edgeIt(this, f); !edgeIt.isDone(); edgeIt.advance()) {
+				// Find any duplicate edge.
+				bool isDuplicate = false;
+				const uint32_t vertex0 = edgeIt.vertex0();
+				const uint32_t vertex1 = edgeIt.vertex1();
+				for (ColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
+					for (ColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
+						EdgeKey key(it0.vertex(), it1.vertex());
+						const EdgeMap::Element *ele = m_edgeMap.get(key);
+						while (ele) {
+							if (ele->value != edgeIt.edge()) { // Ignore this edge.
+								isDuplicate = true;
+								break;
+							}
+							ele = m_edgeMap.getNext(ele);
+						}
+					}
+					if (isDuplicate)
+						break;
+				}
+				if (isDuplicate) {
+					anyEdgeDuplicate = true;
+					continue;
+				}
+				// Check if edge is on a boundary.
+				if (!findEdge(edgeIt.vertex1(), edgeIt.vertex0()))
+					continue;
+				anyEdgeClosed = true;
+				break;
+			}
+			if (anyEdgeClosed)
+				continue;
+			if (!anyEdgeDuplicate)
+				continue; // All edges are boundaries.
+			// Face is flipped.
+			m_faceFlags[f] |= FaceFlags::Flipped;
+			const Face &face = m_faces[f];
+			oldIndices.resize(face.nIndices);
+			// Remove edge from map then re-add with flipped winding.
+			for (uint32_t i = 0; i < face.nIndices; i++) {
+				const uint32_t edgeIndex = face.firstIndex + i;
+				const Edge &edge = m_edges[edgeIndex];
+				const uint32_t vertex0 = m_indices[edge.index0];
+				const uint32_t vertex1 = m_indices[edge.index1];
+				oldIndices[i] = vertex0;
+				const EdgeMap::Element *ele = m_edgeMap.get(EdgeKey(vertex0, vertex1));
+				while (ele) {
+					if (ele->value == edgeIndex)
+						break;
+					ele = m_edgeMap.getNext(ele);
+				}
+				XA_DEBUG_ASSERT(ele);
+				m_edgeMap.removeElement(ele);
+				m_edgeMap.add(EdgeKey(vertex1, vertex0), edgeIndex);
+			}
+			// Flip indices.
+			for (uint32_t i = 0; i < face.nIndices; i++)
+				m_indices[face.firstIndex + i] = oldIndices[face.nIndices - 1 - i];
+			numFacesFlipped++;
+		}
+		if (numFacesFlipped > 0) {
+#if XA_DEBUG_EXPORT_OBJ
+			char filename[256];
+			sprintf(filename, "flipped.obj");
+			writeObj(filename);
+#endif
+		}
+		XA_PRINT(PrintFlags::MeshCreation, "%d faces flipped\n", numFacesFlipped);
 	}
 
 	void createColocals()
@@ -6451,6 +6553,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, bool useColoc
 			faceFlags |= internal::FaceFlags::Ignore;
 		mesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
+	mesh->fixFlippedFaces();
 	mesh->createBoundaries();
 	ctx->meshes.push_back(mesh);
 	atlas->meshCount++;
@@ -6566,9 +6669,13 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			XA_DEBUG_ASSERT(chart->faceAt(fi) == f);
 			const internal::Mesh *mesh = chart->chartMesh();
 			const internal::Face *face = mesh->faceAt(fi);
-			outputMesh->indexArray[3 * f + 0] = vertexOffset + mesh->vertexAt(face->firstIndex + 0);
-			outputMesh->indexArray[3 * f + 1] = vertexOffset + mesh->vertexAt(face->firstIndex + 1);
-			outputMesh->indexArray[3 * f + 2] = vertexOffset + mesh->vertexAt(face->firstIndex + 2);
+			if (mesh->faceFlagsAt(fi) & internal::FaceFlags::Flipped) {
+				for (uint32_t j = 0; j < 3; j++)
+					outputMesh->indexArray[3 * f + j] = vertexOffset + mesh->vertexAt(face->firstIndex + face->nIndices - 1 - j);
+			} else {
+				for (uint32_t j = 0; j < 3; j++)
+					outputMesh->indexArray[3 * f + j] = vertexOffset + mesh->vertexAt(face->firstIndex + j);
+			}
 		}
 		// Charts.
 		// Ignore vertex mapped charts.
