@@ -4014,7 +4014,7 @@ struct ChartBuildData
 	Vector3 normalSum;
 	Vector3 centroidSum;
 
-	Array<uint32_t> seeds;  // @@ These could be a pointers to the halfedge faces directly.
+	Array<uint32_t> seeds;
 	Array<uint32_t> faces;
 	PriorityQueue candidates;
 };
@@ -4029,11 +4029,7 @@ struct AtlasBuilder
 		// @@ Floyd for the whole mesh is too slow. We could compute floyd progressively per patch as the patch grows. We need a better solution to compute most central faces.
 		//computeShortestPaths();
 		// Precompute edge lengths and face areas.
-		uint32_t edgeCount = 0;
-		for (uint32_t f = 0; f < m_mesh->faceCount(); f++) {
-			const Face *face = m_mesh->faceAt(f);
-			edgeCount += face->nIndices;
-		}
+		const uint32_t edgeCount = m_mesh->edgeCount();
 		m_edgeLengths.resize(edgeCount, 0.0f);
 		m_faceAreas.resize(m_mesh->faceCount(), 0.0f);
 		for (uint32_t f = 0; f < m_mesh->faceCount(); f++) {
@@ -4043,12 +4039,14 @@ struct AtlasBuilder
 			Vector3 firstPos(0.0f);
 			for (Mesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 				m_edgeLengths[it.edge()] = internal::length(it.position1() - it.position0());
+				XA_DEBUG_ASSERT(m_edgeLengths[it.edge()] > 0.0f);
 				if (it.relativeEdge() == 0)
 					firstPos = it.position0();
 				else
 					faceArea += length(cross(it.position0() - firstPos, it.position1() - firstPos));
 			}
 			faceArea *= 0.5f;
+			XA_DEBUG_ASSERT(faceArea > 0.0f);
 		}
 	}
 
@@ -4150,18 +4148,16 @@ struct AtlasBuilder
 	{
 		// Try to add faceCount faces within threshold to chart.
 		for (uint32_t i = 0; i < faceCount; ) {
-			if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold) {
+			if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold)
 				return false;
-			}
-			uint32_t f = chart->candidates.pop();
+			const uint32_t f = chart->candidates.pop();
 			if (m_faceChartArray[f] == -1) {
 				addFaceToChart(chart, f);
 				i++;
 			}
 		}
-		if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold) {
+		if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold)
 			return false;
-		}
 		return true;
 	}
 
@@ -4192,12 +4188,11 @@ struct AtlasBuilder
 	{
 		// Traverse neighboring faces, add the ones that do not belong to any chart yet.
 		for (Mesh::EdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			const Edge *oppositeEdge = m_mesh->findEdge(it.vertex1(), it.vertex0());
-			if (!oppositeEdge)
+			if (it.oppositeEdge() == UINT32_MAX)
 				continue;
-			if (m_faceChartArray[oppositeEdge->face] == -1) {
+			const Edge *oppositeEdge = m_mesh->edgeAt(it.oppositeEdge());
+			if (m_faceChartArray[oppositeEdge->face] == -1)
 				chart->candidates.push(oppositeEdge->face);
-			}
 		}
 	}
 
@@ -4270,44 +4265,46 @@ struct AtlasBuilder
 		// Re-evaluate candidate priorities.
 		uint32_t candidateCount = chart->candidates.count();
 		for (uint32_t i = 0; i < candidateCount; i++) {
-			chart->candidates.pairs[i].priority = evaluatePriority(chart, chart->candidates.pairs[i].face);
-			if (m_faceChartArray[chart->candidates.pairs[i].face] == -1) {
-				updateCandidate(chart, chart->candidates.pairs[i].face, chart->candidates.pairs[i].priority);
-			}
+			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
+			pair.priority = evaluatePriority(chart, pair.face);
+			if (m_faceChartArray[pair.face] == -1)
+				updateCandidate(chart, pair.face, pair.priority);
 		}
 		// Sort candidates.
 		chart->candidates.sort();
 	}
 
 	// Evaluate combined metric.
-	float evaluatePriority(ChartBuildData *chart, uint32_t face)
+	float evaluatePriority(ChartBuildData *chart, uint32_t face) const
 	{
 		// Estimate boundary length and area:
-		float newBoundaryLength = evaluateBoundaryLength(chart, face);
-		float newChartArea = evaluateChartArea(chart, face);
-		float F = evaluateProxyFitMetric(chart, face);
-		float C = evaluateRoundnessMetric(chart, face, newBoundaryLength, newChartArea);
-		float P = evaluateStraightnessMetric(chart, face);
+		const float newBoundaryLength = evaluateBoundaryLength(chart, face);
+		const float newChartArea = evaluateChartArea(chart, face);
+		const float F = evaluateProxyFitMetric(chart, face);
+		const float C = evaluateRoundnessMetric(chart, face, newBoundaryLength, newChartArea);
+		const float P = evaluateStraightnessMetric(chart, face);
 		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
-		float N = evaluateNormalSeamMetric(chart, face);
-		float T = evaluateTextureSeamMetric(chart, face);
+		const float N = evaluateNormalSeamMetric(chart, face);
+		const float T = evaluateTextureSeamMetric(chart, face);
 		//float R = evaluateCompletenessMetric(chart, face);
 		//float D = evaluateDihedralAngleMetric(chart, face);
 		// @@ Add a metric based on local dihedral angle.
 		// @@ Tweaking the normal and texture seam metrics.
 		// - Cause more impedance. Never cross 90 degree edges.
-		// -
-		float cost = float(
+		float cost =
 			m_options.proxyFitMetricWeight * F +
 			m_options.roundnessMetricWeight * C +
 			m_options.straightnessMetricWeight * P +
 			m_options.normalSeamMetricWeight * N +
-			m_options.textureSeamMetricWeight * T);
+			m_options.textureSeamMetricWeight * T;
 		// Enforce limits strictly:
-		if (newChartArea > m_options.maxChartArea) cost = FLT_MAX;
-		if (newBoundaryLength > m_options.maxBoundaryLength) cost = FLT_MAX;
+		if (newChartArea > m_options.maxChartArea)
+			cost = FLT_MAX;
+		if (newBoundaryLength > m_options.maxBoundaryLength)
+			cost = FLT_MAX;
 		// Make sure normal seams are fully respected:
-		if (m_options.normalSeamMetricWeight >= 1000 && N != 0) cost = FLT_MAX;
+		if (m_options.normalSeamMetricWeight >= 1000 && N != 0)
+			cost = FLT_MAX;
 		XA_ASSERT(std::isfinite(cost));
 		return cost;
 	}
@@ -4585,8 +4582,8 @@ struct AtlasBuilder
 			m_candidateArray[index].chart = chart;
 			m_candidateArray[index].metric = metric;
 		} else {
-			int c = m_faceCandidateArray[f];
-			XA_DEBUG_ASSERT(c != -1);
+			const uint32_t c = m_faceCandidateArray[f];
+			XA_DEBUG_ASSERT(c != (uint32_t)-1);
 			Candidate &candidate = m_candidateArray[c];
 			XA_DEBUG_ASSERT(candidate.face == f);
 			if (metric < candidate.metric || chart == candidate.chart) {
