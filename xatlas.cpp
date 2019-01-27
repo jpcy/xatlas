@@ -1908,6 +1908,12 @@ public:
 				}
 			}
 		}
+		XA_PRINT(PrintFlags::MeshProcessing, "---   %d boundary edges.\n", nBoundaryEdges);
+	}
+
+	void linkBoundaries()
+	{
+		const uint32_t edgeCount = m_edges.size();
 #if 1
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			if (!m_boundaryEdges[i])
@@ -1959,7 +1965,6 @@ public:
 			}
 		}
 #endif
-		XA_PRINT(PrintFlags::MeshProcessing, "---   %d boundary edges.\n", nBoundaryEdges);
 	}
 
 	/// Find edge, test all colocals.
@@ -1975,10 +1980,11 @@ public:
 				for (ColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 					EdgeKey key(it0.vertex(), it1.vertex());
 					const EdgeMap::Element *ele = m_edgeMap.get(key);
-					if (ele) {
+					while (ele) {
 						const Edge *edge = &m_edges[ele->value];
-						XA_DEBUG_ASSERT(!(m_faceFlags[edge->face] & FaceFlags::Ignore));
-						return edge;
+						if (!(m_faceFlags[edge->face] & FaceFlags::Ignore)) // Don't find edges of ignored faces.
+							return edge;
+						ele = m_edgeMap.getNext(ele);
 					}
 				}
 			}
@@ -2573,6 +2579,7 @@ static Mesh *meshTriangulate(const Mesh &inputMesh)
 		}
 	}
 	mesh->createBoundaries();
+	mesh->linkBoundaries();
 	return mesh;
 }
 
@@ -2595,6 +2602,7 @@ static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
 	}
 	mesh->createBoundaries();
+	mesh->linkBoundaries();
 	return mesh;
 }
 
@@ -4700,7 +4708,9 @@ public:
 			m_unifiedMesh->addFace(faceIndices, faceFlags);
 		}
 		m_chartMesh->createBoundaries();
+		m_chartMesh->linkBoundaries();
 		m_unifiedMesh->createBoundaries();
+		m_unifiedMesh->linkBoundaries();
 		Mesh *splitUnifiedMesh = meshSplitBoundaryEdges(*m_unifiedMesh);
 		if (splitUnifiedMesh) {
 			m_unifiedMesh->~Mesh();
@@ -4958,6 +4968,7 @@ private:
 			closeLoop(0, edgeLoop);
 		}
 		m_unifiedMesh->createBoundaries();
+		m_unifiedMesh->linkBoundaries();
 		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
 		boundaryCount = boundaryEdges.size();
 		return boundaryCount == 1;
