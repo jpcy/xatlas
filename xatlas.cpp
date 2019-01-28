@@ -1768,8 +1768,8 @@ public:
 				bool isDuplicate = false;
 				const uint32_t vertex0 = edgeIt.vertex0();
 				const uint32_t vertex1 = edgeIt.vertex1();
-				for (ColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
-					for (ColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
+				for (ColocalVertexIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
+					for (ColocalVertexIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 						EdgeKey key(it0.vertex(), it1.vertex());
 						const EdgeMap::Element *ele = m_edgeMap.get(key);
 						while (ele) {
@@ -1921,7 +1921,7 @@ public:
 			const Edge &edge = m_edges[i];
 			// Find a boundary edge that ends with the provided vertex (including colocals).
 			const uint32_t endVertex = m_indices[edge.index0]; // HE mesh boundary edge winding is backwards
-			for (ColocalIterator it(this, endVertex); !it.isDone(); it.advance()) {
+			for (ColocalVertexIterator it(this, endVertex); !it.isDone(); it.advance()) {
 				const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
 				while (ele) {
 					const Edge &otherEdge = m_edges[ele->value];
@@ -1946,7 +1946,7 @@ public:
 			const Edge &edge = m_edges[i];
 			// Find a boundary edge that starts with the provided vertex (including colocals).
 			const uint32_t startVertex = m_indices[edge.index1];
-			for (ColocalIterator it(this, startVertex); !it.isDone(); it.advance()) {
+			for (ColocalVertexIterator it(this, startVertex); !it.isDone(); it.advance()) {
 				const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
 				while (ele) {
 					const Edge &otherEdge = m_edges[ele->value];
@@ -1976,8 +1976,8 @@ public:
 			if (ele)
 				return &m_edges[ele->value];
 		} else {
-			for (ColocalIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
-				for (ColocalIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
+			for (ColocalVertexIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
+				for (ColocalVertexIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 					EdgeKey key(it0.vertex(), it1.vertex());
 					const EdgeMap::Element *ele = m_edgeMap.get(key);
 					while (ele) {
@@ -2169,7 +2169,7 @@ public:
 
 	uint32_t firstColocal(uint32_t vertex) const
 	{
-		for (ColocalIterator it(this, vertex); !it.isDone(); it.advance()) {
+		for (ColocalVertexIterator it(this, vertex); !it.isDone(); it.advance()) {
 			if (it.vertex() < vertex)
 				vertex = it.vertex();
 		}
@@ -2182,7 +2182,7 @@ public:
 			return true;
 		if (m_colocals.isEmpty())
 			return false;
-		for (ColocalIterator it(this, vertex0); !it.isDone(); it.advance()) {
+		for (ColocalVertexIterator it(this, vertex0); !it.isDone(); it.advance()) {
 			if (it.vertex() == vertex1)
 				return true;
 		}
@@ -2208,6 +2208,51 @@ public:
 	Face *faceAt(uint32_t i) { return &m_faces[i]; }
 	uint32_t faceFlagsAt(uint32_t i) const { return m_faceFlags[i]; }
 
+private:
+	Array<Edge> m_edges;
+	Array<Face> m_faces;
+	Array<uint32_t> m_faceFlags;
+	Array<uint32_t> m_indices;
+	Array<Vector3> m_positions;
+	Array<Vector3> m_normals;
+	Array<Vector2> m_texcoords;
+
+	// Populated by createColocals
+	uint32_t m_colocalVertexCount;
+	Array<uint32_t> m_colocals; // In: vertex index. Out: the vertex index of the next colocal position.
+
+	// Populated by createBoundaries
+	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
+	Array<bool> m_boundaryEdges;
+	Array<bool> m_boundaryVertices;
+	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
+
+	struct EdgeKey
+	{
+		EdgeKey() {}
+		EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
+		EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
+
+		void operator=(const EdgeKey &k)
+		{
+			v0 = k.v0;
+			v1 = k.v1;
+		}
+		bool operator==(const EdgeKey &k) const
+		{
+			return v0 == k.v0 && v1 == k.v1;
+		}
+
+		uint32_t v0;
+		uint32_t v1;
+	};
+
+	typedef HashMap<EdgeKey, uint32_t> EdgeMap;
+	EdgeMap m_edgeMap;
+	typedef HashMap<uint32_t, uint32_t> VertexToEdgeMap;
+	VertexToEdgeMap m_vertexToEdgeMap;
+
+public:
 	class BoundaryEdgeIterator
 	{
 	public:
@@ -2241,10 +2286,10 @@ public:
 		uint32_t m_current;
 	};
 
-	class ColocalIterator
+	class ColocalVertexIterator
 	{
 	public:
-		ColocalIterator(const Mesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
+		ColocalVertexIterator(const Mesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
 
 		void advance()
 		{
@@ -2273,6 +2318,87 @@ public:
 		const Mesh *m_mesh;
 		uint32_t m_first;
 		uint32_t m_current;
+	};
+
+	class ColocalEdgeIterator
+	{
+	public:
+		ColocalEdgeIterator(const Mesh *mesh, uint32_t vertex0, uint32_t vertex1) : m_mesh(mesh), m_vertex0It(mesh, vertex0), m_vertex1It(mesh, vertex1), m_vertex1(vertex1)
+		{
+			resetElement();
+		}
+
+		void advance()
+		{
+			advanceElement();
+		}
+
+		bool isDone() const
+		{
+			return m_vertex0It.isDone() && m_vertex1It.isDone() && !m_currentElement;
+		}
+
+		uint32_t edge() const
+		{
+			return m_currentElement->value;
+		}
+
+	private:
+		void resetElement()
+		{
+			m_currentElement = m_mesh->m_edgeMap.get(Mesh::EdgeKey(m_vertex0It.vertex(), m_vertex1It.vertex()));
+			for (;;) {
+				if (!m_currentElement)
+					break;
+				if (!isIgnoredFace())
+					break;
+				m_currentElement = m_mesh->m_edgeMap.getNext(m_currentElement);
+			}
+			if (!m_currentElement)
+				advanceVertex1();
+		}
+
+		void advanceElement()
+		{
+			for (;;) {
+				m_currentElement = m_mesh->m_edgeMap.getNext(m_currentElement);
+				if (!m_currentElement)
+					break;
+				if (!isIgnoredFace())
+					break;
+			}
+			if (!m_currentElement)
+				advanceVertex1();
+		}
+
+		void advanceVertex0()
+		{
+			m_vertex0It.advance();
+			if (m_vertex0It.isDone())
+				return;
+			m_vertex1It = ColocalVertexIterator(m_mesh, m_vertex1);
+			resetElement();
+		}
+
+		void advanceVertex1()
+		{
+			m_vertex1It.advance();
+			if (m_vertex1It.isDone())
+				advanceVertex0();
+			else
+				resetElement();
+		}
+
+		bool isIgnoredFace() const
+		{
+			const Edge *edge = &m_mesh->m_edges[m_currentElement->value];
+			return (m_mesh->m_faceFlags[edge->face] & FaceFlags::Ignore) != 0;
+		}
+
+		const Mesh *m_mesh;
+		ColocalVertexIterator m_vertex0It, m_vertex1It;
+		const uint32_t m_vertex1;
+		const Mesh::EdgeMap::Element *m_currentElement;
 	};
 
 	class EdgeIterator
@@ -2355,50 +2481,6 @@ public:
 		uint32_t m_edge;
 		uint32_t m_relativeEdge;
 	};
-
-private:
-	Array<Edge> m_edges;
-	Array<Face> m_faces;
-	Array<uint32_t> m_faceFlags;
-	Array<uint32_t> m_indices;
-	Array<Vector3> m_positions;
-	Array<Vector3> m_normals;
-	Array<Vector2> m_texcoords;
-
-	// Populated by createColocals
-	uint32_t m_colocalVertexCount;
-	Array<uint32_t> m_colocals; // In: vertex index. Out: the vertex index of the next colocal position.
-
-	// Populated by createBoundaries
-	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
-	Array<bool> m_boundaryEdges;
-	Array<bool> m_boundaryVertices;
-	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
-
-	struct EdgeKey
-	{
-		EdgeKey() {}
-		EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
-		EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
-
-		void operator=(const EdgeKey &k)
-		{
-			v0 = k.v0;
-			v1 = k.v1;
-		}
-		bool operator==(const EdgeKey &k) const
-		{
-			return v0 == k.v0 && v1 == k.v1;
-		}
-
-		uint32_t v0;
-		uint32_t v1;
-	};
-
-	typedef HashMap<EdgeKey, uint32_t> EdgeMap;
-	EdgeMap m_edgeMap;
-	typedef HashMap<uint32_t, uint32_t> VertexToEdgeMap;
-	VertexToEdgeMap m_vertexToEdgeMap;
 };
 
 /*
