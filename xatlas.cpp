@@ -66,6 +66,8 @@ static PrintFunc s_print = printf;
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_EXPORT_OBJ 0
+#define XA_DEBUG_EXPORT_OBJ_CHARTS 0
+#define XA_DEBUG_EXPORT_OBJ_GROUPS 0
 
 #if XA_DEBUG_HEAP
 struct AllocHeader
@@ -1698,6 +1700,7 @@ public:
 		m_edges.reserve(approxFaceCount * 3);
 		m_faces.reserve(approxFaceCount);
 		m_faceFlags.reserve(approxFaceCount);
+		m_faceGroups.reserve(approxFaceCount);
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
 		m_normals.reserve(approxVertexCount);
@@ -1733,6 +1736,7 @@ public:
 		face.nIndices = indexCount;
 		m_faces.push_back(face);
 		m_faceFlags.push_back(flags);
+		m_faceGroups.push_back(UINT32_MAX);
 		for (uint32_t i = 0; i < indexCount; i++)
 			m_indices.push_back(indexArray[i]);
 		for (uint32_t i = 0; i < indexCount; i++) {
@@ -1753,6 +1757,7 @@ public:
 		}
 	}
 
+#if 0
 	void fixFlippedFaces()
 	{
 		XA_DEBUG_ASSERT(!m_colocals.isEmpty());
@@ -1832,6 +1837,7 @@ public:
 		}
 		XA_PRINT(PrintFlags::MeshCreation, "%d faces flipped\n", numFacesFlipped);
 	}
+#endif
 
 	void createColocals()
 	{
@@ -1871,6 +1877,86 @@ public:
 		}
 	}
 
+	// Check if the face duplicates any edges of any face already in the group.
+	bool faceDuplicatesGroupEdge(uint32_t group, uint32_t face) const
+	{
+		for (EdgeIterator edgeIt(this, face); !edgeIt.isDone(); edgeIt.advance()) {
+			for (ColocalEdgeIterator colocalEdgeIt(this, edgeIt.vertex0(), edgeIt.vertex1()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
+				if (m_faceGroups[m_edges[colocalEdgeIt.edge()].face] == group)
+					return true;
+			}
+		}
+		return false;
+	}
+
+	// Find faces connected to the face and assign them to the same group as the face, unless they are already assigned to another group.
+	void growFaceGroupRecursive(uint32_t face)
+	{
+		const uint32_t group = m_faceGroups[face];
+		for (EdgeIterator edgeIt(this, face); !edgeIt.isDone(); edgeIt.advance()) {
+			// Iterate opposite edges. There may be more than one - non-manifold geometry can have duplicate edges.
+			// Prioritize the one with exact vertex match, not just colocal.
+			// If *any* of the opposite edges are already assigned to this group, don't do anything.
+			bool alreadyAssignedToThisGroup = false;
+			uint32_t bestConnectedFace = UINT32_MAX;
+			for (ColocalEdgeIterator oppositeEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
+				const Edge &oppositeEdge = m_edges[oppositeEdgeIt.edge()];
+				if (m_faceGroups[oppositeEdge.face] == group) {
+					alreadyAssignedToThisGroup = true;
+					break;
+				}
+				if (m_faceGroups[oppositeEdge.face] != UINT32_MAX)
+					continue; // Connected face is already assigned to another group.
+				if (faceDuplicatesGroupEdge(group, oppositeEdge.face))
+					continue; // Don't want duplicate edges in a group.
+				const uint32_t oppositeVertex0 = m_indices[oppositeEdge.index0];
+				const uint32_t oppositeVertex1 = m_indices[oppositeEdge.index1];
+				if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
+					bestConnectedFace = oppositeEdge.face;
+			}
+			if (!alreadyAssignedToThisGroup && bestConnectedFace != UINT32_MAX) {
+				m_faceGroups[bestConnectedFace] = group;
+				growFaceGroupRecursive(bestConnectedFace);
+			}
+		}
+	}
+
+	void createFaceGroups()
+	{
+		const uint32_t faceCount = m_faces.size();
+		uint32_t group = 0;
+		for (;;) {
+			// Find an unassigned face.
+			uint32_t face = UINT32_MAX;
+			for (uint32_t f = 0; f < faceCount; f++) {
+				if (m_faceGroups[f] == UINT32_MAX) {
+					face = f;
+					break;
+				}
+			}
+			if (face == UINT32_MAX)
+				break; // All faces assigned to a group.
+			m_faceGroups[face] = group;
+			growFaceGroupRecursive(face);
+			group++;
+		}
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_GROUPS
+		FILE *file = fopen("groups.obj", "w");
+		if (file) {
+			writeObjVertices(file);
+			for (uint32_t i = 0; i < group; i++) {
+				fprintf(file, "o group_%0.4d\n", i);
+				fprintf(file, "s off\n");
+				for (uint32_t f = 0; f < faceCount; f++) {
+					if (m_faceGroups[f] == i)
+						writeObjFace(file, f);
+				}
+			}
+			fclose(file);
+		}
+#endif
+	}
+
 	void createBoundaries()
 	{
 		XA_PRINT(PrintFlags::MeshProcessing, "--- Creating boundaries:\n");
@@ -1897,8 +1983,9 @@ public:
 				const uint32_t vertex0 = m_indices[face.firstIndex + j];
 				const uint32_t vertex1 = m_indices[face.firstIndex + (j + 1) % face.nIndices];
 				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
-				const Edge *oppositeEdge = findEdge(vertex1, vertex0);
+				const Edge *oppositeEdge = findEdge(m_faceGroups[i], vertex1, vertex0);
 				if (oppositeEdge) {
+					XA_DEBUG_ASSERT(m_faceGroups[oppositeEdge->face] == m_faceGroups[i]);
 					XA_DEBUG_ASSERT(!(m_faceFlags[oppositeEdge->face] & FaceFlags::Ignore));
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
 				} else {
@@ -1928,7 +2015,7 @@ public:
 					const uint32_t vertex0 = m_indices[otherEdge.index0];
 					const uint32_t vertex1 = m_indices[otherEdge.index1];
 					// Must be a boundary edge.
-					if (vertex1 == it.vertex() && !(m_faceFlags[otherEdge.face] & FaceFlags::Ignore) && !findEdge(vertex1, vertex0)) {
+					if (vertex1 == it.vertex() && m_faceGroups[edge.face] == m_faceGroups[otherEdge.face] && !(m_faceFlags[otherEdge.face] & FaceFlags::Ignore) && !findEdge(m_faceGroups[edge.face], vertex1, vertex0)) {
 						XA_DEBUG_ASSERT(m_nextBoundaryEdges[i] == UINT32_MAX); // duplicate boundary edge
 						m_nextBoundaryEdges[i] = ele->value;
 #if NDEBUG
@@ -1968,13 +2055,24 @@ public:
 	}
 
 	/// Find edge, test all colocals.
-	const Edge *findEdge(uint32_t vertex0, uint32_t vertex1) const
+	const Edge *findEdge(uint32_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
 	{
+		const Edge *result = NULL;
 		if (m_colocals.isEmpty()) {
 			EdgeKey key(vertex0, vertex1);
 			const EdgeMap::Element *ele = m_edgeMap.get(key);
-			if (ele)
-				return &m_edges[ele->value];
+			while (ele) {
+				const Edge *edge = &m_edges[ele->value];
+				// Don't find edges of ignored faces.
+				if ((faceGroup == UINT32_MAX || m_faceGroups[edge->face] == faceGroup) && !(m_faceFlags[edge->face] & FaceFlags::Ignore)) {
+					XA_DEBUG_ASSERT(!result); // duplicate edge
+					result = edge;
+#if NDEBUG
+					return result;
+#endif
+				}
+				ele = m_edgeMap.getNext(ele);
+			}
 		} else {
 			for (ColocalVertexIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
 				for (ColocalVertexIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
@@ -1982,37 +2080,52 @@ public:
 					const EdgeMap::Element *ele = m_edgeMap.get(key);
 					while (ele) {
 						const Edge *edge = &m_edges[ele->value];
-						if (!(m_faceFlags[edge->face] & FaceFlags::Ignore)) // Don't find edges of ignored faces.
-							return edge;
+						// Don't find edges of ignored faces.
+						if ((faceGroup == UINT32_MAX || m_faceGroups[edge->face] == faceGroup) && !(m_faceFlags[edge->face] & FaceFlags::Ignore)) {
+							XA_DEBUG_ASSERT(!result); // duplicate edge
+							result = edge;
+#if NDEBUG
+							return result;
+#endif
+						}
 						ele = m_edgeMap.getNext(ele);
 					}
 				}
 			}
 		}
-		return NULL;
+		return result;
 	}
 
 #if XA_DEBUG_EXPORT_OBJ
-	void writeObj(const char *filename)
+	void writeObjVertices(FILE *file)
 	{
-		FILE *file = fopen(filename, "w");
-		if (!file)
-			return;
 		for (uint32_t i = 0; i < m_positions.size(); i++)
 			fprintf(file, "v %g %g %g\n", m_positions[i].x, m_positions[i].y, m_positions[i].z);
 		for (uint32_t i = 0; i < m_normals.size(); i++)
 			fprintf(file, "vn %g %g %g\n", m_normals[i].x, m_normals[i].y, m_normals[i].z);
 		for (uint32_t i = 0; i < m_texcoords.size(); i++)
 			fprintf(file, "vt %g %g\n", m_texcoords[i].x, m_texcoords[i].y);
-		fprintf(file, "s off\n");
-		for (uint32_t i = 0; i < m_faces.size(); i++) {
-			const Face &f = m_faces[i];
-			fprintf(file, "f ");
-			for (uint32_t j = 0; j < f.nIndices; j++) {
-				const uint32_t index = m_indices[f.firstIndex + j] + 1; // 1-indexed
-				fprintf(file, "%d/%d/%d%c", index, index, index, j == f.nIndices - 1 ? '\n' : ' ');
-			}
+	}
+
+	void writeObjFace(FILE *file, uint32_t face)
+	{
+		const Face &f = m_faces[face];
+		fprintf(file, "f ");
+		for (uint32_t j = 0; j < f.nIndices; j++) {
+			const uint32_t index = m_indices[f.firstIndex + j] + 1; // 1-indexed
+			fprintf(file, "%d/%d/%d%c", index, index, index, j == f.nIndices - 1 ? '\n' : ' ');
 		}
+	}
+
+	void writeObj(const char *filename)
+	{
+		FILE *file = fopen(filename, "w");
+		if (!file)
+			return;
+		writeObjVertices(file);
+		fprintf(file, "s off\n");
+		for (uint32_t i = 0; i < m_faces.size(); i++)
+			writeObjFace(file, i);
 		fclose(file);
 	}
 #endif
@@ -2207,11 +2320,13 @@ public:
 	const Face *faceAt(uint32_t i) const { return &m_faces[i]; }
 	Face *faceAt(uint32_t i) { return &m_faces[i]; }
 	uint32_t faceFlagsAt(uint32_t i) const { return m_faceFlags[i]; }
+	uint32_t faceGroupAt(uint32_t face) const { return m_faceGroups[face]; }
 
 private:
 	Array<Edge> m_edges;
 	Array<Face> m_faces;
 	Array<uint32_t> m_faceFlags;
+	Array<uint32_t> m_faceGroups;
 	Array<uint32_t> m_indices;
 	Array<Vector3> m_positions;
 	Array<Vector3> m_normals;
@@ -4273,8 +4388,10 @@ struct AtlasBuilder
 			if (it.oppositeEdge() == UINT32_MAX)
 				continue;
 			const Edge *oppositeEdge = m_mesh->edgeAt(it.oppositeEdge());
-			if (m_faceChartArray[oppositeEdge->face] == -1)
+			if (m_faceChartArray[oppositeEdge->face] == -1) {
+				XA_DEBUG_ASSERT(m_mesh->faceGroupAt(f) == m_mesh->faceGroupAt(oppositeEdge->face));
 				chart->candidates.push(oppositeEdge->face);
+			}
 		}
 	}
 
@@ -5468,7 +5585,7 @@ public:
 				Chart *chart = XA_NEW(Chart);
 				m_chartArray.push_back(chart);
 				chart->build(m_mesh, builder.chartFaces(i));
-#if XA_DEBUG_EXPORT_OBJ
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHARTS
 				char filename[256];
 				sprintf(filename, "chart_%0.3d.obj", i);
 				chart->chartMesh()->writeObj(filename);
@@ -6622,7 +6739,10 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 			faceFlags |= internal::FaceFlags::Ignore;
 		mesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
+#if 0
 	mesh->fixFlippedFaces();
+#endif
+	mesh->createFaceGroups();
 	mesh->createBoundaries();
 	ctx->meshes.push_back(mesh);
 	atlas->meshCount++;
