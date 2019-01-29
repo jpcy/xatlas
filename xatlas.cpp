@@ -66,6 +66,7 @@ static PrintFunc s_print = printf;
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_EXPORT_OBJ 0
+#define XA_DEBUG_EXPORT_OBJ_INDIVIDUAL_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_GROUPS 0
 
@@ -1707,6 +1708,8 @@ public:
 		m_texcoords.reserve(approxVertexCount);
 	}
 
+	uint32_t id() const { return m_id; }
+
 	void addVertex(const Vector3 &pos, const Vector3 &normal = Vector3(0.0f), const Vector2 &texcoord = Vector2(0.0f))
 	{
 		XA_DEBUG_ASSERT(isFinite(pos));
@@ -2099,7 +2102,7 @@ public:
 	}
 
 #if XA_DEBUG_EXPORT_OBJ
-	void writeObjVertices(FILE *file)
+	void writeObjVertices(FILE *file) const
 	{
 		for (uint32_t i = 0; i < m_positions.size(); i++)
 			fprintf(file, "v %g %g %g\n", m_positions[i].x, m_positions[i].y, m_positions[i].z);
@@ -2109,7 +2112,7 @@ public:
 			fprintf(file, "vt %g %g\n", m_texcoords[i].x, m_texcoords[i].y);
 	}
 
-	void writeObjFace(FILE *file, uint32_t face)
+	void writeObjFace(FILE *file, uint32_t face) const
 	{
 		const Face &f = m_faces[face];
 		fprintf(file, "f ");
@@ -2119,7 +2122,7 @@ public:
 		}
 	}
 
-	void writeObj(const char *filename)
+	void writeObj(const char *filename) const
 	{
 		FILE *file = fopen(filename, "w");
 		if (!file)
@@ -5571,14 +5574,30 @@ public:
 				Chart *chart = XA_NEW(Chart);
 				m_chartArray.push_back(chart);
 				chart->build(m_mesh, builder.chartFaces(i));
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHARTS
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INDIVIDUAL_CHARTS
 				char filename[256];
-				sprintf(filename, "debug_chart_%0.3d.obj", i);
+				sprintf(filename, "debug_chart_%0.4d.obj", i);
 				chart->chartMesh()->writeObj(filename);
-				sprintf(filename, "debug_chart_%0.3d_unified.obj", i);
+				sprintf(filename, "debug_chart_%0.4d_unified.obj", i);
 				chart->unifiedMesh()->writeObj(filename);
 #endif
 			}
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHARTS
+			char filename[256];
+			sprintf(filename, "debug_mesh%0.3d_charts.obj", m_mesh->id());
+			FILE *file = fopen(filename, "w");
+			if (file) {
+				m_mesh->writeObjVertices(file);
+				for (uint32_t i = 0; i < chartCount; i++) {
+					fprintf(file, "o chart_%0.4d\n", i);
+					fprintf(file, "s off\n");
+					const Array<uint32_t> &faces = builder.chartFaces(i);
+					for (uint32_t f = 0; f < faces.size(); f++)
+						m_mesh->writeObjFace(file, faces[f]);
+				}
+				fclose(file);
+			}
+#endif
 		}
 		const uint32_t chartCount = m_chartArray.size();
 		// Build face indices.
