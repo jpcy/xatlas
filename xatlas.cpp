@@ -67,8 +67,6 @@ static PrintFunc s_print = printf;
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_EXPORT_OBJ 0
 #define XA_DEBUG_EXPORT_OBJ_INDIVIDUAL_CHARTS 0
-#define XA_DEBUG_EXPORT_OBJ_CHARTS 0
-#define XA_DEBUG_EXPORT_OBJ_GROUPS 0
 
 #if XA_DEBUG_HEAP
 struct AllocHeader
@@ -1835,7 +1833,7 @@ public:
 #if XA_DEBUG_EXPORT_OBJ
 			char filename[256];
 			sprintf(filename, "debug_mesh%0.3u_flipped.obj", m_id);
-			writeObj(filename);
+			writeSimpleObj(filename);
 #endif
 		}
 		XA_PRINT(PrintFlags::MeshCreation, "%d faces flipped\n", numFacesFlipped);
@@ -1943,23 +1941,6 @@ public:
 			growFaceGroupRecursive(face);
 			group++;
 		}
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_GROUPS
-		char filename[256];
-		sprintf(filename, "debug_mesh%0.3u_groups.obj", m_id);
-		FILE *file = fopen(filename, "w");
-		if (file) {
-			writeObjVertices(file);
-			for (uint32_t i = 0; i < group; i++) {
-				fprintf(file, "o group_%0.4d\n", i);
-				fprintf(file, "s off\n");
-				for (uint32_t f = 0; f < faceCount; f++) {
-					if (m_faceGroups[f] == i)
-						writeObjFace(file, f);
-				}
-			}
-			fclose(file);
-		}
-#endif
 	}
 
 	void createBoundaries()
@@ -2122,7 +2103,38 @@ public:
 		}
 	}
 
-	void writeObj(const char *filename) const
+	void writeObj() const
+	{
+		char filename[256];
+		sprintf(filename, "debug_mesh%0.3u.obj", m_id);
+		FILE *file = fopen(filename, "w");
+		if (!file)
+			return;
+		writeObjVertices(file);
+		// groups
+		uint32_t numGroups = 0;
+		for (uint32_t i = 0; i < m_faceGroups.size(); i++)
+			numGroups = std::max(numGroups, m_faceGroups[i]);
+		for (uint32_t i = 0; i < numGroups; i++) {
+			fprintf(file, "o group_%0.4d\n", i);
+			fprintf(file, "s off\n");
+			for (uint32_t f = 0; f < m_faceGroups.size(); f++) {
+				if (m_faceGroups[f] == i)
+					writeObjFace(file, f);
+			}
+		}
+		// boundaries
+		fprintf(file, "o boundaries\n");
+		for (uint32_t i = 0; i < m_boundaryEdges.size(); i++) {
+			if (!m_boundaryEdges[i])
+				continue;
+			const Edge &edge = m_edges[i];
+			fprintf(file, "l %d %d\n", m_indices[edge.index0] + 1, m_indices[edge.index1] + 1); // 1-indexed
+		}
+		fclose(file);
+	}
+
+	void writeSimpleObj(const char *filename) const
 	{
 		FILE *file = fopen(filename, "w");
 		if (!file)
@@ -5577,12 +5589,12 @@ public:
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INDIVIDUAL_CHARTS
 				char filename[256];
 				sprintf(filename, "debug_chart_%0.4d.obj", i);
-				chart->chartMesh()->writeObj(filename);
+				chart->chartMesh()->writeSimpleObj(filename);
 				sprintf(filename, "debug_chart_%0.4d_unified.obj", i);
-				chart->unifiedMesh()->writeObj(filename);
+				chart->unifiedMesh()->writeSimpleObj(filename);
 #endif
 			}
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHARTS
+#if XA_DEBUG_EXPORT_OBJ
 			char filename[256];
 			sprintf(filename, "debug_mesh%0.3d_charts.obj", m_mesh->id());
 			FILE *file = fopen(filename, "w");
@@ -6748,6 +6760,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 #endif
 	mesh->createFaceGroups();
 	mesh->createBoundaries();
+#if XA_DEBUG_EXPORT_OBJ
+	mesh->writeObj();
+#endif
 	ctx->meshes.push_back(mesh);
 	atlas->meshCount++;
 	return AddMeshError::Success;
