@@ -1950,12 +1950,10 @@ public:
 		const uint32_t faceCount = m_faces.size();
 		const uint32_t vertexCount = m_positions.size();
 		m_boundaryEdges.resize(edgeCount);
-		m_nextBoundaryEdges.resize(edgeCount);
 		m_oppositeEdges.resize(edgeCount);
 		m_boundaryVertices.resize(vertexCount);
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			m_boundaryEdges[i] = false;
-			m_nextBoundaryEdges[i] = UINT32_MAX;
 			m_oppositeEdges[i] = UINT32_MAX;
 		}
 		for (uint32_t i = 0; i < vertexCount; i++)
@@ -1986,58 +1984,67 @@ public:
 
 	void linkBoundaries()
 	{
+		XA_PRINT(PrintFlags::MeshProcessing, "---   Linking boundaries:\n");
 		const uint32_t edgeCount = m_edges.size();
-#if 1
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			if (!m_boundaryEdges[i])
-				continue;
-			const Edge &edge = m_edges[i];
-			// Find a boundary edge that ends with the provided vertex (including colocals).
-			const uint32_t endVertex = m_indices[edge.index0]; // HE mesh boundary edge winding is backwards
-			for (ColocalVertexIterator it(this, endVertex); !it.isDone(); it.advance()) {
-				const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
-				while (ele) {
-					const Edge &otherEdge = m_edges[ele->value];
-					const uint32_t vertex0 = m_indices[otherEdge.index0];
-					const uint32_t vertex1 = m_indices[otherEdge.index1];
-					// Must be a boundary edge.
-					if (vertex1 == it.vertex() && m_faceGroups[edge.face] == m_faceGroups[otherEdge.face] && !(m_faceFlags[otherEdge.face] & FaceFlags::Ignore) && !findEdge(m_faceGroups[edge.face], vertex1, vertex0)) {
-						XA_DEBUG_ASSERT(m_nextBoundaryEdges[i] == UINT32_MAX); // duplicate boundary edge
-						m_nextBoundaryEdges[i] = ele->value;
-#if NDEBUG
-						break;
-#endif
+		m_nextBoundaryEdges.resize(edgeCount);
+		for (uint32_t i = 0; i < edgeCount; i++)
+			m_nextBoundaryEdges[i] = UINT32_MAX;
+		uint32_t numBoundaryLoops = 0, numUnclosedBoundaries = 0;
+		BitArray bitFlags(edgeCount);
+		bitFlags.clearAll();
+		for (;;) {
+			uint32_t firstEdge = UINT32_MAX;
+			for (uint32_t i = 0; i < edgeCount; i++) {
+				if (m_boundaryEdges[i] && !bitFlags.bitAt(i)) {
+					firstEdge = i;
+					break;
+				}
+			}
+			if (firstEdge == UINT32_MAX)
+				break;
+			uint32_t currentEdge = firstEdge;
+			for (;;) {
+				const Edge &edge = m_edges[currentEdge];
+				// Find the next boundary edge. The first vertex will be the same as (or colocal to) the current edge second vertex.
+				const uint32_t startVertex = m_indices[edge.index1];
+				uint32_t bestNextEdge = UINT32_MAX;
+				for (ColocalVertexIterator it(this, startVertex); !it.isDone(); it.advance()) {
+					const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
+					while (ele) {
+						const Edge &otherEdge = m_edges[ele->value];
+						if (!m_boundaryEdges[ele->value])
+							goto next; // Not a boundary edge.
+						if (bitFlags.bitAt(ele->value))
+							goto next; // Already linked.
+						if (m_faceGroups[edge.face] != m_faceGroups[otherEdge.face])
+							goto next; // Don't cross face groups.
+						if (m_faceFlags[otherEdge.face] & FaceFlags::Ignore)
+							goto next; // Face is ignored.
+						if (m_indices[otherEdge.index0] != it.vertex())
+							goto next; // Edge contains the vertex, but it's the wrong one.
+						// First edge has the lowest priority, don't want to close the boundary loop prematurely.
+						// Non-colocal vertex has the highest.
+						if (bestNextEdge == UINT32_MAX || bestNextEdge == firstEdge || it.vertex() == startVertex)
+							bestNextEdge = ele->value;
+					next:
+						ele = m_vertexToEdgeMap.getNext(ele);
 					}
-					ele = m_vertexToEdgeMap.getNext(ele);
+				}
+				if (bestNextEdge == UINT32_MAX) {
+					numUnclosedBoundaries++;
+					break; // Can't find a next edge.
+				}
+				m_nextBoundaryEdges[currentEdge] = bestNextEdge;
+				bitFlags.setBitAt(bestNextEdge);
+				currentEdge = bestNextEdge;
+				if (currentEdge == firstEdge) {
+					numBoundaryLoops++;
+					break; // Closed the boundary loop.
 				}
 			}
 		}
-#else
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			if (!m_boundaryEdges[i])
-				continue;
-			const Edge &edge = m_edges[i];
-			// Find a boundary edge that starts with the provided vertex (including colocals).
-			const uint32_t startVertex = m_indices[edge.index1];
-			for (ColocalVertexIterator it(this, startVertex); !it.isDone(); it.advance()) {
-				const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
-				while (ele) {
-					const Edge &otherEdge = m_edges[ele->value];
-					const uint32_t vertex0 = m_indices[otherEdge.index0];
-					const uint32_t vertex1 = m_indices[otherEdge.index1];
-					// Must be a boundary edge.
-					if (vertex0 == it.vertex() && !(m_faceFlags[otherEdge.face] & FaceFlags::Ignore) && m_boundaryEdges[ele->value]) {
-						XA_DEBUG_ASSERT(m_nextBoundaryEdges[i] == UINT32_MAX);
-						m_nextBoundaryEdges[i] = ele->value;
-#if NDEBUG
-						break;
-#endif
-					}
-					ele = m_vertexToEdgeMap.getNext(ele);
-				}
-			}
-		}
-#endif
+		XA_PRINT(PrintFlags::MeshProcessing, "---   %d boundary loops.\n", numBoundaryLoops);
+		XA_PRINT(PrintFlags::MeshProcessing, "---   %d unclosed boundaries.\n", numUnclosedBoundaries);
 	}
 
 	/// Find edge, test all colocals.
@@ -2103,6 +2110,54 @@ public:
 		}
 	}
 
+	void writeObjBoundaryEges(FILE *file) const
+	{
+		fprintf(file, "o boundary_edges\n");
+		for (uint32_t i = 0; i < m_boundaryEdges.size(); i++) {
+			if (!m_boundaryEdges[i])
+				continue;
+			const Edge &edge = m_edges[i];
+			fprintf(file, "l %d %d\n", m_indices[edge.index0] + 1, m_indices[edge.index1] + 1); // 1-indexed
+		}
+	}
+
+	void writeObjLinkedBoundaries(FILE *file) const
+	{
+		if (m_nextBoundaryEdges.size() == 0)
+			return; // Boundaries aren't linked.
+		const uint32_t edgeCount = m_edges.size();
+		BitArray bitFlags(edgeCount);
+		bitFlags.clearAll();
+		uint32_t boundary = 0;
+		for (;;) {
+			uint32_t firstEdge = UINT32_MAX;
+			for (uint32_t i = 0; i < edgeCount; i++) {
+				if (m_boundaryEdges[i] && !bitFlags.bitAt(i)) {
+					firstEdge = i;
+					break;
+				}
+			}
+			if (firstEdge == UINT32_MAX)
+				break;
+			uint32_t edge = firstEdge;
+			fprintf(file, "o boundary_%0.4d\n", boundary);
+			fprintf(file, "l");
+			for (;;) {
+				bitFlags.setBitAt(edge);
+				const uint32_t vertex0 = m_indices[m_edges[edge].index0];
+				const uint32_t vertex1 = m_indices[m_edges[edge].index1];
+				fprintf(file, " %d", vertex0 + 1); // 1-indexed
+				edge = m_nextBoundaryEdges[edge];
+				if (edge == firstEdge || edge == UINT32_MAX) {
+					fprintf(file, " %d\n", vertex1 + 1); // 1-indexed
+					break;
+				}
+
+			}
+			boundary++;
+		}
+	}
+
 	void writeObj() const
 	{
 		char filename[256];
@@ -2123,14 +2178,7 @@ public:
 					writeObjFace(file, f);
 			}
 		}
-		// boundaries
-		fprintf(file, "o boundaries\n");
-		for (uint32_t i = 0; i < m_boundaryEdges.size(); i++) {
-			if (!m_boundaryEdges[i])
-				continue;
-			const Edge &edge = m_edges[i];
-			fprintf(file, "l %d %d\n", m_indices[edge.index0] + 1, m_indices[edge.index1] + 1); // 1-indexed
-		}
+		writeObjBoundaryEges(file);
 		fclose(file);
 	}
 
@@ -2143,6 +2191,8 @@ public:
 		fprintf(file, "s off\n");
 		for (uint32_t i = 0; i < m_faces.size(); i++)
 			writeObjFace(file, i);
+		writeObjBoundaryEges(file);
+		writeObjLinkedBoundaries(file);
 		fclose(file);
 	}
 #endif
@@ -2322,7 +2372,7 @@ public:
 	uint32_t edgeCount() const { return m_edges.size(); }
 	const Edge *edgeAt(uint32_t edge) const { return &m_edges[edge]; }
 	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
-	bool isBoundaryEdge(uint32_t edge) const { return m_nextBoundaryEdges[edge] != UINT32_MAX; }
+	bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
 	bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
 	uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
 	uint32_t vertexCount() const { return m_positions.size(); }
@@ -2400,7 +2450,7 @@ public:
 
 		bool isDone() const
 		{
-			return m_first == m_current;
+			return m_first == m_current || m_current == UINT32_MAX;
 		}
 
 		uint32_t edge() const
@@ -4925,18 +4975,23 @@ public:
 		// - Find cuts that reduce genus.
 		// - Find cuts to connect holes.
 		// - Use minimal spanning trees or seamster.
-		if (!closeHoles()) {
-			/*static int pieceCount = 0;
-			StringBuilder fileName;
-			fileName.format("debug_hole_%d.obj", pieceCount++);
-			exportMesh(m_unifiedMesh.ptr(), fileName.str());*/
-		}
+		bool closed = closeHoles();
+#if XA_DEBUG_EXPORT_OBJ
+		if (!closed)
+			m_unifiedMesh->writeSimpleObj("debug_chart_not_closed.obj");
+#endif
+		XA_DEBUG_ASSERT(closed);
+		closed = closed; // silence unused parameter warning;
 		Mesh *newUnifiedMesh = meshTriangulate(*m_unifiedMesh);
 		m_unifiedMesh->~Mesh();
 		XA_FREE(m_unifiedMesh);
 		m_unifiedMesh = newUnifiedMesh;
 		MeshTopology topology(m_unifiedMesh);
 		m_isDisk = topology.isDisk();
+#if XA_DEBUG_EXPORT_OBJ
+		if (!m_isDisk)
+			m_unifiedMesh->writeSimpleObj("debug_chart_not_disk.obj");
+#endif
 		XA_DEBUG_ASSERT(m_isDisk);
 	}
 
@@ -5142,8 +5197,7 @@ private:
 			startOver:
 			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryEdges[i]); !it.isDone(); it.advance()) {
 				const Edge *edge = m_unifiedMesh->edgeAt(it.edge());
-				const Edge *nextEdge = m_unifiedMesh->edgeAt(it.nextEdge());
-				const uint32_t vertex = m_unifiedMesh->vertexAt(nextEdge->index1); // why next edge??? matching HE mesh behavior
+				const uint32_t vertex = m_unifiedMesh->vertexAt(edge->index1);
 				uint32_t j;
 				for (j = 0; j < vertexLoop.size(); j++) {
 					if (m_unifiedMesh->areColocal(vertex, vertexLoop[j]))
@@ -5152,7 +5206,7 @@ private:
 				bool isCrossing = (j != vertexLoop.size());
 				if (isCrossing) {
 					// Close loop.
-					edgeLoop.push_back(edge);
+					edgeLoop.insertAt(0, edge);
 					closeLoop(j + 1, edgeLoop);
 					// Start over again.
 					vertexLoop.clear();
@@ -5160,7 +5214,7 @@ private:
 					goto startOver; // HE mesh version is bugged, actually breaks at end of edge iteration instead.
 				}
 				vertexLoop.push_back(vertex);
-				edgeLoop.push_back(edge);
+				edgeLoop.insertAt(0, edge);
 			}
 			closeLoop(0, edgeLoop);
 		}
