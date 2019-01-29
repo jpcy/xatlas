@@ -1695,7 +1695,7 @@ struct FaceFlags
 class Mesh
 {
 public:
-	Mesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0) : m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3), m_vertexToEdgeMap(approxVertexCount)
+	Mesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3), m_vertexToEdgeMap(approxVertexCount)
 	{
 		m_edges.reserve(approxFaceCount * 3);
 		m_faces.reserve(approxFaceCount);
@@ -1831,7 +1831,7 @@ public:
 		if (numFacesFlipped > 0) {
 #if XA_DEBUG_EXPORT_OBJ
 			char filename[256];
-			sprintf(filename, "flipped.obj");
+			sprintf(filename, "debug_mesh%0.3u_flipped.obj", m_id);
 			writeObj(filename);
 #endif
 		}
@@ -1941,7 +1941,9 @@ public:
 			group++;
 		}
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_GROUPS
-		FILE *file = fopen("groups.obj", "w");
+		char filename[256];
+		sprintf(filename, "debug_mesh%0.3u_groups.obj", m_id);
+		FILE *file = fopen(filename, "w");
 		if (file) {
 			writeObjVertices(file);
 			for (uint32_t i = 0; i < group; i++) {
@@ -2323,6 +2325,7 @@ public:
 	uint32_t faceGroupAt(uint32_t face) const { return m_faceGroups[face]; }
 
 private:
+	uint32_t m_id;
 	Array<Edge> m_edges;
 	Array<Face> m_faces;
 	Array<uint32_t> m_faceFlags;
@@ -5570,9 +5573,9 @@ public:
 				chart->build(m_mesh, builder.chartFaces(i));
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHARTS
 				char filename[256];
-				sprintf(filename, "chart_%0.3d.obj", i);
+				sprintf(filename, "debug_chart_%0.3d.obj", i);
 				chart->chartMesh()->writeObj(filename);
-				sprintf(filename, "chart_%0.3d_unified.obj", i);
+				sprintf(filename, "debug_chart_%0.3d_unified.obj", i);
 				chart->unifiedMesh()->writeObj(filename);
 #endif
 			}
@@ -6670,7 +6673,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 		if (index >= meshDecl.vertexCount)
 			return AddMeshError::IndexOutOfRange;
 	}
-	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.vertexCount, meshDecl.indexCount / 3);
+	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.vertexCount, meshDecl.indexCount / 3, ctx->meshes.size());
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0);
 		internal::Vector2 texcoord(0);
