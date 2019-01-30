@@ -138,7 +138,11 @@ static void ReportAllocs()
 #else
 static void *Realloc(void *ptr, size_t size, const char * /*file*/, int /*line*/)
 {
-	return s_realloc(ptr, size);
+	void *mem = s_realloc(ptr, size);
+	if (size > 0) {
+		XA_DEBUG_ASSERT(mem);
+	}
+	return mem;
 }
 #endif
 
@@ -2168,8 +2172,10 @@ public:
 		writeObjVertices(file);
 		// groups
 		uint32_t numGroups = 0;
-		for (uint32_t i = 0; i < m_faceGroups.size(); i++)
-			numGroups = std::max(numGroups, m_faceGroups[i]);
+		for (uint32_t i = 0; i < m_faceGroups.size(); i++) {
+			if (m_faceGroups[i] != UINT32_MAX)
+				numGroups = std::max(numGroups, m_faceGroups[i] + 1);
+		}
 		for (uint32_t i = 0; i < numGroups; i++) {
 			fprintf(file, "o group_%0.4d\n", i);
 			fprintf(file, "s off\n");
@@ -4962,13 +4968,9 @@ public:
 		if (splitUnifiedMesh) {
 			m_unifiedMesh->~Mesh();
 			XA_FREE(m_unifiedMesh);
-			m_unifiedMesh = splitUnifiedMesh;
-		}
-		if (splitUnifiedMesh) {
-			Mesh *newUnifiedMesh = meshUnifyVertices(*m_unifiedMesh);
-			m_unifiedMesh->~Mesh();
-			XA_FREE(m_unifiedMesh);
-			m_unifiedMesh = newUnifiedMesh;
+			m_unifiedMesh = meshUnifyVertices(*splitUnifiedMesh);
+			splitUnifiedMesh->~Mesh();
+			XA_FREE(splitUnifiedMesh);
 		}
 		// Closing the holes is not always the best solution and does not fix all the problems.
 		// We need to do some analysis of the holes and the genus to:
