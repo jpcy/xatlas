@@ -2218,7 +2218,7 @@ public:
 		for (uint32_t f = 0; f < m_faces.size(); f++)
 			area += faceParametricArea(f);
 		XA_DEBUG_ASSERT(area >= 0);
-		return area;
+		return fabsf(area);
 	}
 
 	uint32_t countTriangles() const
@@ -2739,6 +2739,7 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
 	}
 	XA_PRINT(PrintFlags::MeshProcessing, " - %d edges split.\n", splitEdges.size());
+	mesh->createColocals(); // Added new vertices, some may be colocal with existing vertices.
 	return mesh;
 }
 
