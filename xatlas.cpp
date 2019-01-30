@@ -1945,13 +1945,10 @@ public:
 		const uint32_t edgeCount = m_edges.size();
 		const uint32_t faceCount = m_faces.size();
 		const uint32_t vertexCount = m_positions.size();
-		m_boundaryEdges.resize(edgeCount);
 		m_oppositeEdges.resize(edgeCount);
 		m_boundaryVertices.resize(vertexCount);
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			m_boundaryEdges[i] = false;
+		for (uint32_t i = 0; i < edgeCount; i++)
 			m_oppositeEdges[i] = UINT32_MAX;
-		}
 		for (uint32_t i = 0; i < vertexCount; i++)
 			m_boundaryVertices[i] = false;
 		uint32_t nBoundaryEdges = 0;
@@ -1969,7 +1966,6 @@ public:
 					XA_DEBUG_ASSERT(!(m_faceFlags[oppositeEdge->face] & FaceFlags::Ignore));
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
 				} else {
-					m_boundaryEdges[face.firstIndex + j] = true;
 					m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
 					nBoundaryEdges++;
 				}
@@ -1991,7 +1987,7 @@ public:
 		for (;;) {
 			uint32_t firstEdge = UINT32_MAX;
 			for (uint32_t i = 0; i < edgeCount; i++) {
-				if (m_boundaryEdges[i] && !bitFlags.bitAt(i)) {
+				if (m_oppositeEdges[i] == UINT32_MAX && !bitFlags.bitAt(i)) {
 					firstEdge = i;
 					break;
 				}
@@ -2008,7 +2004,7 @@ public:
 					const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
 					while (ele) {
 						const Edge &otherEdge = m_edges[ele->value];
-						if (!m_boundaryEdges[ele->value])
+						if (m_oppositeEdges[ele->value] != UINT32_MAX)
 							goto next; // Not a boundary edge.
 						if (bitFlags.bitAt(ele->value))
 							goto next; // Already linked.
@@ -2109,8 +2105,8 @@ public:
 	void writeObjBoundaryEges(FILE *file) const
 	{
 		fprintf(file, "o boundary_edges\n");
-		for (uint32_t i = 0; i < m_boundaryEdges.size(); i++) {
-			if (!m_boundaryEdges[i])
+		for (uint32_t i = 0; i < m_edges.size(); i++) {
+			if (m_oppositeEdges[i] != UINT32_MAX)
 				continue;
 			const Edge &edge = m_edges[i];
 			fprintf(file, "l %d %d\n", m_indices[edge.index0] + 1, m_indices[edge.index1] + 1); // 1-indexed
@@ -2128,7 +2124,7 @@ public:
 		for (;;) {
 			uint32_t firstEdge = UINT32_MAX;
 			for (uint32_t i = 0; i < edgeCount; i++) {
-				if (m_boundaryEdges[i] && !bitFlags.bitAt(i)) {
+				if (m_oppositeEdges[i] == UINT32_MAX && !bitFlags.bitAt(i)) {
 					firstEdge = i;
 					break;
 				}
@@ -2404,7 +2400,6 @@ private:
 
 	// Populated by createBoundaries
 	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
-	Array<bool> m_boundaryEdges;
 	Array<bool> m_boundaryVertices;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
 
