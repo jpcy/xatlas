@@ -2739,6 +2739,8 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
 static Mesh *meshTriangulate(const Mesh &inputMesh)
 {
+	if (inputMesh.faceCount() * 3 == inputMesh.edgeCount())
+		return NULL;
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t faceCount = inputMesh.faceCount();
 	Mesh *mesh = XA_NEW(Mesh, vertexCount, faceCount);
@@ -4554,7 +4556,7 @@ struct AtlasBuilder
 		// Make sure normal seams are fully respected:
 		if (m_options.normalSeamMetricWeight >= 1000 && N != 0)
 			cost = FLT_MAX;
-		XA_ASSERT(std::isfinite(cost));
+		XA_DEBUG_ASSERT(std::isfinite(cost));
 		return cost;
 	}
 
@@ -4977,10 +4979,12 @@ public:
 #endif
 		XA_DEBUG_ASSERT(closed);
 		closed = closed; // silence unused parameter warning;
-		Mesh *newUnifiedMesh = meshTriangulate(*m_unifiedMesh);
-		m_unifiedMesh->~Mesh();
-		XA_FREE(m_unifiedMesh);
-		m_unifiedMesh = newUnifiedMesh;
+		Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
+		if (triangulatedMesh) {
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
+			m_unifiedMesh = triangulatedMesh;
+		}
 		MeshTopology topology(m_unifiedMesh);
 		m_isDisk = topology.isDisk();
 #if XA_DEBUG_EXPORT_OBJ
