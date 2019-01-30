@@ -1765,7 +1765,7 @@ public:
 #if 0
 	void fixFlippedFaces()
 	{
-		XA_DEBUG_ASSERT(!m_colocals.isEmpty());
+		XA_DEBUG_ASSERT(!m_nextColocalVertex.isEmpty());
 		// Find faces with backwards edge winding.
 		// All face edges must either be duplicates or on a boundary.
 		Array<uint32_t> oldIndices;
@@ -1847,38 +1847,30 @@ public:
 	void createColocals()
 	{
 		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
+		const uint32_t vertexCount = m_positions.size();
 		typedef internal::HashMap<internal::Vector3, uint32_t> PositionHashMap;
-		PositionHashMap positionHashMap(m_positions.size());
+		PositionHashMap positionHashMap(vertexCount);
 		for (uint32_t i = 0; i < m_positions.size(); i++)
 			positionHashMap.add(m_positions[i], i);
-		internal::Array<uint32_t> canonicalMap;
-		canonicalMap.reserve(m_positions.size());
-		for (uint32_t i = 0; i < m_positions.size(); i++) {
-			uint32_t firstColocal = i;
+		Array<uint32_t> colocals;
+		m_nextColocalVertex.resize(vertexCount, UINT32_MAX);
+		for (uint32_t i = 0; i < m_nextColocalVertex.size(); i++) {
+			if (m_nextColocalVertex[i] != UINT32_MAX)
+				continue; // Already done.
+			colocals.clear();
 			const PositionHashMap::Element *ele = positionHashMap.get(m_positions[i]);
 			while (ele) {
-				if (ele->value < firstColocal)
-					firstColocal = ele->value;
+				colocals.push_back(ele->value);
 				ele = positionHashMap.getNext(ele);
 			}
-			canonicalMap.push_back(firstColocal);
-		}
-		Array<uint32_t> vertexMap;
-		vertexMap.resize(canonicalMap.size(), UINT32_MAX);
-		m_colocals.resize(canonicalMap.size(), UINT32_MAX);
-		for (uint32_t i = 0; i < canonicalMap.size(); i++) {
-			if (vertexMap[canonicalMap[i]] == UINT32_MAX) {
-				vertexMap[canonicalMap[i]] = i;
-				m_colocalVertexCount++;
+			if (colocals.size() == 1) {
+				// No colocals for this vertex.
+				m_nextColocalVertex[i] = i;
+				continue; 
 			}
-			// Find the next (with wrapping) vertex with the same colocal.
-			for (uint32_t j = i + 1;; j++) {
-				const uint32_t k = j % canonicalMap.size();
-				if (k == i || canonicalMap[k] == canonicalMap[i]) {
-					m_colocals[i] = k;
-					break;
-				}
-			}
+			std::sort(colocals.begin(), colocals.end());
+			for (uint32_t j = 0; j < colocals.size(); j++)
+				m_nextColocalVertex[colocals[j]] = colocals[(j + 1) % colocals.size()];
 		}
 	}
 
@@ -2055,7 +2047,7 @@ public:
 	const Edge *findEdge(uint32_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
 	{
 		const Edge *result = NULL;
-		if (m_colocals.isEmpty()) {
+		if (m_nextColocalVertex.isEmpty()) {
 			EdgeKey key(vertex0, vertex1);
 			const EdgeMap::Element *ele = m_edgeMap.get(key);
 			while (ele) {
@@ -2366,7 +2358,7 @@ public:
 	{
 		if (vertex0 == vertex1)
 			return true;
-		if (m_colocals.isEmpty())
+		if (m_nextColocalVertex.isEmpty())
 			return false;
 		for (ColocalVertexIterator it(this, vertex0); !it.isDone(); it.advance()) {
 			if (it.vertex() == vertex1)
@@ -2408,7 +2400,7 @@ private:
 
 	// Populated by createColocals
 	uint32_t m_colocalVertexCount;
-	Array<uint32_t> m_colocals; // In: vertex index. Out: the vertex index of the next colocal position.
+	Array<uint32_t> m_nextColocalVertex; // In: vertex index. Out: the vertex index of the next colocal position.
 
 	// Populated by createBoundaries
 	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
@@ -2484,8 +2476,8 @@ public:
 		{
 			if (m_first == UINT32_MAX)
 				m_first = m_current;
-			if (!m_mesh->m_colocals.isEmpty())
-				m_current = m_mesh->m_colocals[m_current];
+			if (!m_mesh->m_nextColocalVertex.isEmpty())
+				m_current = m_mesh->m_nextColocalVertex[m_current];
 		}
 
 		bool isDone() const
