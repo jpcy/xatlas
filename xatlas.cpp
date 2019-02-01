@@ -4873,33 +4873,7 @@ private:
 class Chart
 {
 public:
-	Chart() : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false) {}
-
-	~Chart()
-	{
-		if (m_chartMesh) {
-			m_chartMesh->~Mesh();
-			XA_FREE(m_chartMesh);
-		}
-		if (m_unifiedMesh) {
-			m_unifiedMesh->~Mesh();
-			XA_FREE(m_unifiedMesh);
-		}
-	}
-
-	bool isBlockAligned() const { return m_blockAligned; }
-	bool isDisk() const { return m_isDisk; }
-	uint32_t vertexCount() const { return m_chartMesh->vertexCount(); }
-	uint32_t colocalVertexCount() const { return m_unifiedMesh->vertexCount(); }
-	uint32_t faceCount() const { return m_faceArray.size(); }
-	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceArray[i]; }
-	const Mesh *chartMesh() const { return m_chartMesh; }
-	Mesh *chartMesh() { return m_chartMesh; }
-	const Mesh *unifiedMesh() const { return m_unifiedMesh; }
-	Mesh *unifiedMesh() { return m_unifiedMesh; }
-	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const { return m_chartToOriginalMap[i]; }
-
-	void build(const Mesh *originalMesh, const Array<uint32_t> &faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false)
 	{
 		// Copy face indices.
 		m_faceArray = faceArray;
@@ -4996,6 +4970,30 @@ public:
 #endif
 		XA_DEBUG_ASSERT(m_isDisk);
 	}
+
+	~Chart()
+	{
+		if (m_chartMesh) {
+			m_chartMesh->~Mesh();
+			XA_FREE(m_chartMesh);
+		}
+		if (m_unifiedMesh) {
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
+		}
+	}
+
+	bool isBlockAligned() const { return m_blockAligned; }
+	bool isDisk() const { return m_isDisk; }
+	uint32_t vertexCount() const { return m_chartMesh->vertexCount(); }
+	uint32_t colocalVertexCount() const { return m_unifiedMesh->vertexCount(); }
+	uint32_t faceCount() const { return m_faceArray.size(); }
+	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceArray[i]; }
+	const Mesh *chartMesh() const { return m_chartMesh; }
+	Mesh *chartMesh() { return m_chartMesh; }
+	const Mesh *unifiedMesh() const { return m_unifiedMesh; }
+	Mesh *unifiedMesh() { return m_unifiedMesh; }
+	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const { return m_chartToOriginalMap[i]; }
 
 	// Transfer parameterization from unified mesh to chart mesh.
 	void transferParameterization()
@@ -5531,9 +5529,8 @@ public:
 			XA_DEBUG_ASSERT(builder.facesLeft() == 0);
 			const uint32_t chartCount = builder.chartCount();
 			for (uint32_t i = 0; i < chartCount; i++) {
-				Chart *chart = XA_NEW(Chart);
+				Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(i));
 				m_chartArray.push_back(chart);
-				chart->build(m_mesh, builder.chartFaces(i));
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INDIVIDUAL_CHARTS
 				char filename[256];
 				sprintf(filename, "debug_chart_%0.4d.obj", i);
