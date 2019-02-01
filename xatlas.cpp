@@ -5611,12 +5611,13 @@ public:
 					chartGroup->computeCharts(options);
 				m_chartGroups.push_back(chartGroup);
 				m_chartGroupSourceMeshes.push_back(i);
-			}
-			if (progressCallback) {
-				const int newProgress = int((i + 1) / (float)meshCount * 100.0f);
-				if (newProgress != progress) {
-					progress = newProgress;
-					progressCallback(ProgressCategory::ComputingCharts, progress, progressCallbackUserData);
+				if (progressCallback) {
+					const float groupProgess = (g + 1) / (float)faceGroups.size();
+					const int newProgress = int(((i + groupProgess) / (float)meshCount) * 100.0f);
+					if (newProgress != progress) {
+						progress = newProgress;
+						progressCallback(ProgressCategory::ComputingCharts, progress, progressCallbackUserData);
+					}
 				}
 			}
 		}
