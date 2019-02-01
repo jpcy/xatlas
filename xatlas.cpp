@@ -1803,44 +1803,11 @@ public:
 		return false;
 	}
 
-	// Find faces connected to the face and assign them to the same group as the face, unless they are already assigned to another group.
-	void growFaceGroupRecursive(uint32_t face)
-	{
-		const uint32_t group = m_faceGroups[face];
-		for (FaceEdgeIterator  edgeIt(this, face); !edgeIt.isDone(); edgeIt.advance()) {
-			// Iterate opposite edges. There may be more than one - non-manifold geometry can have duplicate edges.
-			// Prioritize the one with exact vertex match, not just colocal.
-			// If *any* of the opposite edges are already assigned to this group, don't do anything.
-			bool alreadyAssignedToThisGroup = false;
-			uint32_t bestConnectedFace = UINT32_MAX;
-			for (ColocalEdgeIterator oppositeEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
-				const Edge &oppositeEdge = m_edges[oppositeEdgeIt.edge()];
-				if (m_faceFlags[oppositeEdge.face] & FaceFlags::Ignore)
-					continue; // Don't add ignored faces to group.
-				if (m_faceGroups[oppositeEdge.face] == group) {
-					alreadyAssignedToThisGroup = true;
-					break;
-				}
-				if (m_faceGroups[oppositeEdge.face] != UINT32_MAX)
-					continue; // Connected face is already assigned to another group.
-				if (faceDuplicatesGroupEdge(group, oppositeEdge.face))
-					continue; // Don't want duplicate edges in a group.
-				const uint32_t oppositeVertex0 = m_indices[oppositeEdge.index0];
-				const uint32_t oppositeVertex1 = m_indices[oppositeEdge.index1];
-				if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
-					bestConnectedFace = oppositeEdge.face;
-			}
-			if (!alreadyAssignedToThisGroup && bestConnectedFace != UINT32_MAX) {
-				m_faceGroups[bestConnectedFace] = group;
-				growFaceGroupRecursive(bestConnectedFace);
-			}
-		}
-	}
-
 	void createFaceGroups()
 	{
 		const uint32_t faceCount = m_faces.size();
 		uint32_t group = 0;
+		Array<uint32_t> growFaces;
 		for (;;) {
 			// Find an unassigned face.
 			uint32_t face = UINT32_MAX;
@@ -1853,7 +1820,43 @@ public:
 			if (face == UINT32_MAX)
 				break; // All faces assigned to a group (except ignored faces).
 			m_faceGroups[face] = group;
-			growFaceGroupRecursive(face);
+			growFaces.clear();
+			growFaces.push_back(face);
+			// Find faces connected to the face and assign them to the same group as the face, unless they are already assigned to another group.
+			for (;;) {
+				if (growFaces.isEmpty())
+					break;
+				const uint32_t f = growFaces.back();
+				growFaces.pop_back();
+				for (FaceEdgeIterator edgeIt(this, f); !edgeIt.isDone(); edgeIt.advance()) {
+					// Iterate opposite edges. There may be more than one - non-manifold geometry can have duplicate edges.
+					// Prioritize the one with exact vertex match, not just colocal.
+					// If *any* of the opposite edges are already assigned to this group, don't do anything.
+					bool alreadyAssignedToThisGroup = false;
+					uint32_t bestConnectedFace = UINT32_MAX;
+					for (ColocalEdgeIterator oppositeEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
+						const Edge &oppositeEdge = m_edges[oppositeEdgeIt.edge()];
+						if (m_faceFlags[oppositeEdge.face] & FaceFlags::Ignore)
+							continue; // Don't add ignored faces to group.
+						if (m_faceGroups[oppositeEdge.face] == group) {
+							alreadyAssignedToThisGroup = true;
+							break;
+						}
+						if (m_faceGroups[oppositeEdge.face] != UINT32_MAX)
+							continue; // Connected face is already assigned to another group.
+						if (faceDuplicatesGroupEdge(group, oppositeEdge.face))
+							continue; // Don't want duplicate edges in a group.
+						const uint32_t oppositeVertex0 = m_indices[oppositeEdge.index0];
+						const uint32_t oppositeVertex1 = m_indices[oppositeEdge.index1];
+						if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
+							bestConnectedFace = oppositeEdge.face;
+					}
+					if (!alreadyAssignedToThisGroup && bestConnectedFace != UINT32_MAX) {
+						m_faceGroups[bestConnectedFace] = group;
+						growFaces.push_back(bestConnectedFace);
+					}
+				}
+			}
 			group++;
 		}
 	}
