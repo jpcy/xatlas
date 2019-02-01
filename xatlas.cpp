@@ -1794,10 +1794,41 @@ public:
 	// Check if the face duplicates any edges of any face already in the group.
 	bool faceDuplicatesGroupEdge(uint32_t group, uint32_t face) const
 	{
-		for (FaceEdgeIterator  edgeIt(this, face); !edgeIt.isDone(); edgeIt.advance()) {
+		for (FaceEdgeIterator edgeIt(this, face); !edgeIt.isDone(); edgeIt.advance()) {
 			for (ColocalEdgeIterator colocalEdgeIt(this, edgeIt.vertex0(), edgeIt.vertex1()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
 				if (m_faceGroups[m_edges[colocalEdgeIt.edge()].face] == group)
 					return true;
+			}
+		}
+		return false;
+	}
+
+	// Check if the face mirrors any face already in the group.
+	// i.e. don't want two-sided faces in the same group.
+	// A face mirrors another face if all edges match with opposite winding.
+	bool faceMirrorsGroupFace(uint32_t group, uint32_t face) const
+	{
+		FaceEdgeIterator edgeIt(this, face);
+		for (ColocalEdgeIterator colocalEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
+			const uint32_t candidateFace = m_edges[colocalEdgeIt.edge()].face;
+			if (m_faceGroups[candidateFace] == group) {
+				// Found a match for mirrored first edge, try the other edges.
+				bool match = false;
+				for (; !edgeIt.isDone(); edgeIt.advance()) {
+					match = false;
+					for (ColocalEdgeIterator colocalEdgeIt2(this, edgeIt.vertex1(), edgeIt.vertex0()); !colocalEdgeIt2.isDone(); colocalEdgeIt2.advance()) {
+						if (m_edges[colocalEdgeIt2.edge()].face == candidateFace) {
+							match = true;
+							break;
+						}
+					}
+					if (!match)
+						break;
+				}
+				if (match)
+					return true; // All edges are mirrored in this face.
+				// Try the next face.
+				edgeIt = FaceEdgeIterator(this, candidateFace);
 			}
 		}
 		return false;
@@ -1846,6 +1877,8 @@ public:
 							continue; // Connected face is already assigned to another group.
 						if (faceDuplicatesGroupEdge(group, oppositeEdge.face))
 							continue; // Don't want duplicate edges in a group.
+						if (faceMirrorsGroupFace(group, oppositeEdge.face))
+							continue; // Don't want two-sided faces in a group.
 						const uint32_t oppositeVertex0 = m_indices[oppositeEdge.index0];
 						const uint32_t oppositeVertex1 = m_indices[oppositeEdge.index1];
 						if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
@@ -5625,7 +5658,7 @@ public:
 			}
 		}
 		if (progressCallback && progress != 100)
-			progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
+			progressCallback(ProgressCategory::ComputingCharts, 100, progressCallbackUserData);
 	}
 
 	void parameterizeCharts(ProgressCallback progressCallback, void *progressCallbackUserData)
