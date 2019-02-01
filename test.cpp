@@ -109,10 +109,6 @@ int main(int /*argc*/, char ** /*argv*/)
 	if (generateAtlas("duplicate_edge", &result)) {
 		ASSERT(result.chartCount == 2);
 	}
-	// triangulated patch with the winding of one of the middle faces flipped
-	/*if (generateAtlas("flipped_face", &result)) {
-		ASSERT(result.chartCount == 1);
-	}*/
 	if (generateAtlas("gazebo", &result)) {
 		ASSERT(result.chartCount == 333);
 	}
