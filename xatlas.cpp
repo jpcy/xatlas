@@ -1836,7 +1836,7 @@ public:
 		if (numFacesFlipped > 0) {
 #if XA_DEBUG_EXPORT_OBJ
 			char filename[256];
-			sprintf(filename, "debug_mesh%0.3u_flipped.obj", m_id);
+			sprintf(filename, "debug_mesh_%0.3u_flipped.obj", m_id);
 			writeSimpleObj(filename);
 #endif
 		}
@@ -1898,6 +1898,8 @@ public:
 			uint32_t bestConnectedFace = UINT32_MAX;
 			for (ColocalEdgeIterator oppositeEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
 				const Edge &oppositeEdge = m_edges[oppositeEdgeIt.edge()];
+				if (m_faceFlags[oppositeEdge.face] & FaceFlags::Ignore)
+					continue; // Don't add ignored faces to group.
 				if (m_faceGroups[oppositeEdge.face] == group) {
 					alreadyAssignedToThisGroup = true;
 					break;
@@ -1926,13 +1928,13 @@ public:
 			// Find an unassigned face.
 			uint32_t face = UINT32_MAX;
 			for (uint32_t f = 0; f < faceCount; f++) {
-				if (m_faceGroups[f] == UINT32_MAX) {
+				if (m_faceGroups[f] == UINT32_MAX && !(m_faceFlags[f] & FaceFlags::Ignore)) {
 					face = f;
 					break;
 				}
 			}
 			if (face == UINT32_MAX)
-				break; // All faces assigned to a group.
+				break; // All faces assigned to a group (except ignored faces).
 			m_faceGroups[face] = group;
 			growFaceGroupRecursive(face);
 			group++;
@@ -2153,7 +2155,7 @@ public:
 	void writeObj() const
 	{
 		char filename[256];
-		sprintf(filename, "debug_mesh%0.3u.obj", m_id);
+		sprintf(filename, "debug_mesh_%0.3u.obj", m_id);
 		FILE *file = fopen(filename, "w");
 		if (!file)
 			return;
@@ -2172,6 +2174,12 @@ public:
 					writeObjFace(file, f);
 			}
 		}
+		fprintf(file, "o group_ignored\n");
+		fprintf(file, "s off\n");
+		for (uint32_t f = 0; f < m_faceGroups.size(); f++) {
+			if (m_faceGroups[f] == UINT32_MAX)
+				writeObjFace(file, f);
+		}
 		writeObjBoundaryEges(file);
 		fclose(file);
 	}
@@ -2183,6 +2191,7 @@ public:
 			return;
 		writeObjVertices(file);
 		fprintf(file, "s off\n");
+		fprintf(file, "o object\n");
 		for (uint32_t i = 0; i < m_faces.size(); i++)
 			writeObjFace(file, i);
 		writeObjBoundaryEges(file);
@@ -4303,19 +4312,6 @@ struct AtlasBuilder
 		}
 	}
 
-	void markUnchartedFaces(const Array<uint32_t> &unchartedFaces)
-	{
-		const uint32_t unchartedFaceCount = unchartedFaces.size();
-		for (uint32_t i = 0; i < unchartedFaceCount; i++) {
-			uint32_t f = unchartedFaces[i];
-			m_faceChartArray[f] = -2;
-			//faceCandidateArray[f] = -2; // @@ ?
-			removeCandidate(f);
-		}
-		XA_DEBUG_ASSERT(m_facesLeft >= unchartedFaceCount);
-		m_facesLeft -= unchartedFaceCount;
-	}
-
 	void placeSeeds(float threshold, uint32_t maxSeedCount)
 	{
 		// Instead of using a predefiened number of seeds:
@@ -4877,7 +4873,7 @@ private:
 class Chart
 {
 public:
-	Chart() : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isVertexMapped(false) {}
+	Chart() : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false) {}
 
 	~Chart()
 	{
@@ -4890,6 +4886,18 @@ public:
 			XA_FREE(m_unifiedMesh);
 		}
 	}
+
+	bool isBlockAligned() const { return m_blockAligned; }
+	bool isDisk() const { return m_isDisk; }
+	uint32_t vertexCount() const { return m_chartMesh->vertexCount(); }
+	uint32_t colocalVertexCount() const { return m_unifiedMesh->vertexCount(); }
+	uint32_t faceCount() const { return m_faceArray.size(); }
+	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceArray[i]; }
+	const Mesh *chartMesh() const { return m_chartMesh; }
+	Mesh *chartMesh() { return m_chartMesh; }
+	const Mesh *unifiedMesh() const { return m_unifiedMesh; }
+	Mesh *unifiedMesh() { return m_unifiedMesh; }
+	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const { return m_chartToOriginalMap[i]; }
 
 	void build(const Mesh *originalMesh, const Array<uint32_t> &faceArray)
 	{
@@ -4989,131 +4997,13 @@ public:
 		XA_DEBUG_ASSERT(m_isDisk);
 	}
 
-	void buildVertexMap(const Mesh *originalMesh)
-	{
-		XA_ASSERT(m_chartMesh == NULL && m_unifiedMesh == NULL);
-		m_isVertexMapped = true;
-		// Build face indices.
-		m_faceArray.clear();
-		const uint32_t meshFaceCount = originalMesh->faceCount();
-		for (uint32_t f = 0; f < meshFaceCount; f++) {
-			if ((originalMesh->faceFlagsAt(f) & FaceFlags::Ignore) != 0)
-				m_faceArray.push_back(f);
-		}
-		const uint32_t faceCount = m_faceArray.size();
-		if (faceCount != 0) {
-			// @@ The chartMesh construction is basically the same as with regular charts, don't duplicate!
-			const uint32_t meshVertexCount = originalMesh->vertexCount();
-			m_chartMesh = XA_NEW(Mesh);
-			Array<uint32_t> chartMeshIndices;
-			chartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
-			// Vertex map mesh only has disconnected vertices.
-			for (uint32_t f = 0; f < faceCount; f++) {
-				const Face *face = originalMesh->faceAt(m_faceArray[f]);
-				XA_DEBUG_ASSERT(face != NULL);
-				for (uint32_t i = 0; i < face->nIndices; i++) {
-					const uint32_t vertex = originalMesh->vertexAt(face->firstIndex + i);
-					if (chartMeshIndices[vertex] == (uint32_t)~0) {
-						chartMeshIndices[vertex] = m_chartMesh->vertexCount();
-						m_chartToOriginalMap.push_back(vertex);
-						m_chartMesh->addVertex(*originalMesh->positionAt(vertex));
-					}
-				}
-			}
-			// @@ Link colocals using the original mesh canonical map? Build canonical map on the fly? Do we need to link colocals at all for this?
-			//m_chartMesh->linkColocals();
-			Array<uint32_t> faceIndices;
-			faceIndices.reserve(7);
-			// Add faces.
-			for (uint32_t f = 0; f < faceCount; f++) {
-				const Face *face = originalMesh->faceAt(m_faceArray[f]);
-				XA_DEBUG_ASSERT(face != NULL);
-				faceIndices.clear();
-				for (uint32_t i = 0; i < face->nIndices; i++) {
-					const uint32_t vertex = originalMesh->vertexAt(face->firstIndex + i);
-					XA_DEBUG_ASSERT(chartMeshIndices[vertex] != (uint32_t)~0);
-					faceIndices.push_back(chartMeshIndices[vertex]);
-				}
-				m_chartMesh->addFace(faceIndices);
-			}
-		}
-	}
-
-	bool isBlockAligned() const { return m_blockAligned; }
-
-	bool isDisk() const
-	{
-		return m_isDisk;
-	}
-
-	bool isVertexMapped() const
-	{
-		return m_isVertexMapped;
-	}
-
-	uint32_t vertexCount() const
-	{
-		return m_chartMesh->vertexCount();
-	}
-
-	uint32_t colocalVertexCount() const
-	{
-		return m_unifiedMesh->vertexCount();
-	}
-
-	uint32_t faceCount() const
-	{
-		return m_faceArray.size();
-	}
-
-	uint32_t faceAt(uint32_t i) const
-	{
-		return m_faceArray[i];
-	}
-
-	const Mesh *chartMesh() const
-	{
-		return m_chartMesh;
-	}
-
-	Mesh *chartMesh()
-	{
-		return m_chartMesh;
-	}
-
-	const Mesh *unifiedMesh() const
-	{
-		return m_unifiedMesh;
-	}
-
-	Mesh *unifiedMesh()
-	{
-		return m_unifiedMesh;
-	}
-
-	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const
-	{
-		return m_chartToOriginalMap[i];
-	}
-
-	uint32_t mapChartVertexToUnifiedVertex(uint32_t i) const
-	{
-		return m_chartToUnifiedMap[i];
-	}
-
-	const Array<uint32_t> &faceArray() const
-	{
-		return m_faceArray;
-	}
-
 	// Transfer parameterization from unified mesh to chart mesh.
 	void transferParameterization()
 	{
-		XA_DEBUG_ASSERT(!m_isVertexMapped);
 		const uint32_t vertexCount = m_chartMesh->vertexCount();
 		for (uint32_t v = 0; v < vertexCount; v++) {
 			Vector2 *texcoord = m_chartMesh->texcoordAt(v);
-			*texcoord = *m_unifiedMesh->texcoordAt(mapChartVertexToUnifiedVertex(v));
+			*texcoord = *m_unifiedMesh->texcoordAt(m_chartToUnifiedMap[v]);
 		}
 	}
 
@@ -5126,7 +5016,6 @@ public:
 	{
 		// This only makes sense in parameterized meshes.
 		XA_DEBUG_ASSERT(m_isDisk);
-		XA_DEBUG_ASSERT(!m_isVertexMapped);
 		return m_chartMesh->computeParametricArea();
 	}
 
@@ -5134,7 +5023,6 @@ public:
 	{
 		// This only makes sense in parameterized meshes.
 		XA_DEBUG_ASSERT(m_isDisk);
-		XA_DEBUG_ASSERT(!m_isVertexMapped);
 		Vector2 minCorner(FLT_MAX, FLT_MAX);
 		Vector2 maxCorner(-FLT_MAX, -FLT_MAX);
 		const uint32_t vertexCount = m_chartMesh->vertexCount();
@@ -5263,7 +5151,6 @@ private:
 	Mesh *m_chartMesh;
 	Mesh *m_unifiedMesh;
 	bool m_isDisk;
-	bool m_isVertexMapped;
 
 	// List of faces of the original mesh that belong to this chart.
 	Array<uint32_t> m_faceArray;
@@ -5463,43 +5350,74 @@ private:
 	float m_authalicMetric;
 };
 
-// Set of charts corresponding to a single mesh.
-class MeshCharts
+// Set of charts corresponding to mesh faces in the same face group.
+class ChartGroup
 {
 public:
-	MeshCharts(const Mesh *mesh) : m_mesh(mesh) {}
-
-	~MeshCharts()
+	ChartGroup(uint32_t id, const Mesh *sourceMesh, uint32_t faceGroup) : m_sourceId(sourceMesh->id()), m_id(id), m_isVertexMap(faceGroup == UINT32_MAX)
 	{
+		// Create new mesh from the source mesh, using faces that belong to this group.
+		const uint32_t sourceFaceCount = sourceMesh->faceCount();
+		for (uint32_t f = 0; f < sourceFaceCount; f++) {
+			if (sourceMesh->faceGroupAt(f) == faceGroup)
+				m_faceArray.push_back(f);
+		}
+		m_mesh = XA_NEW(Mesh);
+		const uint32_t faceCount = m_faceArray.size();
+		XA_DEBUG_ASSERT(faceCount > 0);
+		Array<uint32_t> meshIndices;
+		meshIndices.resize(sourceMesh->vertexCount(), (uint32_t)~0);
+		for (uint32_t f = 0; f < faceCount; f++) {
+			const Face *face = sourceMesh->faceAt(m_faceArray[f]);
+			XA_DEBUG_ASSERT(face != NULL);
+			for (uint32_t i = 0; i < face->nIndices; i++) {
+				const uint32_t vertex = sourceMesh->vertexAt(face->firstIndex + i);
+				if (meshIndices[vertex] == (uint32_t)~0) {
+					meshIndices[vertex] = m_mesh->vertexCount();
+					m_vertexToSourceVertexMap.push_back(vertex);
+					m_mesh->addVertex(*sourceMesh->positionAt(vertex), *sourceMesh->normalAt(vertex), *sourceMesh->texcoordAt(vertex));
+				}
+			}
+		}
+		m_mesh->createColocals();
+		Array<uint32_t> faceIndices;
+		faceIndices.reserve(7);
+		// Add faces.
+		for (uint32_t f = 0; f < faceCount; f++) {
+			const Face *face = sourceMesh->faceAt(m_faceArray[f]);
+			faceIndices.clear();
+			for (uint32_t i = 0; i < face->nIndices; i++) {
+				const uint32_t vertex = sourceMesh->vertexAt(face->firstIndex + i);
+				XA_DEBUG_ASSERT(meshIndices[vertex] != (uint32_t)~0);
+				faceIndices.push_back(meshIndices[vertex]);
+			}
+			m_mesh->addFace(faceIndices);
+		}
+		m_mesh->createBoundaries();
+		m_mesh->linkBoundaries();
+#if XA_DEBUG_EXPORT_OBJ
+		char filename[256];
+		sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u.obj", m_sourceId, m_id);
+		m_mesh->writeSimpleObj(filename);
+#endif
+	}
+
+	~ChartGroup()
+	{
+		m_mesh->~Mesh();
+		XA_FREE(m_mesh);
 		for (uint32_t i = 0; i < m_chartArray.size(); i++) {
 			m_chartArray[i]->~Chart();
 			XA_FREE(m_chartArray[i]);
 		}
 	}
 
-	uint32_t chartCount() const
-	{
-		return m_chartArray.size();
-	}
-
-	uint32_t faceCount() const
-	{
-		return m_mesh->faceCount();
-	}
-
-	uint32_t vertexCount () const
-	{
-		return m_totalVertexCount;
-	}
-
-	const Chart *chartAt(uint32_t i) const
-	{
-		return m_chartArray[i];
-	}
-	Chart *chartAt(uint32_t i)
-	{
-		return m_chartArray[i];
-	}
+	uint32_t chartCount() const { return m_chartArray.size(); }
+	Chart *chartAt(uint32_t i) const { return m_chartArray[i]; }
+	bool isVertexMap() const { return m_isVertexMap; }
+	uint32_t mapFaceToSourceFace(uint32_t face) const { return m_faceArray[face]; }
+	uint32_t mapVertexToSourceVertex(uint32_t i) const { return m_vertexToSourceVertexMap[i]; }
+	const Mesh *mesh() const { return m_mesh; }
 
 	/*
 	Compute charts using a simple segmentation algorithm.
@@ -5563,19 +5481,7 @@ public:
 	*/
 	void computeCharts(const CharterOptions &options)
 	{
-		Chart *vertexMap = XA_NEW(Chart);
-		vertexMap->buildVertexMap(m_mesh);
-		if (vertexMap->faceCount() == 0) {
-			vertexMap->~Chart();
-			XA_FREE(vertexMap);
-			vertexMap = NULL;
-		}
 		AtlasBuilder builder(m_mesh, options);
-		if (vertexMap != NULL) {
-			// Mark faces that do not need to be charted.
-			builder.markUnchartedFaces(vertexMap->faceArray());
-			m_chartArray.push_back(vertexMap);
-		}
 		if (builder.facesLeft() != 0) {
 			// This seems a reasonable estimate.
 			uint32_t maxSeedCount = std::max(6U, builder.facesLeft());
@@ -5585,14 +5491,11 @@ public:
 			XA_PRINT(PrintFlags::ComputingCharts, "###   Placed %d seeds (max = %d)\n", builder.chartCount(), maxSeedCount);
 			builder.updateProxies();
 			builder.mergeCharts();
-	#if 1
+#if 1
 			XA_PRINT(PrintFlags::ComputingCharts, "### Relocating seeds\n");
 			builder.relocateSeeds();
 			XA_PRINT(PrintFlags::ComputingCharts, "### Reset charts\n");
 			builder.resetCharts();
-			if (vertexMap != NULL) {
-				builder.markUnchartedFaces(vertexMap->faceArray());
-			}
 			XA_PRINT(PrintFlags::ComputingCharts, "### Growing charts\n");
 			// Restart process growing charts in parallel.
 			uint32_t iteration = 0;
@@ -5620,13 +5523,10 @@ public:
 					iteration++;
 					XA_PRINT(PrintFlags::ComputingCharts, "### Reset charts\n");
 					builder.resetCharts();
-					if (vertexMap != NULL) {
-						builder.markUnchartedFaces(vertexMap->faceArray());
-					}
 					XA_PRINT(PrintFlags::ComputingCharts, "### Growing charts\n");
 				}
 			}
-	#endif
+#endif
 			// Make sure no holes are left!
 			XA_DEBUG_ASSERT(builder.facesLeft() == 0);
 			const uint32_t chartCount = builder.chartCount();
@@ -5644,7 +5544,7 @@ public:
 			}
 #if XA_DEBUG_EXPORT_OBJ
 			char filename[256];
-			sprintf(filename, "debug_mesh%0.3d_charts.obj", m_mesh->id());
+			sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_charts.obj", m_sourceId, m_id);
 			FILE *file = fopen(filename, "w");
 			if (file) {
 				m_mesh->writeObjVertices(file);
@@ -5655,34 +5555,11 @@ public:
 					for (uint32_t f = 0; f < faces.size(); f++)
 						m_mesh->writeObjFace(file, faces[f]);
 				}
+				m_mesh->writeObjBoundaryEges(file);
+				m_mesh->writeObjLinkedBoundaries(file);
 				fclose(file);
 			}
 #endif
-		}
-		const uint32_t chartCount = m_chartArray.size();
-		// Build face indices.
-		m_faceChart.resize(m_mesh->faceCount());
-		m_faceIndex.resize(m_mesh->faceCount());
-		for (uint32_t i = 0; i < chartCount; i++) {
-			const Chart *chart = m_chartArray[i];
-			const uint32_t faceCount = chart->faceCount();
-			for (uint32_t f = 0; f < faceCount; f++) {
-				uint32_t idx = chart->faceAt(f);
-				m_faceChart[idx] = i;
-				m_faceIndex[idx] = f;
-			}
-		}
-		// Build an exclusive prefix sum of the chart vertex counts.
-		m_chartVertexCountPrefixSum.resize(chartCount);
-		if (chartCount > 0) {
-			m_chartVertexCountPrefixSum[0] = 0;
-			for (uint32_t i = 1; i < chartCount; i++) {
-				const Chart *chart = m_chartArray[i - 1];
-				m_chartVertexCountPrefixSum[i] = m_chartVertexCountPrefixSum[i - 1] + chart->vertexCount();
-			}
-			m_totalVertexCount = m_chartVertexCountPrefixSum[chartCount - 1] + m_chartArray[chartCount - 1]->vertexCount();
-		} else {
-			m_totalVertexCount = 0;
 		}
 	}
 
@@ -5695,14 +5572,7 @@ public:
 		for (uint32_t i = 0; i < chartCount; i++)
 		{
 			Chart *chart = m_chartArray[i];
-
 			bool isValid = false;
-
-			if (chart->isVertexMapped())
-			{
-				continue;
-			}
-
 			if (chart->isDisk())
 			{
 				diskCount++;
@@ -5719,17 +5589,14 @@ public:
 					chartParameterizationQuality = lscmQuality;
 				}
 				isValid = chartParameterizationQuality.isValid();
-				if (!isValid) {
+				if (!isValid)
 					XA_PRINT(PrintFlags::ParametizingCharts, "*** Invalid parameterization.\n");
-				}
 				// @@ Check that parameterization quality is above a certain threshold.
 				// @@ Detect boundary self-intersections.
 				globalParameterizationQuality += chartParameterizationQuality;
 			}
-
 			// Transfer parameterization from unified mesh to chart mesh.
 			chart->transferParameterization();
-
 		}
 		XA_PRINT(PrintFlags::ParametizingCharts, "  Parameterized %d/%d charts.\n", diskCount, chartCount);
 		XA_PRINT(PrintFlags::ParametizingCharts, "  RMS stretch metric: %f\n", globalParameterizationQuality.rmsStretchMetric());
@@ -5738,94 +5605,109 @@ public:
 		XA_PRINT(PrintFlags::ParametizingCharts, "  RMS authalic metric: %f\n", globalParameterizationQuality.maxAuthalicMetric());
 	}
 
-	uint32_t faceChartAt(uint32_t i) const
-	{
-		return m_faceChart[i];
-	}
-	uint32_t faceIndexWithinChartAt(uint32_t i) const
-	{
-		return m_faceIndex[i];
-	}
-
-	uint32_t vertexCountBeforeChartAt(uint32_t i) const
-	{
-		return m_chartVertexCountPrefixSum[i];
-	}
-
 private:
-	const Mesh *m_mesh;
+	uint32_t m_sourceId, m_id;
+	bool m_isVertexMap;
+	Mesh *m_mesh;
+	Array<uint32_t> m_faceArray; // List of faces of the source mesh that belong to this chart group.
+	Array<uint32_t> m_vertexToSourceVertexMap; // Map vertices of the mesh to vertices of the source mesh.
 	Array<Chart *> m_chartArray;
-	Array<uint32_t> m_chartVertexCountPrefixSum;
-	uint32_t m_totalVertexCount;
-	Array<uint32_t> m_faceChart; // the chart of every face of the input mesh.
-	Array<uint32_t> m_faceIndex; // the index within the chart for every face of the input mesh.
 };
 
-/// An atlas is a set of charts.
+/// An atlas is a set of chart groups.
 class Atlas
 {
 public:
 	~Atlas()
 	{
-		for (uint32_t i = 0; i < m_meshChartsArray.size(); i++) {
-			m_meshChartsArray[i]->~MeshCharts();
-			XA_FREE(m_meshChartsArray[i]);
+		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
+			m_chartGroups[i]->~ChartGroup();
+			XA_FREE(m_chartGroups[i]);
 		}
 	}
 
-	uint32_t meshCount() const
+	uint32_t chartGroupCount(uint32_t mesh) const
 	{
-		return m_meshChartsArray.size();
+		uint32_t count = 0;
+		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
+			if (m_chartGroupSourceMeshes[i] == mesh)
+				count++;
+		}
+		return count;
 	}
 
-	const MeshCharts *meshAt(uint32_t i) const
+	const ChartGroup *chartGroupAt(uint32_t mesh, uint32_t group) const
 	{
-		return m_meshChartsArray[i];
-	}
-
-	MeshCharts *meshAt(uint32_t i)
-	{
-		return m_meshChartsArray[i];
+		for (uint32_t c = 0; c < m_chartGroups.size(); c++) {
+			if (m_chartGroupSourceMeshes[c] != mesh)
+				continue;
+			if (group == 0)
+				return m_chartGroups[c];
+			group--;
+		}
+		return NULL;
 	}
 
 	uint32_t chartCount() const
 	{
 		uint32_t count = 0;
-		for (uint32_t c = 0; c < m_meshChartsArray.size(); c++) {
-			count += m_meshChartsArray[c]->chartCount();
-		}
+		for (uint32_t i = 0; i < m_chartGroups.size(); i++)
+			count += m_chartGroups[i]->chartCount();
 		return count;
-	}
-
-	const Chart *chartAt(uint32_t i) const
-	{
-		for (uint32_t c = 0; c < m_meshChartsArray.size(); c++) {
-			uint32_t count = m_meshChartsArray[c]->chartCount();
-			if (i < count) {
-				return m_meshChartsArray[c]->chartAt(i);
-			}
-			i -= count;
-		}
-		return NULL;
 	}
 
 	Chart *chartAt(uint32_t i)
 	{
-		for (uint32_t c = 0; c < m_meshChartsArray.size(); c++) {
-			uint32_t count = m_meshChartsArray[c]->chartCount();
+		for (uint32_t c = 0; c < m_chartGroups.size(); c++) {
+			uint32_t count = m_chartGroups[c]->chartCount();
 			if (i < count) {
-				return m_meshChartsArray[c]->chartAt(i);
+				return m_chartGroups[c]->chartAt(i);
 			}
 			i -= count;
 		}
 		return NULL;
 	}
 
-	void computeCharts(const Mesh *mesh, const CharterOptions &options)
+	void computeCharts(const Array<Mesh *> &meshes, const CharterOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
 	{
-		MeshCharts *meshCharts = XA_NEW(MeshCharts, mesh);
-		meshCharts->computeCharts(options);
-		m_meshChartsArray.push_back(meshCharts);
+		int progress = 0;
+		if (progressCallback)
+			progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
+		const uint32_t meshCount = meshes.size();
+		for (uint32_t i = 0; i < meshCount; i++) {
+			// Get list of face groups.
+			const uint32_t faceCount = meshes[i]->faceCount();
+			Array<uint32_t> faceGroups;
+			for (uint32_t f = 0; f < faceCount; f++) {
+				const uint32_t group = meshes[i]->faceGroupAt(f);
+				bool exists = false;
+				for (uint32_t g = 0; g < faceGroups.size(); g++) {
+					if (faceGroups[g] == group) {
+						exists = true;
+						break;
+					}
+				}
+				if (!exists)
+					faceGroups.push_back(group);
+			}
+			// Create one chart group per face group.
+			for (uint32_t g = 0; g < faceGroups.size(); g++) {
+				ChartGroup *chartGroup = XA_NEW(ChartGroup, g, meshes[i], faceGroups[g]);
+				if (!chartGroup->isVertexMap())
+					chartGroup->computeCharts(options);
+				m_chartGroups.push_back(chartGroup);
+				m_chartGroupSourceMeshes.push_back(i);
+			}
+			if (progressCallback) {
+				const int newProgress = int((i + 1) / (float)meshCount * 100.0f);
+				if (newProgress != progress) {
+					progress = newProgress;
+					progressCallback(ProgressCategory::ComputingCharts, progress, progressCallbackUserData);
+				}
+			}
+		}
+		if (progressCallback && progress != 100)
+			progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
 	}
 
 	void parameterizeCharts(ProgressCallback progressCallback, void *progressCallbackUserData)
@@ -5833,13 +5715,12 @@ public:
 		int progress = 0;
 		if (progressCallback)
 			progressCallback(ProgressCategory::ParametizingCharts, 0, progressCallbackUserData);
-		for (uint32_t i = 0; i < m_meshChartsArray.size(); i++) {
-			m_meshChartsArray[i]->parameterizeCharts();
-			if (progressCallback)
-			{
-				const int newProgress = int((i + 1) / (float)m_meshChartsArray.size() * 100.0f);
-				if (newProgress != progress)
-				{
+		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
+			if (!m_chartGroups[i]->isVertexMap())
+				m_chartGroups[i]->parameterizeCharts();
+			if (progressCallback) {
+				const int newProgress = int((i + 1) / (float)m_chartGroups.size() * 100.0f);
+				if (newProgress != progress) {
 					progress = newProgress;
 					progressCallback(ProgressCategory::ParametizingCharts, progress, progressCallbackUserData);
 				}
@@ -5849,37 +5730,37 @@ public:
 			progressCallback(ProgressCategory::ParametizingCharts, 100, progressCallbackUserData);
 	}
 
-	void saveOriginalChartUvs()
+	void resetChartTexcoords()
 	{
-		m_originalChartUvs.resize(chartCount());
-		for (uint32_t i = 0; i < chartCount(); i++) {
-			const Mesh *mesh = chartAt(i)->chartMesh();
-			m_originalChartUvs[i].resize(mesh->vertexCount());
-			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
-				m_originalChartUvs[i][j] = *mesh->texcoordAt(j);
-		}
-	}
-
-	void restoreOriginalChartUvs()
-	{
-		for (uint32_t i = 0; i < chartCount(); i++) {
-			Mesh *mesh = chartAt(i)->chartMesh();
-			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
-				*mesh->texcoordAt(j) = m_originalChartUvs[i][j];
+		const uint32_t nCharts = chartCount();
+		if (m_originalChartTexcoords.isEmpty()) {
+			// save
+			m_originalChartTexcoords.resize(nCharts);
+			for (uint32_t i = 0; i < nCharts; i++) {
+				const Mesh *mesh = chartAt(i)->chartMesh();
+				m_originalChartTexcoords[i].resize(mesh->vertexCount());
+				for (uint32_t j = 0; j < mesh->vertexCount(); j++)
+					m_originalChartTexcoords[i][j] = *mesh->texcoordAt(j);
+			}
+		} else {
+			// restore
+			for (uint32_t i = 0; i < nCharts; i++) {
+				Mesh *mesh = chartAt(i)->chartMesh();
+				for (uint32_t j = 0; j < mesh->vertexCount(); j++)
+					*mesh->texcoordAt(j) = m_originalChartTexcoords[i][j];
+			}
 		}
 	}
 
 private:
-	Array<MeshCharts *> m_meshChartsArray;
-	Array<Array<Vector2> > m_originalChartUvs;
+	Array<ChartGroup *> m_chartGroups;
+	Array<uint32_t> m_chartGroupSourceMeshes;
+	Array<Array<Vector2> > m_originalChartTexcoords;
 };
 
 struct AtlasPacker
 {
-	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_width(0), m_height(0), m_texelsPerUnit(0)
-	{
-		m_atlas->restoreOriginalChartUvs();
-	}
+	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_width(0), m_height(0), m_texelsPerUnit(0)	{}
 
 	~AtlasPacker()
 	{
@@ -5910,7 +5791,7 @@ struct AtlasPacker
 			float meshArea = 0;
 			for (uint32_t c = 0; c < chartCount; c++) {
 				const Chart *chart = m_atlas->chartAt(c);
-				if (chart->isVertexMapped() || !chart->isDisk())
+				if (!chart->isDisk())
 					continue;
 				meshArea += chart->computeSurfaceArea();
 			}
@@ -5934,7 +5815,7 @@ struct AtlasPacker
 		chartExtents.resize(chartCount);
 		for (uint32_t c = 0; c < chartCount; c++) {
 			Chart *chart = m_atlas->chartAt(c);
-			if (chart->isVertexMapped() || !chart->isDisk()) {
+			if (!chart->isDisk()) {
 				chartOrderArray[c] = 0;
 				// Skip non-disks.
 				continue;
@@ -6057,7 +5938,7 @@ struct AtlasPacker
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 			Chart *chart = m_atlas->chartAt(c);
-			if (chart->isVertexMapped() || !chart->isDisk())
+			if (!chart->isDisk())
 				continue;
 			BitMap chart_bitmap;
 			// @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
@@ -6834,34 +6715,15 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	DestroyOutputMeshes(ctx);
 	// Chart meshes.
 	XA_PRINT(PrintFlags::ComputingCharts, "Computing charts\n");
-	int progress = 0;
-	if (progressCallback)
-		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
-	const uint32_t meshCount = ctx->meshes.size();
-	for (uint32_t i = 0; i < meshCount; i++)
-	{
-		ctx->paramAtlas.computeCharts(ctx->meshes[i], charterOptions);
-		if (progressCallback)
-		{
-			const int newProgress = int((i + 1) / (float)meshCount * 100.0f);
-			if (newProgress != progress)
-			{
-				progress = newProgress;
-				progressCallback(ProgressCategory::ComputingCharts, progress, progressCallbackUserData);
-			}
-		}
-	}
-	if (progressCallback && progress != 100)
-		progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
+	ctx->paramAtlas.computeCharts(ctx->meshes, charterOptions, progressCallback, progressCallbackUserData);
 	XA_PRINT(PrintFlags::ParametizingCharts, "Parameterizing charts\n");
 	ctx->paramAtlas.parameterizeCharts(progressCallback, progressCallbackUserData);
-	ctx->paramAtlas.saveOriginalChartUvs();
 	// Count charts.
-	for (uint32_t i = 0; i < meshCount; i++) {
-		const internal::param::MeshCharts *charts = ctx->paramAtlas.meshAt(i);
-		for (uint32_t j = 0; j < charts->chartCount(); j++) {
-			if (!charts->chartAt(j)->isVertexMapped())
-				atlas->chartCount++;
+	for (uint32_t i = 0; i < ctx->meshes.size(); i++) {
+		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
+			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
+			if (!chartGroup->isVertexMap())
+				atlas->chartCount += chartGroup->chartCount();
 		}
 	}
 }
@@ -6882,6 +6744,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	if (atlas->chartCount <= 0)
 		return;
 	XA_PRINT(PrintFlags::PackingCharts, "Packing charts\n");
+	ctx->paramAtlas.resetChartTexcoords();
 	internal::param::AtlasPacker packer(&ctx->paramAtlas);
 	packer.packCharts(packerOptions, progressCallback, progressCallbackUserData);
 	atlas->atlasCount = packer.getNumAtlases();
@@ -6896,73 +6759,122 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	if (progressCallback)
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
 	atlas->meshes = XA_ALLOC_ARRAY(Mesh *, atlas->meshCount);
-	for (int i = 0; i < (int)atlas->meshCount; i++) {
+	for (uint32_t i = 0; i < atlas->meshCount; i++) {
 		Mesh *outputMesh = atlas->meshes[i] = XA_ALLOC(Mesh);
-		const internal::param::MeshCharts *charts = ctx->paramAtlas.meshAt(i);
+		outputMesh->vertexCount = 0;
+		outputMesh->indexCount = 0;
+		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
+			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
+			if (chartGroup->isVertexMap()) {
+				outputMesh->vertexCount += chartGroup->mesh()->vertexCount();
+				outputMesh->indexCount += chartGroup->mesh()->faceCount() * 3;
+			} else {
+				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
+					const internal::param::Chart *chart = chartGroup->chartAt(c);
+					outputMesh->vertexCount += chart->vertexCount();
+					outputMesh->indexCount += chart->faceCount() * 3;
+				}
+			}
+		}
 		// Vertices.
-		outputMesh->vertexCount = charts->vertexCount();
 		outputMesh->vertexArray = XA_ALLOC_ARRAY(Vertex, outputMesh->vertexCount);
-		for (uint32_t j = 0; j < charts->chartCount(); j++) {
-			const internal::param::Chart *chart = charts->chartAt(j);
-			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
-			for (uint32_t k = 0; k < chart->vertexCount(); k++) {
-				Vertex &v = outputMesh->vertexArray[vertexOffset + k];
-				v.atlasIndex = chart->atlasIndex;
-				const internal::Vector2 &uv = *chart->chartMesh()->texcoordAt(k);
-				v.uv[0] = std::max(0.0f, uv.x);
-				v.uv[1] = std::max(0.0f, uv.y);
-				v.xref = chart->mapChartVertexToOriginalVertex(k);
+		uint32_t vertexOffset = 0;
+		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
+			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
+			if (chartGroup->isVertexMap()) {
+				const internal::Mesh *mesh = chartGroup->mesh();
+				for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
+					Vertex &vertex = outputMesh->vertexArray[vertexOffset++];
+					vertex.atlasIndex = -1;
+					const internal::Vector2 &uv = *mesh->texcoordAt(v);
+					vertex.uv[0] = std::max(0.0f, uv.x);
+					vertex.uv[1] = std::max(0.0f, uv.y);
+					vertex.xref = chartGroup->mapVertexToSourceVertex(v);
+				}
+			} else {
+				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
+					const internal::param::Chart *chart = chartGroup->chartAt(c);
+					for (uint32_t v = 0; v < chart->vertexCount(); v++) {
+						Vertex &vertex = outputMesh->vertexArray[vertexOffset++];
+						XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
+						vertex.atlasIndex = chart->atlasIndex;
+						const internal::Vector2 &uv = *chart->chartMesh()->texcoordAt(v);
+						vertex.uv[0] = std::max(0.0f, uv.x);
+						vertex.uv[1] = std::max(0.0f, uv.y);
+						vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
+					}
+				}
 			}
 		}
 		// Indices.
-		outputMesh->indexCount = charts->faceCount() * 3;
 		outputMesh->indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh->indexCount);
-		for (uint32_t f = 0; f < charts->faceCount(); f++) {
-			const uint32_t c = charts->faceChartAt(f);
-			const uint32_t fi = charts->faceIndexWithinChartAt(f);
-			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(c);
-			const internal::param::Chart *chart = charts->chartAt(c);
-			XA_DEBUG_ASSERT(chart->faceAt(fi) == f);
-			const internal::Mesh *mesh = chart->chartMesh();
-			const internal::Face *face = mesh->faceAt(fi);
-			if (mesh->faceFlagsAt(fi) & internal::FaceFlags::Flipped) {
-				for (uint32_t j = 0; j < 3; j++)
-					outputMesh->indexArray[3 * f + j] = vertexOffset + mesh->vertexAt(face->firstIndex + face->nIndices - 1 - j);
+		vertexOffset = 0;
+		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
+			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
+			if (chartGroup->isVertexMap()) {
+				const internal::Mesh *mesh = chartGroup->mesh();
+				for (uint32_t f = 0; f < mesh->faceCount(); f++) {
+					const internal::Face *face = mesh->faceAt(f);
+					uint32_t indexOffset = chartGroup->mapFaceToSourceFace(f) * 3;
+					if (mesh->faceFlagsAt(f) & internal::FaceFlags::Flipped) {
+						for (uint32_t j = 0; j < 3; j++)
+							outputMesh->indexArray[indexOffset++] = vertexOffset + mesh->vertexAt(face->firstIndex + face->nIndices - 1 - j);
+					} else {
+						for (uint32_t j = 0; j < 3; j++)
+							outputMesh->indexArray[indexOffset++] = vertexOffset + mesh->vertexAt(face->firstIndex + j);
+					}
+				}
 			} else {
-				for (uint32_t j = 0; j < 3; j++)
-					outputMesh->indexArray[3 * f + j] = vertexOffset + mesh->vertexAt(face->firstIndex + j);
+				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
+					const internal::param::Chart *chart = chartGroup->chartAt(c);
+					const internal::Mesh *mesh = chart->chartMesh();
+					for (uint32_t f = 0; f < chart->faceCount(); f++) {
+						const internal::Face *face = mesh->faceAt(f);
+						uint32_t indexOffset = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f)) * 3;
+						if (mesh->faceFlagsAt(f) & internal::FaceFlags::Flipped) {
+							for (uint32_t j = 0; j < 3; j++)
+								outputMesh->indexArray[indexOffset++] = vertexOffset + mesh->vertexAt(face->firstIndex + face->nIndices - 1 - j);
+						} else {
+							for (uint32_t j = 0; j < 3; j++)
+								outputMesh->indexArray[indexOffset++] = vertexOffset + mesh->vertexAt(face->firstIndex + j);
+						}
+					}
+					vertexOffset += chart->vertexCount();
+				}
 			}
 		}
 		// Charts.
 		// Ignore vertex mapped charts.
 		outputMesh->chartCount = 0;
-		for (uint32_t j = 0; j < charts->chartCount(); j++) {
-			const internal::param::Chart *chart = charts->chartAt(j);
-			if (!chart->isVertexMapped())
-				outputMesh->chartCount++;
+		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
+			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
+			if (!chartGroup->isVertexMap())
+				outputMesh->chartCount += chartGroup->chartCount();
 		}
 		outputMesh->chartArray = XA_ALLOC_ARRAY(Chart, outputMesh->chartCount);
+		vertexOffset = 0;
 		uint32_t chartIndex = 0;
-		for (uint32_t j = 0; j < charts->chartCount(); j++) {
-			const internal::param::Chart *chart = charts->chartAt(j);
-			if (chart->isVertexMapped())
-				continue;
-			Chart *outputChart = &outputMesh->chartArray[chartIndex];
-			XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
-			outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
-			const uint32_t vertexOffset = charts->vertexCountBeforeChartAt(j);
-			const internal::Mesh *mesh = chart->chartMesh();
-			outputChart->indexCount = mesh->faceCount() * 3;
-			outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
-			for (uint32_t k = 0; k < mesh->faceCount(); k++) {
-				const internal::Face *face = mesh->faceAt(k);
-				outputChart->indexArray[3 * k + 0] = vertexOffset + mesh->vertexAt(face->firstIndex + 0);
-				outputChart->indexArray[3 * k + 1] = vertexOffset + mesh->vertexAt(face->firstIndex + 1);
-				outputChart->indexArray[3 * k + 2] = vertexOffset + mesh->vertexAt(face->firstIndex + 2);
+		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
+			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
+			for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
+				const internal::param::Chart *chart = chartGroup->chartAt(c);
+				Chart *outputChart = &outputMesh->chartArray[chartIndex];
+				XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
+				outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
+				const internal::Mesh *mesh = chart->chartMesh();
+				outputChart->indexCount = mesh->faceCount() * 3;
+				outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
+				for (uint32_t k = 0; k < mesh->faceCount(); k++) {
+					const internal::Face *face = mesh->faceAt(k);
+					outputChart->indexArray[3 * k + 0] = vertexOffset + mesh->vertexAt(face->firstIndex + 0);
+					outputChart->indexArray[3 * k + 1] = vertexOffset + mesh->vertexAt(face->firstIndex + 1);
+					outputChart->indexArray[3 * k + 2] = vertexOffset + mesh->vertexAt(face->firstIndex + 2);
+				}
+				vertexOffset += chart->vertexCount();
+				chartIndex++;
 			}
-			chartIndex++;
 		}
-		XA_PRINT(PrintFlags::BuildingOutputMeshes, "   mesh %d: %u vertices, %u triangles, %u charts\n", i, outputMesh->vertexCount, outputMesh->indexCount / 3, outputMesh->chartCount);
+		XA_PRINT(PrintFlags::BuildingOutputMeshes, "   mesh %u: %u vertices, %u triangles, %u charts\n", i, outputMesh->vertexCount, outputMesh->indexCount / 3, outputMesh->chartCount);
 		if (progressCallback)
 		{
 			const int newProgress = int((i + 1) / (float)atlas->meshCount * 100.0f);
