@@ -582,12 +582,37 @@ static Vector3 normalizeSafe(Vector3::Arg v, Vector3::Arg fallback, float epsilo
 	return v * (1.0f / l);
 }
 
+static bool equal(const Vector3 &v0, const Vector3 &v1, float epsilon = XA_EPSILON)
+{
+	return fabs(v0.x - v1.x) <= epsilon && fabs(v0.y - v1.y) <= epsilon && fabs(v0.z - v1.z) <= epsilon;
+}
+
 #ifdef _DEBUG
 bool isFinite(Vector3::Arg v)
 {
 	return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 }
 #endif
+
+struct Vector3Hash
+{
+	uint32_t operator()(const Vector3 &v) const
+	{
+		int32_t data[3];
+		data[0] = (int32_t)(v.x * 100.0f);
+		data[1] = (int32_t)(v.y * 100.0f);
+		data[2] = (int32_t)(v.z * 100.0f);
+		return sdbmHash(data, sizeof(data));
+	}
+};
+
+struct Vector3Equal
+{
+	bool operator()(const Vector3 &v0, const Vector3 &v1) const
+	{
+		return equal(v0, v1);
+	}
+};
 
 template <typename T>
 static void construct_range(T * ptr, uint32_t new_size, uint32_t old_size) {
@@ -1263,7 +1288,6 @@ public:
 	{
 		if (m_slots)
 			XA_FREE(m_slots);
-		m_elements.clear();
 	}
 
 	void add(const Key &key, const Value &value)
@@ -1765,13 +1789,13 @@ public:
 	{
 		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
 		const uint32_t vertexCount = m_positions.size();
-		typedef internal::HashMap<internal::Vector3, uint32_t> PositionHashMap;
+		typedef HashMap<Vector3, uint32_t, Vector3Hash, Vector3Equal> PositionHashMap;
 		PositionHashMap positionHashMap(vertexCount);
 		for (uint32_t i = 0; i < m_positions.size(); i++)
 			positionHashMap.add(m_positions[i], i);
 		Array<uint32_t> colocals;
 		m_nextColocalVertex.resize(vertexCount, UINT32_MAX);
-		for (uint32_t i = 0; i < m_nextColocalVertex.size(); i++) {
+		for (uint32_t i = 0; i < vertexCount; i++) {
 			if (m_nextColocalVertex[i] != UINT32_MAX)
 				continue; // Already done.
 			colocals.clear();
@@ -1788,6 +1812,7 @@ public:
 			std::sort(colocals.begin(), colocals.end());
 			for (uint32_t j = 0; j < colocals.size(); j++)
 				m_nextColocalVertex[colocals[j]] = colocals[(j + 1) % colocals.size()];
+			XA_DEBUG_ASSERT(m_nextColocalVertex[i] != UINT32_MAX);
 		}
 	}
 
@@ -4845,7 +4870,7 @@ public:
 				const uint32_t unifiedVertex = originalMesh->firstColocal(vertex);
 				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
 					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
-					XA_DEBUG_ASSERT(it.position0() == *originalMesh->positionAt(unifiedVertex));
+					XA_DEBUG_ASSERT(equal(it.position0(), *originalMesh->positionAt(unifiedVertex)));
 					m_unifiedMesh->addVertex(it.position0());
 				}
 				if (chartMeshIndices[vertex] == (uint32_t)~0) {
