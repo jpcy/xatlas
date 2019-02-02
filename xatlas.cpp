@@ -1355,7 +1355,7 @@ public:
 	}
 
 private:
-	void alloc(size_t size)
+	void alloc(uint32_t size)
 	{
 		m_numSlots = (uint32_t)(size * 1.3);
 		m_slots = XA_ALLOC_ARRAY(uint32_t, m_numSlots);
@@ -2651,7 +2651,7 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 			float t = dot(v01, v21) / (l * l);
 			if (t < XA_EPSILON || t > 1.0f - XA_EPSILON)
 				continue;
-			XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
+			//XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
 			SplitEdge splitEdge;
 			splitEdge.vertex = v;
 			splitEdge.edge = e;
@@ -4831,15 +4831,7 @@ public:
 		// Copy face indices.
 		m_faceArray = faceArray;
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
-		if (m_chartMesh) {
-			m_chartMesh->~Mesh();
-			XA_FREE(m_chartMesh);
-		}
 		m_chartMesh = XA_NEW(Mesh);
-		if (m_unifiedMesh) {
-			m_unifiedMesh->~Mesh();
-			XA_FREE(m_unifiedMesh);
-		}
 		m_unifiedMesh = XA_NEW(Mesh);
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(meshVertexCount, (uint32_t)~0);
