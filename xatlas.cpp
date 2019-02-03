@@ -1290,92 +1290,40 @@ public:
 			XA_FREE(m_slots);
 	}
 
+	const Value &value(uint32_t index) const { return m_values[index]; }
+
 	void add(const Key &key, const Value &value)
 	{
 		const uint32_t hash = computeHash(key);
-		Element element;
-		element.key = key;
-		element.value = value;
-		element.next = m_slots[hash];
-		m_slots[hash] = m_elements.size();
-		m_elements.push_back(element);
+		m_keys.push_back(key);
+		m_values.push_back(value);
+		m_next.push_back(m_slots[hash]);
+		m_slots[hash] = m_next.size() - 1;
 	}
 
-	bool remove(const Key &key)
-	{
-		const uint32_t hash = computeHash(key);
-		uint32_t i = m_slots[hash];
-		Element *prevElement = NULL;
-		E equal;
-		while (i != UINT32_MAX) {
-			Element *element = &m_elements[i];
-			if (equal(element->key, key)) {
-				if (prevElement)
-					prevElement->next = element->next;
-				else
-					m_slots[hash] = element->next;
-				// Don't remove from m_elements, that would mess up Element::next indices.
-				return true;
-			}
-			prevElement = element;
-			i = element->next;
-		}
-		return false;
-	}
-
-	struct Element
-	{
-		Key key;
-		Value value;
-		uint32_t next;
-	};
-
-	bool removeElement(const Element *element)
-	{
-		const uint32_t hash = computeHash(element->key);
-		uint32_t i = m_slots[hash];
-		Element *prevElement = NULL;
-		while (i != UINT32_MAX) {
-			Element *e = &m_elements[i];
-			if (e == element) {
-				if (prevElement)
-					prevElement->next = e->next;
-				else
-					m_slots[hash] = e->next;
-				// Don't remove from m_elements, that would mess up Element::next indices.
-				return true;
-			}
-			prevElement = e;
-			i = e->next;
-		}
-		return false;
-	}
-
-	const Element *get(const Key &key) const
+	uint32_t get(const Key &key) const
 	{
 		const uint32_t hash = computeHash(key);
 		uint32_t i = m_slots[hash];
 		E equal;
 		while (i != UINT32_MAX) {
-			const Element *element = &m_elements[i];
-			if (equal(element->key, key))
-				return element;
-			i = element->next;
+			if (equal(m_keys[i], key))
+				return i;
+			i = m_next[i];
 		}
-		return NULL;
+		return UINT32_MAX;
 	}
 
-	const Element *getNext(const Element *current) const
+	uint32_t getNext(uint32_t current) const
 	{
-		uint32_t i = current->next;
+		uint32_t i = m_next[current];
 		E equal;
 		while (i != UINT32_MAX) {
-			const Element *element = &m_elements[i];
-			if (equal(element->key, current->key))
-				return element;
-			i = element->next;
+			if (equal(m_keys[i], m_keys[current]))
+				return i;
+			i = m_next[i];
 		}
-		return NULL;
+		return UINT32_MAX;
 	}
 
 private:
@@ -1385,7 +1333,9 @@ private:
 		m_slots = XA_ALLOC_ARRAY(uint32_t, m_numSlots);
 		for (uint32_t i = 0; i < m_numSlots; i++)
 			m_slots[i] = UINT32_MAX;
-		m_elements.reserve(size);
+		m_keys.reserve(size);
+		m_values.reserve(size);
+		m_next.reserve(size);
 	}
 
 	uint32_t computeHash(const Key &key) const
@@ -1396,7 +1346,9 @@ private:
 
 	uint32_t m_numSlots;
 	uint32_t *m_slots;
-	internal::Array<Element> m_elements;
+	Array<Key> m_keys;
+	Array<Value> m_values;
+	Array<uint32_t> m_next;
 };
 
 /// Mersenne twister random number generator.
@@ -1789,20 +1741,19 @@ public:
 	{
 		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
 		const uint32_t vertexCount = m_positions.size();
-		typedef HashMap<Vector3, uint32_t, Vector3Hash, Vector3Equal> PositionHashMap;
-		PositionHashMap positionHashMap(vertexCount);
+		HashMap<Vector3, uint32_t, Vector3Hash, Vector3Equal> positionMap(vertexCount);
 		for (uint32_t i = 0; i < m_positions.size(); i++)
-			positionHashMap.add(m_positions[i], i);
+			positionMap.add(m_positions[i], i);
 		Array<uint32_t> colocals;
 		m_nextColocalVertex.resize(vertexCount, UINT32_MAX);
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			if (m_nextColocalVertex[i] != UINT32_MAX)
 				continue; // Already done.
 			colocals.clear();
-			const PositionHashMap::Element *ele = positionHashMap.get(m_positions[i]);
-			while (ele) {
-				colocals.push_back(ele->value);
-				ele = positionHashMap.getNext(ele);
+			uint32_t mapPosIndex = positionMap.get(m_positions[i]);
+			while (mapPosIndex != UINT32_MAX) {
+				colocals.push_back(positionMap.value(mapPosIndex));
+				mapPosIndex = positionMap.getNext(mapPosIndex);
 			}
 			if (colocals.size() == 1) {
 				// No colocals for this vertex.
@@ -1981,12 +1932,13 @@ public:
 				const uint32_t startVertex = m_indices[edge.index1];
 				uint32_t bestNextEdge = UINT32_MAX;
 				for (ColocalVertexIterator it(this, startVertex); !it.isDone(); it.advance()) {
-					const VertexToEdgeMap::Element *ele = m_vertexToEdgeMap.get(it.vertex());
-					while (ele) {
-						const Edge &otherEdge = m_edges[ele->value];
-						if (m_oppositeEdges[ele->value] != UINT32_MAX)
+					uint32_t mapEdgeIndex = m_vertexToEdgeMap.get(it.vertex());
+					while (mapEdgeIndex != UINT32_MAX) {
+						const uint32_t mapEdge = m_vertexToEdgeMap.value(mapEdgeIndex);
+						const Edge &otherEdge = m_edges[mapEdge];
+						if (m_oppositeEdges[mapEdge] != UINT32_MAX)
 							goto next; // Not a boundary edge.
-						if (bitFlags.bitAt(ele->value))
+						if (bitFlags.bitAt(mapEdge))
 							goto next; // Already linked.
 						if (m_faceGroups[edge.face] != m_faceGroups[otherEdge.face])
 							goto next; // Don't cross face groups.
@@ -1997,9 +1949,9 @@ public:
 						// First edge has the lowest priority, don't want to close the boundary loop prematurely.
 						// Non-colocal vertex has the highest.
 						if (bestNextEdge == UINT32_MAX || bestNextEdge == firstEdge || it.vertex() == startVertex)
-							bestNextEdge = ele->value;
+							bestNextEdge = mapEdge;
 					next:
-						ele = m_vertexToEdgeMap.getNext(ele);
+						mapEdgeIndex = m_vertexToEdgeMap.getNext(mapEdgeIndex);
 					}
 				}
 				if (bestNextEdge == UINT32_MAX) {
@@ -2025,9 +1977,9 @@ public:
 		const Edge *result = NULL;
 		if (m_nextColocalVertex.isEmpty()) {
 			EdgeKey key(vertex0, vertex1);
-			const EdgeMap::Element *ele = m_edgeMap.get(key);
-			while (ele) {
-				const Edge *edge = &m_edges[ele->value];
+			uint32_t mapEdgeIndex = m_edgeMap.get(key);
+			while (mapEdgeIndex != UINT32_MAX) {
+				const Edge *edge = &m_edges[m_edgeMap.value(mapEdgeIndex)];
 				// Don't find edges of ignored faces.
 				if ((faceGroup == UINT32_MAX || m_faceGroups[edge->face] == faceGroup) && !(m_faceFlags[edge->face] & FaceFlags::Ignore)) {
 					XA_DEBUG_ASSERT(!result); // duplicate edge
@@ -2036,15 +1988,15 @@ public:
 					return result;
 #endif
 				}
-				ele = m_edgeMap.getNext(ele);
+				mapEdgeIndex = m_edgeMap.getNext(mapEdgeIndex);
 			}
 		} else {
 			for (ColocalVertexIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
 				for (ColocalVertexIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 					EdgeKey key(it0.vertex(), it1.vertex());
-					const EdgeMap::Element *ele = m_edgeMap.get(key);
-					while (ele) {
-						const Edge *edge = &m_edges[ele->value];
+					uint32_t mapEdgeIndex = m_edgeMap.get(key);
+					while (mapEdgeIndex != UINT32_MAX) {
+						const Edge *edge = &m_edges[m_edgeMap.value(mapEdgeIndex)];
 						// Don't find edges of ignored faces.
 						if ((faceGroup == UINT32_MAX || m_faceGroups[edge->face] == faceGroup) && !(m_faceFlags[edge->face] & FaceFlags::Ignore)) {
 							XA_DEBUG_ASSERT(!result); // duplicate edge
@@ -2053,7 +2005,7 @@ public:
 							return result;
 #endif
 						}
-						ele = m_edgeMap.getNext(ele);
+						mapEdgeIndex = m_edgeMap.getNext(mapEdgeIndex);
 					}
 				}
 			}
@@ -2410,10 +2362,8 @@ private:
 		uint32_t v1;
 	};
 
-	typedef HashMap<EdgeKey, uint32_t> EdgeMap;
-	EdgeMap m_edgeMap;
-	typedef HashMap<uint32_t, uint32_t> VertexToEdgeMap;
-	VertexToEdgeMap m_vertexToEdgeMap;
+	HashMap<EdgeKey, uint32_t> m_edgeMap;
+	HashMap<uint32_t, uint32_t> m_vertexToEdgeMap;
 
 public:
 	class BoundaryEdgeIterator
@@ -2498,39 +2448,37 @@ public:
 
 		bool isDone() const
 		{
-			return m_vertex0It.isDone() && m_vertex1It.isDone() && !m_currentElement;
+			return m_vertex0It.isDone() && m_vertex1It.isDone() && m_mapEdgeIndex == UINT32_MAX;
 		}
 
 		uint32_t edge() const
 		{
-			return m_currentElement->value;
+			return m_mesh->m_edgeMap.value(m_mapEdgeIndex);
 		}
 
 	private:
 		void resetElement()
 		{
-			m_currentElement = m_mesh->m_edgeMap.get(Mesh::EdgeKey(m_vertex0It.vertex(), m_vertex1It.vertex()));
-			for (;;) {
-				if (!m_currentElement)
-					break;
+			m_mapEdgeIndex = m_mesh->m_edgeMap.get(Mesh::EdgeKey(m_vertex0It.vertex(), m_vertex1It.vertex()));
+			while (m_mapEdgeIndex != UINT32_MAX) {
 				if (!isIgnoredFace())
 					break;
-				m_currentElement = m_mesh->m_edgeMap.getNext(m_currentElement);
+				m_mapEdgeIndex = m_mesh->m_edgeMap.getNext(m_mapEdgeIndex);
 			}
-			if (!m_currentElement)
+			if (m_mapEdgeIndex == UINT32_MAX)
 				advanceVertex1();
 		}
 
 		void advanceElement()
 		{
 			for (;;) {
-				m_currentElement = m_mesh->m_edgeMap.getNext(m_currentElement);
-				if (!m_currentElement)
+				m_mapEdgeIndex = m_mesh->m_edgeMap.getNext(m_mapEdgeIndex);
+				if (m_mapEdgeIndex == UINT32_MAX)
 					break;
 				if (!isIgnoredFace())
 					break;
 			}
-			if (!m_currentElement)
+			if (m_mapEdgeIndex == UINT32_MAX)
 				advanceVertex1();
 		}
 
@@ -2554,14 +2502,14 @@ public:
 
 		bool isIgnoredFace() const
 		{
-			const Edge *edge = &m_mesh->m_edges[m_currentElement->value];
+			const Edge *edge = &m_mesh->m_edges[m_mesh->m_edgeMap.value(m_mapEdgeIndex)];
 			return (m_mesh->m_faceFlags[edge->face] & FaceFlags::Ignore) != 0;
 		}
 
 		const Mesh *m_mesh;
 		ColocalVertexIterator m_vertex0It, m_vertex1It;
 		const uint32_t m_vertex1;
-		const Mesh::EdgeMap::Element *m_currentElement;
+		uint32_t m_mapEdgeIndex;
 	};
 
 	class FaceEdgeIterator 
