@@ -2036,6 +2036,8 @@ public:
 
 	void writeObjBoundaryEges(FILE *file) const
 	{
+		if (m_oppositeEdges.isEmpty())
+			return; // Boundaries haven't been created.
 		fprintf(file, "o boundary_edges\n");
 		for (uint32_t i = 0; i < m_edges.size(); i++) {
 			if (m_oppositeEdges[i] != UINT32_MAX)
@@ -5309,8 +5311,10 @@ public:
 			}
 			m_mesh->addFace(faceIndices);
 		}
-		m_mesh->createBoundaries();
-		m_mesh->linkBoundaries();
+		if (!m_isVertexMap) {
+			m_mesh->createBoundaries();
+			m_mesh->linkBoundaries();
+		}
 #if XA_DEBUG_EXPORT_OBJ
 		char filename[256];
 		sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u.obj", m_sourceId, m_id);
