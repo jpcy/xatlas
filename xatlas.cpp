@@ -166,6 +166,14 @@ static T clamp(const T &x, const T &a, const T &b)
 	return std::min(std::max(x, a), b);
 }
 
+template <typename T>
+static void swap(T &a, T &b)
+{
+	T temp = a;
+	a = b;
+	b = temp;
+}
+
 // Robust floating point comparisons:
 // http://realtimecollisiondetection.net/blog/?p=89
 static bool equal(const float f0, const float f1, const float epsilon = XA_EPSILON)
@@ -639,21 +647,24 @@ public:
 
 	Array() : m_buffer(NULL), m_capacity(0), m_size(0) {}
 
-	Array(const Array & a) : m_buffer(NULL), m_capacity(0), m_size(0) {
+	Array(const Array & a) : m_buffer(NULL), m_capacity(0), m_size(0)
+	{
 		copy(a.m_buffer, a.m_size);
 	}
 
-	Array(const T * ptr, uint32_t num) : m_buffer(NULL), m_capacity(0), m_size(0) {
+	Array(const T * ptr, uint32_t num) : m_buffer(NULL), m_capacity(0), m_size(0)
+	{
 		copy(ptr, num);
 	}
 
-	explicit Array(uint32_t capacity) : m_buffer(NULL), m_capacity(0), m_size(0) {
+	explicit Array(uint32_t capacity) : m_buffer(NULL), m_capacity(0), m_size(0)
+	{
 		setArrayCapacity(capacity);
 	}
 
-	~Array() {
-		clear();
-		XA_FREE(m_buffer);
+	~Array()
+	{
+		destroy();
 	}
 
 	const T & operator[]( uint32_t index ) const
@@ -775,6 +786,15 @@ public:
 		m_size = 0;
 	}
 
+	void destroy()
+	{
+		clear();
+		XA_FREE(m_buffer);
+		m_buffer = NULL;
+		m_capacity = 0;
+		m_size = 0;
+	}
+
 	void reserve(uint32_t desired_size)
 	{
 		if (desired_size > m_capacity) {
@@ -795,11 +815,12 @@ public:
 		return *this;
 	}
 
-	friend void swap(Array<T> & a, Array<T> & b)
+	void moveTo(Array<T> &other)
 	{
-		std::swap(a.m_buffer, b.m_buffer);
-		std::swap(a.m_capacity, b.m_capacity);
-		std::swap(a.m_size, b.m_size);
+		other.destroy();
+		swap(m_buffer, other.m_buffer);
+		swap(m_capacity, other.m_capacity);
+		swap(m_size, other.m_size);
 	}
 
 protected:
@@ -885,6 +906,7 @@ class BitArray
 {
 public:
 	BitArray() : m_size(0) {}
+
 	BitArray(uint32_t sz)
 	{
 		resize(sz);
@@ -898,6 +920,12 @@ public:
 	void clear()
 	{
 		resize(0);
+	}
+
+	void destroy()
+	{
+		m_size = 0;
+		m_wordArray.destroy();
 	}
 
 	void resize(uint32_t new_size)
@@ -947,6 +975,13 @@ public:
 		memset(m_wordArray.data(), 0xFF, m_wordArray.size() * sizeof(uint32_t ));
 	}
 
+	void moveTo(BitArray &other)
+	{
+		other.destroy();
+		m_wordArray.moveTo(other.m_wordArray);
+		swap(m_size, other.m_size);
+	}
+
 private:
 	// See "Conditionally set or clear bits without branching" at http://graphics.stanford.edu/~seander/bithacks.html
 	uint32_t setBits(uint32_t w, uint32_t m, bool b)
@@ -972,6 +1007,7 @@ public:
 	{
 		return m_width;
 	}
+
 	uint32_t height() const
 	{
 		return m_height;
@@ -980,18 +1016,27 @@ public:
 	void resize(uint32_t w, uint32_t h, bool initValue)
 	{
 		BitArray tmp(w * h);
-		if (initValue) tmp.setAll();
-		else tmp.clearAll();
+		if (initValue)
+			tmp.setAll();
+		else
+			tmp.clearAll();
 		// @@ Copying one bit at a time. This could be much faster.
 		for (uint32_t y = 0; y < m_height; y++) {
 			for (uint32_t x = 0; x < m_width; x++) {
 				//tmp.setBitAt(y*w + x, bitAt(x, y));
-				if (bitAt(x, y) != initValue) tmp.toggleBitAt(y * w + x);
+				if (bitAt(x, y) != initValue)
+					tmp.toggleBitAt(y * w + x);
 			}
 		}
-		std::swap(m_bitArray, tmp);
+		tmp.moveTo(m_bitArray);
 		m_width = w;
 		m_height = h;
+	}
+
+	void destroy()
+	{
+		m_bitArray.destroy();
+		m_width = m_height = 0;
 	}
 
 	bool bitAt(uint32_t x, uint32_t y) const
@@ -1009,6 +1054,14 @@ public:
 	void clearAll()
 	{
 		m_bitArray.clearAll();
+	}
+
+	void moveTo(BitMap &other)
+	{
+		other.destroy();
+		m_bitArray.moveTo(other.m_bitArray);
+		swap(m_width, other.m_width);
+		swap(m_height, other.m_height);
 	}
 
 private:
@@ -1097,16 +1150,16 @@ public:
 		}
 		// shuffle to sort by singular value :
 		if (eigenValues[2] > eigenValues[0] && eigenValues[2] > eigenValues[1]) {
-			std::swap(eigenValues[0], eigenValues[2]);
-			std::swap(eigenVectors[0], eigenVectors[2]);
+			swap(eigenValues[0], eigenValues[2]);
+			swap(eigenVectors[0], eigenVectors[2]);
 		}
 		if (eigenValues[1] > eigenValues[0]) {
-			std::swap(eigenValues[0], eigenValues[1]);
-			std::swap(eigenVectors[0], eigenVectors[1]);
+			swap(eigenValues[0], eigenValues[1]);
+			swap(eigenVectors[0], eigenVectors[1]);
 		}
 		if (eigenValues[2] > eigenValues[1]) {
-			std::swap(eigenValues[1], eigenValues[2]);
-			std::swap(eigenVectors[1], eigenVectors[2]);
+			swap(eigenValues[1], eigenValues[2]);
+			swap(eigenVectors[1], eigenVectors[2]);
 		}
 		XA_DEBUG_ASSERT(eigenValues[0] >= eigenValues[1] && eigenValues[0] >= eigenValues[2]);
 		XA_DEBUG_ASSERT(eigenValues[1] >= eigenValues[2]);
@@ -1622,7 +1675,7 @@ private:
 				}
 			}
 			// Swap pointers for next pass. Valid indices - the most recent ones - are in m_ranks after the swap.
-			std::swap(m_ranks, m_ranks2);
+			swap(m_ranks, m_ranks2);
 		}
 		// All values were equal, generate linear ranks.
 		if (!m_validRanks) {
@@ -3921,19 +3974,19 @@ static void setup_abf_relations(sparse::Matrix &A, int row, int id0, int id1, in
 	float s1 = sinf(a1);
 	float s2 = sinf(a2);
 	if (s1 > s0 && s1 > s2) {
-		std::swap(s1, s2);
-		std::swap(s0, s1);
-		std::swap(a1, a2);
-		std::swap(a0, a1);
-		std::swap(id1, id2);
-		std::swap(id0, id1);
+		swap(s1, s2);
+		swap(s0, s1);
+		swap(a1, a2);
+		swap(a0, a1);
+		swap(id1, id2);
+		swap(id0, id1);
 	} else if (s0 > s1 && s0 > s2) {
-		std::swap(s0, s2);
-		std::swap(s0, s1);
-		std::swap(a0, a2);
-		std::swap(a0, a1);
-		std::swap(id0, id2);
-		std::swap(id0, id1);
+		swap(s0, s2);
+		swap(s0, s1);
+		swap(a0, a2);
+		swap(a0, a1);
+		swap(id0, id2);
+		swap(id0, id1);
 	}
 	float c0 = cosf(a0);
 	float ratio = (s2 == 0.0f) ? 1.0f : s1 / s2;
@@ -4401,7 +4454,7 @@ struct AtlasBuilder
 			if (chart->seeds[i] == mostCentral) {
 				// Move new seed to the end of the seed array.
 				uint32_t last = chart->seeds.size() - 1;
-				std::swap(chart->seeds[i], chart->seeds[last]);
+				swap(chart->seeds[i], chart->seeds[last]);
 				return false;
 			}
 		}
@@ -5914,19 +5967,16 @@ struct AtlasPacker
 			for (uint32_t v = 0; v < vertexCount; v++) {
 				Vector2 *texcoord = mesh->texcoordAt(v);
 				Vector2 t = *texcoord;
-				if (best_r) std::swap(t.x, t.y);
-				//vertex->tex.x = best_x + t.x * cosf(best_angle) - t.y * sinf(best_angle);
-				//vertex->tex.y = best_y + t.x * sinf(best_angle) + t.y * cosf(best_angle);
+				if (best_r)
+					swap(t.x, t.y);
 				texcoord->x = best_x + t.x + 0.5f;
 				texcoord->y = best_y + t.y + 0.5f;
 				XA_ASSERT(texcoord->x >= 0 && texcoord->y >= 0);
 				XA_ASSERT(std::isfinite(texcoord->x) && std::isfinite(texcoord->y));
 			}
-			if (progressCallback)
-			{
+			if (progressCallback) {
 				const int newProgress = int((i + 1) / (float)chartCount * 100.0f);
-				if (newProgress != progress)
-				{
+				if (newProgress != progress) {
 					progress = newProgress;
 					progressCallback(ProgressCategory::PackingCharts, progress, progressCallbackUserData);
 				}
@@ -5981,7 +6031,8 @@ private:
 		for (int r = 0; r < 2; r++) {
 			int cw = chartBitmap->width();
 			int ch = chartBitmap->height();
-			if (r & 1) std::swap(cw, ch);
+			if (r & 1)
+				swap(cw, ch);
 			for (int y = 0; y <= h + 1; y += step_size) { // + 1 to extend atlas in case atlas full.
 				for (int x = 0; x <= w + 1; x += step_size) { // + 1 not really necessary here.
 					if (!resizableAtlas && (x > (int)atlasBitmap->width() - cw || y > (int)atlasBitmap->height() - ch))
@@ -6029,7 +6080,7 @@ private:
 			int ch = chartBitmap->height();
 			int r = m_rand.getRange(1);
 			if (r & 1)
-				std::swap(cw, ch);
+				swap(cw, ch);
 			// + 1 to extend atlas in case atlas full. We may want to use a higher number to increase probability of extending atlas.
 			int xRange = w + 1;
 			int yRange = h + 1;
@@ -6117,7 +6168,7 @@ private:
 					if (b) tmp.setBitAt(x, y);
 				}
 			}
-			std::swap(tmp, *bitmap);
+			tmp.moveTo(*bitmap);
 		}
 	}
 
@@ -6177,7 +6228,7 @@ private:
 				if (b) tmp.setBitAt(x, y);
 			}
 		}
-		std::swap(tmp, *bitmap);
+		tmp.moveTo(*bitmap);
 	}
 
 	bool canAddChart(const BitMap *atlasBitmap, const BitMap *chartBitmap, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
