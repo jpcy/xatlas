@@ -56,6 +56,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #define XA_EPSILON          (0.0001f)
 #define XA_NORMAL_EPSILON   (0.001f)
+#define XA_UNUSED(a) ((void)(a))
 
 namespace xatlas {
 namespace internal {
@@ -356,9 +357,7 @@ static Vector2 normalize(const Vector2 &v, float epsilon = XA_EPSILON)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
-#ifdef NDEBUG
-	epsilon = epsilon; // silence unused parameter warning
-#endif
+	XA_UNUSED(epsilon);
 	Vector2 n = v * (1.0f / l);
 	XA_DEBUG_ASSERT(isNormalized(n));
 	return n;
@@ -561,9 +560,7 @@ static Vector3 normalize(const Vector3 &v, float epsilon = XA_EPSILON)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
-#ifdef NDEBUG
-	epsilon = epsilon; // silence unused parameter warning
-#endif
+	XA_UNUSED(epsilon);
 	Vector3 n = v * (1.0f / l);
 	XA_DEBUG_ASSERT(isNormalized(n));
 	return n;
@@ -3526,35 +3523,29 @@ static void mult(const Matrix &M, const FullVector &x, FullVector &y)
 	uint32_t w = M.width();
 	uint32_t h = M.height();
 	XA_DEBUG_ASSERT( w == x.dimension() );
+	XA_UNUSED(w);
 	XA_DEBUG_ASSERT( h == y.dimension() );
 	for (uint32_t i = 0; i < h; i++)
 		y[i] = M.dotRow(i, x);
-#ifdef NDEBUG
-	w = w; // silence unused parameter warning
-#endif
 }
 
 static void sgemv(float alpha, Transpose TA, const Matrix &A, const FullVector &x, float beta, FullVector &y)
 {
-	uint32_t w = A.width();
-	uint32_t h = A.height();
+	const uint32_t w = A.width();
+	const uint32_t h = A.height();
 	if (TA == Transposed) {
 		XA_DEBUG_ASSERT( h == x.dimension() );
 		XA_DEBUG_ASSERT( w == y.dimension() );
-		for (uint32_t i = 0; i < h; i++) {
+		for (uint32_t i = 0; i < h; i++)
 			A.madRow(i, alpha * x[i], y);
-		}
 	} else {
 		XA_DEBUG_ASSERT( w == x.dimension() );
 		XA_DEBUG_ASSERT( h == y.dimension() );
-		for (uint32_t i = 0; i < h; i++) {
+		for (uint32_t i = 0; i < h; i++)
 			y[i] = alpha * A.dotRow(i, x) + beta * y[i];
-		}
 	}
-#ifdef NDEBUG
-	w = w; // silence unused parameter warning
-	h = h;
-#endif
+	XA_UNUSED(w);
+	XA_UNUSED(h);
 }
 
 // y = alpha*A*x + beta*y
@@ -4867,7 +4858,7 @@ public:
 			m_unifiedMesh->writeSimpleObj("debug_chart_not_closed.obj");
 #endif
 		XA_DEBUG_ASSERT(closed);
-		closed = closed; // silence unused parameter warning;
+		XA_UNUSED(closed);
 		Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
 		if (triangulatedMesh) {
 			m_unifiedMesh->~Mesh();
@@ -5228,9 +5219,7 @@ private:
 		float rmsStretch = sqrtf((a + c) * 0.5f);
 		float rmsStretch2 = sqrtf((square(sigma1) + square(sigma2)) * 0.5f);
 		XA_DEBUG_ASSERT(equal(rmsStretch, rmsStretch2, 0.01f));
-#ifdef NDEBUG
-		rmsStretch2 = rmsStretch2; // silence unused parameter warning
-#endif
+		XA_UNUSED(rmsStretch2);
 		if (parametricArea < 0.0f) {
 			// Count flipped triangles.
 			m_flippedTriangleCount++;
