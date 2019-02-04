@@ -249,14 +249,12 @@ template <typename Key> struct Equal
 class Vector2
 {
 public:
-	typedef Vector2 const &Arg;
-
 	Vector2() {}
 	explicit Vector2(float f) : x(f), y(f) {}
 	Vector2(float x, float y): x(x), y(y) {}
-	Vector2(Vector2::Arg v) : x(v.x), y(v.y) {}
+	Vector2(const Vector2 &v) : x(v.x), y(v.y) {}
 
-	const Vector2 &operator=(Vector2::Arg v)
+	const Vector2 &operator=(const Vector2 &v)
 	{
 		x = v.x;
 		y = v.y;
@@ -269,13 +267,13 @@ public:
 		return Vector2(-x, -y);
 	}
 
-	void operator+=(Vector2::Arg v)
+	void operator+=(const Vector2 &v)
 	{
 		x += v.x;
 		y += v.y;
 	}
 
-	void operator-=(Vector2::Arg v)
+	void operator-=(const Vector2 &v)
 	{
 		x -= v.x;
 		y -= v.y;
@@ -287,18 +285,18 @@ public:
 		y *= s;
 	}
 
-	void operator*=(Vector2::Arg v)
+	void operator*=(const Vector2 &v)
 	{
 		x *= v.x;
 		y *= v.y;
 	}
 
-	friend bool operator==(Vector2::Arg a, Vector2::Arg b)
+	friend bool operator==(const Vector2 &a, const Vector2 &b)
 	{
 		return a.x == b.x && a.y == b.y;
 	}
 
-	friend bool operator!=(Vector2::Arg a, Vector2::Arg b)
+	friend bool operator!=(const Vector2 &a, const Vector2 &b)
 	{
 		return a.x != b.x || a.y != b.y;
 	}
@@ -306,55 +304,55 @@ public:
 	float x, y;
 };
 
-static Vector2 operator+(Vector2::Arg a, Vector2::Arg b)
+static Vector2 operator+(const Vector2 &a, const Vector2 &b)
 {
 	return Vector2(a.x + b.x, a.y + b.y);
 }
 
-static Vector2 operator-(Vector2::Arg a, Vector2::Arg b)
+static Vector2 operator-(const Vector2 &a, const Vector2 &b)
 {
 	return Vector2(a.x - b.x, a.y - b.y);
 }
 
-static Vector2 operator*(Vector2::Arg v, float s)
+static Vector2 operator*(const Vector2 &v, float s)
 {
 	return Vector2(v.x * s, v.y * s);
 }
 
-static Vector2 operator*(Vector2::Arg v1, Vector2::Arg v2)
+static Vector2 operator*(const Vector2 &v1, const Vector2 &v2)
 {
 	return Vector2(v1.x * v2.x, v1.y * v2.y);
 }
 
-static Vector2 lerp(Vector2::Arg v1, Vector2::Arg v2, float t)
+static Vector2 lerp(const Vector2 &v1, const Vector2 &v2, float t)
 {
 	const float s = 1.0f - t;
 	return Vector2(v1.x * s + t * v2.x, v1.y * s + t * v2.y);
 }
 
-static float dot(Vector2::Arg a, Vector2::Arg b)
+static float dot(const Vector2 &a, const Vector2 &b)
 {
 	return a.x * b.x + a.y * b.y;
 }
 
-static float lengthSquared(Vector2::Arg v)
+static float lengthSquared(const Vector2 &v)
 {
 	return v.x * v.x + v.y * v.y;
 }
 
-static float length(Vector2::Arg v)
+static float length(const Vector2 &v)
 {
 	return sqrtf(lengthSquared(v));
 }
 
 #ifdef _DEBUG
-static bool isNormalized(Vector2::Arg v, float epsilon = XA_NORMAL_EPSILON)
+static bool isNormalized(const Vector2 &v, float epsilon = XA_NORMAL_EPSILON)
 {
 	return equal(length(v), 1, epsilon);
 }
 #endif
 
-static Vector2 normalize(Vector2::Arg v, float epsilon = XA_EPSILON)
+static Vector2 normalize(const Vector2 &v, float epsilon = XA_EPSILON)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
@@ -366,33 +364,33 @@ static Vector2 normalize(Vector2::Arg v, float epsilon = XA_EPSILON)
 	return n;
 }
 
-static bool equal(Vector2::Arg v1, Vector2::Arg v2, float epsilon = XA_EPSILON)
+static bool equal(const Vector2 &v1, const Vector2 &v2, float epsilon = XA_EPSILON)
 {
 	return equal(v1.x, v2.x, epsilon) && equal(v1.y, v2.y, epsilon);
 }
 
-static Vector2 min(Vector2::Arg a, Vector2::Arg b)
+static Vector2 min(const Vector2 &a, const Vector2 &b)
 {
 	return Vector2(std::min(a.x, b.x), std::min(a.y, b.y));
 }
 
-static Vector2 max(Vector2::Arg a, Vector2::Arg b)
+static Vector2 max(const Vector2 &a, const Vector2 &b)
 {
 	return Vector2(std::max(a.x, b.x), std::max(a.y, b.y));
 }
 
-static bool isFinite(Vector2::Arg v)
+static bool isFinite(const Vector2 &v)
 {
 	return std::isfinite(v.x) && std::isfinite(v.y);
 }
 
 // Note, this is the area scaled by 2!
-static float triangleArea(Vector2::Arg v0, Vector2::Arg v1)
+static float triangleArea(const Vector2 &v0, const Vector2 &v1)
 {
 	return (v0.x * v1.y - v0.y * v1.x); // * 0.5f;
 }
 
-static float triangleArea(Vector2::Arg a, Vector2::Arg b, Vector2::Arg c)
+static float triangleArea(const Vector2 &a, const Vector2 &b, const Vector2 &c)
 {
 	// IC: While it may be appealing to use the following expression:
 	//return (c.x * a.y + a.x * b.y + b.x * c.y - b.x * a.y - c.x * b.y - a.x * c.y); // * 0.5f;
@@ -413,15 +411,13 @@ static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b
 class Vector3
 {
 public:
-	typedef Vector3 const &Arg;
-
 	Vector3() {}
 	explicit Vector3(float f) : x(f), y(f), z(f) {}
 	Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
-	Vector3(Vector2::Arg v, float z) : x(v.x), y(v.y), z(z) {}
-	Vector3(Vector3::Arg v) : x(v.x), y(v.y), z(v.z) {}
+	Vector3(const Vector2 &v, float z) : x(v.x), y(v.y), z(z) {}
+	Vector3(const Vector3 &v) : x(v.x), y(v.y), z(v.z) {}
 
-	const Vector3 &operator=(Vector3::Arg v)
+	const Vector3 &operator=(const Vector3 &v)
 	{
 		x = v.x;
 		y = v.y;
@@ -439,14 +435,14 @@ public:
 		return Vector3(-x, -y, -z);
 	}
 
-	void operator+=(Vector3::Arg v)
+	void operator+=(const Vector3 &v)
 	{
 		x += v.x;
 		y += v.y;
 		z += v.z;
 	}
 
-	void operator-=(Vector3::Arg v)
+	void operator-=(const Vector3 &v)
 	{
 		x -= v.x;
 		y -= v.y;
@@ -468,26 +464,26 @@ public:
 		z *= is;
 	}
 
-	void operator*=(Vector3::Arg v)
+	void operator*=(const Vector3 &v)
 	{
 		x *= v.x;
 		y *= v.y;
 		z *= v.z;
 	}
 
-	void operator/=(Vector3::Arg v)
+	void operator/=(const Vector3 &v)
 	{
 		x /= v.x;
 		y /= v.y;
 		z /= v.z;
 	}
 
-	friend bool operator==(Vector3::Arg a, Vector3::Arg b)
+	friend bool operator==(const Vector3 &a, const Vector3 &b)
 	{
 		return a.x == b.x && a.y == b.y && a.z == b.z;
 	}
 
-	friend bool operator!=(Vector3::Arg a, Vector3::Arg b)
+	friend bool operator!=(const Vector3 &a, const Vector3 &b)
 	{
 		return a.x != b.x || a.y != b.y || a.z != b.z;
 	}
@@ -495,73 +491,73 @@ public:
 	float x, y, z;
 };
 
-static Vector3 add(Vector3::Arg a, Vector3::Arg b)
+static Vector3 add(const Vector3 &a, const Vector3 &b)
 {
 	return Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
 
-static Vector3 operator+(Vector3::Arg a, Vector3::Arg b)
+static Vector3 operator+(const Vector3 &a, const Vector3 &b)
 {
 	return add(a, b);
 }
 
-static Vector3 sub(Vector3::Arg a, Vector3::Arg b)
+static Vector3 sub(const Vector3 &a, const Vector3 &b)
 {
 	return Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
-static Vector3 operator-(Vector3::Arg a, Vector3::Arg b)
+static Vector3 operator-(const Vector3 &a, const Vector3 &b)
 {
 	return sub(a, b);
 }
 
-static Vector3 cross(Vector3::Arg a, Vector3::Arg b)
+static Vector3 cross(const Vector3 &a, const Vector3 &b)
 {
 	return Vector3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
 }
 
-static Vector3 operator*(Vector3::Arg v, float s)
+static Vector3 operator*(const Vector3 &v, float s)
 {
 	return Vector3(v.x * s, v.y * s, v.z * s);
 }
 
-static Vector3 operator*(float s, Vector3::Arg v)
+static Vector3 operator*(float s, const Vector3 &v)
 {
 	return Vector3(v.x * s, v.y * s, v.z * s);
 }
 
-static Vector3 operator/(Vector3::Arg v, float s)
+static Vector3 operator/(const Vector3 &v, float s)
 {
 	return v * (1.0f / s);
 }
 
-static Vector3 lerp(Vector3::Arg v1, Vector3::Arg v2, float t)
+static Vector3 lerp(const Vector3 &v1, const Vector3 &v2, float t)
 {
 	const float s = 1.0f - t;
 	return Vector3(v1.x * s + t * v2.x, v1.y * s + t * v2.y, v1.z * s + t * v2.z);
 }
 
-static float dot(Vector3::Arg a, Vector3::Arg b)
+static float dot(const Vector3 &a, const Vector3 &b)
 {
 	return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
-static float lengthSquared(Vector3::Arg v)
+static float lengthSquared(const Vector3 &v)
 {
 	return v.x * v.x + v.y * v.y + v.z * v.z;
 }
 
-static float length(Vector3::Arg v)
+static float length(const Vector3 &v)
 {
 	return sqrtf(lengthSquared(v));
 }
 
-static bool isNormalized(Vector3::Arg v, float epsilon = XA_NORMAL_EPSILON)
+static bool isNormalized(const Vector3 &v, float epsilon = XA_NORMAL_EPSILON)
 {
 	return equal(length(v), 1, epsilon);
 }
 
-static Vector3 normalize(Vector3::Arg v, float epsilon = XA_EPSILON)
+static Vector3 normalize(const Vector3 &v, float epsilon = XA_EPSILON)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
@@ -573,7 +569,7 @@ static Vector3 normalize(Vector3::Arg v, float epsilon = XA_EPSILON)
 	return n;
 }
 
-static Vector3 normalizeSafe(Vector3::Arg v, Vector3::Arg fallback, float epsilon = XA_EPSILON)
+static Vector3 normalizeSafe(const Vector3 &v, const Vector3 &fallback, float epsilon = XA_EPSILON)
 {
 	float l = length(v);
 	if (isZero(l, epsilon)) {
@@ -588,7 +584,7 @@ static bool equal(const Vector3 &v0, const Vector3 &v1, float epsilon = XA_EPSIL
 }
 
 #ifdef _DEBUG
-bool isFinite(Vector3::Arg v)
+bool isFinite(const Vector3 &v)
 {
 	return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 }
@@ -863,7 +859,7 @@ public:
 	/// Create a null basis.
 	Basis() : tangent(0, 0, 0), bitangent(0, 0, 0), normal(0, 0, 0) {}
 
-	void buildFrameForDirection(Vector3::Arg d, float angle = 0)
+	void buildFrameForDirection(const Vector3 &d, float angle = 0)
 	{
 		XA_ASSERT(isNormalized(d));
 		normal = d;
@@ -2907,7 +2903,7 @@ namespace raster {
 class ClippedTriangle
 {
 public:
-	ClippedTriangle(Vector2::Arg a, Vector2::Arg b, Vector2::Arg c)
+	ClippedTriangle(const Vector2 &a, const Vector2 &b, const Vector2 &c)
 	{
 		m_numVertices = 3;
 		m_activeVertexBuffer = 0;
@@ -3027,12 +3023,12 @@ private:
 };
 
 /// A callback to sample the environment. Return false to terminate rasterization.
-typedef bool (* SamplingCallback)(void *param, int x, int y, Vector3::Arg bar, Vector3::Arg dx, Vector3::Arg dy, float coverage);
+typedef bool (* SamplingCallback)(void *param, int x, int y, const Vector3 &bar, const Vector3 &dx, const Vector3 &dy, float coverage);
 
 /// A triangle for rasterization.
 struct Triangle
 {
-	Triangle(Vector2::Arg v0, Vector2::Arg v1, Vector2::Arg v2, Vector3::Arg t0, Vector3::Arg t1, Vector3::Arg t2)
+	Triangle(const Vector2 &v0, const Vector2 &v1, const Vector2 &v2, const Vector3 &t0, const Vector3 &t1, const Vector3 &t2)
 	{
 		// Init vertices.
 		this->v1 = v0;
@@ -3360,7 +3356,7 @@ enum Mode
 };
 
 // Process the given triangle. Returns false if rasterization was interrupted by the callback.
-static bool drawTriangle(Mode mode, Vector2::Arg extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void *param)
+static bool drawTriangle(Mode mode, const Vector2 &extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void *param)
 {
 	Triangle tri(v[0], v[1], v[2], Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1));
 	// @@ It would be nice to have a conservative drawing mode that enlarges the triangle extents by one texel and is able to handle degenerate triangles.
@@ -3910,20 +3906,20 @@ static bool findApproximateDiameterVertices(Mesh *mesh, uint32_t *a, uint32_t *b
 
 // Conformal relations from Brecht Van Lommel (based on ABF):
 
-static float vec_angle_cos(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3)
+static float vec_angle_cos(const Vector3 &v1, const Vector3 &v2, const Vector3 &v3)
 {
 	Vector3 d1 = v1 - v2;
 	Vector3 d2 = v3 - v2;
 	return clamp(dot(d1, d2) / (length(d1) * length(d2)), -1.0f, 1.0f);
 }
 
-static float vec_angle(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3)
+static float vec_angle(const Vector3 &v1, const Vector3 &v2, const Vector3 &v3)
 {
 	float dot = vec_angle_cos(v1, v2, v3);
 	return acosf(dot);
 }
 
-static void triangle_angles(Vector3::Arg v1, Vector3::Arg v2, Vector3::Arg v3, float *a1, float *a2, float *a3)
+static void triangle_angles(const Vector3 &v1, const Vector3 &v2, const Vector3 &v3, float *a1, float *a2, float *a3)
 {
 	*a1 = vec_angle(v3, v1, v2);
 	*a2 = vec_angle(v1, v2, v3);
@@ -5986,14 +5982,14 @@ private:
 	// is occupied at this point. At the end we have many small charts and a large atlas with sparse holes. Finding those holes randomly is slow. A better approach would be to
 	// start stacking large charts as if they were tetris pieces. Once charts get small try to place them randomly. It may be interesting to try a intermediate strategy, first try
 	// along one axis and then try exhaustively along that axis.
-	bool findChartLocation(int attempts, const BitMap *atlasBitmap, const BitMap *chartBitmap, Vector2::Arg extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
+	bool findChartLocation(int attempts, const BitMap *atlasBitmap, const BitMap *chartBitmap, const Vector2 &extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
 	{
 		if (attempts <= 0 || attempts >= w * h)
 			return findChartLocation_bruteForce(atlasBitmap, chartBitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, resizableAtlas);
 		return findChartLocation_random(atlasBitmap, chartBitmap, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned, resizableAtlas);
 	}
 
-	bool findChartLocation_bruteForce(const BitMap *atlasBitmap, const BitMap *chartBitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
+	bool findChartLocation_bruteForce(const BitMap *atlasBitmap, const BitMap *chartBitmap, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
@@ -6041,7 +6037,7 @@ private:
 		return result;
 	}
 
-	bool findChartLocation_random(const BitMap *atlasBitmap, const BitMap *chartBitmap, Vector2::Arg /*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned, bool resizableAtlas)
+	bool findChartLocation_random(const BitMap *atlasBitmap, const BitMap *chartBitmap, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned, bool resizableAtlas)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
@@ -6289,7 +6285,7 @@ private:
 		}
 	}
 
-	static bool setBitsCallback(void *param, int x, int y, Vector3::Arg, Vector3::Arg, Vector3::Arg, float area)
+	static bool setBitsCallback(void *param, int x, int y, const Vector3 &, const Vector3 &, const Vector3 &, float area)
 	{
 		BitMap *bitmap = (BitMap * )param;
 		if (area > 0.0) {
