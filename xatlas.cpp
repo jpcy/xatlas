@@ -4831,9 +4831,6 @@ public:
 				}
 			}
 		}
-		// This is ignoring the canonical map:
-		// - Is it really necessary to link colocals?
-		m_chartMesh->createColocals();
 		Array<uint32_t> faceIndices;
 		faceIndices.reserve(7);
 		// Add faces.
@@ -4853,7 +4850,6 @@ public:
 			m_unifiedMesh->addFace(faceIndices, faceFlags);
 		}
 		m_chartMesh->createBoundaries();
-		m_chartMesh->linkBoundaries();
 		m_unifiedMesh->createBoundaries();
 		m_unifiedMesh->linkBoundaries();
 		Mesh *splitUnifiedMesh = meshSplitBoundaryEdges(*m_unifiedMesh);
@@ -6161,9 +6157,9 @@ private:
 		// Rasterize 4 times to add proper padding.
 		for (int i = 0; i < 4; i++) {
 			// Rasterize chart faces, check that all bits are not set.
-			const uint32_t faceCount = chart->chartMesh()->faceCount();
+			const Mesh *mesh = chart->chartMesh();
+			const uint32_t faceCount = mesh->faceCount();
 			for (uint32_t f = 0; f < faceCount; f++) {
-				const Mesh *mesh = chart->chartMesh();
 				Vector2 vertices[3];
 				uint32_t edgeCount = 0;
 				for (Mesh::FaceEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
