@@ -10,21 +10,14 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #include <algorithm>
-#define _USE_MATH_DEFINES
-#include <cmath>
-#include <memory>
 #include <assert.h>
-#include <float.h>
-#include <limits.h>
+#define _USE_MATH_DEFINES
 #include <math.h>
-#include <stdarg.h>
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#undef min
-#undef max
 #include "xatlas.h"
 
 #ifndef M_PI
