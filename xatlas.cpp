@@ -145,25 +145,36 @@ static int align(int x, int a)
 	return (x + a - 1) & ~(a - 1);
 }
 
-/// Return the maximum of the three arguments.
+template <typename T>
+static T max(const T &a, const T &b)
+{
+	return a > b ? a : b;
+}
+
+template <typename T>
+static T min(const T &a, const T &b)
+{
+	return a < b ? a : b;
+}
+
 template <typename T>
 static T max3(const T &a, const T &b, const T &c)
 {
-	return std::max(a, std::max(b, c));
+	return max(a, max(b, c));
 }
 
 /// Return the maximum of the three arguments.
 template <typename T>
 static T min3(const T &a, const T &b, const T &c)
 {
-	return std::min(a, std::min(b, c));
+	return min(a, min(b, c));
 }
 
 /// Clamp between two values.
 template <typename T>
 static T clamp(const T &x, const T &a, const T &b)
 {
-	return std::min(std::max(x, a), b);
+	return min(max(x, a), b);
 }
 
 template <typename T>
@@ -371,12 +382,12 @@ static bool equal(const Vector2 &v1, const Vector2 &v2, float epsilon = XA_EPSIL
 
 static Vector2 min(const Vector2 &a, const Vector2 &b)
 {
-	return Vector2(std::min(a.x, b.x), std::min(a.y, b.y));
+	return Vector2(min(a.x, b.x), min(a.y, b.y));
 }
 
 static Vector2 max(const Vector2 &a, const Vector2 &b)
 {
-	return Vector2(std::max(a.x, b.x), std::max(a.y, b.y));
+	return Vector2(max(a.x, b.x), max(a.y, b.y));
 }
 
 static bool isFinite(const Vector2 &v)
@@ -2135,7 +2146,7 @@ public:
 		uint32_t numGroups = 0;
 		for (uint32_t i = 0; i < m_faceGroups.size(); i++) {
 			if (m_faceGroups[i] != UINT32_MAX)
-				numGroups = std::max(numGroups, m_faceGroups[i] + 1);
+				numGroups = max(numGroups, m_faceGroups[i] + 1);
 		}
 		for (uint32_t i = 0; i < numGroups; i++) {
 			fprintf(file, "o group_%0.4d\n", i);
@@ -3141,10 +3152,10 @@ struct Triangle
 			int frustumX1 =  (int)extents.x << 4;
 			int frustumY1 =  (int)extents.y << 4;
 			// Bounding rectangle
-			minx = (std::max(min3(X1, X2, X3), frustumX0) + 0xF) >> 4;
-			miny = (std::max(min3(Y1, Y2, Y3), frustumY0) + 0xF) >> 4;
-			maxx = (std::min(max3(X1, X2, X3), frustumX1) + 0xF) >> 4;
-			maxy = (std::min(max3(Y1, Y2, Y3), frustumY1) + 0xF) >> 4;
+			minx = (max(min3(X1, X2, X3), frustumX0) + 0xF) >> 4;
+			miny = (max(min3(Y1, Y2, Y3), frustumY0) + 0xF) >> 4;
+			maxx = (min(max3(X1, X2, X3), frustumX1) + 0xF) >> 4;
+			maxy = (min(max3(Y1, Y2, Y3), frustumY1) + 0xF) >> 4;
 		} else {
 			// Bounding rectangle
 			minx = (min3(X1, X2, X3) + 0xF) >> 4;
@@ -3254,10 +3265,10 @@ struct Triangle
 		float minx, miny, maxx, maxy;
 		if (enableScissors) {
 			// Bounding rectangle
-			minx = floorf(std::max(min3(v1.x, v2.x, v3.x), 0.0f));
-			miny = floorf(std::max(min3(v1.y, v2.y, v3.y), 0.0f));
-			maxx = ceilf( std::min(max3(v1.x, v2.x, v3.x), extents.x - 1.0f));
-			maxy = ceilf( std::min(max3(v1.y, v2.y, v3.y), extents.y - 1.0f));
+			minx = floorf(max(min3(v1.x, v2.x, v3.x), 0.0f));
+			miny = floorf(max(min3(v1.y, v2.y, v3.y), 0.0f));
+			maxx = ceilf( min(max3(v1.x, v2.x, v3.x), extents.x - 1.0f));
+			maxy = ceilf( min(max3(v1.y, v2.y, v3.y), extents.y - 1.0f));
 		} else {
 			// Bounding rectangle
 			minx = floorf(min3(v1.x, v2.x, v3.x));
@@ -4334,7 +4345,7 @@ struct AtlasBuilder
 	bool growCharts(float threshold, uint32_t faceCount)
 	{
 		// Using one global list.
-		faceCount = std::min(faceCount, m_facesLeft);
+		faceCount = min(faceCount, m_facesLeft);
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const Candidate &candidate = getBestCandidate();
 			if (candidate.metric > threshold) {
@@ -4552,7 +4563,7 @@ struct AtlasBuilder
 		}
 		XA_DEBUG_ASSERT(l_in != 0.0f); // Candidate face must be adjacent to chart. @@ This is not true if the input mesh has zero-length edges.
 		float ratio = (l_out - l_in) / (l_out + l_in);
-		return std::min(ratio, 0.0f); // Only use the straightness metric to close gaps.
+		return min(ratio, 0.0f); // Only use the straightness metric to close gaps.
 	}
 
 	float evaluateNormalSeamMetric(ChartBuildData *chart, uint32_t f) const
@@ -4628,7 +4639,7 @@ struct AtlasBuilder
 					boundaryLength -= edgeLength;
 			}
 		}
-		return std::max(0.0f, boundaryLength);  // @@ Hack!
+		return max(0.0f, boundaryLength);  // @@ Hack!
 	}
 
 	Vector3 evaluateChartNormalSum(ChartBuildData *chart, uint32_t f) const
@@ -4690,7 +4701,7 @@ struct AtlasBuilder
 				ChartBuildData *chart2 = m_chartArray[cc];
 				if (chart2 == NULL)
 					continue;
-				if (sharedBoundaryLengths[cc] > 0.8 * std::max(0.0f, chart->boundaryLength - externalBoundary)) {
+				if (sharedBoundaryLengths[cc] > 0.8 * max(0.0f, chart->boundaryLength - externalBoundary)) {
 					// Try to avoid degenerate configurations.
 					if (chart2->boundaryLength > sharedBoundaryLengths[cc]) {
 						if (dot(chart2->planeNormal, chart->planeNormal) > -0.25) {
@@ -4702,7 +4713,7 @@ struct AtlasBuilder
 						}
 					}
 				}
-				if (sharedBoundaryLengths[cc] > 0.20 * std::max(0.0f, chart->boundaryLength - externalBoundary)) {
+				if (sharedBoundaryLengths[cc] > 0.20 * max(0.0f, chart->boundaryLength - externalBoundary)) {
 					// Compare proxies.
 					if (dot(chart2->planeNormal, chart->planeNormal) > 0) {
 						mergeChart(chart2, chart, sharedBoundaryLengths[cc]);
@@ -5226,7 +5237,7 @@ public:
 		m_parametricArea += pq.m_parametricArea;
 		m_geometricArea += pq.m_geometricArea;
 		m_stretchMetric += pq.m_stretchMetric;
-		m_maxStretchMetric = std::max(m_maxStretchMetric, pq.m_maxStretchMetric);
+		m_maxStretchMetric = max(m_maxStretchMetric, pq.m_maxStretchMetric);
 		m_conformalMetric += pq.m_conformalMetric;
 		m_authalicMetric += pq.m_authalicMetric;
 	}
@@ -5256,8 +5267,8 @@ private:
 		float b = dot(Ss, St); // F
 		float c = dot(St, St); // G
 		// Compute eigen-values of the first fundamental form:
-		float sigma1 = sqrtf(0.5f * std::max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
-		float sigma2 = sqrtf(0.5f * std::max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
+		float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
+		float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
 		XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2));
 		// isometric: sigma1 = sigma2 = 1
 		// conformal: sigma1 / sigma2 = 1
@@ -5272,7 +5283,7 @@ private:
 			parametricArea = fabsf(parametricArea);
 		}
 		m_stretchMetric += square(rmsStretch) * geometricArea;
-		m_maxStretchMetric = std::max(m_maxStretchMetric, sigma2);
+		m_maxStretchMetric = max(m_maxStretchMetric, sigma2);
 		if (!isZero(sigma1, 0.000001f)) {
 			// sigma1 is zero when geometricArea is zero.
 			m_conformalMetric += (sigma2 / sigma1) * geometricArea;
@@ -5431,7 +5442,7 @@ public:
 		AtlasBuilder builder(m_mesh, options);
 		if (builder.facesLeft() != 0) {
 			// This seems a reasonable estimate.
-			uint32_t maxSeedCount = std::max(6U, builder.facesLeft());
+			uint32_t maxSeedCount = max(6U, builder.facesLeft());
 			// Create initial charts greedely.
 			XA_PRINT(PrintFlags::ComputingCharts, "### Placing seeds\n");
 			builder.placeSeeds(options.maxThreshold, maxSeedCount);
@@ -5744,13 +5755,13 @@ struct AtlasPacker
 			}
 			if (resolution <= 0) {
 				// Estimate resolution based on the mesh surface area and given texel scale.
-				const float texelCount = std::max(1.0f, meshArea * square(m_texelsPerUnit) / 0.75f); // Assume 75% utilization.
+				const float texelCount = max(1.0f, meshArea * square(m_texelsPerUnit) / 0.75f); // Assume 75% utilization.
 				resolution = nextPowerOfTwo(uint32_t(sqrtf(texelCount)));
 				XA_PRINT(PrintFlags::PackingCharts, "      Estimating resolution as %d\n", resolution);
 			}
 			if (m_texelsPerUnit <= 0) {
 				// Estimate a suitable texelsPerUnit to fit the given resolution.
-				const float texelCount = std::max(1.0f, meshArea / 0.75f); // Assume 75% utilization.
+				const float texelCount = max(1.0f, meshArea / 0.75f); // Assume 75% utilization.
 				m_texelsPerUnit = sqrt((resolution * resolution) / texelCount);
 				XA_PRINT(PrintFlags::PackingCharts, "      Estimating texelsPerUnit as %g\n", m_texelsPerUnit);
 			}
@@ -5815,7 +5826,7 @@ struct AtlasPacker
 			XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
 			// Limit chart size.
 			if (extents.x > 1024 || extents.y > 1024) {
-				float limit = std::max(extents.x, extents.y);
+				float limit = max(extents.x, extents.y);
 				scale = 1024 / (limit + 1);
 				for (uint32_t i = 0; i < vertexCount; i++) {
 					Vector2 *texcoord = mesh->texcoordAt(i);
@@ -5945,8 +5956,8 @@ struct AtlasPacker
 				XA_PRINT("Resize extents to (%d, %d).\n", best_x + best_cw, best_y + best_ch);
 			*/
 			// Update parametric extents.
-			w = std::max(w, best_x + best_cw);
-			h = std::max(h, best_y + best_ch);
+			w = max(w, best_x + best_cw);
+			h = max(h, best_y + best_ch);
 			if (options.resolution <= 0) {
 				// Resize bitmap if necessary.
 				if (uint32_t(w) > m_bitmaps[0]->width() || uint32_t(h) > m_bitmaps[0]->height()) {
@@ -5954,8 +5965,8 @@ struct AtlasPacker
 					XA_PRINT(PrintFlags::PackingCharts, "      Resize bitmap (%d, %d).\n", m_bitmaps[0]->width(), m_bitmaps[0]->height());
 				}
 			} else {
-				w = std::min((int)options.resolution, w);
-				h = std::min((int)options.resolution, h);
+				w = min((int)options.resolution, w);
+				h = min((int)options.resolution, h);
 			}
 			//XA_PRINT("Add chart at (%d, %d).\n", best_x, best_y);
 			addChart(m_bitmaps[currentBitmapIndex], &chart_bitmap, w, h, best_x, best_y, best_r);
@@ -5984,8 +5995,8 @@ struct AtlasPacker
 		}
 		//w -= padding - 1; // Leave one pixel border!
 		//h -= padding - 1;
-		m_width = std::max(0, w);
-		m_height = std::max(0, h);
+		m_width = max(0, w);
+		m_height = max(0, h);
 		if (options.resolution > 0)
 			m_width = m_height = options.resolution;
 		XA_PRINT(PrintFlags::PackingCharts, "      %dx%d resolution\n", m_width, m_height);
@@ -6038,14 +6049,14 @@ private:
 					if (!resizableAtlas && (x > (int)atlasBitmap->width() - cw || y > (int)atlasBitmap->height() - ch))
 						continue;
 					// Early out.
-					int area = std::max(w, x + cw) * std::max(h, y + ch);
+					int area = max(w, x + cw) * max(h, y + ch);
 					//int perimeter = max(w, x+cw) + max(h, y+ch);
-					int extents = std::max(std::max(w, x + cw), std::max(h, y + ch));
+					int extents = max(max(w, x + cw), max(h, y + ch));
 					int metric = extents * extents + area;
 					if (metric > best_metric) {
 						continue;
 					}
-					if (metric == best_metric && std::max(x, y) >= std::max(*best_x, *best_y)) {
+					if (metric == best_metric && max(x, y) >= max(*best_x, *best_y)) {
 						// If metric is the same, pick the one closest to the origin.
 						continue;
 					}
@@ -6085,8 +6096,8 @@ private:
 			int xRange = w + 1;
 			int yRange = h + 1;
 			if (!resizableAtlas) {
-				xRange = std::min(xRange, (int)atlasBitmap->width() - cw);
-				yRange = std::min(yRange, (int)atlasBitmap->height() - ch);
+				xRange = min(xRange, (int)atlasBitmap->width() - cw);
+				yRange = min(yRange, (int)atlasBitmap->height() - ch);
 			}
 			int x = m_rand.getRange(xRange);
 			int y = m_rand.getRange(yRange);
@@ -6097,14 +6108,14 @@ private:
 					continue; // Block alignment pushed the chart outside the atlas.
 			}
 			// Early out.
-			int area = std::max(w, x + cw) * std::max(h, y + ch);
+			int area = max(w, x + cw) * max(h, y + ch);
 			//int perimeter = max(w, x+cw) + max(h, y+ch);
-			int extents = std::max(std::max(w, x + cw), std::max(h, y + ch));
+			int extents = max(max(w, x + cw), max(h, y + ch));
 			int metric = extents * extents + area;
 			if (metric > best_metric) {
 				continue;
 			}
-			if (metric == best_metric && std::min(x, y) > std::min(*best_x, *best_y)) {
+			if (metric == best_metric && min(x, y) > min(*best_x, *best_y)) {
 				// If metric is the same, pick the one closest to the origin.
 				continue;
 			}
@@ -6345,8 +6356,8 @@ private:
 		bottom.reserve(inputCount);
 		Vector2 P = input[ranks[0]];
 		Vector2 Q = input[ranks[inputCount - 1]];
-		float topy = std::max(P.y, Q.y);
-		float boty = std::min(P.y, Q.y);
+		float topy = max(P.y, Q.y);
+		float boty = min(P.y, Q.y);
 		for (uint32_t i = 0; i < inputCount; i++) {
 			Vector2 p = input[ranks[i]];
 			if (p.y >= boty) top.push_back(p);
@@ -6731,8 +6742,8 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 						XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
 						vertex.atlasIndex = chart->atlasIndex;
 						const internal::Vector2 &uv = *chart->chartMesh()->texcoordAt(v);
-						vertex.uv[0] = std::max(0.0f, uv.x);
-						vertex.uv[1] = std::max(0.0f, uv.y);
+						vertex.uv[0] = internal::max(0.0f, uv.x);
+						vertex.uv[1] = internal::max(0.0f, uv.y);
 						vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
 					}
 				}
