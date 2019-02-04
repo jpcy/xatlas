@@ -185,6 +185,19 @@ static void swap(T &a, T &b)
 	b = temp;
 }
 
+union FloatUint32
+{
+	float f;
+	uint32_t u;
+};
+
+static bool isFinite(float f)
+{
+	FloatUint32 fu;
+	fu.f = f;
+	return fu.u != 0x7F800000u && fu.u != 0x7F800001u;
+}
+
 // Robust floating point comparisons:
 // http://realtimecollisiondetection.net/blog/?p=89
 static bool equal(const float f0, const float f1, const float epsilon = XA_EPSILON)
@@ -392,7 +405,7 @@ static Vector2 max(const Vector2 &a, const Vector2 &b)
 
 static bool isFinite(const Vector2 &v)
 {
-	return std::isfinite(v.x) && std::isfinite(v.y);
+	return isFinite(v.x) && isFinite(v.y);
 }
 
 // Note, this is the area scaled by 2!
@@ -595,7 +608,7 @@ static bool equal(const Vector3 &v0, const Vector3 &v1, float epsilon = XA_EPSIL
 #ifdef _DEBUG
 bool isFinite(const Vector3 &v)
 {
-	return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+	return isFinite(v.x) && isFinite(v.y) && isFinite(v.z);
 }
 #endif
 
@@ -3110,7 +3123,7 @@ struct Triangle
 		Vector3 de0 = t3 - t1;
 		Vector3 de1 = t2 - t1;
 		float denom = 1.0f / (e0.y * e1.x - e1.y * e0.x);
-		if (!std::isfinite(denom)) {
+		if (!isFinite(denom)) {
 			return false;
 		}
 		float lambda1 = - e1.y * denom;
@@ -4519,7 +4532,7 @@ struct AtlasBuilder
 		// Make sure normal seams are fully respected:
 		if (m_options.normalSeamMetricWeight >= 1000 && N != 0)
 			cost = FLT_MAX;
-		XA_DEBUG_ASSERT(std::isfinite(cost));
+		XA_DEBUG_ASSERT(isFinite(cost));
 		return cost;
 	}
 
@@ -5171,12 +5184,12 @@ public:
 			// If all triangles are flipped, then none is.
 			m_flippedTriangleCount = 0;
 		}
-		XA_DEBUG_ASSERT(std::isfinite(m_parametricArea) && m_parametricArea >= 0);
-		XA_DEBUG_ASSERT(std::isfinite(m_geometricArea) && m_geometricArea >= 0);
-		XA_DEBUG_ASSERT(std::isfinite(m_stretchMetric));
-		XA_DEBUG_ASSERT(std::isfinite(m_maxStretchMetric));
-		XA_DEBUG_ASSERT(std::isfinite(m_conformalMetric));
-		XA_DEBUG_ASSERT(std::isfinite(m_authalicMetric));
+		XA_DEBUG_ASSERT(isFinite(m_parametricArea) && m_parametricArea >= 0);
+		XA_DEBUG_ASSERT(isFinite(m_geometricArea) && m_geometricArea >= 0);
+		XA_DEBUG_ASSERT(isFinite(m_stretchMetric));
+		XA_DEBUG_ASSERT(isFinite(m_maxStretchMetric));
+		XA_DEBUG_ASSERT(isFinite(m_conformalMetric));
+		XA_DEBUG_ASSERT(isFinite(m_authalicMetric));
 	}
 
 	bool isValid() const
@@ -5793,7 +5806,7 @@ struct AtlasPacker
 			if (parametricArea == 0) { // < XA_EPSILON)
 				scale = 0;
 			}
-			XA_ASSERT(std::isfinite(scale));
+			XA_ASSERT(isFinite(scale));
 			// Compute bounding box of chart.
 			Vector2 majorAxis, minorAxis, origin, end;
 			computeBoundingBox(chart, &majorAxis, &minorAxis, &origin, &end);
@@ -5819,7 +5832,7 @@ struct AtlasPacker
 					XA_DEBUG_ASSERT(false);
 				}
 				//XA_ASSERT(tmp.x >= 0 && tmp.y >= 0);
-				XA_ASSERT(std::isfinite(tmp.x) && std::isfinite(tmp.y));
+				XA_ASSERT(isFinite(tmp.x) && isFinite(tmp.y));
 				*mesh->texcoordAt(i) = tmp;
 				extents = max(extents, tmp);
 			}
@@ -5875,7 +5888,7 @@ struct AtlasPacker
 				texcoord->y /= divide_y;
 				texcoord->x *= scale_x;
 				texcoord->y *= scale_y;
-				XA_ASSERT(std::isfinite(texcoord->x) && std::isfinite(texcoord->y));
+				XA_ASSERT(isFinite(texcoord->x) && isFinite(texcoord->y));
 			}
 			chartExtents[c] = extents;
 			// Sort charts by perimeter.
@@ -5983,7 +5996,7 @@ struct AtlasPacker
 				texcoord->x = best_x + t.x + 0.5f;
 				texcoord->y = best_y + t.y + 0.5f;
 				XA_ASSERT(texcoord->x >= 0 && texcoord->y >= 0);
-				XA_ASSERT(std::isfinite(texcoord->x) && std::isfinite(texcoord->y));
+				XA_ASSERT(isFinite(texcoord->x) && isFinite(texcoord->y));
 			}
 			if (progressCallback) {
 				const int newProgress = int((i + 1) / (float)chartCount * 100.0f);
