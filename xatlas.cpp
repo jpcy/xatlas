@@ -1414,6 +1414,20 @@ private:
 	Array<uint32_t> m_next;
 };
 
+template<typename T>
+static void insertionSort(T *data, uint32_t length)
+{
+	for (int32_t i = 1; i < (int32_t)length; i++) {
+		T x = data[i];
+		int32_t j = i - 1;
+		while (j >= 0 && data[j] > x) {
+			data[j + 1] = data[j];
+			j--;
+		}
+		data[j + 1] = x;
+	}
+}
+
 /// Mersenne twister random number generator.
 class MTRand
 {
@@ -1823,7 +1837,7 @@ public:
 				m_nextColocalVertex[i] = i;
 				continue; 
 			}
-			std::sort(colocals.begin(), colocals.end());
+			insertionSort(colocals.data(), colocals.size());
 			for (uint32_t j = 0; j < colocals.size(); j++)
 				m_nextColocalVertex[colocals[j]] = colocals[(j + 1) % colocals.size()];
 			XA_DEBUG_ASSERT(m_nextColocalVertex[i] != UINT32_MAX);
