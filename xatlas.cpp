@@ -11,6 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #include <algorithm>
 #include <assert.h>
+#include <limits.h>
 #define _USE_MATH_DEFINES
 #include <math.h>
 #define __STDC_LIMIT_MACROS
@@ -4173,7 +4174,7 @@ static void computeSingleFaceMap(Mesh *mesh)
 // @@ Searcing at removal would remove the need for sorting when priorities change.
 struct PriorityQueue
 {
-	PriorityQueue(uint32_t size = UINT_MAX) : maxSize(size) {}
+	PriorityQueue(uint32_t size = UINT32_MAX) : maxSize(size) {}
 
 	void push(float priority, uint32_t face)
 	{
