@@ -9,9 +9,9 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
-#include <chrono>
-#include <stdio.h>
 #include <assert.h>
+#include <stdio.h>
+#include <time.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #ifdef _MSC_VER
@@ -45,13 +45,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 class Stopwatch
 {
-	typedef std::chrono::high_resolution_clock Clock;
 public:
 	Stopwatch() { reset(); }
-	void reset() { start_ = Clock::now(); }
-	double elapsed() const { return (double)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start_).count(); }
+	void reset() { m_start = clock(); }
+	double elapsed() const { return (clock() - m_start) * 1000.0 / CLOCKS_PER_SEC; }
 private:
-	std::chrono::time_point<Clock> start_;
+	clock_t m_start;
 };
 
 static int Print(const char *format, ...)
