@@ -6532,11 +6532,6 @@ static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, int
 	return uint32_t((int32_t)((const uint32_t *)indexData)[i] + offset);
 }
 
-static float EdgeLength(internal::Vector3 pos1, internal::Vector3 pos2)
-{
-	return internal::length(pos2 - pos1);
-}
-
 AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 {
 	XA_DEBUG_ASSERT(atlas);
@@ -6571,31 +6566,28 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 		uint32_t faceFlags = 0;
 		// Check for degenerate or zero length edges.
 		for (int j = 0; j < 3; j++) {
-			const uint32_t edges[6] = { 0, 1, 1, 2, 2, 0 };
-			const uint32_t index1 = tri[edges[j * 2 + 0]];
-			const uint32_t index2 = tri[edges[j * 2 + 1]];
+			const uint32_t index1 = tri[j];
+			const uint32_t index2 = tri[(j + 1) % 3];
 			if (index1 == index2) {
 				faceFlags |= internal::FaceFlags::Ignore;
 				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->meshCount, index1, index2);
 				break;
 			}
-			const internal::Vector3 pos1 = DecodePosition(meshDecl, index1);
-			const internal::Vector3 pos2 = DecodePosition(meshDecl, index2);
-			if (EdgeLength(pos1, pos2) <= 0.0f) {
+			const internal::Vector3 pos1 = *mesh->positionAt(index1);
+			const internal::Vector3 pos2 = *mesh->positionAt(index2);
+			if (internal::length(pos2 - pos1) <= 0.0f) {
 				faceFlags |= internal::FaceFlags::Ignore;
 				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->meshCount, index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
 				break;
 			}
 		}
 		// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
-		if (!(faceFlags & internal::FaceFlags::Ignore))
-		{
-			const internal::Vector3 a = DecodePosition(meshDecl, tri[0]);
-			const internal::Vector3 b = DecodePosition(meshDecl, tri[1]);
-			const internal::Vector3 c = DecodePosition(meshDecl, tri[2]);
+		if (!(faceFlags & internal::FaceFlags::Ignore)) {
+			const internal::Vector3 a = *mesh->positionAt(tri[0]);
+			const internal::Vector3 b = *mesh->positionAt(tri[1]);
+			const internal::Vector3 c = *mesh->positionAt(tri[2]);
 			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
-			if (area <= 0.0f)
-			{
+			if (area <= 0.0f) {
 				faceFlags |= internal::FaceFlags::Ignore;
 				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->meshCount, i, tri[0], tri[1], tri[2]);
 			}
@@ -6703,9 +6695,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 				for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
 					Vertex &vertex = outputMesh->vertexArray[vertexOffset++];
 					vertex.atlasIndex = -1;
-					const internal::Vector2 &uv = *mesh->texcoordAt(v);
-					vertex.uv[0] = std::max(0.0f, uv.x);
-					vertex.uv[1] = std::max(0.0f, uv.y);
+					vertex.uv[0] = vertex.uv[1] = 0.0f;
 					vertex.xref = chartGroup->mapVertexToSourceVertex(v);
 				}
 			} else {
@@ -6782,11 +6772,9 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			}
 		}
 		XA_PRINT(PrintFlags::BuildingOutputMeshes, "   mesh %u: %u vertices, %u triangles, %u charts\n", i, outputMesh->vertexCount, outputMesh->indexCount / 3, outputMesh->chartCount);
-		if (progressCallback)
-		{
+		if (progressCallback) {
 			const int newProgress = int((i + 1) / (float)atlas->meshCount * 100.0f);
-			if (newProgress != progress)
-			{
+			if (newProgress != progress) {
 				progress = newProgress;
 				progressCallback(ProgressCategory::BuildingOutputMeshes, progress, progressCallbackUserData);
 			}
