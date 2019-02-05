@@ -1,6 +1,10 @@
 solution "xatlas"
 	configurations { "Release", "Debug" }
-	location(path.join("build", _ACTION))
+	if _OPTIONS["cc"] ~= nil then
+		location(path.join("build", _ACTION) .. "_" .. _OPTIONS["cc"])
+	else
+		location(path.join("build", _ACTION))
+	end
 	if os.is64bit() and not os.istarget("windows") then
 		platforms { "x86_64", "x86" }
 	else

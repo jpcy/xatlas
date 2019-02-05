@@ -4999,7 +4999,6 @@ private:
 				Vector3 t1 = *m_unifiedMesh->positionAt(m_unifiedMesh->vertexAt(edge->index1));
 				boundaryLength += length(t1 - t0);
 			}
-			boundaryLength = boundaryLength;
 			boundaryLengths.push_back(boundaryLength);
 		}
 		// Find disk boundary.
@@ -5327,6 +5326,8 @@ public:
 		char filename[256];
 		sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u.obj", m_sourceId, m_id);
 		m_mesh->writeSimpleObj(filename);
+#else
+		XA_UNUSED(m_id);
 #endif
 	}
 
