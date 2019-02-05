@@ -175,6 +175,9 @@ struct PackerOptions
 	// If not 0, generate 1 or more atlases with that exact resolution.
 	uint32_t resolution;
 
+	// Charts larger than this will be scaled down.
+	uint32_t maxChartSize;
+
 	// Align charts to 4x4 blocks. 
 	bool blockAlign;
 
@@ -184,11 +187,13 @@ struct PackerOptions
 	// Number of pixels to pad. conservative must be true.
 	int padding;
 
+
 	PackerOptions()
 	{
 		attempts = 4096;
 		texelsPerUnit = 0;
 		resolution = 0;
+		maxChartSize = 1024;
 		blockAlign = false;
 		conservative = false;
 		padding = 0;

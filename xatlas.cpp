@@ -5761,13 +5761,14 @@ struct AtlasPacker
 			}
 			XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
 			// Limit chart size.
-			if (extents.x > 1024 || extents.y > 1024) {
-				float limit = max(extents.x, extents.y);
-				scale = 1024 / (limit + 1);
+			const float maxChartSize = (float)options.maxChartSize;
+			if (extents.x > maxChartSize || extents.y > maxChartSize) {
+				const float limit = max(extents.x, extents.y);
+				scale = maxChartSize / (limit + 1.0f);
 				for (uint32_t i = 0; i < vertexCount; i++)
 					mesh->texcoord(i) *= scale;
 				extents *= scale;
-				XA_DEBUG_ASSERT(extents.x <= 1024 && extents.y <= 1024);
+				XA_DEBUG_ASSERT(extents.x <= maxChartSize && extents.y <= maxChartSize);
 			}
 			// Scale the charts to use the entire texel area available. So, if the width is 0.1 we could scale it to 1 without increasing the lightmap usage and making a better
 			// use of it. In many cases this also improves the look of the seams, since vertices on the chart boundaries have more chances of being aligned with the texel centers.
