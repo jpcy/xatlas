@@ -5198,47 +5198,32 @@ public:
 
 	float rmsStretchMetric() const
 	{
-		if (m_geometricArea == 0) return 0.0f;
+		if (m_geometricArea == 0)
+			return 0.0f;
 		float normFactor = sqrtf(m_parametricArea / m_geometricArea);
 		return sqrtf(m_stretchMetric / m_geometricArea) * normFactor;
 	}
 
 	float maxStretchMetric() const
 	{
-		if (m_geometricArea == 0) return 0.0f;
+		if (m_geometricArea == 0)
+			return 0.0f;
 		float normFactor = sqrtf(m_parametricArea / m_geometricArea);
 		return m_maxStretchMetric * normFactor;
 	}
 
 	float rmsConformalMetric() const
 	{
-		if (m_geometricArea == 0) return 0.0f;
+		if (m_geometricArea == 0)
+			return 0.0f;
 		return sqrtf(m_conformalMetric / m_geometricArea);
 	}
 
 	float maxAuthalicMetric() const
 	{
-		if (m_geometricArea == 0) return 0.0f;
+		if (m_geometricArea == 0)
+			return 0.0f;
 		return sqrtf(m_authalicMetric / m_geometricArea);
-	}
-
-	bool operator==(const ParameterizationQuality &pq)
-	{
-		if (m_totalTriangleCount != pq.m_totalTriangleCount || m_flippedTriangleCount != pq.m_flippedTriangleCount || m_zeroAreaTriangleCount != pq.m_zeroAreaTriangleCount)
-			return false;
-		if (!equal(m_parametricArea, pq.m_parametricArea))
-			return false;
-		if (!equal(m_geometricArea, pq.m_geometricArea))
-			return false;
-		if (!equal(m_stretchMetric, pq.m_stretchMetric))
-			return false;
-		if (!equal(m_maxStretchMetric, pq.m_maxStretchMetric))
-			return false;
-		if (!equal(m_conformalMetric, pq.m_conformalMetric))
-			return false;
-		if (!equal(m_authalicMetric, pq.m_authalicMetric))
-			return false;
-		return true;
 	}
 
 	void operator+=(const ParameterizationQuality &pq)
