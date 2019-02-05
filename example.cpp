@@ -43,6 +43,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define STRICMP strcasecmp
 #endif
 
+static bool s_verbose = false;
+
 class Stopwatch
 {
 public:
@@ -65,6 +67,8 @@ static int Print(const char *format, ...)
 
 static void PrintProgress(const char *name, const char *indent1, const char *indent2, int progress, Stopwatch *stopwatch)
 {
+	if (s_verbose)
+		return;
 	if (progress == 0)
 		stopwatch->reset();
 	printf("\r%s%s [", indent1, name);
@@ -138,7 +142,7 @@ int main(int argc, char *argv[])
 		printf("    -verbose\n");  
 	    return 1;
 	}
-	const bool verbose = (argc >= 3 && STRICMP(argv[2], "-verbose") == 0);
+	s_verbose = (argc >= 3 && STRICMP(argv[2], "-verbose") == 0);
 	// Load object file.
 	printf("Loading '%s'...\n", argv[1]);
 	std::vector<tinyobj::shape_t> shapes;
@@ -154,7 +158,7 @@ int main(int argc, char *argv[])
 	}
 	printf("   %d shapes\n", (int)shapes.size());
 	// Create atlas.
-	xatlas::SetPrint(verbose ? xatlas::PrintFlags::All : 0, Print);
+	xatlas::SetPrint(s_verbose ? Print : NULL);
 	xatlas::Atlas *atlas = xatlas::Create();
 	// Add meshes to atlas.
 	Stopwatch stopwatch;

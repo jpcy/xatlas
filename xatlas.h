@@ -197,26 +197,11 @@ struct PackerOptions
 
 void PackCharts(Atlas *atlas, PackerOptions packerOptions = PackerOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
 
-struct PrintFlags
-{
-	enum Enum
-	{
-		BuildingOutputMeshes = 1<<0,
-		ComputingCharts = 1<<1,
-		MeshCreation = 1<<2,
-		MeshProcessing = 1<<3,
-		MeshWarnings = 1<<4,
-		PackingCharts = 1<<5,
-		ParametizingCharts = 1<<6,
-		All = ~0
-	};
-};
-
 typedef void *(*ReallocFunc)(void *, size_t);
 void SetRealloc(ReallocFunc reallocFunc);
 
 typedef int (*PrintFunc)(const char *, ...);
-void SetPrint(int flags, PrintFunc print = NULL);
+void SetPrint(PrintFunc print = NULL);
 
 const char *StringForEnum(AddMeshError::Enum error);
 const char *StringForEnum(ProgressCategory::Enum category);

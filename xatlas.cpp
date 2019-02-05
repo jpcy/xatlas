@@ -43,8 +43,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define XA_NEW(type, ...) new (XA_ALLOC(type)) type(__VA_ARGS__)
 
 #ifndef XA_PRINT
-#define XA_PRINT(flags, ...) \
-	if (xatlas::internal::s_print && (flags == 0 || (xatlas::internal::s_printFlags & flags) != 0)) \
+#define XA_PRINT(...) \
+	if (xatlas::internal::s_print) \
 		xatlas::internal::s_print(__VA_ARGS__);
 #endif
 
@@ -56,8 +56,7 @@ namespace xatlas {
 namespace internal {
 
 static ReallocFunc s_realloc = realloc;
-static int s_printFlags = 0;
-static PrintFunc s_print = printf;
+static PrintFunc s_print = NULL;
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_EXPORT_OBJ 0
@@ -1817,7 +1816,6 @@ public:
 
 	void createColocals()
 	{
-		XA_PRINT(PrintFlags::MeshCreation, "--- Linking colocals:\n");
 		const uint32_t vertexCount = m_positions.size();
 		HashMap<Vector3, uint32_t, Vector3Hash, Vector3Equal> positionMap(vertexCount);
 		for (uint32_t i = 0; i < m_positions.size(); i++)
@@ -1946,11 +1944,11 @@ public:
 			}
 			group++;
 		}
+		XA_PRINT("   %d face groups\n", group);
 	}
 
 	void createBoundaries()
 	{
-		XA_PRINT(PrintFlags::MeshProcessing, "--- Creating boundaries:\n");
 		const uint32_t edgeCount = m_edges.size();
 		const uint32_t faceCount = m_faces.size();
 		const uint32_t vertexCount = m_positions.size();
@@ -1960,7 +1958,6 @@ public:
 			m_oppositeEdges[i] = UINT32_MAX;
 		for (uint32_t i = 0; i < vertexCount; i++)
 			m_boundaryVertices[i] = false;
-		uint32_t nBoundaryEdges = 0;
 		for (uint32_t i = 0; i < faceCount; i++) {
 			if (m_faceFlags[i] & FaceFlags::Ignore)
 				continue;
@@ -1976,16 +1973,13 @@ public:
 					m_oppositeEdges[face.firstIndex + j] = m_faces[oppositeEdge->face].firstIndex + oppositeEdge->relativeIndex;
 				} else {
 					m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
-					nBoundaryEdges++;
 				}
 			}
 		}
-		XA_PRINT(PrintFlags::MeshProcessing, "---   %d boundary edges.\n", nBoundaryEdges);
 	}
 
 	void linkBoundaries()
 	{
-		XA_PRINT(PrintFlags::MeshProcessing, "---   Linking boundaries:\n");
 		const uint32_t edgeCount = m_edges.size();
 		m_nextBoundaryEdges.resize(edgeCount);
 		for (uint32_t i = 0; i < edgeCount; i++)
@@ -2045,8 +2039,6 @@ public:
 				}
 			}
 		}
-		XA_PRINT(PrintFlags::MeshProcessing, "---   %d boundary loops.\n", numBoundaryLoops);
-		XA_PRINT(PrintFlags::MeshProcessing, "---   %d unclosed boundaries.\n", numUnclosedBoundaries);
 	}
 
 	/// Find edge, test all colocals.
@@ -2678,7 +2670,6 @@ struct SplitEdge
 
 static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no split was made.
 {
-	XA_PRINT(PrintFlags::MeshProcessing, "Fixing T-junctions:\n");
 	Array<SplitEdge> splitEdges;
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t edgeCount = inputMesh.edgeCount();
@@ -2740,7 +2731,6 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 		}
 		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
 	}
-	XA_PRINT(PrintFlags::MeshProcessing, " - %d edges split.\n", splitEdges.size());
 	mesh->createColocals(); // Added new vertices, some may be colocal with existing vertices.
 	return mesh;
 }
@@ -2914,12 +2904,10 @@ private:
 		const uint32_t vertexCount = mesh->colocalVertexCount();
 		const uint32_t faceCount = mesh->faceCount();
 		const uint32_t edgeCount = mesh->edgeCount();
-		XA_PRINT(PrintFlags::ComputingCharts, "--- Building mesh topology:\n" );
 		Array<uint32_t> stack(faceCount);
 		BitArray bitFlags(faceCount);
 		bitFlags.clearAll();
 		// Compute connectivity.
-		XA_PRINT(PrintFlags::ComputingCharts, "---   Computing connectivity.\n" );
 		m_connectedCount = 0;
 		for (uint32_t f = 0; f < faceCount; f++ ) {
 			if (bitFlags.bitAt(f) == false) {
@@ -2941,9 +2929,7 @@ private:
 			}
 		}
 		XA_ASSERT(stack.isEmpty());
-		XA_PRINT(PrintFlags::ComputingCharts, "---   %d connected components.\n", m_connectedCount);
 		// Count boundary loops.
-		XA_PRINT(PrintFlags::ComputingCharts, "---   Counting boundary loops.\n" );
 		m_boundaryCount = 0;
 		bitFlags.resize(edgeCount);
 		bitFlags.clearAll();
@@ -2955,16 +2941,12 @@ private:
 			for (Mesh::BoundaryEdgeIterator it(mesh, e); !it.isDone(); it.advance())
 				bitFlags.setBitAt(it.edge());
 		}
-		XA_PRINT(PrintFlags::ComputingCharts, "---   %d boundary loops found.\n", m_boundaryCount);
 		// Compute euler number.
 		m_eulerNumber = vertexCount - edgeCount + faceCount;
-		XA_PRINT(PrintFlags::ComputingCharts, "---   Euler number: %d.\n", m_eulerNumber);
 		// Compute genus. (only valid on closed connected surfaces)
 		m_genus = -1;
-		if (isClosed() && isConnected()) {
+		if (isClosed() && isConnected())
 			m_genus = (2 - m_eulerNumber) / 2;
-			XA_PRINT(PrintFlags::ComputingCharts, "---   Genus: %d.\n", m_genus);
-		}
 	}
 
 private:
@@ -5441,47 +5423,27 @@ public:
 			// This seems a reasonable estimate.
 			uint32_t maxSeedCount = max(6U, builder.facesLeft());
 			// Create initial charts greedely.
-			XA_PRINT(PrintFlags::ComputingCharts, "### Placing seeds\n");
 			builder.placeSeeds(options.maxThreshold, maxSeedCount);
-			XA_PRINT(PrintFlags::ComputingCharts, "###   Placed %d seeds (max = %d)\n", builder.chartCount(), maxSeedCount);
 			builder.updateProxies();
 			builder.mergeCharts();
-#if 1
-			XA_PRINT(PrintFlags::ComputingCharts, "### Relocating seeds\n");
 			builder.relocateSeeds();
-			XA_PRINT(PrintFlags::ComputingCharts, "### Reset charts\n");
 			builder.resetCharts();
-			XA_PRINT(PrintFlags::ComputingCharts, "### Growing charts\n");
 			// Restart process growing charts in parallel.
 			uint32_t iteration = 0;
 			while (true) {
 				if (!builder.growCharts(options.maxThreshold, options.growFaceCount)) {
-					XA_PRINT(PrintFlags::ComputingCharts, "### Can't grow anymore\n");
 					// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
-					XA_PRINT(PrintFlags::ComputingCharts, "### Filling holes\n");
 					builder.fillHoles(options.maxThreshold);
-					XA_PRINT(PrintFlags::ComputingCharts, "###   Using %d charts now\n", builder.chartCount());
 					builder.updateProxies();
-					XA_PRINT(PrintFlags::ComputingCharts, "### Merging charts\n");
 					builder.mergeCharts();
-					XA_PRINT(PrintFlags::ComputingCharts, "###   Using %d charts now\n", builder.chartCount());
-					XA_PRINT(PrintFlags::ComputingCharts, "### Reseeding\n");
-					if (!builder.relocateSeeds()) {
-						XA_PRINT(PrintFlags::ComputingCharts, "### Cannot relocate seeds anymore\n");
-						// Done!
+					if (!builder.relocateSeeds())
 						break;
-					}
-					if (iteration == options.maxIterations) {
-						XA_PRINT(PrintFlags::ComputingCharts, "### Reached iteration limit\n");
+					if (iteration == options.maxIterations)
 						break;
-					}
 					iteration++;
-					XA_PRINT(PrintFlags::ComputingCharts, "### Reset charts\n");
 					builder.resetCharts();
-					XA_PRINT(PrintFlags::ComputingCharts, "### Growing charts\n");
 				}
 			}
-#endif
 			// Make sure no holes are left!
 			XA_DEBUG_ASSERT(builder.facesLeft() == 0);
 			const uint32_t chartCount = builder.chartCount();
@@ -5544,7 +5506,7 @@ public:
 				}
 				isValid = chartParameterizationQuality.isValid();
 				if (!isValid)
-					XA_PRINT(PrintFlags::ParametizingCharts, "*** Invalid parameterization.\n");
+					XA_PRINT("Chart %u: invalid parameterization\n", i);
 				// @@ Check that parameterization quality is above a certain threshold.
 				// @@ Detect boundary self-intersections.
 				globalParameterizationQuality += chartParameterizationQuality;
@@ -5552,11 +5514,11 @@ public:
 			// Transfer parameterization from unified mesh to chart mesh.
 			chart->transferParameterization();
 		}
-		XA_PRINT(PrintFlags::ParametizingCharts, "  Parameterized %d/%d charts.\n", diskCount, chartCount);
-		XA_PRINT(PrintFlags::ParametizingCharts, "  RMS stretch metric: %f\n", globalParameterizationQuality.rmsStretchMetric());
-		XA_PRINT(PrintFlags::ParametizingCharts, "  MAX stretch metric: %f\n", globalParameterizationQuality.maxStretchMetric());
-		XA_PRINT(PrintFlags::ParametizingCharts, "  RMS conformal metric: %f\n", globalParameterizationQuality.rmsConformalMetric());
-		XA_PRINT(PrintFlags::ParametizingCharts, "  RMS authalic metric: %f\n", globalParameterizationQuality.maxAuthalicMetric());
+		XA_PRINT("Parameterized %d / %d charts\n", diskCount, chartCount);
+		XA_PRINT("   RMS stretch metric: %g\n", globalParameterizationQuality.rmsStretchMetric());
+		XA_PRINT("   MAX stretch metric: %g\n", globalParameterizationQuality.maxStretchMetric());
+		XA_PRINT("   RMS conformal metric: %g\n", globalParameterizationQuality.rmsConformalMetric());
+		XA_PRINT("   RMS authalic metric: %g\n", globalParameterizationQuality.maxAuthalicMetric());
 	}
 
 private:
@@ -5736,7 +5698,7 @@ struct AtlasPacker
 		if (progressCallback)
 			progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
 		const uint32_t chartCount = m_atlas->chartCount();
-		XA_PRINT(PrintFlags::PackingCharts, "   %u charts\n", chartCount);
+		XA_PRINT("Packing %u charts\n", chartCount);
 		if (chartCount == 0) return;
 		uint32_t resolution = options.resolution;
 		m_texelsPerUnit = options.texelsPerUnit;
@@ -5754,13 +5716,13 @@ struct AtlasPacker
 				// Estimate resolution based on the mesh surface area and given texel scale.
 				const float texelCount = max(1.0f, meshArea * square(m_texelsPerUnit) / 0.75f); // Assume 75% utilization.
 				resolution = nextPowerOfTwo(uint32_t(sqrtf(texelCount)));
-				XA_PRINT(PrintFlags::PackingCharts, "      Estimating resolution as %d\n", resolution);
+				XA_PRINT("   Estimating resolution as %d\n", resolution);
 			}
 			if (m_texelsPerUnit <= 0) {
 				// Estimate a suitable texelsPerUnit to fit the given resolution.
 				const float texelCount = max(1.0f, meshArea / 0.75f); // Assume 75% utilization.
 				m_texelsPerUnit = sqrt((resolution * resolution) / texelCount);
-				XA_PRINT(PrintFlags::PackingCharts, "      Estimating texelsPerUnit as %g\n", m_texelsPerUnit);
+				XA_PRINT("   Estimating texelsPerUnit as %g\n", m_texelsPerUnit);
 			}
 		}
 		m_rand = MTRand();
@@ -5807,16 +5769,8 @@ struct AtlasPacker
 				tmp.y = dot(*texcoord, minorAxis);
 				tmp -= origin;
 				tmp *= scale;
-				if (tmp.x < 0 || tmp.y < 0) {
-					XA_PRINT(PrintFlags::PackingCharts, "tmp: %f %f\n", tmp.x, tmp.y);
-					XA_PRINT(PrintFlags::PackingCharts, "scale: %f\n", scale);
-					XA_PRINT(PrintFlags::PackingCharts, "origin: %f %f\n", origin.x, origin.y);
-					XA_PRINT(PrintFlags::PackingCharts, "majorAxis: %f %f\n", majorAxis.x, majorAxis.y);
-					XA_PRINT(PrintFlags::PackingCharts, "minorAxis: %f %f\n", minorAxis.x, minorAxis.y);
-					XA_DEBUG_ASSERT(false);
-				}
-				//XA_ASSERT(tmp.x >= 0 && tmp.y >= 0);
-				XA_ASSERT(isFinite(tmp.x) && isFinite(tmp.y));
+				XA_DEBUG_ASSERT(tmp.x >= 0 && tmp.y >= 0);
+				XA_DEBUG_ASSERT(isFinite(tmp.x) && isFinite(tmp.y));
 				*mesh->texcoordAt(i) = tmp;
 				extents = max(extents, tmp);
 			}
@@ -5881,13 +5835,11 @@ struct AtlasPacker
 		// @@ We can try to improve compression of small charts by sorting them by proximity like we do with vertex samples.
 		// @@ How to do that? One idea: compute chart centroid, insert into grid, compute morton index of the cell, sort based on morton index.
 		// @@ We would sort by morton index, first, then quantize the chart sizes, so that all small charts have the same size, and sort by size preserving the morton order.
-		XA_PRINT(PrintFlags::PackingCharts, "      Sorting charts.\n");
 		// Sort charts by area.
 		m_radix = RadixSort();
 		m_radix.sort(chartOrderArray);
 		const uint32_t *ranks = m_radix.ranks();
 		// Add sorted charts to bitmap.
-		XA_PRINT(PrintFlags::PackingCharts, "      Rasterizing charts\n");
 		int w = 0, h = 0;
 		int progress = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
@@ -5949,26 +5901,19 @@ struct AtlasPacker
 				// Chart doesn't fit in the current bitmap, try the next one.
 				currentBitmapIndex++;
 			}
-			/*if (w < best_x + best_cw || h < best_y + best_ch)
-				XA_PRINT("Resize extents to (%d, %d).\n", best_x + best_cw, best_y + best_ch);
-			*/
 			// Update parametric extents.
 			w = max(w, best_x + best_cw);
 			h = max(h, best_y + best_ch);
 			if (options.resolution <= 0) {
 				// Resize bitmap if necessary.
-				if (uint32_t(w) > m_bitmaps[0]->width() || uint32_t(h) > m_bitmaps[0]->height()) {
+				if (uint32_t(w) > m_bitmaps[0]->width() || uint32_t(h) > m_bitmaps[0]->height())
 					m_bitmaps[0]->resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
-					XA_PRINT(PrintFlags::PackingCharts, "      Resize bitmap (%d, %d).\n", m_bitmaps[0]->width(), m_bitmaps[0]->height());
-				}
 			} else {
 				w = min((int)options.resolution, w);
 				h = min((int)options.resolution, h);
 			}
-			//XA_PRINT("Add chart at (%d, %d).\n", best_x, best_y);
 			addChart(m_bitmaps[currentBitmapIndex], &chart_bitmap, w, h, best_x, best_y, best_r);
 			chart->atlasIndex = (int32_t)currentBitmapIndex;
-			//float best_angle = 2 * M_PI * best_r;
 			// Translate and rotate chart texture coordinates.
 			Mesh *mesh = chart->chartMesh();
 			const uint32_t vertexCount = mesh->vertexCount();
@@ -5996,7 +5941,7 @@ struct AtlasPacker
 		m_height = max(0, h);
 		if (options.resolution > 0)
 			m_width = m_height = options.resolution;
-		XA_PRINT(PrintFlags::PackingCharts, "      %dx%d resolution\n", m_width, m_height);
+		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
 		if (progressCallback && progress != 100)
 			progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
 	}
@@ -6571,7 +6516,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 	XA_DEBUG_ASSERT(meshDecl.vertexCount > 0);
 	XA_DEBUG_ASSERT(meshDecl.indexCount > 0);
 	Context *ctx = (Context *)atlas;
-	XA_PRINT(PrintFlags::MeshCreation, "Adding mesh %d: %u vertices, %u triangles\n", atlas->meshCount, meshDecl.vertexCount, meshDecl.indexCount / 3);
+	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", atlas->meshCount, meshDecl.vertexCount, meshDecl.indexCount / 3);
 	// Expecting triangle faces.
 	if ((meshDecl.indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
@@ -6603,14 +6548,14 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 			const uint32_t index2 = tri[(j + 1) % 3];
 			if (index1 == index2) {
 				faceFlags |= internal::FaceFlags::Ignore;
-				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d degenerate edge: index %d, index %d\n", (int)atlas->meshCount, index1, index2);
+				XA_PRINT("   Degenerate edge: index %d, index %d\n", index1, index2);
 				break;
 			}
 			const internal::Vector3 pos1 = *mesh->positionAt(index1);
 			const internal::Vector3 pos2 = *mesh->positionAt(index2);
 			if (internal::length(pos2 - pos1) <= 0.0f) {
 				faceFlags |= internal::FaceFlags::Ignore;
-				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", (int)atlas->meshCount, index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
+				XA_PRINT("   Zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
 				break;
 			}
 		}
@@ -6622,7 +6567,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
 			if (area <= 0.0f) {
 				faceFlags |= internal::FaceFlags::Ignore;
-				XA_PRINT(PrintFlags::MeshWarnings, "Mesh %d zero area face: %d, indices (%d %d %d)\n", (int)atlas->meshCount, i, tri[0], tri[1], tri[2]);
+				XA_PRINT("   Zero area face: %d, indices (%d %d %d)\n", i, tri[0], tri[1], tri[2]);
 			}
 		}
 		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
@@ -6656,9 +6601,9 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	}
 	DestroyOutputMeshes(ctx);
 	// Chart meshes.
-	XA_PRINT(PrintFlags::ComputingCharts, "Computing charts\n");
+	XA_PRINT("Computing charts\n");
 	ctx->paramAtlas.computeCharts(ctx->meshes, charterOptions, progressCallback, progressCallbackUserData);
-	XA_PRINT(PrintFlags::ParametizingCharts, "Parameterizing charts\n");
+	XA_PRINT("Parameterizing charts\n");
 	ctx->paramAtlas.parameterizeCharts(progressCallback, progressCallbackUserData);
 	// Count charts.
 	for (uint32_t i = 0; i < ctx->meshes.size(); i++) {
@@ -6685,7 +6630,6 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	}
 	if (atlas->chartCount <= 0)
 		return;
-	XA_PRINT(PrintFlags::PackingCharts, "Packing charts\n");
 	ctx->paramAtlas.resetChartTexcoords();
 	internal::param::AtlasPacker packer(&ctx->paramAtlas);
 	packer.packCharts(packerOptions, progressCallback, progressCallbackUserData);
@@ -6696,7 +6640,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	atlas->utilization = XA_ALLOC_ARRAY(float, atlas->atlasCount);
 	for (uint32_t i = 0; i < atlas->atlasCount; i++)
 		atlas->utilization[i] = packer.computeAtlasUtilization(i);
-	XA_PRINT(PrintFlags::BuildingOutputMeshes, "Building output meshes\n");
+	XA_PRINT("Building output meshes\n");
 	int progress = 0;
 	if (progressCallback)
 		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
@@ -6804,7 +6748,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 				chartIndex++;
 			}
 		}
-		XA_PRINT(PrintFlags::BuildingOutputMeshes, "   mesh %u: %u vertices, %u triangles, %u charts\n", i, outputMesh->vertexCount, outputMesh->indexCount / 3, outputMesh->chartCount);
+		XA_PRINT("   mesh %u: %u vertices, %u triangles, %u charts\n", i, outputMesh->vertexCount, outputMesh->indexCount / 3, outputMesh->chartCount);
 		if (progressCallback) {
 			const int newProgress = int((i + 1) / (float)atlas->meshCount * 100.0f);
 			if (newProgress != progress) {
@@ -6822,10 +6766,9 @@ void SetRealloc(ReallocFunc reallocFunc)
 	internal::s_realloc = reallocFunc;
 }
 
-void SetPrint(int flags, PrintFunc print)
+void SetPrint(PrintFunc print)
 {
-	internal::s_printFlags = flags;
-	internal::s_print = print ? print : printf;
+	internal::s_print = print;
 }
 
 const char *StringForEnum(AddMeshError::Enum error)
