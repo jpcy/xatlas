@@ -3459,11 +3459,6 @@ static bool drawTriangle(Mode mode, const Vector2 &extents, bool enableScissors,
 // Full and sparse vector and matrix classes. BLAS subset.
 // Pseudo-BLAS interface.
 namespace sparse {
-enum Transpose
-{
-	NoTransposed = 0,
-	Transposed = 1
-};
 
 /**
 * Sparse matrix class. The matrix is assumed to be sparse and to have
@@ -3614,29 +3609,17 @@ static void mult(const Matrix &M, const FullVector &x, FullVector &y)
 		y[i] = M.dotRow(i, x);
 }
 
-static void sgemv(float alpha, Transpose TA, const Matrix &A, const FullVector &x, float beta, FullVector &y)
-{
-	const uint32_t w = A.width();
-	const uint32_t h = A.height();
-	if (TA == Transposed) {
-		XA_DEBUG_ASSERT( h == x.dimension() );
-		XA_DEBUG_ASSERT( w == y.dimension() );
-		for (uint32_t i = 0; i < h; i++)
-			A.madRow(i, alpha * x[i], y);
-	} else {
-		XA_DEBUG_ASSERT( w == x.dimension() );
-		XA_DEBUG_ASSERT( h == y.dimension() );
-		for (uint32_t i = 0; i < h; i++)
-			y[i] = alpha * A.dotRow(i, x) + beta * y[i];
-	}
-	XA_UNUSED(w);
-	XA_UNUSED(h);
-}
-
 // y = alpha*A*x + beta*y
 static void sgemv(float alpha, const Matrix &A, const FullVector &x, float beta, FullVector &y)
 {
-	sgemv(alpha, NoTransposed, A, x, beta, y);
+	const uint32_t w = A.width();
+	const uint32_t h = A.height();
+	XA_DEBUG_ASSERT( w == x.dimension() );
+	XA_DEBUG_ASSERT( h == y.dimension() );
+	XA_UNUSED(w);
+	XA_UNUSED(h);
+	for (uint32_t i = 0; i < h; i++)
+		y[i] = alpha * A.dotRow(i, x) + beta * y[i];
 }
 
 // dot y-row of A by x-column of B
