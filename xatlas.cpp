@@ -4274,7 +4274,8 @@ struct ChartBuildData
 
 struct AtlasBuilder
 {
-	AtlasBuilder(const Mesh *rm, const CharterOptions &options) : m_mesh(rm), m_facesLeft(rm->faceCount()), m_options(options)
+	// @@ Hardcoded to 10?
+	AtlasBuilder(const Mesh *rm, const CharterOptions &options) : m_mesh(rm), m_facesLeft(rm->faceCount()), m_bestTriangles(10), m_options(options)
 	{
 		const uint32_t faceCount = m_mesh->faceCount();
 		m_faceChartArray.resize(faceCount, -1);
@@ -4464,27 +4465,26 @@ struct AtlasBuilder
 		return anySeedChanged;
 	}
 
-	bool relocateSeed(ChartBuildData *chart) const
+	bool relocateSeed(ChartBuildData *chart)
 	{
 		Vector3 centroid = computeChartCentroid(chart);
-		const uint32_t N = 10;  // @@ Hardcoded to 10?
-		PriorityQueue bestTriangles(N);
 		// Find the first N triangles that fit the proxy best.
+		m_bestTriangles.clear();
 		const uint32_t faceCount = chart->faces.size();
 		for (uint32_t i = 0; i < faceCount; i++) {
 			float priority = evaluateProxyFitMetric(chart, chart->faces[i]);
-			bestTriangles.push(priority, chart->faces[i]);
+			m_bestTriangles.push(priority, chart->faces[i]);
 		}
 		// Of those, choose the most central triangle.
 		uint32_t mostCentral = 0;
 		float maxDistance = -1;
-		const uint32_t bestCount = bestTriangles.count();
+		const uint32_t bestCount = m_bestTriangles.count();
 		for (uint32_t i = 0; i < bestCount; i++) {
-			Vector3 faceCentroid = m_mesh->triangleCenter(bestTriangles.pairs[i].face);
+			Vector3 faceCentroid = m_mesh->triangleCenter(m_bestTriangles.pairs[i].face);
 			float distance = length(centroid - faceCentroid);
 			if (distance > maxDistance) {
 				maxDistance = distance;
-				mostCentral = bestTriangles.pairs[i].face;
+				mostCentral = m_bestTriangles.pairs[i].face;
 			}
 		}
 		XA_DEBUG_ASSERT(maxDistance >= 0);
@@ -4865,6 +4865,7 @@ private:
 	Array<ChartBuildData *> m_chartArray;
 	Array<Candidate> m_candidateArray;
 	Array<uint32_t> m_faceCandidateArray; // Map face index to candidate index.
+	PriorityQueue m_bestTriangles;
 	MTRand m_rand;
 	CharterOptions m_options;
 };
