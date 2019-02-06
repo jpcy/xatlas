@@ -5519,6 +5519,8 @@ private:
 class Atlas
 {
 public:
+	Atlas() : m_meshCount(0) {}
+
 	~Atlas()
 	{
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
@@ -5526,6 +5528,8 @@ public:
 			XA_FREE(m_chartGroups[i]);
 		}
 	}
+
+	uint32_t meshCount() const { return m_meshCount; }
 
 	uint32_t chartGroupCount(uint32_t mesh) const
 	{
@@ -5569,42 +5573,45 @@ public:
 		return NULL;
 	}
 
-	void computeCharts(const Array<Mesh *> &meshes, const CharterOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
+	void addMesh(const Mesh *mesh)
+	{
+		// Get list of face groups.
+		const uint32_t faceCount = mesh->faceCount();
+		Array<uint32_t> faceGroups;
+		for (uint32_t f = 0; f < faceCount; f++) {
+			const uint32_t group = mesh->faceGroupAt(f);
+			bool exists = false;
+			for (uint32_t g = 0; g < faceGroups.size(); g++) {
+				if (faceGroups[g] == group) {
+					exists = true;
+					break;
+				}
+			}
+			if (!exists)
+				faceGroups.push_back(group);
+		}
+		// Create one chart group per face group.
+		for (uint32_t g = 0; g < faceGroups.size(); g++) {
+			ChartGroup *chartGroup = XA_NEW(ChartGroup, g, mesh, faceGroups[g]);
+			m_chartGroups.push_back(chartGroup);
+			m_chartGroupSourceMeshes.push_back(m_meshCount);
+		}
+		m_meshCount++;
+	}
+
+	void computeCharts(const CharterOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
 	{
 		int progress = 0;
 		if (progressCallback)
 			progressCallback(ProgressCategory::ComputingCharts, 0, progressCallbackUserData);
-		const uint32_t meshCount = meshes.size();
-		for (uint32_t i = 0; i < meshCount; i++) {
-			// Get list of face groups.
-			const uint32_t faceCount = meshes[i]->faceCount();
-			Array<uint32_t> faceGroups;
-			for (uint32_t f = 0; f < faceCount; f++) {
-				const uint32_t group = meshes[i]->faceGroupAt(f);
-				bool exists = false;
-				for (uint32_t g = 0; g < faceGroups.size(); g++) {
-					if (faceGroups[g] == group) {
-						exists = true;
-						break;
-					}
-				}
-				if (!exists)
-					faceGroups.push_back(group);
-			}
-			// Create one chart group per face group.
-			for (uint32_t g = 0; g < faceGroups.size(); g++) {
-				ChartGroup *chartGroup = XA_NEW(ChartGroup, g, meshes[i], faceGroups[g]);
-				if (!chartGroup->isVertexMap())
-					chartGroup->computeCharts(options);
-				m_chartGroups.push_back(chartGroup);
-				m_chartGroupSourceMeshes.push_back(i);
-				if (progressCallback) {
-					const float groupProgess = (g + 1) / (float)faceGroups.size();
-					const int newProgress = int(((i + groupProgess) / (float)meshCount) * 100.0f);
-					if (newProgress != progress) {
-						progress = newProgress;
-						progressCallback(ProgressCategory::ComputingCharts, progress, progressCallbackUserData);
-					}
+		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
+			if (!m_chartGroups[i]->isVertexMap())
+				m_chartGroups[i]->computeCharts(options);
+			if (progressCallback) {
+				const int newProgress = int((i + 1) / (float)m_chartGroups.size() * 100.0f);
+				if (newProgress != progress) {
+					progress = newProgress;
+					progressCallback(ProgressCategory::ComputingCharts, progress, progressCallbackUserData);
 				}
 			}
 		}
@@ -5655,6 +5662,7 @@ public:
 	}
 
 private:
+	uint32_t m_meshCount;
 	Array<ChartGroup *> m_chartGroups;
 	Array<uint32_t> m_chartGroupSourceMeshes;
 	Array<Array<Vector2> > m_originalChartTexcoords;
@@ -6413,7 +6421,6 @@ struct Context
 {
 	Atlas atlas;
 	internal::param::Atlas paramAtlas;
-	internal::Array<internal::Mesh *> meshes;
 };
 
 Atlas *Create()
@@ -6453,10 +6460,6 @@ void Destroy(Atlas *atlas)
 	Context *ctx = (Context *)atlas;
 	if (atlas->utilization)
 		XA_FREE(atlas->utilization);
-	for (int i = 0; i < (int)ctx->meshes.size(); i++) {
-		ctx->meshes[i]->~Mesh();
-		XA_FREE(ctx->meshes[i]);
-	}
 	DestroyOutputMeshes(ctx);
 	ctx->~Context();
 	XA_FREE(ctx);
@@ -6510,7 +6513,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 		if (index >= meshDecl.vertexCount)
 			return AddMeshError::IndexOutOfRange;
 	}
-	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.vertexCount, meshDecl.indexCount / 3, ctx->meshes.size());
+	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.vertexCount, meshDecl.indexCount / 3, atlas->meshCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0);
 		internal::Vector2 texcoord(0);
@@ -6563,7 +6566,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 #if XA_DEBUG_EXPORT_OBJ
 	mesh->writeObj();
 #endif
-	ctx->meshes.push_back(mesh);
+	ctx->paramAtlas.addMesh(mesh);
+	mesh->~Mesh();
+	XA_FREE(mesh);
 	atlas->meshCount++;
 	return AddMeshError::Success;
 }
@@ -6572,7 +6577,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 {
 	XA_DEBUG_ASSERT(atlas);
 	Context *ctx = (Context *)atlas;
-	if (ctx->meshes.isEmpty())
+	if (ctx->paramAtlas.meshCount() == 0)
 		return;
 	atlas->atlasCount = 0;
 	atlas->chartCount = 0;
@@ -6586,11 +6591,11 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	DestroyOutputMeshes(ctx);
 	// Chart meshes.
 	XA_PRINT("Computing charts\n");
-	ctx->paramAtlas.computeCharts(ctx->meshes, charterOptions, progressCallback, progressCallbackUserData);
+	ctx->paramAtlas.computeCharts(charterOptions, progressCallback, progressCallbackUserData);
 	XA_PRINT("Parameterizing charts\n");
 	ctx->paramAtlas.parameterizeCharts(progressCallback, progressCallbackUserData);
 	// Count charts.
-	for (uint32_t i = 0; i < ctx->meshes.size(); i++) {
+	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
 			if (!chartGroup->isVertexMap())
