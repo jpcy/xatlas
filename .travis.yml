@@ -4,15 +4,7 @@ compiler: gcc
 install:
   - wget https://github.com/premake/premake-core/releases/download/v5.0.0-alpha13/premake-5.0.0-alpha13-linux.tar.gz -O premake.tar.gz
   - tar -xf premake.tar.gz
-  - pwd
-  - ls -la
-  - chmod +x premake5
-  - pwd
-  - ls -la
-  - cd $TRAVIS_BUILD_DIR
-  - pwd
-  - ls -la
-  - ../premake5 gmake
+  - ./premake5 gmake
   - cd build/gmake
 
 script:
