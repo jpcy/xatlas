@@ -23,7 +23,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #pragma warning(pop)
 #endif
 
-#include "xatlas.h"
+#include "../xatlas.h"
 
 #define MODEL_PATH "../../models/"
 #define ASSERT(_condition) if (!(_condition)) printf("[FAILED] '%s' %s %d\n", #_condition, __FILE__, __LINE__);

@@ -1,5 +1,5 @@
 @echo off
-premake5.exe gmake
-premake5.exe --cc=clang gmake
-premake5.exe vs2017
+"bin/premake5.exe" gmake
+"bin/premake5.exe" --cc=clang gmake
+"bin/premake5.exe" vs2017
 pause

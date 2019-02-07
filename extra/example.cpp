@@ -34,7 +34,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #pragma warning(pop)
 #endif
 
-#include "xatlas.h"
+#include "../xatlas.h"
 
 #ifdef _MSC_VER
 #define STRICMP _stricmp
