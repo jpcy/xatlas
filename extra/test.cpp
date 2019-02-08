@@ -12,11 +12,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <stdio.h>
 #include <time.h>
 
-#define TINYOBJLOADER_IMPLEMENTATION
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4201)
-#pragma warning(disable : 4706)
 #endif
 #include "thirdparty/tiny_obj_loader.h"
 #ifdef _MSC_VER

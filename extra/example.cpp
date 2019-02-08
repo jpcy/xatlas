@@ -10,24 +10,22 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #include <assert.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <time.h>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#ifdef _MSC_VER
+/*#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4996)
-#endif
+#endif*/
 #include "thirdparty/stb_image_write.h"
-#ifdef _MSC_VER
+/*#ifdef _MSC_VER
 #pragma warning(pop)
-#endif
+#endif*/
 
-#define TINYOBJLOADER_IMPLEMENTATION
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4201)
-#pragma warning(disable : 4706)
 #endif
 #include "thirdparty/tiny_obj_loader.h"
 #ifdef _MSC_VER
