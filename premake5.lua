@@ -154,6 +154,7 @@ project "nativefiledialog"
 project "objzero"
 	kind "StaticLib"
 	language "C"
+	cdialect "C99"
 	files(path.join(THIRDPARTY_DIR, "objzero/objzero.*"))
 	
 project "stb_image_write"
