@@ -147,7 +147,7 @@ project "nativefiledialog"
 		files(path.join(THIRDPARTY_DIR, "nativefiledialog/nfd_win.cpp"))
 	filter "system:linux"
 		files(path.join(THIRDPARTY_DIR, "nativefiledialog/nfd_gtk.c"))
-		buildoptions(os.outputof("pkg-config --cflags gtk+-2.0"))
+		buildoptions(os.outputof("pkg-config --cflags gtk+-3.0"))
 	filter "action:vs*"
 		defines { "_CRT_SECURE_NO_WARNINGS" }
 	
