@@ -14,14 +14,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <stdio.h>
 #include <time.h>
 
-/*#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4996)
-#endif*/
 #include "thirdparty/stb_image_write.h"
-/*#ifdef _MSC_VER
-#pragma warning(pop)
-#endif*/
 
 #ifdef _MSC_VER
 #pragma warning(push)

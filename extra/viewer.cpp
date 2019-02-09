@@ -1,3 +1,14 @@
+/*
+Copyright (c) 2018 Jonathan Young
+Copyright (c) 2013 Thekla, Inc
+Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -212,6 +223,7 @@ struct
 	FirstPersonCamera firstPerson;
 	OrbitCamera orbit;
 	double lastCursorPos[2];
+	float fov = 75.0f;
 	float sensitivity = 0.25f;
 }
 s_camera;
@@ -600,6 +612,7 @@ static void modelDestroy()
 		glDeleteVertexArrays(1, &s_model.vao);
 		s_model.vao = 0;
 	}
+	glfwSetWindowTitle(s_window, WINDOW_TITLE);
 }
 
 struct ModelLoadThreadArgs
@@ -656,6 +669,9 @@ static void modelLoad(const char *filename)
 	modelDestroy();
 	s_model.status.set(ModelStatus::Loading);
 	printf("Loading '%s'\n", filename);
+	char windowTitle[256];
+	snprintf(windowTitle, sizeof(windowTitle), "%s - %s\n", WINDOW_TITLE, filename);
+	glfwSetWindowTitle(s_window, windowTitle);
 	ModelLoadThreadArgs args;
 	STRNCPY(args.filename, sizeof(args.filename), filename);
 	s_model.thread = new std::thread(modelLoadThread, args);
@@ -740,27 +756,27 @@ int main(int /*argc*/, char ** /*argv*/)
 			guiRunFrame(deltaTime);
 			ImGui::NewFrame();
 			ImGuiIO &io = ImGui::GetIO();
-			float menuBarHeight = 0.0f;
-			if (ImGui::BeginMainMenuBar()) {
-				if (ImGui::BeginMenu("File")) {
-					if (ImGui::MenuItem("Open..."))
-						modelOpenDialog();
-					if (ImGui::MenuItem("Exit"))
-						glfwSetWindowShouldClose(s_window, GLFW_TRUE);
-					ImGui::EndMenu();
-				}
-				menuBarHeight = ImGui::GetWindowHeight();
-				ImGui::EndMainMenuBar();
-			}
 			const float margin = 8.0f;
-			ImGui::SetNextWindowPos(ImVec2(margin, menuBarHeight + margin), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_FirstUseEver);
 			ImGui::SetNextWindowSize(ImVec2(350.0f, 400.0f), ImGuiCond_FirstUseEver);
-			if (ImGui::Begin("Options")) {
-				ImGui::ColorEdit3("Clear color", &s_options.clearColor.X);
+			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
+				if (ImGui::Button("Open model...", ImVec2(-1.0f, 0.0f)))
+					modelOpenDialog();
+				if (s_model.data) {
+					ImGui::Text("%u objects", s_model.data->numObjects);
+					ImGui::Text("%u vertices", s_model.data->numVertices);
+					ImGui::Text("%u triangles", s_model.data->numIndices / 3);
+				}
 				ImGui::InputFloat("Model scale", &s_model.scale, 0.01f, 0.1f);
+				s_model.scale = HMM_MAX(0.001f, s_model.scale);
+				ImGui::Spacing();
+				ImGui::Separator();
+				ImGui::Spacing();
+				ImGui::ColorEdit3("Clear color", &s_options.clearColor.X);
 				ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
 				ImGui::SameLine();
 				ImGui::RadioButton("Orbit camera", (int *)&s_camera.mode, (int)CameraMode::Orbit);
+				ImGui::DragFloat("FOV", &s_camera.fov, 1.0f, 45.0f, 150.0f, "%.0f");
 				ImGui::DragFloat("Sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
 				ImGui::End();
 			}
@@ -796,7 +812,7 @@ int main(int /*argc*/, char ** /*argv*/)
 				view = s_camera.firstPerson.calculateViewMatrix();
 			else if (s_camera.mode == CameraMode::Orbit)
 				view = s_camera.orbit.calculateViewMatrix();
-			const hmm_mat4 projection = HMM_Perspective(75.0f, width / (float)height, 0.01f, 1000.0f);
+			const hmm_mat4 projection = HMM_Perspective(s_camera.fov, width / (float)height, 0.01f, 1000.0f);
 			modelRender(view, projection);
 		}
 		if (s_options.gui)
