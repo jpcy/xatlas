@@ -103,6 +103,7 @@ struct
 	ModelStatus status;
 	std::thread *thread = nullptr;
 	objzModel *data;
+	hmm_vec3 centroid = HMM_Vec3(0.0f, 0.0f, 0.0f);
 	GLuint vao, vbo, ibo;
 	float scale = 1.0f;
 }
@@ -183,10 +184,10 @@ struct OrbitCamera
 	{
 		hmm_vec3 forward;
 		axisFromEulerAngles(pitch, yaw, &forward, nullptr, nullptr);
-		const hmm_vec3 at = HMM_Vec3(0.0f, focusHeight, 0.0f);
-		const hmm_vec3 eye = HMM_Add(HMM_Multiply(forward, -distance), at);
+		const hmm_vec3 center = HMM_Multiply(s_model.centroid, s_model.scale);
+		const hmm_vec3 eye = HMM_Add(HMM_Multiply(forward, -distance), center);
 		const hmm_vec3 up = HMM_Vec3(0.0f, 1.0f, 0.0f);
-		return HMM_LookAt(eye, at, up);
+		return HMM_LookAt(eye, center, up);
 	}
 
 	void rotate(float deltaX, float deltaY)
@@ -195,18 +196,12 @@ struct OrbitCamera
 		pitch = HMM_Clamp(-75.0f, pitch + deltaY, 75.0f);
 	}
 
-	void track(float delta)
-	{
-		focusHeight = HMM_Clamp(-2.5f, focusHeight + delta, 2.5f);
-	}
-
 	void zoom(float delta)
 	{
 		distance = HMM_Clamp(0.1f, distance + delta, 500.0f);
 	}
 
 	float distance = 10.0f;
-	float focusHeight = 0.0f;
 	float pitch = 0.0f;
 	float yaw = 0.0f;
 };
@@ -646,6 +641,10 @@ static void modelFinalize()
 		delete s_model.thread;
 		s_model.thread = nullptr;
 	}
+	s_model.centroid = HMM_Vec3(0.0f, 0.0f, 0.0f);
+	for (uint32_t i = 0; i < s_model.data->numVertices; i++)
+		s_model.centroid = HMM_Add(s_model.centroid, ((const ModelVertex *)s_model.data->vertices)[i].pos);
+	s_model.centroid = HMM_Multiply(s_model.centroid, 1.0f / s_model.data->numVertices);
 	glGenBuffers(1, &s_model.vbo);
 	glGenBuffers(1, &s_model.ibo);
 	glGenVertexArrays(1, &s_model.vao);
