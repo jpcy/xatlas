@@ -112,7 +112,8 @@ s_model;
 struct
 {
 	bool gui = true;
-	hmm_vec3 clearColor;
+	bool wireframe = true;
+	hmm_vec3 clearColor = HMM_Vec3(0.25f, 0.25f, 0.25f);
 }
 s_options;
 
@@ -690,24 +691,29 @@ static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
 {
 	if (s_model.status.get() != ModelStatus::Ready)
 		return;
-	const float scale = HMM_MAX(s_model.scale, 0.001f);
-	const hmm_mat4 model = HMM_Scale(HMM_Vec3(scale, scale, scale));
+	const hmm_mat4 model = HMM_Scale(HMM_Vec3(s_model.scale, s_model.scale, s_model.scale));
 	const hmm_mat4 mvp = HMM_Multiply(projection, HMM_Multiply(view, model));
-	glDisable(GL_CULL_FACE);
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 	glBindVertexArray(s_model.vao);
 	glUseProgram(s_colorShader.id);
-	const float color[] = { 1, 1, 1, 0.5f };
+	const float color[] = { 0.75f, 0.75f, 0.75f, 1.0f };
 	glUniform4fv(s_colorShader.u_color, 1, color);
 	glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
 	glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-	glDisable(GL_BLEND);
-	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_CULL_FACE);
+	if (s_options.wireframe) {
+		glDisable(GL_DEPTH_TEST);
+		glDisable(GL_CULL_FACE);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		const float wcolor[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+		glUniform4fv(s_colorShader.u_color, 1, wcolor);
+		glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
+		glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
+		glEnable(GL_DEPTH_TEST);
+		glEnable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	}
 }
 
 int main(int /*argc*/, char ** /*argv*/)
@@ -729,7 +735,6 @@ int main(int /*argc*/, char ** /*argv*/)
 	flextInit();
 	glDepthFunc(GL_LEQUAL);
 	glEnable(GL_CULL_FACE);
-	s_options.clearColor.X = s_options.clearColor.Y = s_options.clearColor.Z = 0.5f;
 	shadersInit();
 	guiInit();
 	glfwSetCharCallback(s_window, glfw_charCallback);
@@ -768,6 +773,7 @@ int main(int /*argc*/, char ** /*argv*/)
 				}
 				ImGui::InputFloat("Model scale", &s_model.scale, 0.01f, 0.1f);
 				s_model.scale = HMM_MAX(0.001f, s_model.scale);
+				ImGui::Checkbox("Wireframe", &s_options.wireframe);
 				ImGui::Spacing();
 				ImGui::Separator();
 				ImGui::Spacing();
