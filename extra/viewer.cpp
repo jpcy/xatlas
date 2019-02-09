@@ -28,6 +28,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "imgui/imgui.h"
 #include "nativefiledialog/nfd.h"
 #include "objzero/objzero.h"
+#include "../xatlas.h"
 
 #define WINDOW_TITLE "xatlas viewer"
 #define WINDOW_DEFAULT_WIDTH 1920
@@ -41,6 +42,71 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 static GLFWwindow *s_window;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
+
+struct AtlasStatus
+{
+	enum Enum
+	{
+		NotGenerated,
+		AddingMeshes,
+		ComputingCharts,
+		ParametizingCharts,
+		PackingCharts,
+		BuildingOutputMeshes,
+		Finalizing,
+		Ready,
+		Error
+	};
+
+	Enum get()
+	{
+		m_lock.lock();
+		Enum result = m_value;
+		m_lock.unlock();
+		return result;
+	}
+
+	void set(Enum value)
+	{
+		m_lock.lock();
+		m_value = value;
+		m_lock.unlock();
+	}
+
+	int getProgress()
+	{
+		m_lock.lock();
+		int result = m_progress;
+		m_lock.unlock();
+		return result;
+	}
+
+	void setProgress(int value)
+	{
+		m_lock.lock();
+		m_progress = value;
+		m_lock.unlock();
+	}
+
+private:
+	std::mutex m_lock;
+	Enum m_value = NotGenerated;
+	int m_progress = 0;
+};
+
+struct
+{
+	xatlas::Atlas *data = nullptr;
+	std::thread *thread = nullptr;
+	AtlasStatus status;
+	bool verbose = false;
+	bool showChartsTexture = true;
+	GLuint chartsTexture = 0;
+	std::vector<uint8_t> chartsImage;
+	xatlas::CharterOptions charterOptions;
+	xatlas::PackerOptions packerOptions;
+}
+s_atlas;
 
 struct
 {
@@ -113,7 +179,6 @@ struct
 {
 	bool gui = true;
 	bool wireframe = true;
-	hmm_vec3 clearColor = HMM_Vec3(0.25f, 0.25f, 0.25f);
 }
 s_options;
 
@@ -219,7 +284,7 @@ struct
 	FirstPersonCamera firstPerson;
 	OrbitCamera orbit;
 	double lastCursorPos[2];
-	float fov = 75.0f;
+	float fov = 90.0f;
 	float sensitivity = 0.25f;
 }
 s_camera;
@@ -585,8 +650,28 @@ static void guiShutdown()
 	glDeleteTextures(1, &s_gui.fontTexture);
 }
 
+
+static void atlasDestroy()
+{
+	if (s_atlas.thread) {
+		s_atlas.thread->join();
+		delete s_atlas.thread;
+		s_atlas.thread = nullptr;
+	}
+	if (s_atlas.data) {
+		xatlas::Destroy(s_atlas.data);
+		s_atlas.data = nullptr;
+	}
+	if (s_atlas.chartsTexture) {
+		glDeleteTextures(1, &s_atlas.chartsTexture);
+		s_atlas.chartsTexture = 0;
+	}
+	s_atlas.status.set(AtlasStatus::NotGenerated);
+}
+
 static void modelDestroy()
 {
+	atlasDestroy();
 	if (s_model.thread) {
 		s_model.thread->join();
 		delete s_model.thread;
@@ -609,6 +694,7 @@ static void modelDestroy()
 		s_model.vao = 0;
 	}
 	glfwSetWindowTitle(s_window, WINDOW_TITLE);
+	s_model.status.set(ModelStatus::NotLoaded);
 }
 
 struct ModelLoadThreadArgs
@@ -664,8 +750,14 @@ static void modelFinalize()
 	s_model.status.set(ModelStatus::Ready);
 }
 
-static void modelLoad(const char *filename)
+static void modelOpenDialog()
 {
+	if (s_model.status.get() == ModelStatus::Loading || s_model.status.get() == ModelStatus::Finalizing)
+		return;
+	nfdchar_t *filename = nullptr;
+	nfdresult_t result = NFD_OpenDialog("obj", nullptr, &filename);
+	if (result != NFD_OKAY)
+		return;
 	modelDestroy();
 	s_model.status.set(ModelStatus::Loading);
 	printf("Loading '%s'\n", filename);
@@ -675,16 +767,7 @@ static void modelLoad(const char *filename)
 	ModelLoadThreadArgs args;
 	STRNCPY(args.filename, sizeof(args.filename), filename);
 	s_model.thread = new std::thread(modelLoadThread, args);
-}
-
-static void modelOpenDialog()
-{
-	nfdchar_t *nfdPath = nullptr;
-	nfdresult_t result = NFD_OpenDialog("obj", nullptr, &nfdPath);
-	if (result != NFD_OKAY)
-		return;
-	modelLoad(nfdPath);
-	free(nfdPath);
+	free(filename);
 }
 
 static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
@@ -714,6 +797,164 @@ static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
 		glDisable(GL_BLEND);
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	}
+}
+
+static void atlasProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void * /*userData*/)
+{
+	if (category == xatlas::ProgressCategory::ComputingCharts)
+		s_atlas.status.set(AtlasStatus::ComputingCharts);
+	else if (category == xatlas::ProgressCategory::ParametizingCharts)
+		s_atlas.status.set(AtlasStatus::ParametizingCharts);
+	else if (category == xatlas::ProgressCategory::PackingCharts)
+		s_atlas.status.set(AtlasStatus::PackingCharts);
+	else if (category == xatlas::ProgressCategory::BuildingOutputMeshes)
+		s_atlas.status.set(AtlasStatus::BuildingOutputMeshes);
+	s_atlas.status.setProgress(progress);
+}
+
+static void atlasSetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)
+{
+	uint8_t *pixel = &dest[x * 3 + y * (destWidth * 3)];
+	pixel[0] = color[0];
+	pixel[1] = color[1];
+	pixel[2] = color[2];
+}
+
+// https://github.com/miloyip/line/blob/master/line_bresenham.c
+static void atlasRasterizeLine(uint8_t *dest, int destWidth, const int *p1, const int *p2, const uint8_t *color)
+{
+	const int dx = abs(p2[0] - p1[0]), sx = p1[0] < p2[0] ? 1 : -1;
+	const int dy = abs(p2[1] - p1[1]), sy = p1[1] < p2[1] ? 1 : -1;
+	int err = (dx > dy ? dx : -dy) / 2;
+	int current[2];
+	current[0] = p1[0];
+	current[1] = p1[1];
+	while (atlasSetPixel(dest, destWidth, current[0], current[1], color), current[0] != p2[0] || current[1] != p2[1]) {
+		const int e2 = err;
+		if (e2 > -dx) { err -= dy; current[0] += sx; }
+		if (e2 < dy) { err += dx; current[1] += sy; }
+	}
+}
+
+// https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
+static void atlasRasterizeTriangle(uint8_t *dest, int destWidth, const int *t0, const int *t1, const int *t2, const uint8_t *color)
+{
+	if (t0[1] > t1[1]) std::swap(t0, t1);
+	if (t0[1] > t2[1]) std::swap(t0, t2);
+	if (t1[1] > t2[1]) std::swap(t1, t2);
+	int total_height = t2[1] - t0[1];
+	for (int i = 0; i < total_height; i++) {
+		bool second_half = i > t1[1] - t0[1] || t1[1] == t0[1];
+		int segment_height = second_half ? t2[1] - t1[1] : t1[1] - t0[1];
+		float alpha = (float)i / total_height;
+		float beta = (float)(i - (second_half ? t1[1] - t0[1] : 0)) / segment_height;
+		int A[2], B[2];
+		for (int j = 0; j < 2; j++) {
+			A[j] = int(t0[j] + (t2[j] - t0[j]) * alpha);
+			B[j] = int(second_half ? t1[j] + (t2[j] - t1[j]) * beta : t0[j] + (t1[j] - t0[j]) * beta);
+		}
+		if (A[0] > B[0])
+			std::swap(A, B);
+		for (int j = A[0]; j <= B[0]; j++)
+			atlasSetPixel(dest, destWidth, j, t0[1] + i, color);
+	}
+}
+
+static void atlasGenerateThread()
+{
+	int progress = 0;
+	s_atlas.status.setProgress(0);
+	if (!s_atlas.data) {
+		// Create xatlas context and generate charts on first run only.
+		s_atlas.data = xatlas::Create();
+		for (uint32_t i = 0; i < s_model.data->numObjects; i++) {
+			const objzObject &object = s_model.data->objects[i];
+			auto v = &((const ModelVertex *)s_model.data->vertices)[object.firstVertex];
+			xatlas::MeshDecl meshDecl;
+			meshDecl.vertexCount = object.numVertices;
+			meshDecl.vertexPositionData = &v->pos;
+			meshDecl.vertexPositionStride = sizeof(ModelVertex);
+			meshDecl.vertexNormalData = &v->normal;
+			meshDecl.vertexNormalStride = sizeof(ModelVertex);
+			meshDecl.vertexUvData = &v->texcoord;
+			meshDecl.vertexUvStride = sizeof(ModelVertex);
+			meshDecl.indexCount = object.numIndices;
+			meshDecl.indexData = &((uint32_t *)s_model.data->indices)[object.firstIndex];
+			meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
+			meshDecl.indexOffset = -(int32_t)object.firstVertex;
+			xatlas::AddMeshError::Enum error = xatlas::AddMesh(s_atlas.data, meshDecl);
+			if (error != xatlas::AddMeshError::Success) {
+				fprintf(stderr, "Error adding mesh: %s\n", xatlas::StringForEnum(error));
+				xatlas::Destroy(s_atlas.data);
+				s_atlas.data = nullptr;
+				s_atlas.status.set(AtlasStatus::Error);
+				return;
+			}
+			const int newProgress = int((i + 1) / (float)s_model.data->numObjects * 100.0f);
+			if (newProgress != progress) {
+				progress = newProgress;
+				s_atlas.status.setProgress(progress);
+			}
+		}
+		xatlas::GenerateCharts(s_atlas.data, s_atlas.charterOptions, atlasProgressCallback);
+	}
+	xatlas::PackCharts(s_atlas.data, s_atlas.packerOptions, atlasProgressCallback);
+	// Rasterize charts to a texture for previewing UVs.
+	s_atlas.chartsImage.resize(s_atlas.data->width * s_atlas.data->height * 3);
+	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
+		for (uint32_t j = 0; j < mesh.chartCount; j++) {
+			const xatlas::Chart *chart = &mesh.chartArray[j];
+			uint8_t color[3];
+			color[0] = rand() % 255;
+			color[1] = rand() % 255;
+			color[2] = rand() % 255;
+			for (uint32_t k = 0; k < chart->indexCount; k += 3) {
+				int verts[3][2];
+				for (int l = 0; l < 3; l++) {
+					const xatlas::Vertex &v = mesh.vertexArray[chart->indexArray[k + l]];
+					verts[l][0] = int(v.uv[0]);
+					verts[l][1] = int(v.uv[1]);
+				}
+				atlasRasterizeTriangle(s_atlas.chartsImage.data(), s_atlas.data->width, verts[0], verts[1], verts[2], color);
+				const uint8_t white[] = { 255, 255, 255, 255 };
+				atlasRasterizeLine(s_atlas.chartsImage.data(), s_atlas.data->width, verts[0], verts[1], white);
+				atlasRasterizeLine(s_atlas.chartsImage.data(), s_atlas.data->width, verts[1], verts[2], white);
+				atlasRasterizeLine(s_atlas.chartsImage.data(), s_atlas.data->width, verts[2], verts[0], white);
+			}
+		}
+	}
+	s_atlas.status.set(AtlasStatus::Finalizing);
+}
+
+static void atlasGenerate()
+{
+	const AtlasStatus::Enum status = s_atlas.status.get();
+	if (!(status == AtlasStatus::NotGenerated || status == AtlasStatus::Ready || status == AtlasStatus::Error))
+		return;
+	xatlas::SetPrint(s_atlas.verbose ? printf : nullptr);
+	s_atlas.status.set(AtlasStatus::AddingMeshes);
+	s_atlas.thread = new std::thread(atlasGenerateThread);
+}
+
+static void atlasFinalize()
+{
+	if (s_atlas.thread) {
+		s_atlas.thread->join();
+		delete s_atlas.thread;
+		s_atlas.thread = nullptr;
+	}
+	if (s_atlas.chartsTexture == 0)
+		glGenTextures(1, &s_atlas.chartsTexture);
+	glBindTexture(GL_TEXTURE_2D, s_atlas.chartsTexture);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, s_atlas.data->width, s_atlas.data->height, 0, GL_RGB, GL_UNSIGNED_BYTE, s_atlas.chartsImage.data());
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	s_atlas.status.set(AtlasStatus::Ready);
 }
 
 int main(int /*argc*/, char ** /*argv*/)
@@ -762,8 +1003,10 @@ int main(int /*argc*/, char ** /*argv*/)
 			ImGuiIO &io = ImGui::GetIO();
 			const float margin = 8.0f;
 			ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_FirstUseEver);
-			ImGui::SetNextWindowSize(ImVec2(350.0f, 400.0f), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSize(ImVec2(400.0f, io.DisplaySize.y - margin), ImGuiCond_FirstUseEver);
 			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
+				ImGui::Text("Model");
+				ImGui::Spacing();
 				if (ImGui::Button("Open model...", ImVec2(-1.0f, 0.0f)))
 					modelOpenDialog();
 				if (s_model.data) {
@@ -773,26 +1016,72 @@ int main(int /*argc*/, char ** /*argv*/)
 				}
 				ImGui::InputFloat("Model scale", &s_model.scale, 0.01f, 0.1f);
 				s_model.scale = HMM_MAX(0.001f, s_model.scale);
-				ImGui::Checkbox("Wireframe", &s_options.wireframe);
 				ImGui::Spacing();
 				ImGui::Separator();
 				ImGui::Spacing();
-				ImGui::ColorEdit3("Clear color", &s_options.clearColor.X);
+				ImGui::Text("View");
+				ImGui::Spacing();
+				ImGui::Checkbox("Wireframe", &s_options.wireframe);
 				ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
 				ImGui::SameLine();
 				ImGui::RadioButton("Orbit camera", (int *)&s_camera.mode, (int)CameraMode::Orbit);
 				ImGui::DragFloat("FOV", &s_camera.fov, 1.0f, 45.0f, 150.0f, "%.0f");
 				ImGui::DragFloat("Sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
+				if (s_model.status.get() == ModelStatus::Ready) {
+					ImGui::Spacing();
+					ImGui::Separator();
+					ImGui::Spacing();
+					ImGui::Text("Charter options");
+					ImGui::Spacing();
+					ImGui::InputFloat("Proxy fit metric weight", &s_atlas.charterOptions.proxyFitMetricWeight);
+					ImGui::InputFloat("Roundness metric weight", &s_atlas.charterOptions.roundnessMetricWeight);
+					ImGui::InputFloat("Straightness metric weight", &s_atlas.charterOptions.straightnessMetricWeight);
+					ImGui::InputFloat("NormalSeam metric weight", &s_atlas.charterOptions.normalSeamMetricWeight);
+					ImGui::InputFloat("Texture seam metric weight", &s_atlas.charterOptions.textureSeamMetricWeight);
+					ImGui::InputFloat("Max chart area", &s_atlas.charterOptions.maxChartArea);
+					ImGui::InputFloat("Max boundary length", &s_atlas.charterOptions.maxBoundaryLength);
+					ImGui::InputFloat("Max threshold", &s_atlas.charterOptions.maxThreshold);
+					ImGui::InputInt("Grow face count", (int *)&s_atlas.charterOptions.growFaceCount);
+					ImGui::InputInt("Max iterations", (int *)&s_atlas.charterOptions.maxIterations);
+					ImGui::Spacing();
+					ImGui::Separator();
+					ImGui::Spacing();
+					ImGui::Text("Packer options");
+					ImGui::Spacing();
+					ImGui::SliderInt("Attempts", &s_atlas.packerOptions.attempts, 0, 4096);
+					ImGui::InputFloat("Texels per unit", &s_atlas.packerOptions.texelsPerUnit, 0.0f, 32.0f, 2);
+					ImGui::InputInt("Resolution", (int *)&s_atlas.packerOptions.resolution, 8);
+					ImGui::InputInt("Max chart size", (int *)&s_atlas.packerOptions.maxChartSize);
+					ImGui::Checkbox("Block align", &s_atlas.packerOptions.blockAlign);
+					ImGui::SameLine();
+					ImGui::Checkbox("Conservative", &s_atlas.packerOptions.conservative);
+					ImGui::SliderInt("Padding", &s_atlas.packerOptions.padding, 0, 8);
+					ImGui::Spacing();
+					ImGui::Separator();
+					ImGui::Spacing();
+					ImGui::Checkbox("Verbose output", &s_atlas.verbose);
+					if (ImGui::Button("Generate atlas", ImVec2(-1.0f, 0.0f)))
+						atlasGenerate();
+				}
 				ImGui::End();
 			}
 			if (s_model.status.get() == ModelStatus::Loading) {
 				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-				if (ImGui::Begin("##progress", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
-					ImGui::Text("Loading");
+				if (ImGui::Begin("##modelProgress", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+					ImGui::Text("Loading model");
 					for (int i = 0; i < 3; i++) {
 						ImGui::SameLine();
 						ImGui::Text(i < progressDots ? "." : " ");
 					}
+					ImGui::End();
+				}
+			}
+			if (s_atlas.status.get() == AtlasStatus::Ready) {
+				const float size = 500;
+				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, margin), ImGuiCond_FirstUseEver);
+				ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
+				if (ImGui::Begin("Atlas", &s_atlas.showChartsTexture)) {
+					ImGui::Image((ImTextureID)(size_t)s_atlas.chartsTexture, ImGui::GetContentRegionAvail());
 					ImGui::End();
 				}
 			}
@@ -808,7 +1097,7 @@ int main(int /*argc*/, char ** /*argv*/)
 			if (s_keyDown[GLFW_KEY_Q]) s_camera.firstPerson.position.Y -= speed;
 			if (s_keyDown[GLFW_KEY_E]) s_camera.firstPerson.position.Y += speed;
 		}
-		glClearColor(s_options.clearColor.X, s_options.clearColor.Y, s_options.clearColor.Z, 1.0f);
+		glClearColor(0.25f, 0.25f, 0.25f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glViewport(0, 0, width, height);
 		if (s_model.status.get() == ModelStatus::Ready) {
@@ -828,8 +1117,11 @@ int main(int /*argc*/, char ** /*argv*/)
 			progressDots = (progressDots + 1) % 4;
 		if (s_model.status.get() == ModelStatus::Finalizing)
 			modelFinalize();
+		if (s_atlas.status.get() == AtlasStatus::Finalizing)
+			atlasFinalize();
 	}
 	guiShutdown();
+	atlasDestroy();
 	modelDestroy();
 	shadersShutdown();
 	glfwTerminate();

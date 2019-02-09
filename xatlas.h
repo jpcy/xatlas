@@ -187,7 +187,6 @@ struct PackerOptions
 	// Number of pixels to pad. conservative must be true.
 	int padding;
 
-
 	PackerOptions()
 	{
 		attempts = 4096;
