@@ -4728,8 +4728,8 @@ struct AtlasBuilder
 
 	// @@ Cleanup.
 	struct Candidate {
-		uint32_t face;
 		ChartBuildData *chart;
+		uint32_t face;
 		float metric;
 	};
 
