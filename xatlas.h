@@ -49,7 +49,7 @@ struct Atlas
 	uint32_t atlasCount;
 	uint32_t chartCount;
 	uint32_t meshCount;
-	Mesh **meshes;
+	Mesh *meshes;
 
 	// Normalized atlas texel utilization. atlasCount in length.
 	float *utilization;

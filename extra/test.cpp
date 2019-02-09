@@ -80,9 +80,9 @@ bool generateAtlas(const char *name, AtlasResult *result)
 	printf(" [%g ms]\n", (end - start) * 1000.0 / (double)CLOCKS_PER_SEC);
 	uint32_t atlasTotalVertices = 0, atlasTotalFaces = 0;
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
-		const xatlas::Mesh *mesh = atlas->meshes[i];
-		atlasTotalVertices += mesh->vertexCount;
-		atlasTotalFaces += mesh->indexCount / 3;
+		const xatlas::Mesh &mesh = atlas->meshes[i];
+		atlasTotalVertices += mesh.vertexCount;
+		atlasTotalFaces += mesh.indexCount / 3;
 	}
 	ASSERT(atlasTotalVertices == totalVertices);
 	ASSERT(atlasTotalFaces == totalFaces);

@@ -206,9 +206,9 @@ int main(int argc, char *argv[])
 	totalVertices = 0;
 	totalFaces = 0;
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
-		const xatlas::Mesh *mesh = atlas->meshes[i];
-		totalVertices += mesh->vertexCount;
-		totalFaces += mesh->indexCount / 3;
+		const xatlas::Mesh &mesh = atlas->meshes[i];
+		totalVertices += mesh.vertexCount;
+		totalFaces += mesh.indexCount / 3;
 	}
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
@@ -220,15 +220,15 @@ int main(int argc, char *argv[])
 		outputTrisImage.resize(atlas->atlasCount * imageDataSize);
 		outputChartsImage.resize(atlas->atlasCount * imageDataSize);
 		for (uint32_t i = 0; i < atlas->meshCount; i++) {
-			const xatlas::Mesh *mesh = atlas->meshes[i];
+			const xatlas::Mesh &mesh = atlas->meshes[i];
 			// Rasterize mesh triangles.
 			const uint8_t white[] = { 255, 255, 255 };
-			for (uint32_t j = 0; j < mesh->indexCount; j += 3) {
+			for (uint32_t j = 0; j < mesh.indexCount; j += 3) {
 				int32_t atlasIndex = -1;
 				int verts[3][2];
 				uint8_t color[3];
 				for (int k = 0; k < 3; k++) {
-					const xatlas::Vertex &v = mesh->vertexArray[mesh->indexArray[j + k]];
+					const xatlas::Vertex &v = mesh.vertexArray[mesh.indexArray[j + k]];
 					atlasIndex = v.atlasIndex; // The same for every vertex in the triangle.
 					verts[k][0] = int(v.uv[0]);
 					verts[k][1] = int(v.uv[1]);
@@ -243,8 +243,8 @@ int main(int argc, char *argv[])
 				RasterizeLine(imageData, atlas->width, verts[2], verts[0], white);
 			}
 			// Rasterize mesh charts.
-			for (uint32_t j = 0; j < mesh->chartCount; j++) {
-				const xatlas::Chart *chart = &mesh->chartArray[j];
+			for (uint32_t j = 0; j < mesh.chartCount; j++) {
+				const xatlas::Chart *chart = &mesh.chartArray[j];
 				uint8_t color[3];
 				color[0] = rand() % 255;
 				color[1] = rand() % 255;
@@ -252,7 +252,7 @@ int main(int argc, char *argv[])
 				for (uint32_t k = 0; k < chart->indexCount; k += 3) {
 					int verts[3][2];
 					for (int l = 0; l < 3; l++) {
-						const xatlas::Vertex &v = mesh->vertexArray[chart->indexArray[k + l]];
+						const xatlas::Vertex &v = mesh.vertexArray[chart->indexArray[k + l]];
 						verts[l][0] = int(v.uv[0]);
 						verts[l][1] = int(v.uv[1]);
 					}
