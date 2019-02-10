@@ -42,6 +42,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 static GLFWwindow *s_window;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
+static char s_errorMessage[1024] = { 0 };
 
 struct
 {
@@ -77,8 +78,7 @@ struct ModelStatus
 		NotLoaded,
 		Loading,
 		Finalizing,
-		Ready,
-		Error
+		Ready
 	};
 
 	Enum get()
@@ -127,8 +127,7 @@ struct AtlasStatus
 		AddingMeshes,
 		Generating,
 		Finalizing,
-		Ready,
-		Error
+		Ready
 	};
 
 	Enum get()
@@ -177,6 +176,7 @@ struct
 	std::thread *thread = nullptr;
 	AtlasStatus status;
 	bool verbose = false;
+	bool showTexture = true;
 	GLuint chartsTexture = 0;
 	std::vector<uint8_t> chartsImage;
 	GLuint chartVao = 0, chartVbo, chartIbo;
@@ -201,6 +201,14 @@ static void randomRGB(uint8_t *color)
 	color[0] = uint8_t((rand() % 255 + mix) * 0.5f);
 	color[1] = uint8_t((rand() % 255 + mix) * 0.5f);
 	color[2] = uint8_t((rand() % 255 + mix) * 0.5f);
+}
+
+static void setErrorMessage(const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	vsnprintf(s_errorMessage, sizeof(s_errorMessage), format, args);
+	va_end(args);
 }
 
 static void axisFromEulerAngles(float pitch, float yaw, hmm_vec3 *forward, hmm_vec3 *right, hmm_vec3 *up)
@@ -375,15 +383,11 @@ static void glfw_mouseButtonCallback(GLFWwindow *window, int button, int action,
 
 static void glfw_scrollCallback(GLFWwindow * /*window*/, double /*xoffset*/, double yoffset)
 {
-	if (!s_options.gui)
-		return;
 	ImGuiIO &io = ImGui::GetIO();
-	if (io.WantCaptureMouse)
+	if (s_options.gui && io.WantCaptureMouse)
 		io.MouseWheel += (float)yoffset;
-	else {
-		if (s_camera.mode == CameraMode::Orbit) 
-			s_camera.orbit.zoom((float)-yoffset);
-	}
+	else if (s_camera.mode == CameraMode::Orbit) 
+		s_camera.orbit.zoom((float)-yoffset);
 }
 
 static GLuint createShader(GLenum type, const char *source)
@@ -785,8 +789,9 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 	objzModel *model = objz_load(args.filename);
 	if (!model) {
 		fprintf(stderr, "%s\n", objz_getError());
+		setErrorMessage(objz_getError());
 		s_model.data = nullptr;
-		s_model.status.set(ModelStatus::Error);
+		s_model.status.set(ModelStatus::NotLoaded);
 		return;
 	}
 	s_model.data = model;
@@ -828,13 +833,14 @@ static void modelOpenDialog()
 {
 	if (s_model.status.get() == ModelStatus::Loading || s_model.status.get() == ModelStatus::Finalizing)
 		return;
+	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
+		return;
 	nfdchar_t *filename = nullptr;
 	nfdresult_t result = NFD_OpenDialog("obj", nullptr, &filename);
 	if (result != NFD_OKAY)
 		return;
 	modelDestroy();
 	s_model.status.set(ModelStatus::Loading);
-	printf("Loading '%s'\n", filename);
 	char windowTitle[256];
 	snprintf(windowTitle, sizeof(windowTitle), "%s - %s\n", WINDOW_TITLE, filename);
 	glfwSetWindowTitle(s_window, windowTitle);
@@ -983,9 +989,10 @@ static void atlasGenerateThread()
 			xatlas::AddMeshError::Enum error = xatlas::AddMesh(s_atlas.data, meshDecl);
 			if (error != xatlas::AddMeshError::Success) {
 				fprintf(stderr, "Error adding mesh: %s\n", xatlas::StringForEnum(error));
+				setErrorMessage("Error adding mesh: %s", xatlas::StringForEnum(error));
 				xatlas::Destroy(s_atlas.data);
 				s_atlas.data = nullptr;
-				s_atlas.status.set(AtlasStatus::Error);
+				s_atlas.status.set(AtlasStatus::NotGenerated);
 				return;
 			}
 			const int newProgress = int((i + 1) / (float)s_model.data->numObjects * 100.0f);
@@ -1069,8 +1076,7 @@ static void atlasGenerateThread()
 
 static void atlasGenerate()
 {
-	const AtlasStatus::Enum status = s_atlas.status.get();
-	if (!(status == AtlasStatus::NotGenerated || status == AtlasStatus::Ready || status == AtlasStatus::Error))
+	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
 		return;
 	xatlas::SetPrint(s_atlas.verbose ? printf : nullptr);
 	s_atlas.status.set(AtlasStatus::AddingMeshes);
@@ -1084,7 +1090,7 @@ static void atlasFinalize()
 		delete s_atlas.thread;
 		s_atlas.thread = nullptr;
 	}
-	modelUpdate(s_atlas.vertices.data(), s_atlas.vertices.size(), s_atlas.indices.data(), s_atlas.indices.size());
+	modelUpdate(s_atlas.vertices.data(), (uint32_t)s_atlas.vertices.size(), s_atlas.indices.data(), (uint32_t)s_atlas.indices.size());
 	glGenBuffers(1, &s_atlas.chartVbo);
 	glGenBuffers(1, &s_atlas.chartIbo);
 	glGenVertexArrays(1, &s_atlas.chartVao);
@@ -1126,10 +1132,10 @@ int main(int /*argc*/, char ** /*argv*/)
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_SAMPLES, 0);
-	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 	s_window = glfwCreateWindow(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT, WINDOW_TITLE, nullptr, nullptr);
 	if (!s_window)
 		return EXIT_FAILURE;
+	glfwMaximizeWindow(s_window);
 	glfwMakeContextCurrent(s_window);
 	glfwSwapInterval(1);
 	flextInit();
@@ -1142,8 +1148,6 @@ int main(int /*argc*/, char ** /*argv*/)
 	glfwSetKeyCallback(s_window, glfw_keyCallback);
 	glfwSetMouseButtonCallback(s_window, glfw_mouseButtonCallback);
 	glfwSetScrollCallback(s_window, glfw_scrollCallback);
-	glfwMaximizeWindow(s_window);
-	glfwShowWindow(s_window);
 	int frameCount = 0, progressDots = 0;
 	double lastFrameTime = glfwGetTime();
 	while (!glfwWindowShouldClose(s_window)) {
@@ -1160,6 +1164,16 @@ int main(int /*argc*/, char ** /*argv*/)
 			guiRunFrame(deltaTime);
 			ImGui::NewFrame();
 			ImGuiIO &io = ImGui::GetIO();
+			if (s_errorMessage[0])
+				ImGui::OpenPopup("Error");
+			if (ImGui::BeginPopupModal("Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+				ImGui::Text("%s", s_errorMessage);
+				if (ImGui::Button("OK", ImVec2(120, 0))) {
+					ImGui::CloseCurrentPopup();
+					s_errorMessage[0] = 0;
+				}
+				ImGui::EndPopup();
+			}
 			const float margin = 8.0f;
 			ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_FirstUseEver);
 			ImGui::SetNextWindowSize(ImVec2(400.0f, io.DisplaySize.y - margin * 2.0f), ImGuiCond_FirstUseEver);
@@ -1236,8 +1250,18 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::Checkbox("Verbose output", &s_atlas.verbose);
 					if (ImGui::Button("Generate atlas", ImVec2(-1.0f, 0.0f)))
 						atlasGenerate();
-					if (s_atlas.status.get() == AtlasStatus::Ready)
+					if (s_atlas.status.get() == AtlasStatus::Ready) {
+						uint32_t numIndices = 0, numVertices = 0;
+						for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+							const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
+							numIndices += outputMesh.indexCount;
+							numVertices += outputMesh.vertexCount;
+						}
 						ImGui::Text("%u charts", s_atlas.data->chartCount);
+						ImGui::Text("%u vertices", numVertices);
+						ImGui::Text("%u triangles", numIndices / 3);
+						ImGui::Checkbox("Show atlas", &s_atlas.showTexture);
+					}
 				}
 				ImGui::End();
 			}
@@ -1264,7 +1288,7 @@ int main(int /*argc*/, char ** /*argv*/)
 					if (atlasStatus == AtlasStatus::AddingMeshes)
 						ImGui::Text("Adding meshes");
 					else
-						ImGui::Text(xatlas::StringForEnum(category));
+						ImGui::Text("%s", xatlas::StringForEnum(category));
 					for (int i = 0; i < 3; i++) {
 						ImGui::SameLine();
 						ImGui::Text(i < progressDots ? "." : " ");
@@ -1272,11 +1296,11 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::ProgressBar(progress / 100.0f);
 					ImGui::End();
 				}
-			} else if (atlasStatus == AtlasStatus::Ready) {
+			} else if (atlasStatus == AtlasStatus::Ready && s_atlas.showTexture) {
 				const float size = 500;
 				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, margin), ImGuiCond_FirstUseEver);
 				ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
-				if (ImGui::Begin("Atlas")) {
+				if (ImGui::Begin("Atlas", &s_atlas.showTexture)) {
 					const ImVec2 pos = ImGui::GetCursorScreenPos();
 					ImTextureID texture = (ImTextureID)(size_t)s_atlas.chartsTexture;
 					ImGui::Image(texture, ImGui::GetContentRegionAvail());
