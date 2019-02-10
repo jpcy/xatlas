@@ -11,6 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #include <algorithm>
 #include <assert.h>
+#include <float.h> // FLT_MAX
 #include <limits.h>
 #define _USE_MATH_DEFINES
 #include <math.h>
@@ -4492,9 +4493,9 @@ struct AtlasBuilder
 			m_options.normalSeamMetricWeight * N +
 			m_options.textureSeamMetricWeight * T;
 		// Enforce limits strictly:
-		if (newChartArea > m_options.maxChartArea)
+		if (m_options.maxChartArea > 0 && newChartArea > m_options.maxChartArea)
 			cost = FLT_MAX;
-		if (newBoundaryLength > m_options.maxBoundaryLength)
+		if (m_options.maxBoundaryLength > 0 && newBoundaryLength > m_options.maxBoundaryLength)
 			cost = FLT_MAX;
 		// Make sure normal seams are fully respected:
 		if (m_options.normalSeamMetricWeight >= 1000 && N != 0)

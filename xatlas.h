@@ -14,7 +14,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #ifndef XATLAS_H
 #define XATLAS_H
 #include <stdint.h>
-#include <float.h> // FLT_MAX
 
 namespace xatlas {
 
@@ -150,9 +149,9 @@ struct CharterOptions
 		straightnessMetricWeight = 6.0f;
 		normalSeamMetricWeight = 4.0f;
 		textureSeamMetricWeight = 0.5f;
-		maxChartArea = FLT_MAX;
-		maxBoundaryLength = FLT_MAX;
-		maxThreshold = 2;
+		maxChartArea = 0.0f;
+		maxBoundaryLength = 0.0f;
+		maxThreshold = 2.0f;
 		growFaceCount = 32;
 		maxIterations = 4;
 	}
@@ -190,7 +189,7 @@ struct PackerOptions
 	PackerOptions()
 	{
 		attempts = 4096;
-		texelsPerUnit = 0;
+		texelsPerUnit = 0.0f;
 		resolution = 0;
 		maxChartSize = 1024;
 		blockAlign = false;
