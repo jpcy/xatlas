@@ -949,8 +949,10 @@ static void atlasFinalize()
 	glBindTexture(GL_TEXTURE_2D, s_atlas.chartsTexture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	const float color[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, s_atlas.data->width, s_atlas.data->height, 0, GL_RGB, GL_UNSIGNED_BYTE, s_atlas.chartsImage.data());
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
@@ -1024,7 +1026,21 @@ int main(int /*argc*/, char ** /*argv*/)
 				ImGui::Checkbox("Wireframe", &s_options.wireframe);
 				ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
 				ImGui::SameLine();
+				ImGui::TextDisabled("(?)");
+				if (ImGui::IsItemHovered()) {
+					ImGui::BeginTooltip();
+					ImGui::Text("Hold left mouse button on 3D view to enable camera\nW,A,S,D and Q,E to move\nHold SHIFT for faster movement");
+					ImGui::EndTooltip();
+				}
+				ImGui::SameLine();
 				ImGui::RadioButton("Orbit camera", (int *)&s_camera.mode, (int)CameraMode::Orbit);
+				ImGui::SameLine();
+				ImGui::TextDisabled("(?)");
+				if (ImGui::IsItemHovered()) {
+					ImGui::BeginTooltip();
+					ImGui::Text("Hold left mouse button on 3D view to enable camera");
+					ImGui::EndTooltip();
+				}
 				ImGui::DragFloat("FOV", &s_camera.fov, 1.0f, 45.0f, 150.0f, "%.0f");
 				ImGui::DragFloat("Sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
 				if (s_model.status.get() == ModelStatus::Ready) {
@@ -1081,7 +1097,20 @@ int main(int /*argc*/, char ** /*argv*/)
 				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, margin), ImGuiCond_FirstUseEver);
 				ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 				if (ImGui::Begin("Atlas", &s_atlas.showChartsTexture)) {
-					ImGui::Image((ImTextureID)(size_t)s_atlas.chartsTexture, ImGui::GetContentRegionAvail());
+					const ImVec2 pos = ImGui::GetCursorScreenPos();
+					ImTextureID texture = (ImTextureID)(size_t)s_atlas.chartsTexture;
+					ImGui::Image(texture, ImGui::GetContentRegionAvail());
+					if (ImGui::IsItemHovered()) {
+						const ImVec2 textureSize((float)s_atlas.data->width, (float)s_atlas.data->height);
+						const ImVec2 imageSize(ImGui::GetItemRectSize());
+						const ImVec2 imageToTex(textureSize.x / imageSize.x, textureSize.y / imageSize.y);
+						const float magnifiedSize = 200.0f;
+						const ImVec2 uv0 = ImVec2((io.MousePos.x - pos.x) * imageToTex.x - magnifiedSize * 0.5f, (io.MousePos.y - pos.y) * imageToTex.y - magnifiedSize * 0.5f);
+						const ImVec2 uv1 = ImVec2(uv0.x + magnifiedSize, uv0.y + magnifiedSize);
+						ImGui::BeginTooltip();
+						ImGui::Image(texture, ImVec2(magnifiedSize, magnifiedSize), ImVec2(uv0.x / textureSize.x, uv0.y / textureSize.y), ImVec2(uv1.x / textureSize.x, uv1.y / textureSize.y));
+						ImGui::EndTooltip();
+					}
 					ImGui::End();
 				}
 			}
