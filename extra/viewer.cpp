@@ -53,6 +53,15 @@ s_colorShader;
 
 struct
 {
+	GLuint id;
+	GLuint u_color;
+	GLint u_mvp;
+	GLint u_textureSize_cellSize;
+}
+s_texcoordShader;
+
+struct
+{
 	GLuint fontTexture;
 	GLuint shaderProgram;
 	GLint u_texture;
@@ -163,6 +172,8 @@ private:
 
 struct
 {
+	const int chartColorSeed = 13;
+	const int chartCellSize = 32;
 	xatlas::Atlas *data = nullptr;
 	std::thread *thread = nullptr;
 	AtlasStatus status;
@@ -174,7 +185,6 @@ struct
 	xatlas::PackerOptions packerOptions;
 	std::vector<ModelVertex> vertices;
 	std::vector<uint32_t> indices;
-	std::vector<hmm_vec3> chartVertices;
 	std::vector<uint32_t> chartIndices;
 }
 s_atlas;
@@ -185,6 +195,14 @@ struct
 	bool wireframe = true;
 }
 s_options;
+
+static void randomRGB(uint8_t *color)
+{
+	const int mix = 192;
+	color[0] = uint8_t((rand() % 255 + mix) * 0.5f);
+	color[1] = uint8_t((rand() % 255 + mix) * 0.5f);
+	color[2] = uint8_t((rand() % 255 + mix) * 0.5f);
+}
 
 static void axisFromEulerAngles(float pitch, float yaw, hmm_vec3 *forward, hmm_vec3 *right, hmm_vec3 *up)
 {
@@ -472,6 +490,50 @@ void main()
 	}
 	s_colorShader.u_color = glGetUniformLocation(s_colorShader.id, "u_color");
 	s_colorShader.u_mvp = glGetUniformLocation(s_colorShader.id, "u_mvp");
+	// create texcoord shader
+	const char *texcoordVertex = R"(
+#version 330 core
+in vec3 a_position;
+in vec3 a_normal;
+in vec4 a_texcoord;
+out vec4 v_texcoord;
+uniform mat4 u_mvp;
+
+void main()
+{
+	v_texcoord = a_texcoord;
+	gl_Position = u_mvp * vec4(a_position, 1.0);
+}
+	)";
+	const char *texcoordFragment = R"(
+#version 330 core
+uniform vec4 u_color;
+uniform vec4 u_textureSize_cellSize;
+in vec4 v_texcoord;
+out vec4 o_color;
+
+void main()
+{
+	int x = int(v_texcoord.z * u_textureSize_cellSize.x);
+	int y = int(v_texcoord.w * u_textureSize_cellSize.y);
+	int cellSize = int(u_textureSize_cellSize.z);
+	float scale = (x / cellSize % 2) != (y / cellSize % 2) ? 0.75 : 1.0;
+	o_color = vec4(u_color.rgb * scale, u_color.a);
+}
+	)";
+	const char *texcoordAttribs[] = {
+		"a_position",
+		"a_normal",
+		"a_texcoord"
+	};
+	s_texcoordShader.id = createShaderProgram(texcoordVertex, texcoordFragment, texcoordAttribs, 3);
+	if (!s_texcoordShader.id) {
+		fprintf(stderr, "Error creating texcoord shader\n");
+		exit(EXIT_FAILURE);
+	}
+	s_texcoordShader.u_color = glGetUniformLocation(s_texcoordShader.id, "u_color");
+	s_texcoordShader.u_mvp = glGetUniformLocation(s_texcoordShader.id, "u_mvp");
+	s_texcoordShader.u_textureSize_cellSize = glGetUniformLocation(s_texcoordShader.id, "u_textureSize_cellSize");
 	// create gui shader
 	const char *guiVertex = R"(
 #version 330 core
@@ -520,6 +582,7 @@ void main()
 static void shadersShutdown()
 {
 	glDeleteProgram(s_colorShader.id);
+	glDeleteProgram(s_texcoordShader.id);
 	glDeleteProgram(s_gui.shaderProgram);
 }
 
@@ -790,20 +853,28 @@ static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
 	const hmm_mat4 mvp = HMM_Multiply(projection, HMM_Multiply(view, model));
 	if (s_atlas.status.get() == AtlasStatus::Ready) {
 		glBindVertexArray(s_atlas.chartVao);
-		glUseProgram(s_colorShader.id);
-		srand(13);
+		glUseProgram(s_texcoordShader.id);
+		srand(s_atlas.chartColorSeed);
 		uint32_t firstIndex = 0;
 		for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 			const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 			for (uint32_t j = 0; j < mesh.chartCount; j++) {
 				const xatlas::Chart &chart = mesh.chartArray[j];
-				float color[3];
-				color[0] = (rand() % 255) / 255.0f;
-				color[1] = (rand() % 255) / 255.0f;
-				color[2] = (rand() % 255) / 255.0f;
+				uint8_t bcolor[3];
+				randomRGB(bcolor);
+				float color[4];
+				color[0] = bcolor[0] / 255.0f;
+				color[1] = bcolor[1] / 255.0f;
+				color[2] = bcolor[2] / 255.0f;
 				color[3] = 1.0f;
-				glUniform4fv(s_colorShader.u_color, 1, color);
-				glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
+				glUniform4fv(s_texcoordShader.u_color, 1, color);
+				float textureSize_cellSize[4];
+				textureSize_cellSize[0] = (float)s_atlas.data->width;
+				textureSize_cellSize[1] = (float)s_atlas.data->height;
+				textureSize_cellSize[2] = (float)s_atlas.chartCellSize;
+				textureSize_cellSize[3] = (float)s_atlas.chartCellSize;
+				glUniform4fv(s_texcoordShader.u_textureSize_cellSize, 1, textureSize_cellSize);
+				glUniformMatrix4fv(s_texcoordShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
 				glDrawElements(GL_TRIANGLES, chart.indexCount, GL_UNSIGNED_INT, (void *)(firstIndex * sizeof(uint32_t)));
 				firstIndex += chart.indexCount;
 			}
@@ -850,10 +921,11 @@ static void atlasProgressCallback(xatlas::ProgressCategory::Enum category, int p
 
 static void atlasSetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)
 {
+	const float scale = (x / s_atlas.chartCellSize % 2) != (y / s_atlas.chartCellSize % 2) ? 0.75f : 1.0f;
 	uint8_t *pixel = &dest[x * 3 + y * (destWidth * 3)];
-	pixel[0] = color[0];
-	pixel[1] = color[1];
-	pixel[2] = color[2];
+	pixel[0] = uint8_t(color[0] * scale);
+	pixel[1] = uint8_t(color[1] * scale);
+	pixel[2] = uint8_t(color[2] * scale);
 }
 
 // https://github.com/miloyip/line/blob/master/line_bresenham.c
@@ -958,31 +1030,25 @@ static void atlasGenerateThread()
 	}
 	// Copy charts for rendering.
 	s_atlas.chartIndices.clear();
-	s_atlas.chartVertices.clear();
+	uint32_t firstVertex = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			for (uint32_t k = 0; k < mesh.chartArray[j].indexCount; k++)
-				s_atlas.chartIndices.push_back((uint32_t)s_atlas.chartVertices.size() + mesh.chartArray[j].indexArray[k]);
+				s_atlas.chartIndices.push_back(firstVertex + mesh.chartArray[j].indexArray[k]);
 		}
-		const objzObject &object = s_model.data->objects[i];
-		for (uint32_t k = 0; k < mesh.vertexCount; k++) {
-			const ModelVertex &v = ((const ModelVertex *)s_model.data->vertices)[object.firstVertex + mesh.vertexArray[k].xref];
-			s_atlas.chartVertices.push_back(v.pos);
-		}
+		firstVertex += mesh.vertexCount;
 	}
 	// Rasterize charts to a texture for previewing UVs.
 	s_atlas.chartsImage.resize(s_atlas.data->width * s_atlas.data->height * 3);
 	memset(s_atlas.chartsImage.data(), 0, s_atlas.chartsImage.size());
-	srand(13);
+	srand(s_atlas.chartColorSeed);
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
 			uint8_t color[3];
-			color[0] = rand() % 255;
-			color[1] = rand() % 255;
-			color[2] = rand() % 255;
+			randomRGB(color);
 			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
 				int verts[3][2];
 				for (int l = 0; l < 3; l++) {
@@ -1024,11 +1090,15 @@ static void atlasFinalize()
 	glGenVertexArrays(1, &s_atlas.chartVao);
 	glBindVertexArray(s_atlas.chartVao);
 	glBindBuffer(GL_ARRAY_BUFFER, s_atlas.chartVbo);
-	glBufferData(GL_ARRAY_BUFFER, s_atlas.chartVertices.size() * sizeof(hmm_vec3), s_atlas.chartVertices.data(), GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, s_atlas.vertices.size() * sizeof(ModelVertex), s_atlas.vertices.data(), GL_STATIC_DRAW);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_atlas.chartIbo);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, s_atlas.chartIndices.size() * sizeof(uint32_t), s_atlas.chartIndices.data(), GL_STATIC_DRAW);
 	glEnableVertexAttribArray(0);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(hmm_vec3), 0);
+	glEnableVertexAttribArray(1);
+	glEnableVertexAttribArray(2);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, pos));
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, normal));
+	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, texcoord));
 	glBindVertexArray(0);
 	// Charts texture.
 	if (s_atlas.chartsTexture == 0)
