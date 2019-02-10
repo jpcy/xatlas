@@ -43,6 +43,73 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 static GLFWwindow *s_window;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
 
+struct
+{
+	GLuint id;
+	GLuint u_color;
+	GLint u_mvp;
+}
+s_colorShader;
+
+struct
+{
+	GLuint fontTexture;
+	GLuint shaderProgram;
+	GLint u_texture;
+	GLint u_mvp;
+	GLuint vao, vbo, ibo;
+}
+s_gui;
+
+struct ModelStatus
+{
+	enum Enum
+	{
+		NotLoaded,
+		Loading,
+		Finalizing,
+		Ready,
+		Error
+	};
+
+	Enum get()
+	{
+		m_lock.lock();
+		Enum result = m_value;
+		m_lock.unlock();
+		return result;
+	}
+
+	void set(Enum value)
+	{
+		m_lock.lock();
+		m_value = value;
+		m_lock.unlock();
+	}
+
+private:
+	std::mutex m_lock;
+	Enum m_value = NotLoaded;
+};
+
+struct ModelVertex
+{
+	hmm_vec3 pos;
+	hmm_vec3 normal;
+	hmm_vec4 texcoord;
+};
+
+struct
+{
+	ModelStatus status;
+	std::thread *thread = nullptr;
+	objzModel *data;
+	hmm_vec3 centroid = HMM_Vec3(0.0f, 0.0f, 0.0f);
+	GLuint vao = 0, vbo, ibo;
+	float scale = 1.0f;
+}
+s_model;
+
 struct AtlasStatus
 {
 	enum Enum
@@ -100,80 +167,17 @@ struct
 	std::thread *thread = nullptr;
 	AtlasStatus status;
 	bool verbose = false;
-	bool showChartsTexture = true;
 	GLuint chartsTexture = 0;
 	std::vector<uint8_t> chartsImage;
+	GLuint chartVao = 0, chartVbo, chartIbo;
 	xatlas::CharterOptions charterOptions;
 	xatlas::PackerOptions packerOptions;
+	std::vector<ModelVertex> vertices;
+	std::vector<uint32_t> indices;
+	std::vector<hmm_vec3> chartVertices;
+	std::vector<uint32_t> chartIndices;
 }
 s_atlas;
-
-struct
-{
-	GLuint id;
-	GLuint u_color;
-	GLint u_mvp;
-}
-s_colorShader;
-
-struct
-{
-	GLuint fontTexture;
-	GLuint shaderProgram;
-	GLint u_texture;
-	GLint u_mvp;
-	GLuint vao, vbo, ibo;
-}
-s_gui;
-
-struct ModelStatus
-{
-	enum Enum
-	{
-		NotLoaded,
-		Loading,
-		Finalizing,
-		Ready,
-		Error
-	};
-
-	Enum get()
-	{
-		m_lock.lock();
-		Enum result = m_value;
-		m_lock.unlock();
-		return result;
-	}
-
-	void set(Enum value)
-	{
-		m_lock.lock();
-		m_value = value;
-		m_lock.unlock();
-	}
-
-private:
-	std::mutex m_lock;
-	Enum m_value = NotLoaded;
-};
-
-struct ModelVertex
-{
-	hmm_vec3 pos;
-	hmm_vec3 normal;
-	hmm_vec2 texcoord;
-};
-
-struct
-{
-	ModelStatus status;
-	std::thread *thread = nullptr;
-	objzModel *data;
-	hmm_vec3 centroid = HMM_Vec3(0.0f, 0.0f, 0.0f);
-	GLuint vao, vbo, ibo;
-	float scale = 1.0f;
-}
-s_model;
 
 struct
 {
@@ -666,6 +670,12 @@ static void atlasDestroy()
 		glDeleteTextures(1, &s_atlas.chartsTexture);
 		s_atlas.chartsTexture = 0;
 	}
+	if (s_atlas.chartVao > 0) {
+		glDeleteVertexArrays(1, &s_atlas.chartVao);
+		glDeleteBuffers(1, &s_atlas.chartVbo);
+		glDeleteBuffers(1, &s_atlas.chartIbo);
+		s_atlas.chartVao = 0;
+	}
 	s_atlas.status.set(AtlasStatus::NotGenerated);
 }
 
@@ -681,20 +691,24 @@ static void modelDestroy()
 		objz_destroy(s_model.data);
 		s_model.data = nullptr;
 	}
-	if (s_model.vbo > 0) {
-		glDeleteBuffers(1, &s_model.vbo);
-		s_model.vbo = 0;
-	}
-	if (s_model.ibo > 0) {
-		glDeleteBuffers(1, &s_model.ibo);
-		s_model.ibo = 0;
-	}
 	if (s_model.vao > 0) {
 		glDeleteVertexArrays(1, &s_model.vao);
+		glDeleteBuffers(1, &s_model.vbo);
+		glDeleteBuffers(1, &s_model.ibo);
 		s_model.vao = 0;
 	}
 	glfwSetWindowTitle(s_window, WINDOW_TITLE);
 	s_model.status.set(ModelStatus::NotLoaded);
+}
+
+static void modelUpdate(const ModelVertex *vertices, uint32_t numVertices, const uint32_t *indices, uint32_t numIndices)
+{
+	glBindVertexArray(s_model.vao);
+	glBindBuffer(GL_ARRAY_BUFFER, s_model.vbo);
+	glBufferData(GL_ARRAY_BUFFER, numVertices * sizeof(ModelVertex), vertices, GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_model.ibo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, numIndices * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+	glBindVertexArray(0);
 }
 
 struct ModelLoadThreadArgs
@@ -736,16 +750,14 @@ static void modelFinalize()
 	glGenBuffers(1, &s_model.ibo);
 	glGenVertexArrays(1, &s_model.vao);
 	glBindVertexArray(s_model.vao);
-	glBindBuffer(GL_ARRAY_BUFFER, s_model.vbo);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_model.ibo);
-	glBufferData(GL_ARRAY_BUFFER, (int)s_model.data->numVertices * sizeof(ModelVertex), s_model.data->vertices, GL_STATIC_DRAW);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, (int)s_model.data->numIndices * sizeof(uint32_t), s_model.data->indices, GL_STATIC_DRAW);
+	modelUpdate((const ModelVertex *)s_model.data->vertices, s_model.data->numVertices, (const uint32_t *)s_model.data->indices, s_model.data->numIndices);
+	glBindVertexArray(s_model.vao);
 	glEnableVertexAttribArray(0);
 	glEnableVertexAttribArray(1);
 	glEnableVertexAttribArray(2);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, pos));
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, normal));
-	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, texcoord));
+	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, texcoord));
 	glBindVertexArray(0);
 	s_model.status.set(ModelStatus::Ready);
 }
@@ -776,13 +788,37 @@ static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
 		return;
 	const hmm_mat4 model = HMM_Scale(HMM_Vec3(s_model.scale, s_model.scale, s_model.scale));
 	const hmm_mat4 mvp = HMM_Multiply(projection, HMM_Multiply(view, model));
-	glBindVertexArray(s_model.vao);
-	glUseProgram(s_colorShader.id);
-	const float color[] = { 0.75f, 0.75f, 0.75f, 1.0f };
-	glUniform4fv(s_colorShader.u_color, 1, color);
-	glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
-	glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
+	if (s_atlas.status.get() == AtlasStatus::Ready) {
+		glBindVertexArray(s_atlas.chartVao);
+		glUseProgram(s_colorShader.id);
+		srand(13);
+		uint32_t firstIndex = 0;
+		for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+			const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
+			for (uint32_t j = 0; j < mesh.chartCount; j++) {
+				const xatlas::Chart &chart = mesh.chartArray[j];
+				float color[3];
+				color[0] = (rand() % 255) / 255.0f;
+				color[1] = (rand() % 255) / 255.0f;
+				color[2] = (rand() % 255) / 255.0f;
+				color[3] = 1.0f;
+				glUniform4fv(s_colorShader.u_color, 1, color);
+				glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
+				glDrawElements(GL_TRIANGLES, chart.indexCount, GL_UNSIGNED_INT, (void *)(firstIndex * sizeof(uint32_t)));
+				firstIndex += chart.indexCount;
+			}
+		}
+	} else {
+		glBindVertexArray(s_model.vao);
+		glUseProgram(s_colorShader.id);
+		const float color[] = { 0.75f, 0.75f, 0.75f, 1.0f };
+		glUniform4fv(s_colorShader.u_color, 1, color);
+		glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
+		glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
+	}
 	if (s_options.wireframe) {
+		glBindVertexArray(s_model.vao);
+		glUseProgram(s_colorShader.id);
 		glDisable(GL_DEPTH_TEST);
 		glDisable(GL_CULL_FACE);
 		glEnable(GL_BLEND);
@@ -899,21 +935,58 @@ static void atlasGenerateThread()
 		xatlas::GenerateCharts(s_atlas.data, s_atlas.charterOptions, atlasProgressCallback);
 	}
 	xatlas::PackCharts(s_atlas.data, s_atlas.packerOptions, atlasProgressCallback);
-	// Rasterize charts to a texture for previewing UVs.
-	s_atlas.chartsImage.resize(s_atlas.data->width * s_atlas.data->height * 3);
-	memset(s_atlas.chartsImage.data(), 0, s_atlas.chartsImage.size());
+	// Copy over new mesh data.
+	s_atlas.indices.clear();
+	s_atlas.vertices.clear();
+	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+		const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
+		const objzObject &object = s_model.data->objects[i];
+		const uint32_t firstIndex = s_atlas.indices.size();
+		s_atlas.indices.resize(s_atlas.indices.size() + outputMesh.indexCount);
+		for (uint32_t j = 0; j < outputMesh.indexCount; j++)
+			s_atlas.indices[firstIndex + j] = (uint32_t)s_atlas.vertices.size() + outputMesh.indexArray[j];
+		const uint32_t firstVertex = s_atlas.vertices.size();
+		s_atlas.vertices.resize(s_atlas.vertices.size() + outputMesh.vertexCount);
+		for (uint32_t j = 0; j < outputMesh.vertexCount; j++) {
+			const xatlas::Vertex &outputVertex = outputMesh.vertexArray[j];
+			const ModelVertex &oldVertex = ((const ModelVertex *)s_model.data->vertices)[object.firstVertex + outputVertex.xref];
+			ModelVertex &v = s_atlas.vertices[firstVertex + j];
+			v.pos = oldVertex.pos;
+			v.normal = oldVertex.normal;
+			v.texcoord = HMM_Vec4(oldVertex.texcoord.X, oldVertex.texcoord.Y, outputVertex.uv[0] / (float)s_atlas.data->width, outputVertex.uv[1] / (float)s_atlas.data->height);
+		}
+	}
+	// Copy charts for rendering.
+	s_atlas.chartIndices.clear();
+	s_atlas.chartVertices.clear();
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
-			const xatlas::Chart *chart = &mesh.chartArray[j];
+			for (uint32_t k = 0; k < mesh.chartArray[j].indexCount; k++)
+				s_atlas.chartIndices.push_back((uint32_t)s_atlas.chartVertices.size() + mesh.chartArray[j].indexArray[k]);
+		}
+		const objzObject &object = s_model.data->objects[i];
+		for (uint32_t k = 0; k < mesh.vertexCount; k++) {
+			const ModelVertex &v = ((const ModelVertex *)s_model.data->vertices)[object.firstVertex + mesh.vertexArray[k].xref];
+			s_atlas.chartVertices.push_back(v.pos);
+		}
+	}
+	// Rasterize charts to a texture for previewing UVs.
+	s_atlas.chartsImage.resize(s_atlas.data->width * s_atlas.data->height * 3);
+	memset(s_atlas.chartsImage.data(), 0, s_atlas.chartsImage.size());
+	srand(13);
+	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
+		for (uint32_t j = 0; j < mesh.chartCount; j++) {
+			const xatlas::Chart &chart = mesh.chartArray[j];
 			uint8_t color[3];
 			color[0] = rand() % 255;
 			color[1] = rand() % 255;
 			color[2] = rand() % 255;
-			for (uint32_t k = 0; k < chart->indexCount; k += 3) {
+			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
 				int verts[3][2];
 				for (int l = 0; l < 3; l++) {
-					const xatlas::Vertex &v = mesh.vertexArray[chart->indexArray[k + l]];
+					const xatlas::Vertex &v = mesh.vertexArray[chart.indexArray[k + l]];
 					verts[l][0] = int(v.uv[0]);
 					verts[l][1] = int(v.uv[1]);
 				}
@@ -945,6 +1018,19 @@ static void atlasFinalize()
 		delete s_atlas.thread;
 		s_atlas.thread = nullptr;
 	}
+	modelUpdate(s_atlas.vertices.data(), s_atlas.vertices.size(), s_atlas.indices.data(), s_atlas.indices.size());
+	glGenBuffers(1, &s_atlas.chartVbo);
+	glGenBuffers(1, &s_atlas.chartIbo);
+	glGenVertexArrays(1, &s_atlas.chartVao);
+	glBindVertexArray(s_atlas.chartVao);
+	glBindBuffer(GL_ARRAY_BUFFER, s_atlas.chartVbo);
+	glBufferData(GL_ARRAY_BUFFER, s_atlas.chartVertices.size() * sizeof(hmm_vec3), s_atlas.chartVertices.data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_atlas.chartIbo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, s_atlas.chartIndices.size() * sizeof(uint32_t), s_atlas.chartIndices.data(), GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(hmm_vec3), 0);
+	glBindVertexArray(0);
+	// Charts texture.
 	if (s_atlas.chartsTexture == 0)
 		glGenTextures(1, &s_atlas.chartsTexture);
 	glBindTexture(GL_TEXTURE_2D, s_atlas.chartsTexture);
@@ -1100,7 +1186,7 @@ int main(int /*argc*/, char ** /*argv*/)
 				const float size = 500;
 				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, margin), ImGuiCond_FirstUseEver);
 				ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
-				if (ImGui::Begin("Atlas", &s_atlas.showChartsTexture)) {
+				if (ImGui::Begin("Atlas")) {
 					const ImVec2 pos = ImGui::GetCursorScreenPos();
 					ImTextureID texture = (ImTextureID)(size_t)s_atlas.chartsTexture;
 					ImGui::Image(texture, ImGui::GetContentRegionAvail());
