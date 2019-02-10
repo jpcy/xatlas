@@ -1179,6 +1179,8 @@ int main(int /*argc*/, char ** /*argv*/)
 			ImGui::SetNextWindowSize(ImVec2(400.0f, io.DisplaySize.y - margin * 2.0f), ImGuiCond_FirstUseEver);
 			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
 				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);
+				ImGui::Separator();
+				ImGui::Spacing();
 				ImGui::Text("Model");
 				ImGui::Spacing();
 				if (ImGui::Button("Open model...", ImVec2(-1.0f, 0.0f)))
@@ -1247,6 +1249,7 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
+					ImGui::Text("Atlas");
 					ImGui::Checkbox("Verbose output", &s_atlas.verbose);
 					if (ImGui::Button("Generate atlas", ImVec2(-1.0f, 0.0f)))
 						atlasGenerate();
