@@ -182,8 +182,7 @@ struct
 	GLuint chartVao = 0, chartVbo, chartIbo;
 	xatlas::CharterOptions charterOptions;
 	xatlas::PackerOptions packerOptions;
-	std::vector<ModelVertex> vertices;
-	std::vector<uint32_t> indices;
+	std::vector<ModelVertex> chartVertices;
 	std::vector<uint32_t> chartIndices;
 }
 s_atlas;
@@ -767,16 +766,6 @@ static void modelDestroy()
 	s_model.status.set(ModelStatus::NotLoaded);
 }
 
-static void modelUpdate(const ModelVertex *vertices, uint32_t numVertices, const uint32_t *indices, uint32_t numIndices)
-{
-	glBindVertexArray(s_model.vao);
-	glBindBuffer(GL_ARRAY_BUFFER, s_model.vbo);
-	glBufferData(GL_ARRAY_BUFFER, numVertices * sizeof(ModelVertex), vertices, GL_STATIC_DRAW);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_model.ibo);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, numIndices * sizeof(uint32_t), indices, GL_STATIC_DRAW);
-	glBindVertexArray(0);
-}
-
 struct ModelLoadThreadArgs
 {
 	char filename[256];
@@ -817,8 +806,10 @@ static void modelFinalize()
 	glGenBuffers(1, &s_model.ibo);
 	glGenVertexArrays(1, &s_model.vao);
 	glBindVertexArray(s_model.vao);
-	modelUpdate((const ModelVertex *)s_model.data->vertices, s_model.data->numVertices, (const uint32_t *)s_model.data->indices, s_model.data->numIndices);
-	glBindVertexArray(s_model.vao);
+	glBindBuffer(GL_ARRAY_BUFFER, s_model.vbo);
+	glBufferData(GL_ARRAY_BUFFER, s_model.data->numVertices * sizeof(ModelVertex), s_model.data->vertices, GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_model.ibo);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, s_model.data->numIndices * sizeof(uint32_t), s_model.data->indices, GL_STATIC_DRAW);
 	glEnableVertexAttribArray(0);
 	glEnableVertexAttribArray(1);
 	glEnableVertexAttribArray(2);
@@ -1006,43 +997,35 @@ static void atlasGenerateThread()
 	} else
 		s_atlas.status.set(AtlasStatus::Generating);
 	xatlas::PackCharts(s_atlas.data, s_atlas.packerOptions, atlasProgressCallback);
-	// Copy over new mesh data.
-	s_atlas.indices.clear();
-	s_atlas.vertices.clear();
+	// Copy charts for rendering.
+	s_atlas.chartIndices.clear();
+	s_atlas.chartVertices.clear();
 	uint32_t numIndices = 0, numVertices = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
 		numIndices += outputMesh.indexCount;
 		numVertices += outputMesh.vertexCount;
 	}
-	s_atlas.indices.resize(numIndices);
-	s_atlas.vertices.resize(numVertices);
+	s_atlas.chartIndices.resize(numIndices);
+	s_atlas.chartVertices.resize(numVertices);
 	uint32_t firstIndex = 0;
 	uint32_t firstVertex = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
-		const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
+		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		const objzObject &object = s_model.data->objects[i];
-		for (uint32_t j = 0; j < outputMesh.indexCount; j++)
-			s_atlas.indices[firstIndex + j] = firstVertex + outputMesh.indexArray[j];
-		for (uint32_t j = 0; j < outputMesh.vertexCount; j++) {
-			const xatlas::Vertex &outputVertex = outputMesh.vertexArray[j];
+		for (uint32_t j = 0; j < mesh.chartCount; j++) {
+			const xatlas::Chart &chart = mesh.chartArray[j];
+			for (uint32_t k = 0; k < chart.indexCount; k++)
+				s_atlas.chartIndices[firstIndex + k] = firstVertex + chart.indexArray[k];
+			firstIndex += chart.indexCount;
+		}
+		for (uint32_t j = 0; j < mesh.vertexCount; j++) {
+			const xatlas::Vertex &outputVertex = mesh.vertexArray[j];
 			const ModelVertex &oldVertex = ((const ModelVertex *)s_model.data->vertices)[object.firstVertex + outputVertex.xref];
-			ModelVertex &v = s_atlas.vertices[firstVertex + j];
+			ModelVertex &v = s_atlas.chartVertices[firstVertex + j];
 			v.pos = oldVertex.pos;
 			v.normal = oldVertex.normal;
 			v.texcoord = HMM_Vec4(oldVertex.texcoord.X, oldVertex.texcoord.Y, outputVertex.uv[0] / (float)s_atlas.data->width, outputVertex.uv[1] / (float)s_atlas.data->height);
-		}
-		firstIndex += outputMesh.indexCount;
-		firstVertex += outputMesh.vertexCount;
-	}
-	// Copy charts for rendering.
-	s_atlas.chartIndices.clear();
-	firstVertex = 0;
-	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
-		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
-		for (uint32_t j = 0; j < mesh.chartCount; j++) {
-			for (uint32_t k = 0; k < mesh.chartArray[j].indexCount; k++)
-				s_atlas.chartIndices.push_back(firstVertex + mesh.chartArray[j].indexArray[k]);
 		}
 		firstVertex += mesh.vertexCount;
 	}
@@ -1090,13 +1073,12 @@ static void atlasFinalize()
 		delete s_atlas.thread;
 		s_atlas.thread = nullptr;
 	}
-	modelUpdate(s_atlas.vertices.data(), (uint32_t)s_atlas.vertices.size(), s_atlas.indices.data(), (uint32_t)s_atlas.indices.size());
 	glGenBuffers(1, &s_atlas.chartVbo);
 	glGenBuffers(1, &s_atlas.chartIbo);
 	glGenVertexArrays(1, &s_atlas.chartVao);
 	glBindVertexArray(s_atlas.chartVao);
 	glBindBuffer(GL_ARRAY_BUFFER, s_atlas.chartVbo);
-	glBufferData(GL_ARRAY_BUFFER, s_atlas.vertices.size() * sizeof(ModelVertex), s_atlas.vertices.data(), GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, s_atlas.chartVertices.size() * sizeof(ModelVertex), s_atlas.chartVertices.data(), GL_STATIC_DRAW);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_atlas.chartIbo);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, s_atlas.chartIndices.size() * sizeof(uint32_t), s_atlas.chartIndices.data(), GL_STATIC_DRAW);
 	glEnableVertexAttribArray(0);
