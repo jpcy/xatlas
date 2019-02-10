@@ -125,10 +125,7 @@ struct AtlasStatus
 	{
 		NotGenerated,
 		AddingMeshes,
-		ComputingCharts,
-		ParametizingCharts,
-		PackingCharts,
-		BuildingOutputMeshes,
+		Generating,
 		Finalizing,
 		Ready,
 		Error
@@ -149,31 +146,33 @@ struct AtlasStatus
 		m_lock.unlock();
 	}
 
-	int getProgress()
+	void getProgress(xatlas::ProgressCategory::Enum *category, int *progress)
 	{
 		m_lock.lock();
-		int result = m_progress;
+		*category = m_category;
+		*progress = m_progress;
 		m_lock.unlock();
-		return result;
 	}
 
-	void setProgress(int value)
+	void setProgress(xatlas::ProgressCategory::Enum category, int progress)
 	{
 		m_lock.lock();
-		m_progress = value;
+		m_category = category;
+		m_progress = progress;
 		m_lock.unlock();
 	}
 
 private:
 	std::mutex m_lock;
 	Enum m_value = NotGenerated;
+	xatlas::ProgressCategory::Enum m_category;
 	int m_progress = 0;
 };
 
 struct
 {
 	const int chartColorSeed = 13;
-	const int chartCellSize = 32;
+	const int chartCellSize = 16;
 	xatlas::Atlas *data = nullptr;
 	std::thread *thread = nullptr;
 	AtlasStatus status;
@@ -908,15 +907,7 @@ static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
 
 static void atlasProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void * /*userData*/)
 {
-	if (category == xatlas::ProgressCategory::ComputingCharts)
-		s_atlas.status.set(AtlasStatus::ComputingCharts);
-	else if (category == xatlas::ProgressCategory::ParametizingCharts)
-		s_atlas.status.set(AtlasStatus::ParametizingCharts);
-	else if (category == xatlas::ProgressCategory::PackingCharts)
-		s_atlas.status.set(AtlasStatus::PackingCharts);
-	else if (category == xatlas::ProgressCategory::BuildingOutputMeshes)
-		s_atlas.status.set(AtlasStatus::BuildingOutputMeshes);
-	s_atlas.status.setProgress(progress);
+	s_atlas.status.setProgress(category, progress);
 }
 
 static void atlasSetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)
@@ -971,7 +962,6 @@ static void atlasRasterizeTriangle(uint8_t *dest, int destWidth, const int *t0, 
 static void atlasGenerateThread()
 {
 	int progress = 0;
-	s_atlas.status.setProgress(0);
 	if (!s_atlas.data) {
 		// Create xatlas context and generate charts on first run only.
 		s_atlas.data = xatlas::Create();
@@ -1001,24 +991,32 @@ static void atlasGenerateThread()
 			const int newProgress = int((i + 1) / (float)s_model.data->numObjects * 100.0f);
 			if (newProgress != progress) {
 				progress = newProgress;
-				s_atlas.status.setProgress(progress);
+				s_atlas.status.setProgress((xatlas::ProgressCategory::Enum)-1, progress);
 			}
 		}
+		s_atlas.status.set(AtlasStatus::Generating);
 		xatlas::GenerateCharts(s_atlas.data, s_atlas.charterOptions, atlasProgressCallback);
-	}
+	} else
+		s_atlas.status.set(AtlasStatus::Generating);
 	xatlas::PackCharts(s_atlas.data, s_atlas.packerOptions, atlasProgressCallback);
 	// Copy over new mesh data.
 	s_atlas.indices.clear();
 	s_atlas.vertices.clear();
+	uint32_t numIndices = 0, numVertices = 0;
+	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+		const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
+		numIndices += outputMesh.indexCount;
+		numVertices += outputMesh.vertexCount;
+	}
+	s_atlas.indices.resize(numIndices);
+	s_atlas.vertices.resize(numVertices);
+	uint32_t firstIndex = 0;
+	uint32_t firstVertex = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
 		const objzObject &object = s_model.data->objects[i];
-		const uint32_t firstIndex = s_atlas.indices.size();
-		s_atlas.indices.resize(s_atlas.indices.size() + outputMesh.indexCount);
 		for (uint32_t j = 0; j < outputMesh.indexCount; j++)
-			s_atlas.indices[firstIndex + j] = (uint32_t)s_atlas.vertices.size() + outputMesh.indexArray[j];
-		const uint32_t firstVertex = s_atlas.vertices.size();
-		s_atlas.vertices.resize(s_atlas.vertices.size() + outputMesh.vertexCount);
+			s_atlas.indices[firstIndex + j] = firstVertex + outputMesh.indexArray[j];
 		for (uint32_t j = 0; j < outputMesh.vertexCount; j++) {
 			const xatlas::Vertex &outputVertex = outputMesh.vertexArray[j];
 			const ModelVertex &oldVertex = ((const ModelVertex *)s_model.data->vertices)[object.firstVertex + outputVertex.xref];
@@ -1027,10 +1025,12 @@ static void atlasGenerateThread()
 			v.normal = oldVertex.normal;
 			v.texcoord = HMM_Vec4(oldVertex.texcoord.X, oldVertex.texcoord.Y, outputVertex.uv[0] / (float)s_atlas.data->width, outputVertex.uv[1] / (float)s_atlas.data->height);
 		}
+		firstIndex += outputMesh.indexCount;
+		firstVertex += outputMesh.vertexCount;
 	}
 	// Copy charts for rendering.
 	s_atlas.chartIndices.clear();
-	uint32_t firstVertex = 0;
+	firstVertex = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
@@ -1241,9 +1241,10 @@ int main(int /*argc*/, char ** /*argv*/)
 				}
 				ImGui::End();
 			}
+			const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 			if (s_model.status.get() == ModelStatus::Loading) {
 				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-				if (ImGui::Begin("##modelProgress", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+				if (ImGui::Begin("##modelProgress", nullptr, progressWindowFlags)) {
 					ImGui::Text("Loading model");
 					for (int i = 0; i < 3; i++) {
 						ImGui::SameLine();
@@ -1252,7 +1253,26 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::End();
 				}
 			}
-			if (s_atlas.status.get() == AtlasStatus::Ready) {
+			const AtlasStatus::Enum atlasStatus = s_atlas.status.get();
+			if (atlasStatus == AtlasStatus::AddingMeshes || atlasStatus == AtlasStatus::Generating) {
+				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - margin, margin), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+				ImGui::SetNextWindowSize(ImVec2(300.0f, -1.0f), ImGuiCond_Always);
+				if (ImGui::Begin("##atlasProgress", nullptr, progressWindowFlags)) {
+					int progress;
+					xatlas::ProgressCategory::Enum category;
+					s_atlas.status.getProgress(&category, &progress);
+					if (atlasStatus == AtlasStatus::AddingMeshes)
+						ImGui::Text("Adding meshes");
+					else
+						ImGui::Text(xatlas::StringForEnum(category));
+					for (int i = 0; i < 3; i++) {
+						ImGui::SameLine();
+						ImGui::Text(i < progressDots ? "." : " ");
+					}
+					ImGui::ProgressBar(progress / 100.0f);
+					ImGui::End();
+				}
+			} else if (atlasStatus == AtlasStatus::Ready) {
 				const float size = 500;
 				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, margin), ImGuiCond_FirstUseEver);
 				ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
