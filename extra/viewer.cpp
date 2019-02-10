@@ -901,6 +901,7 @@ static void atlasGenerateThread()
 	xatlas::PackCharts(s_atlas.data, s_atlas.packerOptions, atlasProgressCallback);
 	// Rasterize charts to a texture for previewing UVs.
 	s_atlas.chartsImage.resize(s_atlas.data->width * s_atlas.data->height * 3);
+	memset(s_atlas.chartsImage.data(), 0, s_atlas.chartsImage.size());
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
@@ -1005,8 +1006,9 @@ int main(int /*argc*/, char ** /*argv*/)
 			ImGuiIO &io = ImGui::GetIO();
 			const float margin = 8.0f;
 			ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_FirstUseEver);
-			ImGui::SetNextWindowSize(ImVec2(400.0f, io.DisplaySize.y - margin), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSize(ImVec2(400.0f, io.DisplaySize.y - margin * 2.0f), ImGuiCond_FirstUseEver);
 			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
+				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);
 				ImGui::Text("Model");
 				ImGui::Spacing();
 				if (ImGui::Button("Open model...", ImVec2(-1.0f, 0.0f)))
@@ -1078,6 +1080,8 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::Checkbox("Verbose output", &s_atlas.verbose);
 					if (ImGui::Button("Generate atlas", ImVec2(-1.0f, 0.0f)))
 						atlasGenerate();
+					if (s_atlas.status.get() == AtlasStatus::Ready)
+						ImGui::Text("%u charts", s_atlas.data->chartCount);
 				}
 				ImGui::End();
 			}
