@@ -11,6 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 #include <stdio.h>
 #include "flextGL.h"
@@ -907,9 +908,11 @@ static void atlasProgressCallback(xatlas::ProgressCategory::Enum category, int p
 	s_atlas.status.setProgress(category, progress);
 }
 
-static void atlasSetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)
+static void atlasSetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color, bool checkerboard)
 {
-	const float scale = (x / s_atlas.chartCellSize % 2) != (y / s_atlas.chartCellSize % 2) ? 0.75f : 1.0f;
+	float scale = 1.0f;
+	if (checkerboard)
+		scale = (x / s_atlas.chartCellSize % 2) != (y / s_atlas.chartCellSize % 2) ? 0.75f : 1.0f;
 	uint8_t *pixel = &dest[x * 3 + y * (destWidth * 3)];
 	pixel[0] = uint8_t(color[0] * scale);
 	pixel[1] = uint8_t(color[1] * scale);
@@ -925,7 +928,7 @@ static void atlasRasterizeLine(uint8_t *dest, int destWidth, const int *p1, cons
 	int current[2];
 	current[0] = p1[0];
 	current[1] = p1[1];
-	while (atlasSetPixel(dest, destWidth, current[0], current[1], color), current[0] != p2[0] || current[1] != p2[1]) {
+	while (atlasSetPixel(dest, destWidth, current[0], current[1], color, false), current[0] != p2[0] || current[1] != p2[1]) {
 		const int e2 = err;
 		if (e2 > -dx) { err -= dy; current[0] += sx; }
 		if (e2 < dy) { err += dx; current[1] += sy; }
@@ -952,9 +955,57 @@ static void atlasRasterizeTriangle(uint8_t *dest, int destWidth, const int *t0, 
 		if (A[0] > B[0])
 			std::swap(A, B);
 		for (int j = A[0]; j <= B[0]; j++)
-			atlasSetPixel(dest, destWidth, j, t0[1] + i, color);
+			atlasSetPixel(dest, destWidth, j, t0[1] + i, color, true);
 	}
 }
+
+static uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
+{
+	const uint8_t *data = (const uint8_t *) data_in;
+	uint32_t i = 0;
+	while (i < size)
+		h = (h << 16) + (h << 6) - h + (uint32_t ) data[i++];
+	return h;
+}
+
+struct EdgeKey
+{
+	hmm_vec3 p0, p1;
+};
+
+struct EdgeKeyHash
+{
+	uint32_t operator()(const EdgeKey &key) const
+	{
+		int32_t data[6];
+		data[0] = (int32_t)(key.p0.X * 100.0f);
+		data[1] = (int32_t)(key.p0.Y * 100.0f);
+		data[2] = (int32_t)(key.p0.Z * 100.0f);
+		data[3] = (int32_t)(key.p1.X * 100.0f);
+		data[4] = (int32_t)(key.p1.Y * 100.0f);
+		data[5] = (int32_t)(key.p1.Z * 100.0f);
+		return sdbmHash(data, sizeof(data));
+	}
+};
+
+struct EdgeKeyEqual
+{
+	bool floatEqual(float f1, float f2) const
+	{
+		const float epsilon = 0.0001f;
+		return fabs(f1 - f2) <= epsilon;
+	}
+
+	bool vec3Equal(const hmm_vec3 &v0, const hmm_vec3 &v1) const
+	{
+		return floatEqual(v0.X, v1.X) && floatEqual(v0.Y, v1.Y) && floatEqual(v0.Z, v1.Z);
+	}
+
+	bool operator()(const EdgeKey &k0, const EdgeKey &k1) const
+	{
+		return vec3Equal(k0.p0, k1.p0) && vec3Equal(k0.p1, k1.p1);
+	}
+};
 
 static void atlasGenerateThread()
 {
@@ -997,6 +1048,43 @@ static void atlasGenerateThread()
 	} else
 		s_atlas.status.set(AtlasStatus::Generating);
 	xatlas::PackCharts(s_atlas.data, s_atlas.packerOptions, atlasProgressCallback);
+	// Find chart boundary edges.
+	uint32_t numEdges = 0;
+	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+		const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
+		numEdges += outputMesh.indexCount;
+	}
+	std::vector<bool> boundaryEdges;
+	boundaryEdges.resize(numEdges);
+	std::unordered_map<EdgeKey, uint32_t, EdgeKeyHash, EdgeKeyEqual> edgeMap;
+	numEdges = 0;
+	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
+		const objzObject &object = s_model.data->objects[i];
+		const ModelVertex *vertices = &((const ModelVertex *)s_model.data->vertices)[object.firstVertex];
+		for (uint32_t j = 0; j < mesh.chartCount; j++) {
+			const xatlas::Chart &chart = mesh.chartArray[j];
+			// Hash edges for finding boundaries.
+			edgeMap.clear();
+			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+				for (uint32_t l = 0; l < 3; l++) {
+					EdgeKey key;
+					key.p0 = vertices[mesh.vertexArray[chart.indexArray[k + l]].xref].pos;
+					key.p1 = vertices[mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]].xref].pos;
+					edgeMap[key] = 0; // Don't care.
+				}
+			}
+			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+				for (uint32_t l = 0; l < 3; l++) {
+					EdgeKey key;
+					key.p0 = vertices[mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]].xref].pos;
+					key.p1 = vertices[mesh.vertexArray[chart.indexArray[k + l]].xref].pos;
+					boundaryEdges[numEdges] = edgeMap.count(key) == 0;
+					numEdges++;
+				}
+			}
+		}
+	}
 	// Copy charts for rendering.
 	s_atlas.chartIndices.clear();
 	s_atlas.chartVertices.clear();
@@ -1033,6 +1121,7 @@ static void atlasGenerateThread()
 	s_atlas.chartsImage.resize(s_atlas.data->width * s_atlas.data->height * 3);
 	memset(s_atlas.chartsImage.data(), 0, s_atlas.chartsImage.size());
 	srand(s_atlas.chartColorSeed);
+	numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
@@ -1047,10 +1136,13 @@ static void atlasGenerateThread()
 					verts[l][1] = int(v.uv[1]);
 				}
 				atlasRasterizeTriangle(s_atlas.chartsImage.data(), s_atlas.data->width, verts[0], verts[1], verts[2], color);
-				const uint8_t white[] = { 255, 255, 255, 255 };
-				atlasRasterizeLine(s_atlas.chartsImage.data(), s_atlas.data->width, verts[0], verts[1], white);
-				atlasRasterizeLine(s_atlas.chartsImage.data(), s_atlas.data->width, verts[1], verts[2], white);
-				atlasRasterizeLine(s_atlas.chartsImage.data(), s_atlas.data->width, verts[2], verts[0], white);
+				for (int l = 0; l < 3; l++) {
+					if (boundaryEdges[numEdges]) {
+						const uint8_t white[] = { 255, 255, 255, 255 };
+						atlasRasterizeLine(s_atlas.chartsImage.data(), s_atlas.data->width, verts[l], verts[(l + 1) % 3], white);
+					}
+					numEdges++;
+				}
 			}
 		}
 	}
