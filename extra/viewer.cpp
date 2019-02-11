@@ -182,10 +182,12 @@ struct
 	GLuint chartsTexture = 0;
 	std::vector<uint8_t> chartsImage;
 	GLuint chartVao = 0, chartVbo, chartIbo;
+	GLuint chartBoundaryVao = 0, chartBoundaryVbo;
 	xatlas::CharterOptions charterOptions;
 	xatlas::PackerOptions packerOptions;
 	std::vector<ModelVertex> chartVertices;
 	std::vector<uint32_t> chartIndices;
+	std::vector<hmm_vec3> chartBoundaryVertices;
 }
 s_atlas;
 
@@ -743,6 +745,11 @@ static void atlasDestroy()
 		glDeleteBuffers(1, &s_atlas.chartIbo);
 		s_atlas.chartVao = 0;
 	}
+	if (s_atlas.chartBoundaryVao > 0) {
+		glDeleteVertexArrays(1, &s_atlas.chartBoundaryVao);
+		glDeleteBuffers(1, &s_atlas.chartBoundaryVbo);
+		s_atlas.chartBoundaryVao = 0;
+	}
 	s_atlas.status.set(AtlasStatus::NotGenerated);
 }
 
@@ -877,6 +884,21 @@ static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
 				firstIndex += chart.indexCount;
 			}
 		}
+		if (s_options.wireframe) {
+			// Chart boundary edges.
+			glDisable(GL_DEPTH_TEST);
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glBindVertexArray(s_atlas.chartBoundaryVao);
+			glUseProgram(s_colorShader.id);
+			const float wcolor[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+			glUniform4fv(s_colorShader.u_color, 1, wcolor);
+			glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
+			glDrawArrays(GL_LINES, 0, (GLsizei)s_atlas.chartBoundaryVertices.size());
+			glBindVertexArray(0);
+			glDisable(GL_BLEND);
+			glEnable(GL_DEPTH_TEST);
+		}
 	} else {
 		glBindVertexArray(s_model.vao);
 		glUseProgram(s_colorShader.id);
@@ -884,23 +906,25 @@ static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
 		glUniform4fv(s_colorShader.u_color, 1, color);
 		glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
 		glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
-	}
-	if (s_options.wireframe) {
-		glBindVertexArray(s_model.vao);
-		glUseProgram(s_colorShader.id);
-		glDisable(GL_DEPTH_TEST);
-		glDisable(GL_CULL_FACE);
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-		const float wcolor[] = { 1.0f, 1.0f, 1.0f, 0.5f };
-		glUniform4fv(s_colorShader.u_color, 1, wcolor);
-		glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
-		glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
-		glEnable(GL_DEPTH_TEST);
-		glEnable(GL_CULL_FACE);
-		glDisable(GL_BLEND);
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		glBindVertexArray(0);
+		if (s_options.wireframe) {
+			glBindVertexArray(s_model.vao);
+			glUseProgram(s_colorShader.id);
+			glDisable(GL_DEPTH_TEST);
+			glDisable(GL_CULL_FACE);
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+			const float wcolor[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+			glUniform4fv(s_colorShader.u_color, 1, wcolor);
+			glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
+			glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
+			glBindVertexArray(0);
+			glEnable(GL_DEPTH_TEST);
+			glEnable(GL_CULL_FACE);
+			glDisable(GL_BLEND);
+			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		}
 	}
 }
 
@@ -1089,6 +1113,7 @@ static void atlasGenerateThread()
 	// Copy charts for rendering.
 	s_atlas.chartIndices.clear();
 	s_atlas.chartVertices.clear();
+	s_atlas.chartBoundaryVertices.clear();
 	uint32_t numIndices = 0, numVertices = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
@@ -1099,18 +1124,31 @@ static void atlasGenerateThread()
 	s_atlas.chartVertices.resize(numVertices);
 	uint32_t firstIndex = 0;
 	uint32_t firstVertex = 0;
+	numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		const objzObject &object = s_model.data->objects[i];
+		const ModelVertex *oldVertices = &((const ModelVertex *)s_model.data->vertices)[object.firstVertex];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
 			for (uint32_t k = 0; k < chart.indexCount; k++)
 				s_atlas.chartIndices[firstIndex + k] = firstVertex + chart.indexArray[k];
 			firstIndex += chart.indexCount;
+			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+				for (int l = 0; l < 3; l++) {
+					if (boundaryEdges[numEdges]) {
+						const xatlas::Vertex &v0 = mesh.vertexArray[chart.indexArray[k + l]];
+						const xatlas::Vertex &v1 = mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]];
+						s_atlas.chartBoundaryVertices.push_back(oldVertices[v0.xref].pos);
+						s_atlas.chartBoundaryVertices.push_back(oldVertices[v1.xref].pos);
+					}
+					numEdges++;
+				}
+			}
 		}
 		for (uint32_t j = 0; j < mesh.vertexCount; j++) {
 			const xatlas::Vertex &outputVertex = mesh.vertexArray[j];
-			const ModelVertex &oldVertex = ((const ModelVertex *)s_model.data->vertices)[object.firstVertex + outputVertex.xref];
+			const ModelVertex &oldVertex = oldVertices[outputVertex.xref];
 			ModelVertex &v = s_atlas.chartVertices[firstVertex + j];
 			v.pos = oldVertex.pos;
 			v.normal = oldVertex.normal;
@@ -1166,6 +1204,7 @@ static void atlasFinalize()
 		delete s_atlas.thread;
 		s_atlas.thread = nullptr;
 	}
+	// Charts geometry.
 	glGenBuffers(1, &s_atlas.chartVbo);
 	glGenBuffers(1, &s_atlas.chartIbo);
 	glGenVertexArrays(1, &s_atlas.chartVao);
@@ -1180,6 +1219,15 @@ static void atlasFinalize()
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, pos));
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, normal));
 	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, texcoord));
+	glBindVertexArray(0);
+	// Chart boundaries.
+	glGenVertexArrays(1, &s_atlas.chartBoundaryVao);
+	glBindVertexArray(s_atlas.chartBoundaryVao);
+	glGenBuffers(1, &s_atlas.chartBoundaryVbo);
+	glBindBuffer(GL_ARRAY_BUFFER, s_atlas.chartBoundaryVbo);
+	glBufferData(GL_ARRAY_BUFFER, s_atlas.chartBoundaryVertices.size() * sizeof(hmm_vec3), s_atlas.chartBoundaryVertices.data(), GL_STATIC_DRAW);
+	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(hmm_vec3), 0);
 	glBindVertexArray(0);
 	// Charts texture.
 	if (s_atlas.chartsTexture == 0)
