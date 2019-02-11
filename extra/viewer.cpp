@@ -17,8 +17,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "flextGL.h"
 #include "GLFW/glfw3.h"
 
-#ifdef __GNUC__
+#if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-braces"
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #include "HandmadeMath.h"
 #pragma GCC diagnostic pop
