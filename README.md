@@ -25,6 +25,13 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 5. The `xatlas::Atlas` instance created in the first step now contains the result, namely meshes with a new UV channel that cross-reference input meshes. The number of vertices has likely increased compared to the input meshes, as the new UV channel duplicates some vertices that were previously shared between triangles. The number and coherence of indices remain unchanged, some are changed to reference vertices that were duplicated.
 6. Cleanup with `xatlas::Destroy`.
 
+## TODO
+
+* Fix T-junctions in source meshes
+* Use multithreading to improve performance
+* API to use custom parameterization. Use it to integrate [BFF](https://github.com/GeometryCollective/boundary-first-flattening) in the viewer.
+* glTF support in the viewer
+
 ## Links
 [Ignacio Castaño's blog post on thekla_atlas](http://the-witness.net/news/2010/03/graphics-tech-texture-parameterization/)
 
