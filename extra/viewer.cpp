@@ -179,8 +179,9 @@ struct
 	AtlasStatus status;
 	bool verbose = false;
 	bool showTexture = true;
-	GLuint chartsTexture = 0;
-	std::vector<uint8_t> chartsImage;
+	int currentTexture;
+	std::vector<GLuint> chartsTextures;
+	std::vector<std::vector<uint8_t>> chartsImages;
 	GLuint chartVao = 0, chartVbo, chartIbo;
 	GLuint chartBoundaryVao = 0, chartBoundaryVbo;
 	xatlas::CharterOptions charterOptions;
@@ -299,7 +300,7 @@ struct OrbitCamera
 		distance = HMM_Clamp(0.1f, distance + delta, 500.0f);
 	}
 
-	float distance = 10.0f;
+	float distance = 32.0f;
 	float pitch = 0.0f;
 	float yaw = 0.0f;
 };
@@ -735,10 +736,8 @@ static void atlasDestroy()
 		xatlas::Destroy(s_atlas.data);
 		s_atlas.data = nullptr;
 	}
-	if (s_atlas.chartsTexture) {
-		glDeleteTextures(1, &s_atlas.chartsTexture);
-		s_atlas.chartsTexture = 0;
-	}
+	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++)
+		glDeleteTextures(1, &s_atlas.chartsTextures[i]);
 	if (s_atlas.chartVao > 0) {
 		glDeleteVertexArrays(1, &s_atlas.chartVao);
 		glDeleteBuffers(1, &s_atlas.chartVbo);
@@ -1156,9 +1155,12 @@ static void atlasGenerateThread()
 		}
 		firstVertex += mesh.vertexCount;
 	}
-	// Rasterize charts to a texture for previewing UVs.
-	s_atlas.chartsImage.resize(s_atlas.data->width * s_atlas.data->height * 3);
-	memset(s_atlas.chartsImage.data(), 0, s_atlas.chartsImage.size());
+	// Rasterize charts to texture(s) for previewing UVs.
+	s_atlas.chartsImages.resize(s_atlas.data->atlasCount);
+	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsImages.size(); i++) {
+		s_atlas.chartsImages[i].resize(s_atlas.data->width * s_atlas.data->height * 3);
+		memset(s_atlas.chartsImages[i].data(), 0, s_atlas.chartsImages[i].size());
+	}
 	srand(s_atlas.chartColorSeed);
 	numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -1174,11 +1176,12 @@ static void atlasGenerateThread()
 					verts[l][0] = int(v.uv[0]);
 					verts[l][1] = int(v.uv[1]);
 				}
-				atlasRasterizeTriangle(s_atlas.chartsImage.data(), s_atlas.data->width, verts[0], verts[1], verts[2], color);
+				uint8_t *imageData = s_atlas.chartsImages[chart.atlasIndex].data();
+				atlasRasterizeTriangle(imageData, s_atlas.data->width, verts[0], verts[1], verts[2], color);
 				for (int l = 0; l < 3; l++) {
 					if (boundaryEdges[numEdges]) {
 						const uint8_t white[] = { 255, 255, 255, 255 };
-						atlasRasterizeLine(s_atlas.chartsImage.data(), s_atlas.data->width, verts[l], verts[(l + 1) % 3], white);
+						atlasRasterizeLine(imageData, s_atlas.data->width, verts[l], verts[(l + 1) % 3], white);
 					}
 					numEdges++;
 				}
@@ -1230,18 +1233,22 @@ static void atlasFinalize()
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(hmm_vec3), 0);
 	glBindVertexArray(0);
 	// Charts texture.
-	if (s_atlas.chartsTexture == 0)
-		glGenTextures(1, &s_atlas.chartsTexture);
-	glBindTexture(GL_TEXTURE_2D, s_atlas.chartsTexture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-	const float color[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, s_atlas.data->width, s_atlas.data->height, 0, GL_RGB, GL_UNSIGNED_BYTE, s_atlas.chartsImage.data());
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	s_atlas.chartsTextures.resize(s_atlas.data->atlasCount);
+	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++) {
+		if (s_atlas.chartsTextures[i] == 0)
+			glGenTextures(1, &s_atlas.chartsTextures[i]);
+		glBindTexture(GL_TEXTURE_2D, s_atlas.chartsTextures[i]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+		const float color[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, color);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, s_atlas.data->width, s_atlas.data->height, 0, GL_RGB, GL_UNSIGNED_BYTE, s_atlas.chartsImages[i].data());
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+	}
+	s_atlas.currentTexture = 0;
 	s_atlas.status.set(AtlasStatus::Ready);
 }
 
@@ -1383,6 +1390,7 @@ int main(int /*argc*/, char ** /*argv*/)
 							numIndices += outputMesh.indexCount;
 							numVertices += outputMesh.vertexCount;
 						}
+						ImGui::Text("%u atlases", s_atlas.data->atlasCount);
 						ImGui::Text("%u charts", s_atlas.data->chartCount);
 						ImGui::Text("%u vertices", numVertices);
 						ImGui::Text("%u triangles", numIndices / 3);
@@ -1427,8 +1435,23 @@ int main(int /*argc*/, char ** /*argv*/)
 				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, margin), ImGuiCond_FirstUseEver);
 				ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 				if (ImGui::Begin("Atlas", &s_atlas.showTexture)) {
+					if (s_atlas.data->atlasCount > 1) {
+						ImGui::Text("Atlas %d of %u", s_atlas.currentTexture + 1, s_atlas.data->atlasCount);
+						ImGui::SameLine();
+						if (ImGui::ArrowButton("##prevAtlas", ImGuiDir_Left)) {
+							s_atlas.currentTexture--;
+							if (s_atlas.currentTexture < 0)
+								s_atlas.currentTexture = s_atlas.data->atlasCount - 1;
+						}
+						ImGui::SameLine();
+						if (ImGui::ArrowButton("##nextAtlas", ImGuiDir_Right)) {
+							s_atlas.currentTexture++;
+							if (s_atlas.currentTexture > (int)s_atlas.data->atlasCount - 1)
+								s_atlas.currentTexture = 0;
+						}
+					}
 					const ImVec2 pos = ImGui::GetCursorScreenPos();
-					ImTextureID texture = (ImTextureID)(size_t)s_atlas.chartsTexture;
+					ImTextureID texture = (ImTextureID)(size_t)s_atlas.chartsTextures[s_atlas.currentTexture];
 					ImGui::Image(texture, ImGui::GetContentRegionAvail());
 					if (ImGui::IsItemHovered()) {
 						const ImVec2 textureSize((float)s_atlas.data->width, (float)s_atlas.data->height);
