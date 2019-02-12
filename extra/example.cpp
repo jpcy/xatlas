@@ -1,4 +1,6 @@
 /*
+https://github.com/jpcy/xatlas
+
 Copyright (c) 2018 Jonathan Young
 Copyright (c) 2013 Thekla, Inc
 Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
