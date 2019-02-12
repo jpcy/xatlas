@@ -186,6 +186,7 @@ static void swap(T &a, T &b)
 	T temp = a;
 	a = b;
 	b = temp;
+	temp = T();
 }
 
 union FloatUint32
@@ -694,6 +695,14 @@ public:
 		destroy();
 	}
 
+	const Array<T> &operator=(const Array<T> &other)
+	{
+		m_buffer = other.m_buffer;
+		m_capacity = other.m_capacity;
+		m_size = other.m_size;
+		return *this;
+	}
+
 	const T & operator[]( uint32_t index ) const
 	{
 		XA_DEBUG_ASSERT(index < m_size);
@@ -836,12 +845,6 @@ public:
 		construct_range(m_buffer, count, 0, data);
 	}
 
-	Array<T> & operator=( const Array<T> & a )
-	{
-		copy(a.m_buffer, a.m_size);
-		return *this;
-	}
-
 	void moveTo(Array<T> &other)
 	{
 		other.destroy();
@@ -939,6 +942,13 @@ public:
 		resize(sz);
 	}
 
+	const BitArray &operator=(const BitArray &other)
+	{
+		m_size = other.m_size;
+		m_wordArray = other.m_wordArray;
+		return *this;
+	}
+
 	uint32_t size() const
 	{
 		return m_size;
@@ -1028,6 +1038,15 @@ class BitImage
 public:
 	BitImage() : m_width(0), m_height(0) {}
 	BitImage(uint32_t w, uint32_t h) : m_width(w), m_height(h), m_bitArray(w * h) {}
+
+	const BitImage &operator=(const BitImage &other)
+	{
+		m_width = other.m_width;
+		m_height = other.m_height;
+		m_bitArray = other.m_bitArray;
+		return *this;
+	}
+
 	uint32_t width() const { return m_width; }
 	uint32_t height() const { return m_height; }
 
@@ -4829,10 +4848,9 @@ private:
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_faceArray(faceArray)
 	{
 		// Copy face indices.
-		m_faceArray = faceArray;
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
 		m_chartMesh = XA_NEW(Mesh);
 		m_unifiedMesh = XA_NEW(Mesh);
@@ -5859,12 +5877,12 @@ struct AtlasPacker
 				// Init all bits to 0.
 				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, false);  // + 2 to add padding on both sides.
 				// Rasterize chart and dilate.
-				dchartBitImageDilate(chart, &chartBitImage, options.padding);
+				drawChartBitImageDilate(chart, &chartBitImage, options.padding);
 			} else {
 				// Init all bits to 0.
 				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1, false);  // Add half a texels on each side.
 				// Rasterize chart and dilate.
-				dchartBitImage(chart, &chartBitImage, Vector2(1), Vector2(0.5));
+				drawChartBitImage(chart, &chartBitImage, Vector2(1), Vector2(0.5));
 			}
 			uint32_t currentBitImageIndex = 0;
 			int best_x = 0, best_y = 0;
@@ -5981,8 +5999,8 @@ private:
 			int ch = chartBitImage->height();
 			if (r & 1)
 				swap(cw, ch);
-			for (int y = 0; y <= h + 1; y += step_size) { // + 1 to extend atlas in case atlas full.
-				for (int x = 0; x <= w + 1; x += step_size) { // + 1 not really necessary here.
+			for (int y = 0; y <= h + step_size; y += step_size) { // + 1 to extend atlas in case atlas full.
+				for (int x = 0; x <= w + step_size; x += step_size) { // + 1 not really necessary here.
 					if (!resizableAtlas && (x > (int)atlasBitImage->width() - cw || y > (int)atlasBitImage->height() - ch))
 						continue;
 					// Early out.
@@ -6073,7 +6091,7 @@ private:
 		return result;
 	}
 
-	void dchartBitImageDilate(const Chart *chart, BitImage *bitImage, int padding)
+	void drawChartBitImageDilate(const Chart *chart, BitImage *bitImage, int padding)
 	{
 		const int w = bitImage->width();
 		const int h = bitImage->height();
@@ -6116,11 +6134,11 @@ private:
 					if (b) tmp.setBitAt(x, y);
 				}
 			}
-			tmp.moveTo(*bitImage);
+			swap(tmp, *bitImage);
 		}
 	}
 
-	void dchartBitImage(const Chart *chart, BitImage *bitImage, const Vector2 &scale, const Vector2 &offset)
+	void drawChartBitImage(const Chart *chart, BitImage *bitImage, const Vector2 &scale, const Vector2 &offset)
 	{
 		const int w = bitImage->width();
 		const int h = bitImage->height();
