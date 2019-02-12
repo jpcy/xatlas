@@ -46,7 +46,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 static GLFWwindow *s_window;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
-static char s_errorMessage[1024] = { 0 };
 
 struct
 {
@@ -209,13 +208,33 @@ static void randomRGB(uint8_t *color)
 	color[2] = uint8_t((rand() % 255 + mix) * 0.5f);
 }
 
-static void setErrorMessage(const char *format, ...)
+struct
 {
-	va_list args;
-	va_start(args, format);
-	vsnprintf(s_errorMessage, sizeof(s_errorMessage), format, args);
-	va_end(args);
+	void set(const char *format, ...)
+	{
+		m_lock.lock();
+		if (format) {
+			va_list args;
+			va_start(args, format);
+			vsnprintf(m_text, sizeof(m_text), format, args);
+			va_end(args);
+		} else
+			m_text[0] = 0;
+		m_lock.unlock();
+	}
+
+	void get(char *buffer, size_t bufferSize)
+	{
+		m_lock.lock();
+		STRNCPY(buffer, bufferSize, m_text);
+		m_lock.unlock();
+	}
+
+private:
+	char m_text[1024] = { 0 };
+	std::mutex m_lock;
 }
+s_errorMessage;
 
 static void axisFromEulerAngles(float pitch, float yaw, hmm_vec3 *forward, hmm_vec3 *right, hmm_vec3 *up)
 {
@@ -788,7 +807,7 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 	objzModel *model = objz_load(args.filename);
 	if (!model) {
 		fprintf(stderr, "%s\n", objz_getError());
-		setErrorMessage(objz_getError());
+		s_errorMessage.set(objz_getError());
 		s_model.data = nullptr;
 		s_model.status.set(ModelStatus::NotLoaded);
 		return;
@@ -1057,7 +1076,7 @@ static void atlasGenerateThread()
 			xatlas::AddMeshError::Enum error = xatlas::AddMesh(s_atlas.data, meshDecl);
 			if (error != xatlas::AddMeshError::Success) {
 				fprintf(stderr, "Error adding mesh: %s\n", xatlas::StringForEnum(error));
-				setErrorMessage("Error adding mesh: %s", xatlas::StringForEnum(error));
+				s_errorMessage.set("Error adding mesh: %s", xatlas::StringForEnum(error));
 				xatlas::Destroy(s_atlas.data);
 				s_atlas.data = nullptr;
 				s_atlas.status.set(AtlasStatus::NotGenerated);
@@ -1296,13 +1315,15 @@ int main(int /*argc*/, char ** /*argv*/)
 			guiRunFrame(deltaTime);
 			ImGui::NewFrame();
 			ImGuiIO &io = ImGui::GetIO();
-			if (s_errorMessage[0])
+			char errorMessage[1024];
+			s_errorMessage.get(errorMessage, sizeof(errorMessage));
+			if (errorMessage[0])
 				ImGui::OpenPopup("Error");
 			if (ImGui::BeginPopupModal("Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-				ImGui::Text("%s", s_errorMessage);
+				ImGui::Text("%s", errorMessage);
 				if (ImGui::Button("OK", ImVec2(120, 0))) {
 					ImGui::CloseCurrentPopup();
-					s_errorMessage[0] = 0;
+					s_errorMessage.set(nullptr);
 				}
 				ImGui::EndPopup();
 			}
