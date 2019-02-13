@@ -6225,8 +6225,8 @@ private:
 				}
 				if (b) tmp.setBitAt(x, y);
 			}
-			swap(tmp, *bitImage);
 		}
+		swap(tmp, *bitImage);
 	}
 
 	bool canAddChart(const BitImage *atlasBitImage, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
