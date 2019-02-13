@@ -1838,6 +1838,14 @@ public:
 		}
 	}
 
+	void createFaceNormals()
+	{
+		const uint32_t faceCount = m_faces.size();
+		m_faceNormals.resize(faceCount);
+		for (uint32_t i = 0; i < faceCount; i++)
+			m_faceNormals[i] = calculateFaceNormal(i);
+	}
+
 	void createColocals()
 	{
 		const uint32_t vertexCount = m_positions.size();
@@ -2283,7 +2291,7 @@ public:
 		return sum / float(count);
 	}
 
-	Vector3 faceNormal(uint32_t face) const
+	Vector3 calculateFaceNormal(uint32_t face) const
 	{
 		Vector3 n(0.0f);
 		Vector3 p0(0.0f);
@@ -2360,15 +2368,15 @@ public:
 
 	bool isNormalSeam(uint32_t edge) const
 	{
-		if (m_flags & MeshFlags::HasNormals) {
-			const uint32_t oppositeEdge = m_oppositeEdges[edge];
-			if (oppositeEdge == UINT32_MAX)
-				return false; // boundary edge
-			const Edge &e = m_edges[edge];
-			const Edge &oe = m_edges[oppositeEdge];
+		const uint32_t oppositeEdge = m_oppositeEdges[edge];
+		if (oppositeEdge == UINT32_MAX)
+			return false; // boundary edge
+		const Edge &e = m_edges[edge];
+		const Edge &oe = m_edges[oppositeEdge];
+		if (m_flags & MeshFlags::HasNormals)
 			return m_normals[m_indices[e.index0]] != m_normals[m_indices[oe.index1]] || m_normals[m_indices[e.index1]] != m_normals[m_indices[oe.index0]];
-		}
-		return false;
+		XA_DEBUG_ASSERT(!m_faceNormals.isEmpty());
+		return m_faceNormals[e.face] != m_faceNormals[oe.face];
 	}
 
 	bool isTextureSeam(uint32_t edge) const
@@ -2420,6 +2428,7 @@ public:
 	Face *faceAt(uint32_t i) { return &m_faces[i]; }
 	uint32_t faceFlagsAt(uint32_t i) const { return m_faceFlags[i]; }
 	uint32_t faceGroupAt(uint32_t face) const { return m_faceGroups[face]; }
+	const Vector3 &faceNormalAt(uint32_t face) const { return m_faceNormals[face]; }
 
 private:
 	uint32_t m_flags;
@@ -2428,6 +2437,7 @@ private:
 	Array<Face> m_faces;
 	Array<uint32_t> m_faceFlags;
 	Array<uint32_t> m_faceGroups;
+	Array<Vector3> m_faceNormals;
 	Array<uint32_t> m_indices;
 	Array<Vector3> m_positions;
 	Array<Vector3> m_normals;
@@ -2790,7 +2800,7 @@ static Mesh *meshTriangulate(const Mesh &inputMesh)
 			// Build 2D polygon projecting vertices onto normal plane.
 			// Faces are not necesarily planar, this is for example the case, when the face comes from filling a hole. In such cases
 			// it's much better to use the best fit plane.
-			const Vector3 fn = inputMesh.faceNormal(f);
+			const Vector3 fn = inputMesh.calculateFaceNormal(f);
 			Basis basis;
 			basis.buildFrameForDirection(fn);
 			polygonPoints.clear();
@@ -4139,7 +4149,7 @@ static void computeSingleFaceMap(Mesh *mesh)
 	const Vector3 &p0 = mesh->position(mesh->vertexAt(face->firstIndex + 0));
 	const Vector3 &p1 = mesh->position(mesh->vertexAt(face->firstIndex + 1));
 	Vector3 X = normalizeSafe(p1 - p0, Vector3(0.0f), 0.0f);
-	Vector3 Z = mesh->faceNormal(0);
+	Vector3 Z = mesh->calculateFaceNormal(0);
 	Vector3 Y = normalizeSafe(cross(Z, X), Vector3(0.0f), 0.0f);
 	uint32_t i = 0;
 	for (Mesh::FaceEdgeIterator it(mesh, 0); !it.isDone(); it.advance(), i++) {
@@ -4597,14 +4607,20 @@ struct AtlasBuilder
 				continue;
 			// Make sure it's a normal seam.
 			if (it.isNormalSeam()) {
-				const Vector3 &n0 = m_mesh->normal(it.vertex0());
-				const Vector3 &n1 = m_mesh->normal(it.vertex1());
 				const Edge *oedge = m_mesh->edgeAt(it.oppositeEdge());
-				const Vector3 &on0 = m_mesh->normal(m_mesh->vertexAt(oedge->index0));
-				const Vector3 &on1 = m_mesh->normal(m_mesh->vertexAt(oedge->index1));
-				const float d0 = clamp(dot(n0, on1), 0.0f, 1.0f);
-				const float d1 = clamp(dot(n1, on0), 0.0f, 1.0f);
-				l *= 1 - (d0 + d1) * 0.5f;
+				float d;
+				if (m_mesh->flags() & MeshFlags::HasNormals) {
+					const Vector3 &n0 = m_mesh->normal(it.vertex0());
+					const Vector3 &n1 = m_mesh->normal(it.vertex1());
+					const Vector3 &on0 = m_mesh->normal(m_mesh->vertexAt(oedge->index0));
+					const Vector3 &on1 = m_mesh->normal(m_mesh->vertexAt(oedge->index1));
+					const float d0 = clamp(dot(n0, on1), 0.0f, 1.0f);
+					const float d1 = clamp(dot(n1, on0), 0.0f, 1.0f);
+					d = (d0 + d1) * 0.5f;
+				} else {
+					d = clamp(dot(m_mesh->faceNormalAt(f), m_mesh->faceNormalAt(oedge->face)), 0.0f, 1.0f);
+				}
+				l *= 1 - d;
 				seamFactor += l;
 			}
 		}
@@ -5325,7 +5341,7 @@ public:
 				if (meshIndices[vertex] == (uint32_t)~0) {
 					meshIndices[vertex] = m_mesh->vertexCount();
 					m_vertexToSourceVertexMap.push_back(vertex);
-					Vector3 normal;
+					Vector3 normal(0.0f);
 					if (sourceMesh->flags() & MeshFlags::HasNormals)
 						normal = sourceMesh->normal(vertex);
 					m_mesh->addVertex(sourceMesh->position(vertex), normal, sourceMesh->texcoord(vertex));
@@ -5346,6 +5362,8 @@ public:
 			}
 			m_mesh->addFace(faceIndices);
 		}
+		if (!(sourceMesh->flags() & MeshFlags::HasNormals))
+			m_mesh->createFaceNormals(); // For isNormalSeam.
 		if (!m_isVertexMap) {
 			m_mesh->createBoundaries();
 			m_mesh->linkBoundaries();
