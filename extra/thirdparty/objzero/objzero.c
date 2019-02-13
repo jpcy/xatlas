@@ -1,8 +1,10 @@
 /*
-The MIT License (MIT)
+https://github.com/jpcy/objzero
 
 Copyright (c) 2018 Jonathan Young
 Copyright (c) 2012-2018 Syoyo Fujita and many contributors.
+
+The MIT License (MIT)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24,6 +26,7 @@ THE SOFTWARE.
 */
 #include <float.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -120,6 +123,19 @@ static void vec3Normalize(vec3 *_out, const vec3 *_in) {
 		OBJZ_VEC3_MUL(*_out, *_in, len);
 	} else
 		OBJZ_VEC3_COPY(*_out, *_in);
+}
+
+static void appendError(const char *_format, ...) {
+	va_list args;
+	va_start(args, _format);
+	char buffer[OBJZ_MAX_ERROR_LENGTH];
+	vsnprintf(buffer, sizeof(buffer), _format, args);
+	va_end(args);
+	if (s_error[0]) {
+		const char *newline = "\n";
+		OBJZ_STRNCAT(s_error, sizeof(s_error), newline, strlen(newline));
+	}
+	OBJZ_STRNCAT(s_error, sizeof(s_error), buffer, strlen(buffer));
 }
 
 typedef struct {
@@ -255,7 +271,7 @@ static bool parseFloats(Lexer *_lexer, float *_result, uint32_t n) {
 	for (uint32_t i = 0; i < n; i++) {
 		tokenize(_lexer, &token, false);
 		if (strlen(token.text) == 0) {
-			snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Error parsing float", token.line, token.column);
+			appendError("(%u:%u) Error parsing float", token.line, token.column);
 			return false;
 		}
 		_result[i] = (float)atof(token.text);
@@ -268,7 +284,7 @@ static bool skipTokens(Lexer *_lexer, int _n) {
 	for (int i = 0; i < _n; i++) {
 		tokenize(_lexer, &token, false);
 		if (strlen(token.text) == 0) {
-			snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Error skipping tokens", token.line, token.column);
+			appendError("(%u:%u) Error skipping tokens", token.line, token.column);
 			return false;
 		}
 	}
@@ -398,15 +414,18 @@ static bool loadMaterialFile(const char *_objFilename, const char *_materialName
 		OBJZ_STRNCAT(filename, sizeof(filename), _materialName, strlen(_materialName));
 	} else
 		OBJZ_STRNCPY(filename, sizeof(filename), _materialName);
-	bool result = false;
 	File file;
-	if (!fileOpen(&file, filename))
-		return result;
+	if (!fileOpen(&file, filename)) {
+		// Treat missing material file as a warning, not an error.
+		appendError("Failed to read material file '%s'", filename);
+		return true;
+	}
 	Lexer lexer;
 	initLexer(&lexer);
 	Token token;
 	objzMaterial mat;
 	materialInit(&mat);
+	bool result = false;
 	for (;;) {
 		char *line = fileReadLine(&file);
 		if (!line)
@@ -416,7 +435,7 @@ static bool loadMaterialFile(const char *_objFilename, const char *_materialName
 		if (OBJZ_STRICMP(token.text, "newmtl") == 0) {
 			tokenize(&lexer, &token, false);
 			if (token.text[0] == 0) {
-				snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Expected name after 'newmtl'", token.line, token.column);
+				appendError("(%u:%u) Expected name after 'newmtl'", token.line, token.column);
 				goto cleanup;
 			}
 			if (mat.name[0] != 0)
@@ -434,7 +453,7 @@ static bool loadMaterialFile(const char *_objFilename, const char *_materialName
 							tokenize(&lexer, &argToken, false);
 							if (argToken.text[0] == 0) {
 								if (j == 0) {
-									snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Expected token after '%s'", token.line, token.column, prop->name);
+									appendError("(%u:%u) Expected token after '%s'", token.line, token.column, prop->name);
 									goto cleanup;
 								}
 								break;
@@ -825,7 +844,7 @@ void objz_setVertexFormat(size_t _stride, size_t _positionOffset, size_t _texcoo
 objzModel *objz_load(const char *_filename) {
 	File file;
 	if (!fileOpen(&file, _filename)) {
-		snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "Failed to read file '%s'", _filename);
+		appendError("Failed to read file '%s'", _filename);
 		return NULL;
 	}
 	// Parse the obj file and any material files.
@@ -875,13 +894,13 @@ objzModel *objz_load(const char *_filename) {
 				if (tripletToken.text[0] == 0) {
 					if (isEol(&lexer))
 						break;
-					snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Failed to parse face", tripletToken.line, tripletToken.column);
+					appendError("(%u:%u) Failed to parse face", tripletToken.line, tripletToken.column);
 					goto error;
 				}
 				// Parse v/vt/vn triplet.
 				int32_t rawTriplet[3];
 				if (!parseVertexAttribIndices(&tripletToken, rawTriplet)) {
-					snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Failed to parse face", tripletToken.line, tripletToken.column);
+					appendError("(%u:%u) Failed to parse face", tripletToken.line, tripletToken.column);
 					goto error;
 				}
 				IndexTriplet triplet;
@@ -893,7 +912,7 @@ objzModel *objz_load(const char *_filename) {
 					generateNormals = true;
 			}
 			if (faceIndices.length < 3) {
-				snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Face needs at least 3 vertices", token.line, token.column);
+				appendError("(%u:%u) Face needs at least 3 vertices", token.line, token.column);
 				goto error;
 			}
 			// Triangulate.
@@ -913,7 +932,7 @@ objzModel *objz_load(const char *_filename) {
 		} else if (OBJZ_STRICMP(token.text, "g") == 0 || OBJZ_STRICMP(token.text, "o") == 0) {
 			tokenize(&lexer, &token, true);
 			if (token.text[0] == 0) {
-				snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Expected name after 'g'/'o'", token.line, token.column);
+				appendError("(%u:%u) Expected name after 'g'/'o'", token.line, token.column);
 				goto error;
 			}
 			if (OBJZ_STRICMP(token.text, "g") == 0)
@@ -935,7 +954,7 @@ objzModel *objz_load(const char *_filename) {
 		} else if (OBJZ_STRICMP(token.text, "mtllib") == 0) {
 			tokenize(&lexer, &token, true);
 			if (token.text[0] == 0) {
-				snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Expected name after 'mtllib'", token.line, token.column);
+				appendError("(%u:%u) Expected name after 'mtllib'", token.line, token.column);
 				goto error;
 			}
 			// Don't load the same material library twice.
@@ -954,7 +973,7 @@ objzModel *objz_load(const char *_filename) {
 		} else if (OBJZ_STRICMP(token.text, "s") == 0) {
 			tokenize(&lexer, &token, false);
 			if (token.text[0] == 0) {
-				snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Expected value after 's'", token.line, token.column);
+				appendError("(%u:%u) Expected value after 's'", token.line, token.column);
 				goto error;
 			}
 			if (OBJZ_STRICMP(token.text, "off") == 0)
@@ -964,7 +983,7 @@ objzModel *objz_load(const char *_filename) {
 		} else if (OBJZ_STRICMP(token.text, "usemtl") == 0) {
 			tokenize(&lexer, &token, false);
 			if (token.text[0] == 0) {
-				snprintf(s_error, OBJZ_MAX_ERROR_LENGTH, "(%u:%u) Expected name after 'usemtl'", token.line, token.column);
+				appendError("(%u:%u) Expected name after 'usemtl'", token.line, token.column);
 				goto error;
 			}
 			currentMaterialIndex = -1;
@@ -1175,5 +1194,7 @@ void objz_destroy(objzModel *_model) {
 }
 
 const char *objz_getError() {
-	return s_error;
+	if (s_error[0])
+		return s_error;
+	return NULL;
 }

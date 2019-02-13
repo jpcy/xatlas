@@ -817,7 +817,8 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		s_model.data = nullptr;
 		s_model.status.set(ModelStatus::NotLoaded);
 		return;
-	}
+	} else if (objz_getError())
+		printf("%s\n", objz_getError());
 	s_model.data = model;
 	for (uint32_t i = 0; i < model->numVertices; i++) {
 		auto v = &((ModelVertex *)model->vertices)[i];
