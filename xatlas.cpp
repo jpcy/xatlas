@@ -4848,7 +4848,7 @@ private:
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_blockAligned(true), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_chartMesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_faceArray(faceArray)
 	{
 		// Copy face indices.
 		const uint32_t meshVertexCount = originalMesh->vertexCount();
@@ -4945,7 +4945,6 @@ public:
 		}
 	}
 
-	bool isBlockAligned() const { return m_blockAligned; }
 	bool isDisk() const { return m_isDisk; }
 	uint32_t vertexCount() const { return m_chartMesh->vertexCount(); }
 	uint32_t colocalVertexCount() const { return m_unifiedMesh->vertexCount(); }
@@ -5101,8 +5100,6 @@ private:
 		}
 		return true;
 	}
-
-	bool m_blockAligned;
 
 	Mesh *m_chartMesh;
 	Mesh *m_unifiedMesh;
@@ -5807,7 +5804,7 @@ struct AtlasPacker
 			float divide_y = 1.0f;
 			if (extents.x > 0) {
 				int cw = ftoi_ceil(extents.x);
-				if (options.blockAlign && chart->isBlockAligned()) {
+				if (options.blockAlign) {
 					// Align all chart extents to 4x4 blocks, but taking padding into account.
 					if (options.conservative) {
 						cw = align(cw + 2, 4) - 2;
@@ -5821,7 +5818,7 @@ struct AtlasPacker
 			}
 			if (extents.y > 0) {
 				int ch = ftoi_ceil(extents.y);
-				if (options.blockAlign && chart->isBlockAligned()) {
+				if (options.blockAlign) {
 					// Align all chart extents to 4x4 blocks, but taking padding into account.
 					if (options.conservative) {
 						ch = align(ch + 2, 4) - 2;
@@ -5899,7 +5896,7 @@ struct AtlasPacker
 					m_bitImages.push_back(bi);
 					firstChartInBitImage = true;
 				}
-				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, chart->isBlockAligned(), options.resolution <= 0);
+				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, options.resolution <= 0);
 				if (firstChartInBitImage && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitImage. texelsPerUnit must be too large for the resolution.
 					XA_ASSERT(true && "chart doesn't fit");
@@ -6193,8 +6190,8 @@ private:
 				}
 				if (b) tmp.setBitAt(x, y);
 			}
+			swap(tmp, *bitImage);
 		}
-		tmp.moveTo(*bitImage);
 	}
 
 	bool canAddChart(const BitImage *atlasBitImage, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)

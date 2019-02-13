@@ -164,7 +164,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions = CharterOptions
 struct PackerOptions
 {
 	// The number of attempts to find a suitable random chart location.
-	// 0 is brute force - slowest, but best results.
+	// 0 is brute force - very slow, but best results. Faster if blockAlign is true;
 	int attempts;
 
 	// Unit to texel scale. e.g. a 1x1 quad with texelsPerUnit of 32 will take up approximately 32x32 texels in the atlas.
