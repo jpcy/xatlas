@@ -559,11 +559,11 @@ static Vector3 operator/(const Vector3 &v, float s)
 	return v * (1.0f / s);
 }
 
-static Vector3 lerp(const Vector3 &v1, const Vector3 &v2, float t)
+/*static Vector3 lerp(const Vector3 &v1, const Vector3 &v2, float t)
 {
 	const float s = 1.0f - t;
 	return Vector3(v1.x * s + t * v2.x, v1.y * s + t * v2.y, v1.z * s + t * v2.z);
-}
+}*/
 
 static float dot(const Vector3 &a, const Vector3 &b)
 {
@@ -1760,10 +1760,18 @@ struct FaceFlags
 	};
 };
 
+struct MeshFlags
+{
+	enum
+	{
+		HasNormals = 1<<0,
+	};
+};
+
 class Mesh
 {
 public:
-	Mesh(uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3), m_vertexToEdgeMap(approxVertexCount)
+	Mesh(uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_flags(flags), m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3), m_vertexToEdgeMap(approxVertexCount)
 	{
 		m_edges.reserve(approxFaceCount * 3);
 		m_faces.reserve(approxFaceCount);
@@ -1771,17 +1779,20 @@ public:
 		m_faceGroups.reserve(approxFaceCount);
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
-		m_normals.reserve(approxVertexCount);
 		m_texcoords.reserve(approxVertexCount);
+		if (m_flags & MeshFlags::HasNormals)
+			m_normals.reserve(approxVertexCount);
 	}
 
+	uint32_t flags() const { return m_flags; }
 	uint32_t id() const { return m_id; }
 
-	void addVertex(const Vector3 &pos, const Vector3 &normal = Vector3(0.0f), const Vector2 &texcoord = Vector2(0.0f))
+	void addVertex(const Vector3 &pos, const Vector3 &normal = Vector3(), const Vector2 &texcoord = Vector2(0.0f))
 	{
 		XA_DEBUG_ASSERT(isFinite(pos));
 		m_positions.push_back(pos);
-		m_normals.push_back(normal);
+		if (m_flags & MeshFlags::HasNormals)
+			m_normals.push_back(normal);
 		m_texcoords.push_back(texcoord);
 	}
 
@@ -2101,8 +2112,10 @@ public:
 	{
 		for (uint32_t i = 0; i < m_positions.size(); i++)
 			fprintf(file, "v %g %g %g\n", m_positions[i].x, m_positions[i].y, m_positions[i].z);
-		for (uint32_t i = 0; i < m_normals.size(); i++)
-			fprintf(file, "vn %g %g %g\n", m_normals[i].x, m_normals[i].y, m_normals[i].z);
+		if (m_flags & MeshFlags::HasNormals) {
+			for (uint32_t i = 0; i < m_normals.size(); i++)
+				fprintf(file, "vn %g %g %g\n", m_normals[i].x, m_normals[i].y, m_normals[i].z);
+		}
 		for (uint32_t i = 0; i < m_texcoords.size(); i++)
 			fprintf(file, "vt %g %g\n", m_texcoords[i].x, m_texcoords[i].y);
 	}
@@ -2339,7 +2352,7 @@ public:
 	{
 		const uint32_t oppositeEdge = m_oppositeEdges[edge];
 		if (oppositeEdge == UINT32_MAX)
-			return true; // boundary edge
+			return false; // boundary edge
 		const Edge &e = m_edges[edge];
 		const Edge &oe = m_edges[oppositeEdge];
 		return m_indices[e.index0] != m_indices[oe.index1] || m_indices[e.index1] != m_indices[oe.index0];
@@ -2347,19 +2360,22 @@ public:
 
 	bool isNormalSeam(uint32_t edge) const
 	{
-		const uint32_t oppositeEdge = m_oppositeEdges[edge];
-		if (oppositeEdge == UINT32_MAX)
-			return true; // boundary edge
-		const Edge &e = m_edges[edge];
-		const Edge &oe = m_edges[oppositeEdge];
-		return m_normals[m_indices[e.index0]] != m_normals[m_indices[oe.index1]] || m_normals[m_indices[e.index1]] != m_normals[m_indices[oe.index0]];
+		if (m_flags & MeshFlags::HasNormals) {
+			const uint32_t oppositeEdge = m_oppositeEdges[edge];
+			if (oppositeEdge == UINT32_MAX)
+				return false; // boundary edge
+			const Edge &e = m_edges[edge];
+			const Edge &oe = m_edges[oppositeEdge];
+			return m_normals[m_indices[e.index0]] != m_normals[m_indices[oe.index1]] || m_normals[m_indices[e.index1]] != m_normals[m_indices[oe.index0]];
+		}
+		return false;
 	}
 
 	bool isTextureSeam(uint32_t edge) const
 	{
 		const uint32_t oppositeEdge = m_oppositeEdges[edge];
 		if (oppositeEdge == UINT32_MAX)
-			return true; // boundary edge
+			return false; // boundary edge
 		const Edge &e = m_edges[edge];
 		const Edge &oe = m_edges[oppositeEdge];
 		return m_texcoords[m_indices[e.index0]] != m_texcoords[m_indices[oe.index1]] || m_texcoords[m_indices[e.index1]] != m_texcoords[m_indices[oe.index0]];
@@ -2396,7 +2412,7 @@ public:
 	uint32_t vertexCount() const { return m_positions.size(); }
 	uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
 	const Vector3 &position(uint32_t vertex) const { return m_positions[vertex]; }
-	const Vector3 &normal(uint32_t vertex) const { return m_normals[vertex]; }
+	const Vector3 &normal(uint32_t vertex) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasNormals); return m_normals[vertex]; }
 	const Vector2 &texcoord(uint32_t vertex) const { return m_texcoords[vertex]; }
 	Vector2 &texcoord(uint32_t vertex) { return m_texcoords[vertex]; }
 	uint32_t faceCount() const { return m_faces.size(); }
@@ -2406,6 +2422,7 @@ public:
 	uint32_t faceGroupAt(uint32_t face) const { return m_faceGroups[face]; }
 
 private:
+	uint32_t m_flags;
 	uint32_t m_id;
 	Array<Edge> m_edges;
 	Array<Face> m_faces;
@@ -2647,8 +2664,6 @@ public:
 
 		const Vector3 &position0() const { return m_mesh->m_positions[vertex0()]; }
 		const Vector3 &position1() const { return m_mesh->m_positions[vertex1()]; }
-		const Vector3 &normal0() const { return m_mesh->m_normals[vertex0()]; }
-		const Vector3 &normal1() const { return m_mesh->m_normals[vertex1()]; }
 		const Vector2 &texcoord0() const { return m_mesh->m_texcoords[vertex0()]; }
 		const Vector2 &texcoord1() const { return m_mesh->m_texcoords[vertex1()]; }
 
@@ -2717,15 +2732,14 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 	if (splitEdges.isEmpty())
 		return NULL;
 	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(Mesh, vertexCount + splitEdges.size(), faceCount);
+	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount + splitEdges.size(), faceCount);
 	for (uint32_t v = 0; v < vertexCount; v++)
-		mesh->addVertex(inputMesh.position(v), inputMesh.normal(v), inputMesh.texcoord(v));
+		mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
 	for (uint32_t se = 0; se < splitEdges.size(); se++) {
 		const SplitEdge &splitEdge = splitEdges[se];
 		const Edge *edge = inputMesh.edgeAt(splitEdge.edge);
-		Vector3 normal = lerp(inputMesh.normal(inputMesh.vertexAt(edge->index0)), inputMesh.normal(inputMesh.vertexAt(edge->index1)), splitEdge.t);
 		Vector2 texcoord = lerp(inputMesh.texcoord(inputMesh.vertexAt(edge->index0)), inputMesh.texcoord(inputMesh.vertexAt(edge->index1)), splitEdge.t);
-		mesh->addVertex(inputMesh.position(splitEdge.vertex), normal, texcoord);
+		mesh->addVertex(inputMesh.position(splitEdge.vertex), Vector3(), texcoord);
 	}
 	Array<uint32_t> indexArray;
 	for (uint32_t f = 0; f < faceCount; f++) {
@@ -2754,10 +2768,10 @@ static Mesh *meshTriangulate(const Mesh &inputMesh)
 		return NULL;
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(Mesh, vertexCount, faceCount);
+	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
 	// Add all vertices.
 	for (uint32_t v = 0; v < vertexCount; v++)
-		mesh->addVertex(inputMesh.position(v), inputMesh.normal(v), inputMesh.texcoord(v));
+		mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
 	Array<uint32_t> polygonVertices;
 	Array<float> polygonAngles;
 	Array<Vector2> polygonPoints;
@@ -2847,11 +2861,11 @@ static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 {
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(Mesh, vertexCount, faceCount);
+	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
 	// Only add the first colocal.
 	for (uint32_t v = 0; v < vertexCount; v++) {
 		if (inputMesh.firstColocal(v) == v)
-			mesh->addVertex(inputMesh.position(v), inputMesh.normal(v), inputMesh.texcoord(v));
+			mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
 	}
 	Array<uint32_t> indexArray;
 	// Add new faces pointing to first colocals.
@@ -4594,7 +4608,7 @@ struct AtlasBuilder
 				seamFactor += l;
 			}
 		}
-		if (seamFactor == 0)
+		if (seamFactor <= 0.0f)
 			return 0.0f;
 		return seamFactor / totalLength;
 	}
@@ -4710,7 +4724,7 @@ struct AtlasBuilder
 							mergeChart(chart2, chart, sharedBoundaryLengths[cc]);
 							chart->~ChartBuildData();
 							XA_FREE(chart);
-							m_chartArray[c] = NULL;
+							m_chartArray[c] = chart = NULL;
 							break;
 						}
 					}
@@ -4721,7 +4735,7 @@ struct AtlasBuilder
 						mergeChart(chart2, chart, sharedBoundaryLengths[cc]);
 						chart->~ChartBuildData();
 						XA_FREE(chart);
-						m_chartArray[c] = NULL;
+						m_chartArray[c] = chart = NULL;
 						break;
 					}
 				}
@@ -4873,7 +4887,7 @@ public:
 					chartMeshIndices[vertex] = m_chartMesh->vertexCount();
 					m_chartToOriginalMap.push_back(vertex);
 					m_chartToUnifiedMap.push_back(unifiedMeshIndices[unifiedVertex]);
-					m_chartMesh->addVertex(it.position0(), it.normal0(), it.texcoord0());
+					m_chartMesh->addVertex(it.position0(), Vector3(), it.texcoord0());
 				}
 			}
 		}
@@ -5298,7 +5312,7 @@ public:
 			if (sourceMesh->faceGroupAt(f) == faceGroup)
 				m_faceArray.push_back(f);
 		}
-		m_mesh = XA_NEW(Mesh);
+		m_mesh = XA_NEW(Mesh, sourceMesh->flags());
 		const uint32_t faceCount = m_faceArray.size();
 		XA_DEBUG_ASSERT(faceCount > 0);
 		Array<uint32_t> meshIndices;
@@ -5311,7 +5325,10 @@ public:
 				if (meshIndices[vertex] == (uint32_t)~0) {
 					meshIndices[vertex] = m_mesh->vertexCount();
 					m_vertexToSourceVertexMap.push_back(vertex);
-					m_mesh->addVertex(sourceMesh->position(vertex), sourceMesh->normal(vertex), sourceMesh->texcoord(vertex));
+					Vector3 normal;
+					if (sourceMesh->flags() & MeshFlags::HasNormals)
+						normal = sourceMesh->normal(vertex);
+					m_mesh->addVertex(sourceMesh->position(vertex), normal, sourceMesh->texcoord(vertex));
 				}
 			}
 		}
@@ -6530,10 +6547,13 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 		if (index >= meshDecl.vertexCount)
 			return AddMeshError::IndexOutOfRange;
 	}
-	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.vertexCount, meshDecl.indexCount / 3, atlas->meshCount);
+	uint32_t meshFlags = 0;
+	if (meshDecl.vertexNormalData)
+		meshFlags |= internal::MeshFlags::HasNormals;
+	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshFlags, meshDecl.vertexCount, meshDecl.indexCount / 3, atlas->meshCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
-		internal::Vector3 normal(0);
-		internal::Vector2 texcoord(0);
+		internal::Vector3 normal;
+		internal::Vector2 texcoord(0.0f);
 		if (meshDecl.vertexNormalData)
 			normal = DecodeNormal(meshDecl, i);
 		if (meshDecl.vertexUvData)
