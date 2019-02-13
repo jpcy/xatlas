@@ -271,6 +271,8 @@ static float cleanAngle(float degrees)
 
 struct FirstPersonCamera
 {
+	FirstPersonCamera() : position(HMM_Vec3(0.0f, 0.0f, 0.0f)), pitch(0.0f), yaw(0.0f) {}
+
 	hmm_mat4 calculateViewMatrix()
 	{
 		hmm_vec3 forward, up;
@@ -293,13 +295,15 @@ struct FirstPersonCamera
 		pitch = HMM_Clamp(-90.0f, pitch + deltaY, 90.0f);
 	}
 
-	hmm_vec3 position = HMM_Vec3(0.0f, 0.0f, 0.0f);
-	float pitch = 0.0f;
-	float yaw = 0.0f;
+	hmm_vec3 position;
+	float pitch;
+	float yaw;
 };
 
 struct OrbitCamera
 {
+	OrbitCamera() : distance(32.0f), pitch(0.0f), yaw(0.0f) {}
+
 	hmm_mat4 calculateViewMatrix()
 	{
 		hmm_vec3 forward;
@@ -321,9 +325,9 @@ struct OrbitCamera
 		distance = HMM_Clamp(0.1f, distance + delta, 500.0f);
 	}
 
-	float distance = 32.0f;
-	float pitch = 0.0f;
-	float yaw = 0.0f;
+	float distance;
+	float pitch;
+	float yaw;
 };
 
 enum class CameraMode
@@ -848,6 +852,8 @@ static void modelFinalize()
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, normal));
 	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)offsetof(ModelVertex, texcoord));
 	glBindVertexArray(0);
+	s_camera.firstPerson = FirstPersonCamera();
+	s_camera.orbit = OrbitCamera();
 	s_model.status.set(ModelStatus::Ready);
 }
 
