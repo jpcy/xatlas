@@ -757,8 +757,10 @@ static void atlasDestroy()
 		xatlas::Destroy(s_atlas.data);
 		s_atlas.data = nullptr;
 	}
-	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++)
+	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++) {
 		glDeleteTextures(1, &s_atlas.chartsTextures[i]);
+		s_atlas.chartsTextures[i] = 0;
+	}
 	if (s_atlas.chartVao > 0) {
 		glDeleteVertexArrays(1, &s_atlas.chartVao);
 		glDeleteBuffers(1, &s_atlas.chartVbo);
