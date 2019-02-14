@@ -193,10 +193,17 @@ struct
 }
 s_atlas;
 
+enum class WireframeMode
+{
+	Charts,
+	Triangles
+};
+
 struct
 {
 	bool gui = true;
 	bool wireframe = true;
+	WireframeMode wireframeMode = WireframeMode::Triangles;
 }
 s_options;
 
@@ -855,6 +862,7 @@ static void modelFinalize()
 	glBindVertexArray(0);
 	s_camera.firstPerson = FirstPersonCamera();
 	s_camera.orbit = OrbitCamera();
+	s_options.wireframeMode = WireframeMode::Triangles;
 	s_model.status.set(ModelStatus::Ready);
 }
 
@@ -913,21 +921,6 @@ static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
 				firstIndex += chart.indexCount;
 			}
 		}
-		if (s_options.wireframe) {
-			// Chart boundary edges.
-			glDisable(GL_DEPTH_TEST);
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glBindVertexArray(s_atlas.chartBoundaryVao);
-			glUseProgram(s_colorShader.id);
-			const float wcolor[] = { 1.0f, 1.0f, 1.0f, 0.5f };
-			glUniform4fv(s_colorShader.u_color, 1, wcolor);
-			glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
-			glDrawArrays(GL_LINES, 0, (GLsizei)s_atlas.chartBoundaryVertices.size());
-			glBindVertexArray(0);
-			glDisable(GL_BLEND);
-			glEnable(GL_DEPTH_TEST);
-		}
 	} else {
 		glBindVertexArray(s_model.vao);
 		glUseProgram(s_colorShader.id);
@@ -936,24 +929,39 @@ static void modelRender(const hmm_mat4 &view, const hmm_mat4 &projection)
 		glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
 		glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
 		glBindVertexArray(0);
-		if (s_options.wireframe) {
-			glBindVertexArray(s_model.vao);
-			glUseProgram(s_colorShader.id);
-			glDisable(GL_DEPTH_TEST);
-			glDisable(GL_CULL_FACE);
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-			const float wcolor[] = { 1.0f, 1.0f, 1.0f, 0.5f };
-			glUniform4fv(s_colorShader.u_color, 1, wcolor);
-			glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
-			glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
-			glBindVertexArray(0);
-			glEnable(GL_DEPTH_TEST);
-			glEnable(GL_CULL_FACE);
-			glDisable(GL_BLEND);
-			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-		}
+	}
+	if (s_atlas.status.get() == AtlasStatus::Ready && s_options.wireframe && s_options.wireframeMode == WireframeMode::Charts) {
+		// Chart boundary edges.
+		glDisable(GL_DEPTH_TEST);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glBindVertexArray(s_atlas.chartBoundaryVao);
+		glUseProgram(s_colorShader.id);
+		const float wcolor[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+		glUniform4fv(s_colorShader.u_color, 1, wcolor);
+		glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
+		glDrawArrays(GL_LINES, 0, (GLsizei)s_atlas.chartBoundaryVertices.size());
+		glBindVertexArray(0);
+		glDisable(GL_BLEND);
+		glEnable(GL_DEPTH_TEST);
+	}
+	else if (s_options.wireframe) {
+		glBindVertexArray(s_model.vao);
+		glUseProgram(s_colorShader.id);
+		glDisable(GL_DEPTH_TEST);
+		glDisable(GL_CULL_FACE);
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+		const float wcolor[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+		glUniform4fv(s_colorShader.u_color, 1, wcolor);
+		glUniformMatrix4fv(s_colorShader.u_mvp, 1, GL_FALSE, (const float *)&mvp);
+		glDrawElements(GL_TRIANGLES, s_model.data->numIndices, GL_UNSIGNED_INT, 0);
+		glBindVertexArray(0);
+		glEnable(GL_DEPTH_TEST);
+		glEnable(GL_CULL_FACE);
+		glDisable(GL_BLEND);
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	}
 }
 
@@ -1279,6 +1287,7 @@ static void atlasFinalize()
 		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 	}
 	s_atlas.currentTexture = 0;
+	s_options.wireframeMode = WireframeMode::Charts;
 	s_atlas.status.set(AtlasStatus::Ready);
 }
 
@@ -1360,6 +1369,12 @@ int main(int /*argc*/, char ** /*argv*/)
 				ImGui::Text("View");
 				ImGui::Spacing();
 				ImGui::Checkbox("Wireframe", &s_options.wireframe);
+				if (s_atlas.status.get() == AtlasStatus::Ready) {
+					ImGui::SameLine();
+					ImGui::RadioButton("Charts", (int *)&s_options.wireframeMode, (int)WireframeMode::Charts);
+					ImGui::SameLine();
+					ImGui::RadioButton("Triangles", (int *)&s_options.wireframeMode, (int)WireframeMode::Triangles);
+				}
 				ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
 				ImGui::SameLine();
 				ImGui::TextDisabled("(?)");
