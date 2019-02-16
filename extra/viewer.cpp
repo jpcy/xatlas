@@ -1438,6 +1438,7 @@ int main(int /*argc*/, char ** /*argv*/)
 							numVertices += outputMesh.vertexCount;
 						}
 						ImGui::Text("%u atlases", s_atlas.data->atlasCount);
+						ImGui::Text("%ux%u resolution", s_atlas.data->width, s_atlas.data->height);
 						ImGui::Text("%u charts", s_atlas.data->chartCount);
 						ImGui::Text("%u vertices", numVertices);
 						ImGui::Text("%u triangles", numIndices / 3);
