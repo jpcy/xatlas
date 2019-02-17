@@ -4932,7 +4932,7 @@ private:
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, const Array<bool> &isTJunctionVertex) : atlasIndex(-1), m_mesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_mesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_faceArray(faceArray)
 	{
 		// Copy face indices.
 		m_mesh = XA_NEW(Mesh);
@@ -4952,7 +4952,7 @@ public:
 					XA_DEBUG_ASSERT(equal(it.position0(), originalMesh->position(unifiedVertex)));
 					m_unifiedMesh->addVertex(it.position0());
 				}
-				if (!isTJunctionVertex[vertex] && chartMeshIndices[vertex] == (uint32_t)~0) {
+				if (chartMeshIndices[vertex] == (uint32_t)~0) {
 					chartMeshIndices[vertex] = m_mesh->vertexCount();
 					m_chartToOriginalMap.push_back(vertex);
 					m_chartToUnifiedMap.push_back(unifiedMeshIndices[unifiedVertex]);
@@ -4966,10 +4966,8 @@ public:
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const uint32_t faceFlags = originalMesh->faceFlagsAt(faceArray[f]);
 			faceIndices.clear();
-			for (Mesh::FaceEdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance()) {
-				if (!isTJunctionVertex[it.vertex0()])
-					faceIndices.push_back(chartMeshIndices[it.vertex0()]);
-			}
+			for (Mesh::FaceEdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance())
+				faceIndices.push_back(chartMeshIndices[it.vertex0()]);
 			m_mesh->addFace(faceIndices, faceFlags);
 			faceIndices.clear();
 			for (Mesh::FaceEdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance()) {
@@ -5534,7 +5532,7 @@ public:
 			XA_DEBUG_ASSERT(builder.facesLeft() == 0);
 			const uint32_t chartCount = builder.chartCount();
 			for (uint32_t i = 0; i < chartCount; i++) {
-				Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(i), m_isTJunctionVertex);
+				Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(i));
 				m_chartArray.push_back(chart);
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INDIVIDUAL_CHARTS
 				char filename[256];
@@ -5614,7 +5612,7 @@ private:
 	Array<uint32_t> m_faceArray; // List of faces of the source mesh that belong to this chart group.
 	Array<uint32_t> m_vertexToSourceVertexMap; // Map vertices of the mesh to vertices of the source mesh.
 	Array<Chart *> m_chartArray;
-	Array<bool> m_isTJunctionVertex; // Whether the vertex added to fix a t-junction.
+	Array<bool> m_isTJunctionVertex; // Whether the vertex was added to fix a t-junction.
 };
 
 /// An atlas is a set of chart groups.
