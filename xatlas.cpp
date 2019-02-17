@@ -2137,6 +2137,8 @@ public:
 			const Vector3 &x0 = m_positions[v];
 			for (uint32_t e = 0; e < edgeCount; e++) {
 				const Edge &edge = m_edges[e];
+				if (m_faceFlags[edge.face] & FaceFlags::Ignore)
+					continue;
 				const Vector3 &x1 = m_positions[m_indices[edge.index0]];
 				const Vector3 &x2 = m_positions[m_indices[edge.index1]];
 				if (equal(x1, x0) || equal(x2, x0))
@@ -6762,7 +6764,14 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			} else {
 				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
+#if XA_FIX_TJUNCTIONS
+					for (uint32_t v = 0; v < chart->mesh()->vertexCount(); v++) {
+						if (!chartGroup->isTJunctionVertex(chart->mapChartVertexToOriginalVertex(v)))
+							outputMesh.vertexCount++;
+					}
+#else
 					outputMesh.vertexCount += chart->mesh()->vertexCount();
+#endif
 					outputMesh.indexCount += chart->mesh()->faceCount() * 3;
 					outputMesh.chartCount++;
 				}
@@ -6772,6 +6781,9 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 		outputMesh.indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh.indexCount);
 		outputMesh.chartArray = XA_ALLOC_ARRAY(Chart, outputMesh.chartCount);
 		// Copy mesh data.
+#if XA_FIX_TJUNCTIONS
+		internal::Array<uint32_t> vertexTJunctionRemap;
+#endif
 		uint32_t firstVertex = 0;
 		uint32_t outputChartIndex = 0;
 		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
@@ -6798,21 +6810,49 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
 					const internal::Mesh *mesh = chart->mesh();
 					// Vertices.
+#if XA_FIX_TJUNCTIONS
+					vertexTJunctionRemap.clear();
+					vertexTJunctionRemap.resize(mesh->vertexCount());
+#endif
+					uint32_t vertexCount = 0;
 					for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
-						Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
-						XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
-						vertex.atlasIndex = chart->atlasIndex;
-						const internal::Vector2 &uv = mesh->texcoord(v);
-						vertex.uv[0] = internal::max(0.0f, uv.x);
-						vertex.uv[1] = internal::max(0.0f, uv.y);
-						vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
+#if XA_FIX_TJUNCTIONS
+						if (chartGroup->isTJunctionVertex(chart->mapChartVertexToOriginalVertex(v))) {
+							vertexTJunctionRemap[v] = UINT32_MAX;
+						} else {
+							vertexTJunctionRemap[v] = vertexCount;
+#endif
+							Vertex &vertex = outputMesh.vertexArray[firstVertex + vertexCount];
+							XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
+							vertex.atlasIndex = chart->atlasIndex;
+							const internal::Vector2 &uv = mesh->texcoord(v);
+							vertex.uv[0] = internal::max(0.0f, uv.x);
+							vertex.uv[1] = internal::max(0.0f, uv.y);
+							vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
+							vertexCount++;
+#if XA_FIX_TJUNCTIONS
+						}
+#endif
 					}
 					// Indices.
 					for (uint32_t f = 0; f < mesh->faceCount(); f++) {
 						const internal::Face *face = mesh->faceAt(f);
 						const uint32_t indexOffset = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f)) * 3;
+#if XA_FIX_TJUNCTIONS
+						uint32_t k = 0;
+						for (uint32_t j = 0; j < face->nIndices; j++) {
+							const uint32_t remap = vertexTJunctionRemap[mesh->vertexAt(face->firstIndex + j)];
+							if (remap == UINT32_MAX) 
+								continue;
+							outputMesh.indexArray[indexOffset + k] = firstVertex + remap;
+							k++;
+						}
+						XA_DEBUG_ASSERT(k == 3);
+#else
+						XA_DEBUG_ASSERT(face->nIndices == 3);
 						for (uint32_t j = 0; j < 3; j++)
 							outputMesh.indexArray[indexOffset + j] = firstVertex + mesh->vertexAt(face->firstIndex + j);
+#endif
 					}
 					// Charts.
 					Chart *outputChart = &outputMesh.chartArray[outputChartIndex];
@@ -6822,11 +6862,28 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 					outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
 					for (uint32_t f = 0; f < mesh->faceCount(); f++) {
 						const internal::Face *face = mesh->faceAt(f);
+#if XA_FIX_TJUNCTIONS
+						uint32_t k = 0;
+						for (uint32_t j = 0; j < face->nIndices; j++) {
+							const uint32_t remap = vertexTJunctionRemap[mesh->vertexAt(face->firstIndex + j)];
+							if (remap == UINT32_MAX) 
+								continue;
+							outputChart->indexArray[3 * f + k] = firstVertex + remap;
+							k++;
+						}
+						XA_DEBUG_ASSERT(k == 3);
+#else
+						XA_DEBUG_ASSERT(face->nIndices == 3);
 						for (uint32_t j = 0; j < 3; j++)
 							outputChart->indexArray[3 * f + j] = firstVertex + mesh->vertexAt(face->firstIndex + j);
+#endif
 					}
 					outputChartIndex++;
+#if XA_FIX_TJUNCTIONS
+					firstVertex += vertexCount;
+#else
 					firstVertex += chart->mesh()->vertexCount();
+#endif
 				}
 			}
 		}

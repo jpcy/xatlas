@@ -247,6 +247,8 @@ int main(int argc, char *argv[])
 			// Rasterize mesh charts.
 			for (uint32_t j = 0; j < mesh.chartCount; j++) {
 				const xatlas::Chart *chart = &mesh.chartArray[j];
+				if (chart->atlasIndex == UINT32_MAX)
+					continue;
 				uint8_t color[3];
 				color[0] = rand() % 255;
 				color[1] = rand() % 255;

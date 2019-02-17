@@ -1205,6 +1205,8 @@ static void atlasGenerateThread()
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
+			if (chart.atlasIndex == UINT32_MAX)
+				continue;
 			uint8_t color[3];
 			randomRGB(color);
 			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
