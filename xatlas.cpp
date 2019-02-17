@@ -5580,7 +5580,6 @@ public:
 				diskCount++;
 				ParameterizationQuality chartParameterizationQuality;
 				if (chart->unifiedMesh()->faceCount() == 1) {
-					XA_DEBUG_ASSERT(chart->mesh()->faceCount() == 1);
 					computeSingleFaceMap(chart->unifiedMesh());
 					ParameterizationQuality quality = ParameterizationQuality(chart->unifiedMesh());
 					chartParameterizationQuality = quality;
@@ -6182,15 +6181,22 @@ private:
 		const Mesh *mesh = chart->mesh();
 		const uint32_t faceCount = mesh->faceCount();
 		for (uint32_t f = 0; f < faceCount; f++) {
-			Vector2 vertices[3];
-			uint32_t edgeCount = 0;
-			for (Mesh::FaceEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
-				if (edgeCount < 3)
-					vertices[edgeCount] = it.texcoord0() + Vector2(0.5f) + Vector2(float(padding), float(padding));
-				edgeCount++;
+			const Face *face = mesh->faceAt(f);
+			// Triangle fan. Assuming face is convex.
+			for (uint32_t j = 0; j < face->nIndices - 2; j++) {
+				Vector2 vertices[3];
+				vertices[0] = mesh->texcoord(mesh->vertexAt(face->firstIndex + 0));
+				vertices[1] = mesh->texcoord(mesh->vertexAt(face->firstIndex + j + 1));
+				vertices[2] = mesh->texcoord(mesh->vertexAt(face->firstIndex + j + 2));
+				for (uint32_t k = 0; k < 3; k++) {
+					vertices[k] = vertices[k] + Vector2(0.5f) + Vector2(float(padding));
+					XA_ASSERT(ftoi_ceil(vertices[k].x) >= 0);
+					XA_ASSERT(ftoi_ceil(vertices[k].y) >= 0);
+					XA_ASSERT(ftoi_ceil(vertices[k].x) <= w);
+					XA_ASSERT(ftoi_ceil(vertices[k].y) <= h);
+				}
+				raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitImage);
 			}
-			XA_DEBUG_ASSERT(edgeCount == 3);
-			raster::drawTriangle(raster::Mode_Antialiased, extents, true, vertices, AtlasPacker::setBitsCallback, bitImage);
 		}
 		// Expand chart by padding pixels. (dilation)
 		BitImage tmp(w, h);
@@ -6237,20 +6243,22 @@ private:
 			const Mesh *mesh = chart->mesh();
 			const uint32_t faceCount = mesh->faceCount();
 			for (uint32_t f = 0; f < faceCount; f++) {
-				Vector2 vertices[3];
-				uint32_t edgeCount = 0;
-				for (Mesh::FaceEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
-					if (edgeCount < 3) {
-						vertices[edgeCount] = it.texcoord0() * scale + offset + pad[i];
-						XA_ASSERT(ftoi_ceil(vertices[edgeCount].x) >= 0);
-						XA_ASSERT(ftoi_ceil(vertices[edgeCount].y) >= 0);
-						XA_ASSERT(ftoi_ceil(vertices[edgeCount].x) <= w);
-						XA_ASSERT(ftoi_ceil(vertices[edgeCount].y) <= h);
+				const Face *face = mesh->faceAt(f);
+				// Triangle fan. Assuming face is convex.
+				for (uint32_t j = 0; j < face->nIndices - 2; j++) {
+					Vector2 vertices[3];
+					vertices[0] = mesh->texcoord(mesh->vertexAt(face->firstIndex + 0));
+					vertices[1] = mesh->texcoord(mesh->vertexAt(face->firstIndex + j + 1));
+					vertices[2] = mesh->texcoord(mesh->vertexAt(face->firstIndex + j + 2));
+					for (uint32_t k = 0; k < 3; k++) {
+						vertices[k] = vertices[k] * scale + offset + pad[i];
+						XA_ASSERT(ftoi_ceil(vertices[k].x) >= 0);
+						XA_ASSERT(ftoi_ceil(vertices[k].y) >= 0);
+						XA_ASSERT(ftoi_ceil(vertices[k].x) <= w);
+						XA_ASSERT(ftoi_ceil(vertices[k].y) <= h);
 					}
-					edgeCount++;
+					raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitImage);
 				}
-				XA_ASSERT(edgeCount == 3);
-				raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitImage);
 			}
 		}
 		// Expand chart by padding pixels. (dilation)
