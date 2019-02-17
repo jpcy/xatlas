@@ -6750,8 +6750,10 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	atlas->meshes = XA_ALLOC_ARRAY(Mesh, atlas->meshCount);
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
 		Mesh &outputMesh = atlas->meshes[i];
+		// Count and alloc arrays.
 		outputMesh.vertexCount = 0;
 		outputMesh.indexCount = 0;
+		outputMesh.chartCount = 0; // Ignore vertex mapped charts.
 		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
 			if (chartGroup->isVertexMap()) {
@@ -6762,95 +6764,74 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
 					outputMesh.vertexCount += chart->mesh()->vertexCount();
 					outputMesh.indexCount += chart->mesh()->faceCount() * 3;
+					outputMesh.chartCount++;
 				}
 			}
 		}
-		// Vertices.
 		outputMesh.vertexArray = XA_ALLOC_ARRAY(Vertex, outputMesh.vertexCount);
-		uint32_t vertexOffset = 0;
+		outputMesh.indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh.indexCount);
+		outputMesh.chartArray = XA_ALLOC_ARRAY(Chart, outputMesh.chartCount);
+		// Copy mesh data.
+		uint32_t firstVertex = 0;
+		uint32_t outputChartIndex = 0;
 		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
 			if (chartGroup->isVertexMap()) {
 				const internal::Mesh *mesh = chartGroup->mesh();
+				// Vertices.
 				for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
-					Vertex &vertex = outputMesh.vertexArray[vertexOffset++];
+					Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
 					vertex.atlasIndex = -1;
 					vertex.uv[0] = vertex.uv[1] = 0.0f;
 					vertex.xref = chartGroup->mapVertexToSourceVertex(v);
 				}
-			} else {
-				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
-					const internal::param::Chart *chart = chartGroup->chartAt(c);
-					for (uint32_t v = 0; v < chart->mesh()->vertexCount(); v++) {
-						Vertex &vertex = outputMesh.vertexArray[vertexOffset++];
-						XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
-						vertex.atlasIndex = chart->atlasIndex;
-						const internal::Vector2 &uv = chart->mesh()->texcoord(v);
-						vertex.uv[0] = internal::max(0.0f, uv.x);
-						vertex.uv[1] = internal::max(0.0f, uv.y);
-						vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
-					}
-				}
-			}
-		}
-		// Indices.
-		outputMesh.indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh.indexCount);
-		vertexOffset = 0;
-		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
-			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
-			if (chartGroup->isVertexMap()) {
-				const internal::Mesh *mesh = chartGroup->mesh();
+				// Indices.
 				for (uint32_t f = 0; f < mesh->faceCount(); f++) {
 					const internal::Face *face = mesh->faceAt(f);
-					uint32_t indexOffset = chartGroup->mapFaceToSourceFace(f) * 3;
+					const uint32_t indexOffset = chartGroup->mapFaceToSourceFace(f) * 3;
 					for (uint32_t j = 0; j < 3; j++)
-						outputMesh.indexArray[indexOffset++] = vertexOffset + mesh->vertexAt(face->firstIndex + j);
+						outputMesh.indexArray[indexOffset + j] = firstVertex + mesh->vertexAt(face->firstIndex + j);
 				}
+				firstVertex += mesh->vertexCount();
 			} else {
 				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
 					const internal::Mesh *mesh = chart->mesh();
+					// Vertices.
+					for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
+						Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
+						XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
+						vertex.atlasIndex = chart->atlasIndex;
+						const internal::Vector2 &uv = mesh->texcoord(v);
+						vertex.uv[0] = internal::max(0.0f, uv.x);
+						vertex.uv[1] = internal::max(0.0f, uv.y);
+						vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
+					}
+					// Indices.
 					for (uint32_t f = 0; f < mesh->faceCount(); f++) {
 						const internal::Face *face = mesh->faceAt(f);
-						uint32_t indexOffset = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f)) * 3;
+						const uint32_t indexOffset = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f)) * 3;
 						for (uint32_t j = 0; j < 3; j++)
-							outputMesh.indexArray[indexOffset++] = vertexOffset + mesh->vertexAt(face->firstIndex + j);
+							outputMesh.indexArray[indexOffset + j] = firstVertex + mesh->vertexAt(face->firstIndex + j);
 					}
-					vertexOffset += mesh->vertexCount();
+					// Charts.
+					Chart *outputChart = &outputMesh.chartArray[outputChartIndex];
+					XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
+					outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
+					outputChart->indexCount = mesh->faceCount() * 3;
+					outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
+					for (uint32_t f = 0; f < mesh->faceCount(); f++) {
+						const internal::Face *face = mesh->faceAt(f);
+						for (uint32_t j = 0; j < 3; j++)
+							outputChart->indexArray[3 * f + j] = firstVertex + mesh->vertexAt(face->firstIndex + j);
+					}
+					outputChartIndex++;
+					firstVertex += chart->mesh()->vertexCount();
 				}
 			}
 		}
-		// Charts.
-		// Ignore vertex mapped charts.
-		outputMesh.chartCount = 0;
-		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
-			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-			if (!chartGroup->isVertexMap())
-				outputMesh.chartCount += chartGroup->chartCount();
-		}
-		outputMesh.chartArray = XA_ALLOC_ARRAY(Chart, outputMesh.chartCount);
-		vertexOffset = 0;
-		uint32_t chartIndex = 0;
-		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
-			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
-			for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
-				const internal::param::Chart *chart = chartGroup->chartAt(c);
-				Chart *outputChart = &outputMesh.chartArray[chartIndex];
-				XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
-				outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
-				const internal::Mesh *mesh = chart->mesh();
-				outputChart->indexCount = mesh->faceCount() * 3;
-				outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
-				for (uint32_t k = 0; k < mesh->faceCount(); k++) {
-					const internal::Face *face = mesh->faceAt(k);
-					outputChart->indexArray[3 * k + 0] = vertexOffset + mesh->vertexAt(face->firstIndex + 0);
-					outputChart->indexArray[3 * k + 1] = vertexOffset + mesh->vertexAt(face->firstIndex + 1);
-					outputChart->indexArray[3 * k + 2] = vertexOffset + mesh->vertexAt(face->firstIndex + 2);
-				}
-				vertexOffset += mesh->vertexCount();
-				chartIndex++;
-			}
-		}
+		XA_DEBUG_ASSERT(outputMesh.vertexCount == firstVertex);
+		XA_DEBUG_ASSERT(outputMesh.chartCount == outputChartIndex);
 		XA_PRINT("   mesh %u: %u vertices, %u triangles, %u charts\n", i, outputMesh.vertexCount, outputMesh.indexCount / 3, outputMesh.chartCount);
 		if (progressCallback) {
 			const int newProgress = int((i + 1) / (float)atlas->meshCount * 100.0f);
