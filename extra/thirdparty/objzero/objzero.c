@@ -1013,6 +1013,8 @@ objzModel *objz_load(const char *_filename) {
 			flags |= OBJZ_FLAG_TEXCOORDS;
 		}
 	}
+	if (normals.length == 0)
+		generateNormals = true;
 	arrayDestroy(&materialLibs);
 	arrayDestroy(&faceIndices);
 	arrayDestroy(&tempFaceIndices);
@@ -1077,7 +1079,7 @@ objzModel *objz_load(const char *_filename) {
 				uint32_t faceNormalIndex = UINT32_MAX;
 				if (generateNormals && face->smoothingGroup == 0) {
 					for (int k = 0; k < 3; k++) {
-						if (face->indices[k].vn == UINT32_MAX) {
+						if (face->indices[k].vn >= normals.length) {
 							faceNormalIndex = normalHashMapInsert(&normalHashMap, OBJZ_ARRAY_ELEMENT(faceNormals, tempObject->firstFace + j));
 							break;
 						}
