@@ -2860,7 +2860,7 @@ static Mesh *meshTriangulate(const Mesh &inputMesh)
 	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
 	// Add all vertices.
 	for (uint32_t v = 0; v < vertexCount; v++)
-		mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
+		mesh->addVertex(inputMesh.position(v), Vector3(0.0f), inputMesh.texcoord(v));
 	Array<uint32_t> polygonVertices;
 	Array<float> polygonAngles;
 	Array<Vector2> polygonPoints;
@@ -6607,7 +6607,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 		meshFlags |= internal::MeshFlags::HasNormals;
 	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshFlags, meshDecl.vertexCount, meshDecl.indexCount / 3, atlas->meshCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
-		internal::Vector3 normal;
+		internal::Vector3 normal(0.0f);
 		internal::Vector2 texcoord(0.0f);
 		if (meshDecl.vertexNormalData)
 			normal = DecodeNormal(meshDecl, i);
