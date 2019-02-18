@@ -881,6 +881,7 @@ static void modelOpenDialog()
 	char windowTitle[256];
 	snprintf(windowTitle, sizeof(windowTitle), "%s - %s\n", WINDOW_TITLE, filename);
 	glfwSetWindowTitle(s_window, windowTitle);
+	printf("Loading '%s'\n", filename);
 	ModelLoadThreadArgs args;
 	STRNCPY(args.filename, sizeof(args.filename), filename);
 	s_model.thread = new std::thread(modelLoadThread, args);
@@ -1205,8 +1206,6 @@ static void atlasGenerateThread()
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
-			if (chart.atlasIndex == UINT32_MAX)
-				continue;
 			uint8_t color[3];
 			randomRGB(color);
 			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
@@ -1235,7 +1234,7 @@ static void atlasGenerate()
 {
 	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
 		return;
-	xatlas::SetPrint(s_atlas.verbose ? printf : nullptr);
+	xatlas::SetPrint(printf, s_atlas.verbose);
 	s_atlas.status.set(AtlasStatus::AddingMeshes);
 	s_atlas.thread = new std::thread(atlasGenerateThread);
 }

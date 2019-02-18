@@ -32,7 +32,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define XA_XSTR(x) XA_STR(x)
 
 #ifndef XA_ASSERT
-#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT(0, "\rASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
+#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT_WARNING(0, "\rASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
 #endif
 
 #ifndef XA_DEBUG_ASSERT
@@ -47,6 +47,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #ifndef XA_PRINT
 #define XA_PRINT(...) \
+	if (xatlas::internal::s_print && xatlas::internal::s_printVerbose) \
+		xatlas::internal::s_print(__VA_ARGS__);
+#endif
+
+#ifndef XA_PRINT_WARNING
+#define XA_PRINT_WARNING(...) \
 	if (xatlas::internal::s_print) \
 		xatlas::internal::s_print(__VA_ARGS__);
 #endif
@@ -59,7 +65,8 @@ namespace xatlas {
 namespace internal {
 
 static ReallocFunc s_realloc = realloc;
-static PrintFunc s_print = NULL;
+static PrintFunc s_print = printf;
+static bool s_printVerbose = false;
 
 #define XA_FIX_TJUNCTIONS 0
 #define XA_DEBUG_HEAP 0
@@ -4983,31 +4990,38 @@ public:
 		m_mesh->createBoundaries();
 		m_unifiedMesh->createBoundaries();
 		m_unifiedMesh->linkBoundaries();
-		// Closing the holes is not always the best solution and does not fix all the problems.
-		// We need to do some analysis of the holes and the genus to:
-		// - Find cuts that reduce genus.
-		// - Find cuts to connect holes.
-		// - Use minimal spanning trees or seamster.
-		bool closed = closeHoles();
+		// See if there are any holes that need closing.
+		Array<uint32_t> boundaryEdges;
+		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
+		if (boundaryEdges.size() > 1) {
+			// Closing the holes is not always the best solution and does not fix all the problems.
+			// We need to do some analysis of the holes and the genus to:
+			// - Find cuts that reduce genus.
+			// - Find cuts to connect holes.
+			// - Use minimal spanning trees or seamster.
+			closeHoles(boundaryEdges);
+			meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
+			if (boundaryEdges.size() > 1) {
+				XA_PRINT_WARNING("Failed to close chart holes\n");
 #if XA_DEBUG_EXPORT_OBJ
-		if (!closed)
-			m_unifiedMesh->writeSimpleObj("debug_chart_not_closed.obj");
+				m_unifiedMesh->writeSimpleObj("debug_chart_not_closed.obj");
 #endif
-		XA_DEBUG_ASSERT(closed);
-		XA_UNUSED(closed);
-		Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
-		if (triangulatedMesh) {
-			m_unifiedMesh->~Mesh();
-			XA_FREE(m_unifiedMesh);
-			m_unifiedMesh = triangulatedMesh;
+			}
+			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
+			if (triangulatedMesh) {
+				m_unifiedMesh->~Mesh();
+				XA_FREE(m_unifiedMesh);
+				m_unifiedMesh = triangulatedMesh;
+			}
 		}
 		MeshTopology topology(m_unifiedMesh);
 		m_isDisk = topology.isDisk();
+		if (!m_isDisk) {
+			XA_PRINT_WARNING("Chart doesn't have disk topology\n");
 #if XA_DEBUG_EXPORT_OBJ
-		if (!m_isDisk)
 			m_unifiedMesh->writeSimpleObj("debug_chart_not_disk.obj");
 #endif
-		XA_DEBUG_ASSERT(m_isDisk);
+		}
 	}
 
 	~Chart()
@@ -5045,15 +5059,11 @@ public:
 
 	float computeParametricArea() const
 	{
-		// This only makes sense in parameterized meshes.
-		XA_DEBUG_ASSERT(m_isDisk);
 		return m_mesh->computeParametricArea();
 	}
 
 	Vector2 computeParametricBounds() const
 	{
-		// This only makes sense in parameterized meshes.
-		XA_DEBUG_ASSERT(m_isDisk);
 		Vector2 minCorner(FLT_MAX, FLT_MAX);
 		Vector2 maxCorner(-FLT_MAX, -FLT_MAX);
 		const uint32_t vertexCount = m_mesh->vertexCount();
@@ -5067,16 +5077,10 @@ public:
 	int32_t atlasIndex;
 
 private:
-	bool closeHoles()
+	void closeHoles(const Array<uint32_t> &boundaryEdges)
 	{
-		Array<uint32_t> boundaryEdges;
-		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
-		uint32_t boundaryCount = boundaryEdges.size();
-		if (boundaryCount <= 1) {
-			// Nothing to close.
-			return true;
-		}
 		// Compute lengths.
+		const uint32_t boundaryCount = boundaryEdges.size();
 		Array<float> boundaryLengths;
 		for (uint32_t i = 0; i < boundaryCount; i++) {
 			float boundaryLength = 0.0f;
@@ -5131,9 +5135,6 @@ private:
 		}
 		m_unifiedMesh->createBoundaries();
 		m_unifiedMesh->linkBoundaries();
-		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
-		boundaryCount = boundaryEdges.size();
-		return boundaryCount == 1;
 	}
 
 	bool closeLoop(uint32_t startVertex, const Array<const Edge *> &loop)
@@ -5565,46 +5566,40 @@ public:
 		}
 	}
 
-	void parameterizeCharts()
+	void parameterizeCharts(const CharterOptions &options)
 	{
 		ParameterizationQuality globalParameterizationQuality;
 		// Parameterize the charts.
-		uint32_t diskCount = 0;
 		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++)
 		{
 			Chart *chart = m_chartArray[i];
-			bool isValid = false;
-			if (chart->isDisk())
-			{
-				diskCount++;
-				ParameterizationQuality chartParameterizationQuality;
-				if (chart->unifiedMesh()->faceCount() == 1) {
-					computeSingleFaceMap(chart->unifiedMesh());
-					ParameterizationQuality quality = ParameterizationQuality(chart->unifiedMesh());
-					chartParameterizationQuality = quality;
-				} else {
-					computeOrthogonalProjectionMap(chart->unifiedMesh());
-					ParameterizationQuality orthogonalQuality(chart->unifiedMesh());
+			
+			if (chart->unifiedMesh()->faceCount() == 1) {
+				computeSingleFaceMap(chart->unifiedMesh());
+			} else {
+				computeOrthogonalProjectionMap(chart->unifiedMesh());
+				if (chart->isDisk())
 					computeLeastSquaresConformalMap(chart->unifiedMesh());
-					ParameterizationQuality lscmQuality(chart->unifiedMesh());
-					chartParameterizationQuality = lscmQuality;
-				}
-				isValid = chartParameterizationQuality.isValid();
-				if (!isValid)
-					XA_PRINT("Chart %u: invalid parameterization\n", i);
+			}
+			if (options.evaluateParameterizationQuality) {
+				const ParameterizationQuality quality(chart->unifiedMesh());
+				if (!quality.isValid())
+					XA_PRINT_WARNING("Chart %u: invalid parameterization\n", i);
 				// @@ Check that parameterization quality is above a certain threshold.
 				// @@ Detect boundary self-intersections.
-				globalParameterizationQuality += chartParameterizationQuality;
+				globalParameterizationQuality += quality;
 			}
 			// Transfer parameterization from unified mesh to chart mesh.
 			chart->transferParameterization();
 		}
-		XA_PRINT("Parameterized %d / %d charts\n", diskCount, chartCount);
-		XA_PRINT("   RMS stretch metric: %g\n", globalParameterizationQuality.rmsStretchMetric());
-		XA_PRINT("   MAX stretch metric: %g\n", globalParameterizationQuality.maxStretchMetric());
-		XA_PRINT("   RMS conformal metric: %g\n", globalParameterizationQuality.rmsConformalMetric());
-		XA_PRINT("   RMS authalic metric: %g\n", globalParameterizationQuality.maxAuthalicMetric());
+		if (options.evaluateParameterizationQuality) {
+			XA_PRINT("Parameterized %d charts\n", chartCount);
+			XA_PRINT("   RMS stretch metric: %g\n", globalParameterizationQuality.rmsStretchMetric());
+			XA_PRINT("   MAX stretch metric: %g\n", globalParameterizationQuality.maxStretchMetric());
+			XA_PRINT("   RMS conformal metric: %g\n", globalParameterizationQuality.rmsConformalMetric());
+			XA_PRINT("   RMS authalic metric: %g\n", globalParameterizationQuality.maxAuthalicMetric());
+		}
 	}
 
 private:
@@ -5721,14 +5716,14 @@ public:
 			progressCallback(ProgressCategory::ComputingCharts, 100, progressCallbackUserData);
 	}
 
-	void parameterizeCharts(ProgressCallback progressCallback, void *progressCallbackUserData)
+	void parameterizeCharts(const CharterOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
 	{
 		int progress = 0;
 		if (progressCallback)
 			progressCallback(ProgressCategory::ParametizingCharts, 0, progressCallbackUserData);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
-				m_chartGroups[i]->parameterizeCharts();
+				m_chartGroups[i]->parameterizeCharts(options);
 			if (progressCallback) {
 				const int newProgress = int((i + 1) / (float)m_chartGroups.size() * 100.0f);
 				if (newProgress != progress) {
@@ -5803,8 +5798,6 @@ struct AtlasPacker
 			float meshArea = 0;
 			for (uint32_t c = 0; c < chartCount; c++) {
 				const Chart *chart = m_atlas->chartAt(c);
-				if (!chart->isDisk())
-					continue;
 				meshArea += chart->computeSurfaceArea();
 			}
 			if (resolution <= 0) {
@@ -5827,14 +5820,9 @@ struct AtlasPacker
 		chartExtents.resize(chartCount);
 		for (uint32_t c = 0; c < chartCount; c++) {
 			Chart *chart = m_atlas->chartAt(c);
-			if (!chart->isDisk()) {
-				chartOrderArray[c] = 0;
-				// Skip non-disks.
-				continue;
-			}
 			Vector2 extents(0.0f);
 			// Compute surface area to sort charts.
-			float chartArea = chart->computeSurfaceArea();
+			const float chartArea = chart->computeSurfaceArea();
 			//chartOrderArray[c] = chartArea;
 			// Compute chart scale
 			float parametricArea = fabsf(chart->computeParametricArea());    // @@ There doesn't seem to be anything preventing parametric area to be negative.
@@ -5939,8 +5927,6 @@ struct AtlasPacker
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 			Chart *chart = m_atlas->chartAt(c);
-			if (!chart->isDisk())
-				continue;
 			BitImage chartBitImage;
 			// @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
 			// @@ We could also have a special case for chart quads. If the quad surface <= 4 texels, align vertices with texel centers and do not add padding. May be very useful for foliage.
@@ -6709,7 +6695,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	XA_PRINT("Computing charts\n");
 	ctx->paramAtlas.computeCharts(charterOptions, progressCallback, progressCallbackUserData);
 	XA_PRINT("Parameterizing charts\n");
-	ctx->paramAtlas.parameterizeCharts(progressCallback, progressCallbackUserData);
+	ctx->paramAtlas.parameterizeCharts(charterOptions, progressCallback, progressCallbackUserData);
 	// Count charts.
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
@@ -6907,9 +6893,10 @@ void SetRealloc(ReallocFunc reallocFunc)
 	internal::s_realloc = reallocFunc;
 }
 
-void SetPrint(PrintFunc print)
+void SetPrint(PrintFunc print, bool verbose)
 {
 	internal::s_print = print;
+	internal::s_printVerbose = verbose;
 }
 
 const char *StringForEnum(AddMeshError::Enum error)

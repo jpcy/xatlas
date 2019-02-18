@@ -151,7 +151,7 @@ int main(int argc, char *argv[])
 	}
 	printf("   %d shapes\n", (int)shapes.size());
 	// Create atlas.
-	xatlas::SetPrint(s_verbose ? Print : NULL);
+	xatlas::SetPrint(Print, s_verbose);
 	xatlas::Atlas *atlas = xatlas::Create();
 	// Add meshes to atlas.
 	Stopwatch stopwatch;
@@ -247,8 +247,6 @@ int main(int argc, char *argv[])
 			// Rasterize mesh charts.
 			for (uint32_t j = 0; j < mesh.chartCount; j++) {
 				const xatlas::Chart *chart = &mesh.chartArray[j];
-				if (chart->atlasIndex == UINT32_MAX)
-					continue;
 				uint8_t color[3];
 				color[0] = rand() % 255;
 				color[1] = rand() % 255;

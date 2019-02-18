@@ -143,6 +143,7 @@ struct CharterOptions
 	float maxThreshold;
 	uint32_t growFaceCount;
 	uint32_t maxIterations;
+	bool evaluateParameterizationQuality;
 
 	CharterOptions()
 	{
@@ -156,6 +157,7 @@ struct CharterOptions
 		maxThreshold = 2.0f;
 		growFaceCount = 32;
 		maxIterations = 4;
+		evaluateParameterizationQuality = false;
 	}
 };
 
@@ -206,7 +208,7 @@ typedef void *(*ReallocFunc)(void *, size_t);
 void SetRealloc(ReallocFunc reallocFunc);
 
 typedef int (*PrintFunc)(const char *, ...);
-void SetPrint(PrintFunc print = NULL);
+void SetPrint(PrintFunc print, bool verbose);
 
 const char *StringForEnum(AddMeshError::Enum error);
 const char *StringForEnum(ProgressCategory::Enum category);
