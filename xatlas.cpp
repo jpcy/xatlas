@@ -5577,8 +5577,12 @@ public:
 			}
 			if (options.evaluateParameterizationQuality) {
 				const ParameterizationQuality quality(chart->unifiedMesh());
-				if (!quality.isValid())
+				if (!quality.isValid()) {
 					XA_PRINT_WARNING("Chart %u: invalid parameterization\n", i);
+#if XA_DEBUG_EXPORT_OBJ
+					chart->unifiedMesh()->writeSimpleObj("debug_invalid_parameterization.obj");
+#endif
+				}
 				// @@ Check that parameterization quality is above a certain threshold.
 				// @@ Detect boundary self-intersections.
 				globalParameterizationQuality += quality;
