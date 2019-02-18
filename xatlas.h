@@ -156,7 +156,7 @@ struct CharterOptions
 		maxBoundaryLength = 0.0f;
 		maxThreshold = 2.0f;
 		growFaceCount = 32;
-		maxIterations = 4;
+		maxIterations = 1;
 		evaluateParameterizationQuality = false;
 	}
 };
