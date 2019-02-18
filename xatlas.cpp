@@ -21,7 +21,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 #include "xatlas.h"
 
 #ifndef M_PI
@@ -57,8 +56,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 		xatlas::internal::s_print(__VA_ARGS__);
 #endif
 
-#define XA_EPSILON          (0.0001f)
-#define XA_NORMAL_EPSILON   (0.001f)
+#define XA_EPSILON (0.0001f)
+#define XA_NORMAL_EPSILON (0.001f)
+#define XA_RANDOM_SEED (845281456)
 #define XA_UNUSED(a) ((void)(a))
 
 namespace xatlas {
@@ -1472,18 +1472,11 @@ static void insertionSort(T *data, uint32_t length)
 class MTRand
 {
 public:
-	enum time_e { Time };
 	enum { N = 624 };       // length of state vector
 	enum { M = 397 };
 
-	/// Constructor that uses the current time as the seed.
-	MTRand( time_e )
-	{
-		seed((uint32_t )time(NULL));
-	}
-
 	/// Constructor that uses the given seed.
-	MTRand( uint32_t s = 0 )
+	MTRand(uint32_t s = (uint32_t)XA_RANDOM_SEED)
 	{
 		seed(s);
 	}
