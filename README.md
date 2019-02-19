@@ -27,7 +27,7 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 
 ## TODO
 
-* Fix T-junctions in source meshes
+* Fix issues with chart boundaries
 * Use multithreading to improve performance
 * API to use custom parameterization. Use it to integrate [BFF](https://github.com/GeometryCollective/boundary-first-flattening) in the viewer.
 * glTF support in the viewer

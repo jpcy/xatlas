@@ -68,8 +68,6 @@ static ReallocFunc s_realloc = realloc;
 static PrintFunc s_print = printf;
 static bool s_printVerbose = false;
 
-#define XA_CLOSE_HOLES 1
-#define XA_FIX_TJUNCTIONS 0
 #define XA_DEBUG_HEAP 0
 
 #define XA_DEBUG_EXPORT_OBJ 0
@@ -368,13 +366,11 @@ static Vector2 operator*(const Vector2 &v1, const Vector2 &v2)
 	return Vector2(v1.x * v2.x, v1.y * v2.y);
 }
 
-#if XA_FIX_TJUNCTIONS
 static Vector2 lerp(const Vector2 &v1, const Vector2 &v2, float t)
 {
 	const float s = 1.0f - t;
 	return Vector2(v1.x * s + t * v2.x, v1.y * s + t * v2.y);
 }
-#endif
 
 static float dot(const Vector2 &a, const Vector2 &b)
 {
@@ -447,12 +443,10 @@ static float triangleArea(const Vector2 &a, const Vector2 &b, const Vector2 &c)
 	return triangleArea(a - c, b - c);
 }
 
-#if XA_CLOSE_HOLES
 static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c)
 {
 	return triangleArea(a, b, p) >= 0.00001f && triangleArea(b, c, p) >= 0.00001f && triangleArea(c, a, p) >= 0.00001f;
 }
-#endif
 
 class Vector3
 {
@@ -577,7 +571,7 @@ static Vector3 operator/(const Vector3 &v, float s)
 	return v * (1.0f / s);
 }
 
-#if XA_FIX_TJUNCTIONS
+#if 0
 static Vector3 lerp(const Vector3 &v1, const Vector3 &v2, float t)
 {
 	const float s = 1.0f - t;
@@ -2133,116 +2127,6 @@ public:
 		}
 	};
 
-#if XA_FIX_TJUNCTIONS
-	void fixTJunctions()
-	{
-		m_firstTJunctionVertex = m_positions.size();
-		// Find edges that this vertex overlaps with.
-		Array<SplitEdge> splitEdges;
-		const uint32_t vertexCount = m_positions.size();
-		const uint32_t edgeCount = m_edges.size();
-		for (uint32_t v = 0; v < vertexCount; v++) {
-			const Vector3 &x0 = m_positions[v];
-			for (uint32_t e = 0; e < edgeCount; e++) {
-				const Edge &edge = m_edges[e];
-				if (m_faceFlags[edge.face] & FaceFlags::Ignore)
-					continue;
-				const Vector3 &x1 = m_positions[m_indices[edge.index0]];
-				const Vector3 &x2 = m_positions[m_indices[edge.index1]];
-				if (equal(x1, x0) || equal(x2, x0))
-					continue; // Vertex lies on either edge vertex.
-				bool alreadyAdded = false;
-				for (uint32_t i = 0; i < splitEdges.size(); i++) {
-					const SplitEdge &se = splitEdges[i];
-					if (se.face == edge.face && se.edgeRelativeIndex == edge.relativeIndex && equal(x0, m_positions[m_firstTJunctionVertex + i])) {
-						alreadyAdded = true;
-						break;
-					}
-				}
-				if (alreadyAdded)
-					continue;
-				const Vector3 v01 = x0 - x1;
-				const Vector3 v21 = x2 - x1;
-				const float l = length(v21);
-				const float d = length(cross(v01, v21)) / l;
-				if (!isZero(d))
-					continue;
-				const float t = dot(v01, v21) / (l * l);
-				if (t < XA_EPSILON || t > 1.0f - XA_EPSILON)
-					continue;
-				Vector3 normal(0.0f);
-				if (!m_normals.isEmpty())
-					normal = lerp(m_normals[m_indices[edge.index0]], m_normals[m_indices[edge.index1]], t);
-				const Vector2 texcoord = lerp(m_texcoords[m_indices[edge.index0]], m_texcoords[m_indices[edge.index1]], t);
-				addVertex(Vector3(x0), normal, texcoord);
-				SplitEdge splitEdge;
-				splitEdge.face = edge.face;
-				splitEdge.edgeRelativeIndex = edge.relativeIndex;
-				splitEdge.t = t;
-				splitEdges.push_back(splitEdge);
-			}
-		}
-		if (splitEdges.isEmpty())
-			return;
-		// Rewrite indices, modify faces.
-		Array<uint32_t> newIndices;
-		newIndices.resize(m_indices.size() + splitEdges.size());
-		Array<uint32_t> faceSplitEdges;
-		faceSplitEdges.reserve(4);
-		uint32_t currentIndex = 0;
-		for (uint32_t f = 0; f < m_faces.size(); f++) {
-			// Find t-junctions in this face.
-			faceSplitEdges.clear();
-			for (uint32_t i = 0; i < splitEdges.size(); i++) {
-				if (splitEdges[i].face == f)
-					faceSplitEdges.push_back(i);
-			}
-			Face &face = m_faces[f];
-			if (faceSplitEdges.isEmpty()) {
-				// No t-junctions.
-				memcpy(&newIndices[currentIndex], &m_indices[face.firstIndex], face.nIndices * sizeof(uint32_t));
-				face.firstIndex = currentIndex;
-				currentIndex += face.nIndices;
-			} else {
-				// Need to split edges in winding order, including when a single edge has multiple t-junctions.
-				insertionSort(faceSplitEdges.data(), faceSplitEdges.size());
-				const uint32_t firstIndex = currentIndex;
-				for (uint32_t i = 0; i < face.nIndices; i++) {
-					newIndices[currentIndex++] = m_indices[face.firstIndex + i];
-					for (uint32_t e = 0; e < faceSplitEdges.size(); e++) {
-						const SplitEdge &splitEdge = splitEdges[faceSplitEdges[e]];
-						if (i == splitEdge.edgeRelativeIndex)
-							newIndices[currentIndex++] = m_firstTJunctionVertex + faceSplitEdges[e];
-					}
-				}
-				face.firstIndex = firstIndex;
-				face.nIndices += faceSplitEdges.size();
-			}
-		}
-		// Rewrite edges and edge map using new indices.
-		Array<Edge> newEdges;
-		newEdges.resize(newIndices.size());
-		HashMap<EdgeKey, uint32_t> newEdgeMap(newIndices.size());
-		uint32_t currentEdge = 0;
-		for (uint32_t f = 0; f < m_faces.size(); f++) {
-			Face &face = m_faces[f];
-			for (uint32_t i = 0; i < face.nIndices; i++) {
-				Edge &edge = newEdges[currentEdge];
-				edge.face = f;
-				edge.relativeIndex = i;
-				edge.index0 = face.firstIndex + i;
-				edge.index1 = face.firstIndex + (i + 1) % face.nIndices;
-				newEdgeMap.add(EdgeKey(newIndices[edge.index0], newIndices[edge.index1]), currentEdge);
-				currentEdge++;
-			}
-		}
-		swap(m_indices, newIndices);
-		swap(m_edges, newEdges);
-		swap(m_edgeMap, newEdgeMap);
-		XA_PRINT("   %d t-junctions fixed\n", splitEdges.size());
-	}
-#endif
-
 	/// Find edge, test all colocals.
 	const Edge *findEdge(uint32_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
 	{
@@ -2826,7 +2710,91 @@ public:
 	};
 };
 
-#if XA_CLOSE_HOLES
+/*
+Fixing T-junctions.
+
+- Find T-junctions. Find  vertices that are on an edge.
+- This test is approximate.
+- Insert edges on a spatial index to speedup queries.
+- Consider only open edges, that is edges that have no pairs.
+- Consider only vertices on boundaries.
+- Close T-junction.
+- Split edge.
+
+*/
+struct SplitEdge
+{
+	uint32_t vertex;
+	uint32_t edge;
+	float t;
+};
+
+static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no split was made.
+{
+	Array<SplitEdge> splitEdges;
+	const uint32_t vertexCount = inputMesh.vertexCount();
+	const uint32_t edgeCount = inputMesh.edgeCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		if (!inputMesh.isBoundaryVertex(v))
+			continue;
+		// Find edges that this vertex overlaps with.
+		const Vector3 &x0 = inputMesh.position(v);
+		for (uint32_t e = 0; e < edgeCount; e++) {
+			if (!inputMesh.isBoundaryEdge(e))
+				continue;
+			const Edge *edge = inputMesh.edgeAt(e);
+			const Vector3 &x1 = inputMesh.position(inputMesh.vertexAt(edge->index0));
+			const Vector3 &x2 = inputMesh.position(inputMesh.vertexAt(edge->index1));
+			if (x1 == x0 || x2 == x0)
+				continue; // Vertex lies on either edge vertex.
+			const Vector3 v01 = x0 - x1;
+			const Vector3 v21 = x2 - x1;
+			const float l = length(v21);
+			const float d = length(cross(v01, v21)) / l;
+			if (!isZero(d))
+				continue;
+			float t = dot(v01, v21) / (l * l);
+			if (t < XA_EPSILON || t > 1.0f - XA_EPSILON)
+				continue;
+			//XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
+			SplitEdge splitEdge;
+			splitEdge.vertex = v;
+			splitEdge.edge = e;
+			splitEdge.t = t;
+			splitEdges.push_back(splitEdge);
+		}
+	}
+	if (splitEdges.isEmpty())
+		return NULL;
+	const uint32_t faceCount = inputMesh.faceCount();
+	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount + splitEdges.size(), faceCount);
+	for (uint32_t v = 0; v < vertexCount; v++)
+		mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
+	for (uint32_t se = 0; se < splitEdges.size(); se++) {
+		const SplitEdge &splitEdge = splitEdges[se];
+		const Edge *edge = inputMesh.edgeAt(splitEdge.edge);
+		Vector2 texcoord = lerp(inputMesh.texcoord(inputMesh.vertexAt(edge->index0)), inputMesh.texcoord(inputMesh.vertexAt(edge->index1)), splitEdge.t);
+		mesh->addVertex(inputMesh.position(splitEdge.vertex), Vector3(), texcoord);
+	}
+	Array<uint32_t> indexArray;
+	for (uint32_t f = 0; f < faceCount; f++) {
+		indexArray.clear();
+		for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
+			indexArray.push_back(it.vertex0());
+			for (uint32_t se = 0; se < splitEdges.size(); se++) {
+				const SplitEdge &splitEdge = splitEdges[se];
+				if (splitEdge.edge == it.edge()) {
+					indexArray.push_back(vertexCount + se);
+					break;
+				}
+			}
+		}
+		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
+	}
+	mesh->createColocals(); // Added new vertices, some may be colocal with existing vertices.
+	return mesh;
+}
+
 // This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
 static Mesh *meshTriangulate(const Mesh &inputMesh)
@@ -2918,6 +2886,29 @@ static Mesh *meshTriangulate(const Mesh &inputMesh)
 				polygonAngles.removeAt(i1);
 			}
 		}
+	}
+	mesh->createBoundaries();
+	mesh->linkBoundaries();
+	return mesh;
+}
+
+static Mesh *meshUnifyVertices(const Mesh &inputMesh)
+{
+	const uint32_t vertexCount = inputMesh.vertexCount();
+	const uint32_t faceCount = inputMesh.faceCount();
+	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
+	// Only add the first colocal.
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		if (inputMesh.firstColocal(v) == v)
+			mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
+	}
+	Array<uint32_t> indexArray;
+	// Add new faces pointing to first colocals.
+	for (uint32_t f = 0; f < faceCount; f++) {
+		indexArray.clear();
+		for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
+			indexArray.push_back(inputMesh.firstColocal(it.vertex0()));
+		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
 	}
 	mesh->createBoundaries();
 	mesh->linkBoundaries();
@@ -3031,7 +3022,6 @@ private:
 	/// Mesh genus.
 	int m_genus;
 };
-#endif // XA_CLOSE_HOLES
 
 namespace raster {
 class ClippedTriangle
@@ -5131,7 +5121,14 @@ public:
 		m_mesh->createBoundaries();
 		m_unifiedMesh->createBoundaries();
 		m_unifiedMesh->linkBoundaries();
-#if XA_CLOSE_HOLES
+		Mesh *splitUnifiedMesh = meshSplitBoundaryEdges(*m_unifiedMesh);
+		if (splitUnifiedMesh) {
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
+			m_unifiedMesh = meshUnifyVertices(*splitUnifiedMesh);
+			splitUnifiedMesh->~Mesh();
+			XA_FREE(splitUnifiedMesh);
+		}
 		// See if there are any holes that need closing.
 		Array<uint32_t> boundaryEdges;
 		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
@@ -5148,18 +5145,17 @@ public:
 			meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
 			if (boundaryEdges.size() > 1)
 				XA_PRINT_WARNING("Failed to close chart holes\n");
-			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
-			if (triangulatedMesh) {
-				m_unifiedMesh->~Mesh();
-				XA_FREE(m_unifiedMesh);
-				m_unifiedMesh = triangulatedMesh;
-			}
+		}
+		Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
+		if (triangulatedMesh) {
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
+			m_unifiedMesh = triangulatedMesh;
 		}
 		MeshTopology topology(m_unifiedMesh);
 		m_isDisk = topology.isDisk();
 		if (!m_isDisk)
 			XA_PRINT_WARNING("Chart doesn't have disk topology\n");
-#endif
 	}
 
 	~Chart()
@@ -6618,9 +6614,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 			faceFlags |= internal::FaceFlags::Ignore;
 		mesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
-#if XA_FIX_TJUNCTIONS
-	mesh->fixTJunctions();
-#endif
 	mesh->createColocals();
 	mesh->createFaceGroups();
 	mesh->createBoundaries();
@@ -6749,14 +6742,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 			} else {
 				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
-#if XA_FIX_TJUNCTIONS
-					for (uint32_t v = 0; v < chart->mesh()->vertexCount(); v++) {
-						if (!chartGroup->isTJunctionVertex(chart->mapChartVertexToOriginalVertex(v)))
-							outputMesh.vertexCount++;
-					}
-#else
 					outputMesh.vertexCount += chart->mesh()->vertexCount();
-#endif
 					outputMesh.indexCount += chart->mesh()->faceCount() * 3;
 					outputMesh.chartCount++;
 				}
@@ -6766,9 +6752,6 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 		outputMesh.indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh.indexCount);
 		outputMesh.chartArray = XA_ALLOC_ARRAY(Chart, outputMesh.chartCount);
 		// Copy mesh data.
-#if XA_FIX_TJUNCTIONS
-		internal::Array<uint32_t> vertexTJunctionRemap;
-#endif
 		uint32_t firstVertex = 0;
 		uint32_t outputChartIndex = 0;
 		for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
@@ -6795,49 +6778,22 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
 					const internal::Mesh *mesh = chart->mesh();
 					// Vertices.
-#if XA_FIX_TJUNCTIONS
-					vertexTJunctionRemap.clear();
-					vertexTJunctionRemap.resize(mesh->vertexCount());
-#endif
-					uint32_t vertexCount = 0;
 					for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
-#if XA_FIX_TJUNCTIONS
-						if (chartGroup->isTJunctionVertex(chart->mapChartVertexToOriginalVertex(v))) {
-							vertexTJunctionRemap[v] = UINT32_MAX;
-						} else {
-							vertexTJunctionRemap[v] = vertexCount;
-#endif
-							Vertex &vertex = outputMesh.vertexArray[firstVertex + vertexCount];
-							XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
-							vertex.atlasIndex = chart->atlasIndex;
-							const internal::Vector2 &uv = mesh->texcoord(v);
-							vertex.uv[0] = internal::max(0.0f, uv.x);
-							vertex.uv[1] = internal::max(0.0f, uv.y);
-							vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
-							vertexCount++;
-#if XA_FIX_TJUNCTIONS
-						}
-#endif
+						Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
+						XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
+						vertex.atlasIndex = chart->atlasIndex;
+						const internal::Vector2 &uv = mesh->texcoord(v);
+						vertex.uv[0] = internal::max(0.0f, uv.x);
+						vertex.uv[1] = internal::max(0.0f, uv.y);
+						vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
 					}
 					// Indices.
 					for (uint32_t f = 0; f < mesh->faceCount(); f++) {
 						const internal::Face *face = mesh->faceAt(f);
 						const uint32_t indexOffset = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f)) * 3;
-#if XA_FIX_TJUNCTIONS
-						uint32_t k = 0;
-						for (uint32_t j = 0; j < face->nIndices; j++) {
-							const uint32_t remap = vertexTJunctionRemap[mesh->vertexAt(face->firstIndex + j)];
-							if (remap == UINT32_MAX) 
-								continue;
-							outputMesh.indexArray[indexOffset + k] = firstVertex + remap;
-							k++;
-						}
-						XA_DEBUG_ASSERT(k == 3);
-#else
 						XA_DEBUG_ASSERT(face->nIndices == 3);
 						for (uint32_t j = 0; j < 3; j++)
 							outputMesh.indexArray[indexOffset + j] = firstVertex + mesh->vertexAt(face->firstIndex + j);
-#endif
 					}
 					// Charts.
 					Chart *outputChart = &outputMesh.chartArray[outputChartIndex];
@@ -6847,28 +6803,12 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 					outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
 					for (uint32_t f = 0; f < mesh->faceCount(); f++) {
 						const internal::Face *face = mesh->faceAt(f);
-#if XA_FIX_TJUNCTIONS
-						uint32_t k = 0;
-						for (uint32_t j = 0; j < face->nIndices; j++) {
-							const uint32_t remap = vertexTJunctionRemap[mesh->vertexAt(face->firstIndex + j)];
-							if (remap == UINT32_MAX) 
-								continue;
-							outputChart->indexArray[3 * f + k] = firstVertex + remap;
-							k++;
-						}
-						XA_DEBUG_ASSERT(k == 3);
-#else
 						XA_DEBUG_ASSERT(face->nIndices == 3);
 						for (uint32_t j = 0; j < 3; j++)
 							outputChart->indexArray[3 * f + j] = firstVertex + mesh->vertexAt(face->firstIndex + j);
-#endif
 					}
 					outputChartIndex++;
-#if XA_FIX_TJUNCTIONS
-					firstVertex += vertexCount;
-#else
 					firstVertex += chart->mesh()->vertexCount();
-#endif
 				}
 			}
 		}
