@@ -6711,18 +6711,18 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 		XA_FREE(atlas->utilization);
 		atlas->utilization = NULL;
 	}
-	if (atlas->chartCount <= 0)
-		return;
-	ctx->paramAtlas.resetChartTexcoords();
-	internal::param::AtlasPacker packer(&ctx->paramAtlas);
-	packer.packCharts(packerOptions, progressCallback, progressCallbackUserData);
-	atlas->atlasCount = packer.getNumAtlases();
-	atlas->width = packer.getWidth();
-	atlas->height = packer.getHeight();
-	atlas->texelsPerUnit = packer.getTexelsPerUnit();
-	atlas->utilization = XA_ALLOC_ARRAY(float, atlas->atlasCount);
-	for (uint32_t i = 0; i < atlas->atlasCount; i++)
-		atlas->utilization[i] = packer.computeAtlasUtilization(i);
+	if (atlas->chartCount > 0) {
+		ctx->paramAtlas.resetChartTexcoords();
+		internal::param::AtlasPacker packer(&ctx->paramAtlas);
+		packer.packCharts(packerOptions, progressCallback, progressCallbackUserData);
+		atlas->atlasCount = packer.getNumAtlases();
+		atlas->width = packer.getWidth();
+		atlas->height = packer.getHeight();
+		atlas->texelsPerUnit = packer.getTexelsPerUnit();
+		atlas->utilization = XA_ALLOC_ARRAY(float, atlas->atlasCount);
+		for (uint32_t i = 0; i < atlas->atlasCount; i++)
+			atlas->utilization[i] = packer.computeAtlasUtilization(i);
+	}
 	XA_PRINT("Building output meshes\n");
 	int progress = 0;
 	if (progressCallback)
