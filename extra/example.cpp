@@ -30,8 +30,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "../xatlas.h"
 
 #ifdef _MSC_VER
+#define FOPEN(_file, _filename, _mode) { if (fopen_s(&_file, _filename, _mode) != 0) _file = NULL; }
 #define STRICMP _stricmp
 #else
+#define FOPEN(_file, _filename, _mode) _file = fopen(_filename, _mode)
 #include <strings.h>
 #define STRICMP strcasecmp
 #endif
@@ -214,6 +216,52 @@ int main(int argc, char *argv[])
 	}
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
+	// Write meshes.
+	char filename[256];
+	snprintf(filename, sizeof(filename), "output.obj");
+	printf("Writing '%s'...\n", filename);
+	FILE *file;
+	FOPEN(file, filename, "w");
+	if (file) {
+		uint32_t firstVertex = 0;
+		for (uint32_t i = 0; i < atlas->meshCount; i++) {
+			const xatlas::Mesh &mesh = atlas->meshes[i];
+			for (uint32_t v = 0; v < mesh.vertexCount; v++) {
+				const xatlas::Vertex &vertex = mesh.vertexArray[v];
+				const float *pos = &shapes[i].mesh.positions[vertex.xref * 3];
+				fprintf(file, "v %g %g %g\n", pos[0], pos[1], pos[2]);
+				if (!shapes[i].mesh.normals.empty()) {
+					const float *normal = &shapes[i].mesh.normals[vertex.xref * 3];
+					fprintf(file, "vn %g %g %g\n", normal[0], normal[1], normal[2]);
+				}
+				fprintf(file, "vt %g %g\n", vertex.uv[0] / atlas->width, vertex.uv[1] / atlas->height);
+			}
+			fprintf(file, "o mesh%03u\n", i);
+			fprintf(file, "s off\n");
+			for (uint32_t f = 0; f < mesh.indexCount; f += 3) {
+				fprintf(file, "f ");
+				for (uint32_t j = 0; j < 3; j++) {
+					const uint32_t index = firstVertex + mesh.indexArray[f + j] + 1; // 1-indexed
+					fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
+				}
+			}
+			fprintf(file, "g charts\n");
+			for (uint32_t c = 0; c < mesh.chartCount; c++) {
+				const xatlas::Chart *chart = &mesh.chartArray[c];
+				fprintf(file, "o chart%04u\n", c);
+				fprintf(file, "s off\n");
+				for (uint32_t f = 0; f < chart->indexCount; f += 3) {
+					fprintf(file, "f ");
+					for (uint32_t j = 0; j < 3; j++) {
+						const uint32_t index = firstVertex + chart->indexArray[f + j] + 1; // 1-indexed
+						fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
+					}
+				}
+			}
+			firstVertex += mesh.vertexCount;
+		}
+		fclose(file);
+	}
 	if (atlas->width > 0 && atlas->height > 0) {
 		printf("Rasterizing result...\n");
 		// Dump images.
@@ -267,11 +315,10 @@ int main(int argc, char *argv[])
 			}
 		}
 		for (uint32_t i = 0; i < atlas->atlasCount; i++) {
-			char filename[256];
-			snprintf(filename, sizeof(filename), "output_tris%02d.tga", i);
+			snprintf(filename, sizeof(filename), "output_tris%02u.tga", i);
 			printf("Writing '%s'...\n", filename);
 			stbi_write_tga(filename, atlas->width, atlas->height, 3, &outputTrisImage[i * imageDataSize]);
-			snprintf(filename, sizeof(filename), "output_charts%02d.tga", i);
+			snprintf(filename, sizeof(filename), "output_charts%02u.tga", i);
 			printf("Writing '%s'...\n", filename);
 			stbi_write_tga(filename, atlas->width,atlas->height, 3, &outputChartsImage[i * imageDataSize]);
 		}
