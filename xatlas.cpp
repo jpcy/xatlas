@@ -4930,6 +4930,175 @@ private:
 	CharterOptions m_options;
 };
 
+// Estimate quality of existing parameterization.
+class ParameterizationQuality
+{
+public:
+	ParameterizationQuality()
+	{
+		m_totalTriangleCount = 0;
+		m_flippedTriangleCount = 0;
+		m_zeroAreaTriangleCount = 0;
+		m_parametricArea = 0.0f;
+		m_geometricArea = 0.0f;
+		m_stretchMetric = 0.0f;
+		m_maxStretchMetric = 0.0f;
+		m_conformalMetric = 0.0f;
+		m_authalicMetric = 0.0f;
+	}
+
+	ParameterizationQuality(const Mesh *mesh)
+	{
+		XA_DEBUG_ASSERT(mesh != NULL);
+		m_totalTriangleCount = 0;
+		m_flippedTriangleCount = 0;
+		m_zeroAreaTriangleCount = 0;
+		m_parametricArea = 0.0f;
+		m_geometricArea = 0.0f;
+		m_stretchMetric = 0.0f;
+		m_maxStretchMetric = 0.0f;
+		m_conformalMetric = 0.0f;
+		m_authalicMetric = 0.0f;
+		const uint32_t faceCount = mesh->faceCount();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			uint32_t vertex0 = UINT32_MAX;
+			Vector3 p[3];
+			Vector2 t[3];
+			for (Mesh::FaceEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
+				if (vertex0 == UINT32_MAX) {
+					vertex0 = it.vertex0();
+					p[0] = it.position0();
+					t[0] = it.texcoord0();
+				} else if (it.vertex1() != vertex0) {
+					p[1] = it.position0();
+					p[2] = it.position1();
+					t[1] = it.texcoord0();
+					t[2] = it.texcoord1();
+					processTriangle(p, t);
+				}
+			}
+		}
+		if (m_flippedTriangleCount + m_zeroAreaTriangleCount == faceCount) {
+			// If all triangles are flipped, then none is.
+			m_flippedTriangleCount = 0;
+		}
+		XA_DEBUG_ASSERT(isFinite(m_parametricArea) && m_parametricArea >= 0);
+		XA_DEBUG_ASSERT(isFinite(m_geometricArea) && m_geometricArea >= 0);
+		XA_DEBUG_ASSERT(isFinite(m_stretchMetric));
+		XA_DEBUG_ASSERT(isFinite(m_maxStretchMetric));
+		XA_DEBUG_ASSERT(isFinite(m_conformalMetric));
+		XA_DEBUG_ASSERT(isFinite(m_authalicMetric));
+	}
+
+	uint32_t flippedTriangleCount() const { return m_flippedTriangleCount; }
+
+	float rmsStretchMetric() const
+	{
+		if (m_geometricArea == 0)
+			return 0.0f;
+		float normFactor = sqrtf(m_parametricArea / m_geometricArea);
+		return sqrtf(m_stretchMetric / m_geometricArea) * normFactor;
+	}
+
+	float maxStretchMetric() const
+	{
+		if (m_geometricArea == 0)
+			return 0.0f;
+		float normFactor = sqrtf(m_parametricArea / m_geometricArea);
+		return m_maxStretchMetric * normFactor;
+	}
+
+	float rmsConformalMetric() const
+	{
+		if (m_geometricArea == 0)
+			return 0.0f;
+		return sqrtf(m_conformalMetric / m_geometricArea);
+	}
+
+	float maxAuthalicMetric() const
+	{
+		if (m_geometricArea == 0)
+			return 0.0f;
+		return sqrtf(m_authalicMetric / m_geometricArea);
+	}
+
+	void operator+=(const ParameterizationQuality &pq)
+	{
+		m_totalTriangleCount += pq.m_totalTriangleCount;
+		m_flippedTriangleCount += pq.m_flippedTriangleCount;
+		m_zeroAreaTriangleCount += pq.m_zeroAreaTriangleCount;
+		m_parametricArea += pq.m_parametricArea;
+		m_geometricArea += pq.m_geometricArea;
+		m_stretchMetric += pq.m_stretchMetric;
+		m_maxStretchMetric = max(m_maxStretchMetric, pq.m_maxStretchMetric);
+		m_conformalMetric += pq.m_conformalMetric;
+		m_authalicMetric += pq.m_authalicMetric;
+	}
+
+private:
+	void processTriangle(Vector3 q[3], Vector2 p[3])
+	{
+		m_totalTriangleCount++;
+		// Evaluate texture stretch metric. See:
+		// - "Texture Mapping Progressive Meshes", Sander, Snyder, Gortler & Hoppe
+		// - "Mesh Parameterization: Theory and Practice", Siggraph'07 Course Notes, Hormann, Levy & Sheffer.
+		float t1 = p[0].x;
+		float s1 = p[0].y;
+		float t2 = p[1].x;
+		float s2 = p[1].y;
+		float t3 = p[2].x;
+		float s3 = p[2].y;
+		float geometricArea = length(cross(q[1] - q[0], q[2] - q[0])) / 2;
+		float parametricArea = ((s2 - s1) * (t3 - t1) - (s3 - s1) * (t2 - t1)) / 2;
+		if (isZero(parametricArea)) {
+			m_zeroAreaTriangleCount++;
+			return;
+		}
+		Vector3 Ss = (q[0] * (t2 - t3) + q[1] * (t3 - t1) + q[2] * (t1 - t2)) / (2 * parametricArea);
+		Vector3 St = (q[0] * (s3 - s2) + q[1] * (s1 - s3) + q[2] * (s2 - s1)) / (2 * parametricArea);
+		float a = dot(Ss, Ss); // E
+		float b = dot(Ss, St); // F
+		float c = dot(St, St); // G
+							   // Compute eigen-values of the first fundamental form:
+		float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
+		float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
+		XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2));
+		// isometric: sigma1 = sigma2 = 1
+		// conformal: sigma1 / sigma2 = 1
+		// authalic: sigma1 * sigma2 = 1
+		float rmsStretch = sqrtf((a + c) * 0.5f);
+		float rmsStretch2 = sqrtf((square(sigma1) + square(sigma2)) * 0.5f);
+		XA_DEBUG_ASSERT(equal(rmsStretch, rmsStretch2, 0.01f));
+		XA_UNUSED(rmsStretch2);
+		if (parametricArea < 0.0f) {
+			// Count flipped triangles.
+			m_flippedTriangleCount++;
+			parametricArea = fabsf(parametricArea);
+		}
+		m_stretchMetric += square(rmsStretch) * geometricArea;
+		m_maxStretchMetric = max(m_maxStretchMetric, sigma2);
+		if (!isZero(sigma1, 0.000001f)) {
+			// sigma1 is zero when geometricArea is zero.
+			m_conformalMetric += (sigma2 / sigma1) * geometricArea;
+		}
+		m_authalicMetric += (sigma1 * sigma2) * geometricArea;
+		// Accumulate total areas.
+		m_geometricArea += geometricArea;
+		m_parametricArea += parametricArea;
+		//triangleConformalEnergy(q, p);
+	}
+
+	uint32_t m_totalTriangleCount;
+	uint32_t m_flippedTriangleCount;
+	uint32_t m_zeroAreaTriangleCount;
+	float m_parametricArea;
+	float m_geometricArea;
+	float m_stretchMetric;
+	float m_maxStretchMetric;
+	float m_conformalMetric;
+	float m_authalicMetric;
+};
+
 /// A chart is a connected set of faces with a certain topology (usually a disk).
 class Chart
 {
@@ -5030,12 +5199,18 @@ public:
 	}
 
 	bool isDisk() const { return m_isDisk; }
+	const ParameterizationQuality& paramQuality() const { return m_paramQuality; }
 	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceArray[i]; }
 	const Mesh *mesh() const { return m_mesh; }
 	Mesh *mesh() { return m_mesh; }
 	const Mesh *unifiedMesh() const { return m_unifiedMesh; }
 	Mesh *unifiedMesh() { return m_unifiedMesh; }
 	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const { return m_chartToOriginalMap[i]; }
+
+	void evaluateParameterizationQuality()
+	{
+		m_paramQuality = ParameterizationQuality(m_unifiedMesh);
+	}
 
 	// Transfer parameterization from unified mesh to chart mesh.
 	void transferParameterization()
@@ -5180,178 +5355,8 @@ private:
 	Array<uint32_t> m_chartToOriginalMap;
 
 	Array<uint32_t> m_chartToUnifiedMap;
-};
 
-// Estimate quality of existing parameterization.
-class ParameterizationQuality
-{
-public:
-	ParameterizationQuality()
-	{
-		m_totalTriangleCount = 0;
-		m_flippedTriangleCount = 0;
-		m_zeroAreaTriangleCount = 0;
-		m_parametricArea = 0.0f;
-		m_geometricArea = 0.0f;
-		m_stretchMetric = 0.0f;
-		m_maxStretchMetric = 0.0f;
-		m_conformalMetric = 0.0f;
-		m_authalicMetric = 0.0f;
-	}
-
-	ParameterizationQuality(const Mesh *mesh)
-	{
-		XA_DEBUG_ASSERT(mesh != NULL);
-		m_totalTriangleCount = 0;
-		m_flippedTriangleCount = 0;
-		m_zeroAreaTriangleCount = 0;
-		m_parametricArea = 0.0f;
-		m_geometricArea = 0.0f;
-		m_stretchMetric = 0.0f;
-		m_maxStretchMetric = 0.0f;
-		m_conformalMetric = 0.0f;
-		m_authalicMetric = 0.0f;
-		const uint32_t faceCount = mesh->faceCount();
-		for (uint32_t f = 0; f < faceCount; f++) {
-			uint32_t vertex0 = UINT32_MAX;
-			Vector3 p[3];
-			Vector2 t[3];
-			for (Mesh::FaceEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
-				if (vertex0 == UINT32_MAX) {
-					vertex0 = it.vertex0();
-					p[0] = it.position0();
-					t[0] = it.texcoord0();
-				} else if (it.vertex1() != vertex0) {
-					p[1] = it.position0();
-					p[2] = it.position1();
-					t[1] = it.texcoord0();
-					t[2] = it.texcoord1();
-					processTriangle(p, t);
-				}
-			}
-		}
-		if (m_flippedTriangleCount + m_zeroAreaTriangleCount == faceCount) {
-			// If all triangles are flipped, then none is.
-			m_flippedTriangleCount = 0;
-		}
-		XA_DEBUG_ASSERT(isFinite(m_parametricArea) && m_parametricArea >= 0);
-		XA_DEBUG_ASSERT(isFinite(m_geometricArea) && m_geometricArea >= 0);
-		XA_DEBUG_ASSERT(isFinite(m_stretchMetric));
-		XA_DEBUG_ASSERT(isFinite(m_maxStretchMetric));
-		XA_DEBUG_ASSERT(isFinite(m_conformalMetric));
-		XA_DEBUG_ASSERT(isFinite(m_authalicMetric));
-	}
-
-	bool isValid() const
-	{
-		return m_flippedTriangleCount == 0; // @@ Does not test for self-overlaps.
-	}
-
-	float rmsStretchMetric() const
-	{
-		if (m_geometricArea == 0)
-			return 0.0f;
-		float normFactor = sqrtf(m_parametricArea / m_geometricArea);
-		return sqrtf(m_stretchMetric / m_geometricArea) * normFactor;
-	}
-
-	float maxStretchMetric() const
-	{
-		if (m_geometricArea == 0)
-			return 0.0f;
-		float normFactor = sqrtf(m_parametricArea / m_geometricArea);
-		return m_maxStretchMetric * normFactor;
-	}
-
-	float rmsConformalMetric() const
-	{
-		if (m_geometricArea == 0)
-			return 0.0f;
-		return sqrtf(m_conformalMetric / m_geometricArea);
-	}
-
-	float maxAuthalicMetric() const
-	{
-		if (m_geometricArea == 0)
-			return 0.0f;
-		return sqrtf(m_authalicMetric / m_geometricArea);
-	}
-
-	void operator+=(const ParameterizationQuality &pq)
-	{
-		m_totalTriangleCount += pq.m_totalTriangleCount;
-		m_flippedTriangleCount += pq.m_flippedTriangleCount;
-		m_zeroAreaTriangleCount += pq.m_zeroAreaTriangleCount;
-		m_parametricArea += pq.m_parametricArea;
-		m_geometricArea += pq.m_geometricArea;
-		m_stretchMetric += pq.m_stretchMetric;
-		m_maxStretchMetric = max(m_maxStretchMetric, pq.m_maxStretchMetric);
-		m_conformalMetric += pq.m_conformalMetric;
-		m_authalicMetric += pq.m_authalicMetric;
-	}
-
-private:
-	void processTriangle(Vector3 q[3], Vector2 p[3])
-	{
-		m_totalTriangleCount++;
-		// Evaluate texture stretch metric. See:
-		// - "Texture Mapping Progressive Meshes", Sander, Snyder, Gortler & Hoppe
-		// - "Mesh Parameterization: Theory and Practice", Siggraph'07 Course Notes, Hormann, Levy & Sheffer.
-		float t1 = p[0].x;
-		float s1 = p[0].y;
-		float t2 = p[1].x;
-		float s2 = p[1].y;
-		float t3 = p[2].x;
-		float s3 = p[2].y;
-		float geometricArea = length(cross(q[1] - q[0], q[2] - q[0])) / 2;
-		float parametricArea = ((s2 - s1) * (t3 - t1) - (s3 - s1) * (t2 - t1)) / 2;
-		if (isZero(parametricArea)) {
-			m_zeroAreaTriangleCount++;
-			return;
-		}
-		Vector3 Ss = (q[0] * (t2 - t3) + q[1] * (t3 - t1) + q[2] * (t1 - t2)) / (2 * parametricArea);
-		Vector3 St = (q[0] * (s3 - s2) + q[1] * (s1 - s3) + q[2] * (s2 - s1)) / (2 * parametricArea);
-		float a = dot(Ss, Ss); // E
-		float b = dot(Ss, St); // F
-		float c = dot(St, St); // G
-		// Compute eigen-values of the first fundamental form:
-		float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
-		float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
-		XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2));
-		// isometric: sigma1 = sigma2 = 1
-		// conformal: sigma1 / sigma2 = 1
-		// authalic: sigma1 * sigma2 = 1
-		float rmsStretch = sqrtf((a + c) * 0.5f);
-		float rmsStretch2 = sqrtf((square(sigma1) + square(sigma2)) * 0.5f);
-		XA_DEBUG_ASSERT(equal(rmsStretch, rmsStretch2, 0.01f));
-		XA_UNUSED(rmsStretch2);
-		if (parametricArea < 0.0f) {
-			// Count flipped triangles.
-			m_flippedTriangleCount++;
-			parametricArea = fabsf(parametricArea);
-		}
-		m_stretchMetric += square(rmsStretch) * geometricArea;
-		m_maxStretchMetric = max(m_maxStretchMetric, sigma2);
-		if (!isZero(sigma1, 0.000001f)) {
-			// sigma1 is zero when geometricArea is zero.
-			m_conformalMetric += (sigma2 / sigma1) * geometricArea;
-		}
-		m_authalicMetric += (sigma1 * sigma2) * geometricArea;
-		// Accumulate total areas.
-		m_geometricArea += geometricArea;
-		m_parametricArea += parametricArea;
-		//triangleConformalEnergy(q, p);
-	}
-
-	uint32_t m_totalTriangleCount;
-	uint32_t m_flippedTriangleCount;
-	uint32_t m_zeroAreaTriangleCount;
-	float m_parametricArea;
-	float m_geometricArea;
-	float m_stretchMetric;
-	float m_maxStretchMetric;
-	float m_conformalMetric;
-	float m_authalicMetric;
+	ParameterizationQuality m_paramQuality;
 };
 
 // Set of charts corresponding to mesh faces in the same face group.
@@ -5559,15 +5564,13 @@ public:
 		}
 	}
 
-	void parameterizeCharts(const CharterOptions &options)
+	void parameterizeCharts()
 	{
 		ParameterizationQuality globalParameterizationQuality;
 		// Parameterize the charts.
 		const uint32_t chartCount = m_chartArray.size();
-		for (uint32_t i = 0; i < chartCount; i++)
-		{
+		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_chartArray[i];
-			
 			if (chart->unifiedMesh()->faceCount() == 1) {
 				computeSingleFaceMap(chart->unifiedMesh());
 			} else {
@@ -5575,28 +5578,18 @@ public:
 				if (chart->isDisk())
 					computeLeastSquaresConformalMap(chart->unifiedMesh());
 			}
-			if (options.evaluateParameterizationQuality) {
-				const ParameterizationQuality quality(chart->unifiedMesh());
-				if (!quality.isValid()) {
-					XA_PRINT_WARNING("Chart %u: invalid parameterization\n", i);
-#if XA_DEBUG_EXPORT_OBJ
-					chart->unifiedMesh()->writeSimpleObj("debug_invalid_parameterization.obj");
-#endif
-				}
-				// @@ Check that parameterization quality is above a certain threshold.
-				// @@ Detect boundary self-intersections.
-				globalParameterizationQuality += quality;
-			}
+			// @@ Check that parameterization quality is above a certain threshold.
+			// @@ Detect boundary self-intersections.
+			chart->evaluateParameterizationQuality();
+			globalParameterizationQuality += chart->paramQuality();
 			// Transfer parameterization from unified mesh to chart mesh.
 			chart->transferParameterization();
 		}
-		if (options.evaluateParameterizationQuality) {
-			XA_PRINT("Parameterized %d charts\n", chartCount);
-			XA_PRINT("   RMS stretch metric: %g\n", globalParameterizationQuality.rmsStretchMetric());
-			XA_PRINT("   MAX stretch metric: %g\n", globalParameterizationQuality.maxStretchMetric());
-			XA_PRINT("   RMS conformal metric: %g\n", globalParameterizationQuality.rmsConformalMetric());
-			XA_PRINT("   RMS authalic metric: %g\n", globalParameterizationQuality.maxAuthalicMetric());
-		}
+		XA_PRINT("Parameterized %d charts\n", chartCount);
+		XA_PRINT("   RMS stretch metric: %g\n", globalParameterizationQuality.rmsStretchMetric());
+		XA_PRINT("   MAX stretch metric: %g\n", globalParameterizationQuality.maxStretchMetric());
+		XA_PRINT("   RMS conformal metric: %g\n", globalParameterizationQuality.rmsConformalMetric());
+		XA_PRINT("   RMS authalic metric: %g\n", globalParameterizationQuality.maxAuthalicMetric());
 	}
 
 private:
@@ -5713,14 +5706,14 @@ public:
 			progressCallback(ProgressCategory::ComputingCharts, 100, progressCallbackUserData);
 	}
 
-	void parameterizeCharts(const CharterOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
+	void parameterizeCharts(ProgressCallback progressCallback, void *progressCallbackUserData)
 	{
 		int progress = 0;
 		if (progressCallback)
 			progressCallback(ProgressCategory::ParametizingCharts, 0, progressCallbackUserData);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
-				m_chartGroups[i]->parameterizeCharts(options);
+				m_chartGroups[i]->parameterizeCharts();
 			if (progressCallback) {
 				const int newProgress = int((i + 1) / (float)m_chartGroups.size() * 100.0f);
 				if (newProgress != progress) {
@@ -6692,13 +6685,24 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	XA_PRINT("Computing charts\n");
 	ctx->paramAtlas.computeCharts(charterOptions, progressCallback, progressCallbackUserData);
 	XA_PRINT("Parameterizing charts\n");
-	ctx->paramAtlas.parameterizeCharts(charterOptions, progressCallback, progressCallbackUserData);
+	ctx->paramAtlas.parameterizeCharts(progressCallback, progressCallbackUserData);
 	// Count charts.
+	// Print warnings for charts the have invalid parameterizations. Do that here, rather than when the parameterization quality is evaulated, so the chart index can be paired with the warning.
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-			if (!chartGroup->isVertexMap())
-				atlas->chartCount += chartGroup->chartCount();
+			if (chartGroup->isVertexMap())
+				continue;
+			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
+				const internal::param::Chart *chart = chartGroup->chartAt(k);
+				if (chart->paramQuality().flippedTriangleCount() > 0) {
+					XA_PRINT_WARNING("Chart %u: invalid parameterization, %d flipped triangles.\n", i, chart->paramQuality().flippedTriangleCount());
+#if XA_DEBUG_EXPORT_OBJ
+					chart->unifiedMesh()->writeSimpleObj("debug_invalid_parameterization.obj");
+#endif
+				}
+				atlas->chartCount++;
+			}
 		}
 	}
 }

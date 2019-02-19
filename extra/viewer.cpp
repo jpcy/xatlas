@@ -1411,7 +1411,6 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::InputFloat("Max threshold", &s_atlas.charterOptions.maxThreshold);
 					ImGui::InputInt("Grow face count", (int *)&s_atlas.charterOptions.growFaceCount);
 					ImGui::InputInt("Max iterations", (int *)&s_atlas.charterOptions.maxIterations);
-					ImGui::Checkbox("Evalulate parameterization quality", &s_atlas.charterOptions.evaluateParameterizationQuality);
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();

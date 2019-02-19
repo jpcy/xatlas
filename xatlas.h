@@ -143,7 +143,6 @@ struct CharterOptions
 	float maxThreshold;
 	uint32_t growFaceCount;
 	uint32_t maxIterations;
-	bool evaluateParameterizationQuality;
 
 	CharterOptions()
 	{
@@ -157,7 +156,6 @@ struct CharterOptions
 		maxThreshold = 2.0f;
 		growFaceCount = 32;
 		maxIterations = 1;
-		evaluateParameterizationQuality = false;
 	}
 };
 
