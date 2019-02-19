@@ -69,7 +69,7 @@ static PrintFunc s_print = printf;
 static bool s_printVerbose = false;
 
 #define XA_DEBUG_HEAP 0
-
+#define XA_DEBUG_SINGLE_CHART 0
 #define XA_DEBUG_EXPORT_OBJ 0
 #define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
@@ -5478,6 +5478,14 @@ public:
 	*/
 	void computeCharts(const CharterOptions &options)
 	{
+#if XA_DEBUG_SINGLE_CHART
+		Array<uint32_t> chartFaces;
+		chartFaces.resize(m_mesh->faceCount());
+		for (uint32_t i = 0; i < chartFaces.size(); i++)
+			chartFaces[i] = i;
+		Chart *chart = XA_NEW(Chart, m_mesh, chartFaces);
+		m_chartArray.push_back(chart);
+#else
 		AtlasBuilder builder(m_mesh, options);
 		if (builder.facesLeft() != 0) {
 			// This seems a reasonable estimate.
@@ -5530,6 +5538,7 @@ public:
 			}
 #endif
 		}
+#endif
 	}
 
 	void parameterizeCharts()
