@@ -2091,6 +2091,8 @@ public:
 				}
 				if (bestNextEdge == UINT32_MAX) {
 					numUnclosedBoundaries++;
+					if (currentEdge == firstEdge)
+						linkedEdges.setBitAt(firstEdge); // Only 1 edge in this boundary "loop".
 					break; // Can't find a next edge.
 				}
 				m_nextBoundaryEdges[currentEdge] = bestNextEdge;
