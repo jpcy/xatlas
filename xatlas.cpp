@@ -571,13 +571,11 @@ static Vector3 operator/(const Vector3 &v, float s)
 	return v * (1.0f / s);
 }
 
-#if 0
 static Vector3 lerp(const Vector3 &v1, const Vector3 &v2, float t)
 {
 	const float s = 1.0f - t;
 	return Vector3(v1.x * s + t * v2.x, v1.y * s + t * v2.y, v1.z * s + t * v2.z);
 }
-#endif
 
 static float dot(const Vector3 &a, const Vector3 &b)
 {
@@ -2106,28 +2104,6 @@ public:
 		}
 	}
 
-	struct SplitEdge
-	{
-		uint32_t face;
-		uint32_t edgeRelativeIndex; // absolute: face.firstIndex + edgeRelativeIndex
-		float t;
-
-		bool operator<(const SplitEdge &other) const
-		{
-			if (face < other.face)
-				return true;
-			else if (face == other.face) {
-				if (edgeRelativeIndex < other.edgeRelativeIndex)
-					return true;
-				else if (edgeRelativeIndex == other.edgeRelativeIndex) {
-					if (t < other.t)
-						return true;
-				}
-			}
-			return false;
-		}
-	};
-
 	/// Find edge, test all colocals.
 	const Edge *findEdge(uint32_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
 	{
@@ -2725,9 +2701,20 @@ Fixing T-junctions.
 */
 struct SplitEdge
 {
-	uint32_t vertex;
 	uint32_t edge;
 	float t;
+	uint32_t vertex;
+
+	bool operator<(const SplitEdge &other) const
+	{
+		if (edge < other.edge)
+			return true;
+		else if (edge == other.edge) {
+			if (t < other.t)
+				return true;
+		}
+		return false;
+	}
 };
 
 static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no split was made.
@@ -2759,9 +2746,9 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 				continue;
 			//XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
 			SplitEdge splitEdge;
-			splitEdge.vertex = v;
 			splitEdge.edge = e;
 			splitEdge.t = t;
+			splitEdge.vertex = v;
 			splitEdges.push_back(splitEdge);
 		}
 	}
@@ -2774,20 +2761,33 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 	for (uint32_t se = 0; se < splitEdges.size(); se++) {
 		const SplitEdge &splitEdge = splitEdges[se];
 		const Edge *edge = inputMesh.edgeAt(splitEdge.edge);
-		Vector2 texcoord = lerp(inputMesh.texcoord(inputMesh.vertexAt(edge->index0)), inputMesh.texcoord(inputMesh.vertexAt(edge->index1)), splitEdge.t);
-		mesh->addVertex(inputMesh.position(splitEdge.vertex), Vector3(), texcoord);
+		Vector3 normal(0.0f);
+		if (inputMesh.flags() & MeshFlags::HasNormals)
+			normal = lerp(inputMesh.normal(inputMesh.vertexAt(edge->index0)), inputMesh.normal(inputMesh.vertexAt(edge->index1)), splitEdge.t);
+		const Vector2 texcoord = lerp(inputMesh.texcoord(inputMesh.vertexAt(edge->index0)), inputMesh.texcoord(inputMesh.vertexAt(edge->index1)), splitEdge.t);
+		mesh->addVertex(inputMesh.position(splitEdge.vertex), normal, texcoord);
 	}
 	Array<uint32_t> indexArray;
+	indexArray.reserve(4);
+	Array<uint32_t> faceSplitEdges;
+	faceSplitEdges.reserve(4);
 	for (uint32_t f = 0; f < faceCount; f++) {
+		// Find t-junctions in this face.
+		faceSplitEdges.clear();
+		for (uint32_t i = 0; i < splitEdges.size(); i++) {
+			if (inputMesh.edgeAt(splitEdges[i].edge)->face == f)
+				faceSplitEdges.push_back(i);
+		}
+		// Need to split edges in winding order when a single edge has multiple t-junctions.
+		if (!faceSplitEdges.isEmpty())
+			insertionSort(faceSplitEdges.data(), faceSplitEdges.size());
 		indexArray.clear();
 		for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
 			indexArray.push_back(it.vertex0());
-			for (uint32_t se = 0; se < splitEdges.size(); se++) {
-				const SplitEdge &splitEdge = splitEdges[se];
-				if (splitEdge.edge == it.edge()) {
-					indexArray.push_back(vertexCount + se);
-					break;
-				}
+			for (uint32_t se = 0; se < faceSplitEdges.size(); se++) {
+				const SplitEdge &splitEdge = splitEdges[faceSplitEdges[se]];
+				if (splitEdge.edge == it.edge())
+					indexArray.push_back(vertexCount + faceSplitEdges[se]);
 			}
 		}
 		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
