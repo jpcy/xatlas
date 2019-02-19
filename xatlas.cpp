@@ -68,6 +68,7 @@ static ReallocFunc s_realloc = realloc;
 static PrintFunc s_print = printf;
 static bool s_printVerbose = false;
 
+#define XA_CLOSE_HOLES 1
 #define XA_FIX_TJUNCTIONS 0
 #define XA_DEBUG_HEAP 0
 
@@ -76,6 +77,7 @@ static bool s_printVerbose = false;
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION 0
+#define XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES 0
 
 #if XA_DEBUG_HEAP
 struct AllocHeader
@@ -445,10 +447,12 @@ static float triangleArea(const Vector2 &a, const Vector2 &b, const Vector2 &c)
 	return triangleArea(a - c, b - c);
 }
 
+#if XA_CLOSE_HOLES
 static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c)
 {
 	return triangleArea(a, b, p) >= 0.00001f && triangleArea(b, c, p) >= 0.00001f && triangleArea(c, a, p) >= 0.00001f;
 }
+#endif
 
 class Vector3
 {
@@ -2822,6 +2826,7 @@ public:
 	};
 };
 
+#if XA_CLOSE_HOLES
 // This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
 static Mesh *meshTriangulate(const Mesh &inputMesh)
@@ -3026,6 +3031,7 @@ private:
 	/// Mesh genus.
 	int m_genus;
 };
+#endif // XA_CLOSE_HOLES
 
 namespace raster {
 class ClippedTriangle
@@ -5125,10 +5131,14 @@ public:
 		m_mesh->createBoundaries();
 		m_unifiedMesh->createBoundaries();
 		m_unifiedMesh->linkBoundaries();
+#if XA_CLOSE_HOLES
 		// See if there are any holes that need closing.
 		Array<uint32_t> boundaryEdges;
 		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
 		if (boundaryEdges.size() > 1) {
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
+			m_unifiedMesh->writeObjFile("debug_before_close_holes.obj");
+#endif
 			// Closing the holes is not always the best solution and does not fix all the problems.
 			// We need to do some analysis of the holes and the genus to:
 			// - Find cuts that reduce genus.
@@ -5149,6 +5159,7 @@ public:
 		m_isDisk = topology.isDisk();
 		if (!m_isDisk)
 			XA_PRINT_WARNING("Chart doesn't have disk topology\n");
+#endif
 	}
 
 	~Chart()
