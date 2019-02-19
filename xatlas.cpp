@@ -2049,12 +2049,13 @@ public:
 		for (uint32_t i = 0; i < edgeCount; i++)
 			m_nextBoundaryEdges[i] = UINT32_MAX;
 		uint32_t numBoundaryLoops = 0, numUnclosedBoundaries = 0;
-		BitArray bitFlags(edgeCount);
-		bitFlags.clearAll();
+		BitArray linkedEdges(edgeCount);
+		linkedEdges.clearAll();
 		for (;;) {
+			// Find the first boundary edge that hasn't been linked yet.
 			uint32_t firstEdge = UINT32_MAX;
 			for (uint32_t i = 0; i < edgeCount; i++) {
-				if (m_oppositeEdges[i] == UINT32_MAX && !bitFlags.bitAt(i)) {
+				if (m_oppositeEdges[i] == UINT32_MAX && !linkedEdges.bitAt(i)) {
 					firstEdge = i;
 					break;
 				}
@@ -2074,7 +2075,7 @@ public:
 						const Edge &otherEdge = m_edges[mapEdge];
 						if (m_oppositeEdges[mapEdge] != UINT32_MAX)
 							goto next; // Not a boundary edge.
-						if (bitFlags.bitAt(mapEdge))
+						if (linkedEdges.bitAt(mapEdge))
 							goto next; // Already linked.
 						if (m_faceGroups[edge.face] != m_faceGroups[otherEdge.face])
 							goto next; // Don't cross face groups.
@@ -2095,7 +2096,7 @@ public:
 					break; // Can't find a next edge.
 				}
 				m_nextBoundaryEdges[currentEdge] = bestNextEdge;
-				bitFlags.setBitAt(bestNextEdge);
+				linkedEdges.setBitAt(bestNextEdge);
 				currentEdge = bestNextEdge;
 				if (currentEdge == firstEdge) {
 					numBoundaryLoops++;
@@ -2910,8 +2911,6 @@ static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 			indexArray.push_back(inputMesh.firstColocal(it.vertex0()));
 		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
 	}
-	mesh->createBoundaries();
-	mesh->linkBoundaries();
 	return mesh;
 }
 
@@ -5128,6 +5127,8 @@ public:
 			m_unifiedMesh = meshUnifyVertices(*splitUnifiedMesh);
 			splitUnifiedMesh->~Mesh();
 			XA_FREE(splitUnifiedMesh);
+			m_unifiedMesh->createBoundaries();
+			m_unifiedMesh->linkBoundaries();
 		}
 		// See if there are any holes that need closing.
 		Array<uint32_t> boundaryEdges;
