@@ -70,8 +70,12 @@ static bool s_printVerbose = false;
 
 #define XA_FIX_TJUNCTIONS 0
 #define XA_DEBUG_HEAP 0
+
 #define XA_DEBUG_EXPORT_OBJ 0
-#define XA_DEBUG_EXPORT_OBJ_INDIVIDUAL_CHARTS 0
+#define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
+#define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
+#define XA_DEBUG_EXPORT_OBJ_CHARTS 0
+#define XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION 0
 
 #if XA_DEBUG_HEAP
 struct AllocHeader
@@ -2350,39 +2354,7 @@ public:
 		}
 	}
 
-	void writeObj() const
-	{
-		char filename[256];
-		sprintf(filename, "debug_mesh_%0.3u.obj", m_id);
-		FILE *file = fopen(filename, "w");
-		if (!file)
-			return;
-		writeObjVertices(file);
-		// groups
-		uint32_t numGroups = 0;
-		for (uint32_t i = 0; i < m_faceGroups.size(); i++) {
-			if (m_faceGroups[i] != UINT32_MAX)
-				numGroups = max(numGroups, m_faceGroups[i] + 1);
-		}
-		for (uint32_t i = 0; i < numGroups; i++) {
-			fprintf(file, "o group_%0.4d\n", i);
-			fprintf(file, "s off\n");
-			for (uint32_t f = 0; f < m_faceGroups.size(); f++) {
-				if (m_faceGroups[f] == i)
-					writeObjFace(file, f);
-			}
-		}
-		fprintf(file, "o group_ignored\n");
-		fprintf(file, "s off\n");
-		for (uint32_t f = 0; f < m_faceGroups.size(); f++) {
-			if (m_faceGroups[f] == UINT32_MAX)
-				writeObjFace(file, f);
-		}
-		writeObjBoundaryEges(file);
-		fclose(file);
-	}
-
-	void writeSimpleObj(const char *filename) const
+	void writeObjFile(const char *filename) const
 	{
 		FILE *file = fopen(filename, "w");
 		if (!file)
@@ -2589,6 +2561,7 @@ public:
 	const Face *faceAt(uint32_t i) const { return &m_faces[i]; }
 	Face *faceAt(uint32_t i) { return &m_faces[i]; }
 	uint32_t faceFlagsAt(uint32_t i) const { return m_faceFlags[i]; }
+	uint32_t faceGroupCount() const { return m_faceGroups.size(); }
 	uint32_t faceGroupAt(uint32_t face) const { return m_faceGroups[face]; }
 	const Vector3 &faceNormalAt(uint32_t face) const { return m_faceNormals[face]; }
 
@@ -5163,12 +5136,8 @@ public:
 			// - Use minimal spanning trees or seamster.
 			closeHoles(boundaryEdges);
 			meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
-			if (boundaryEdges.size() > 1) {
+			if (boundaryEdges.size() > 1)
 				XA_PRINT_WARNING("Failed to close chart holes\n");
-#if XA_DEBUG_EXPORT_OBJ
-				m_unifiedMesh->writeSimpleObj("debug_chart_not_closed.obj");
-#endif
-			}
 			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
 			if (triangulatedMesh) {
 				m_unifiedMesh->~Mesh();
@@ -5178,12 +5147,8 @@ public:
 		}
 		MeshTopology topology(m_unifiedMesh);
 		m_isDisk = topology.isDisk();
-		if (!m_isDisk) {
+		if (!m_isDisk)
 			XA_PRINT_WARNING("Chart doesn't have disk topology\n");
-#if XA_DEBUG_EXPORT_OBJ
-			m_unifiedMesh->writeSimpleObj("debug_chart_not_disk.obj");
-#endif
-		}
 	}
 
 	~Chart()
@@ -5414,10 +5379,10 @@ public:
 		m_isTJunctionVertex.resize(m_mesh->vertexCount());
 		for (uint32_t i = 0; i < m_mesh->vertexCount(); i++)
 			m_isTJunctionVertex[i] = sourceMesh->isTJunctionVertex(m_vertexToSourceVertexMap[i]);
-#if XA_DEBUG_EXPORT_OBJ
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHART_GROUPS
 		char filename[256];
 		sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u.obj", m_sourceId, m_id);
-		m_mesh->writeSimpleObj(filename);
+		m_mesh->writeObjFile(filename);
 #else
 		XA_UNUSED(m_id);
 #endif
@@ -5535,15 +5500,8 @@ public:
 			for (uint32_t i = 0; i < chartCount; i++) {
 				Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(i));
 				m_chartArray.push_back(chart);
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INDIVIDUAL_CHARTS
-				char filename[256];
-				sprintf(filename, "debug_chart_%0.4d.obj", i);
-				chart->mesh()->writeSimpleObj(filename);
-				sprintf(filename, "debug_chart_%0.4d_unified.obj", i);
-				chart->unifiedMesh()->writeSimpleObj(filename);
-#endif
 			}
-#if XA_DEBUG_EXPORT_OBJ
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHARTS
 			char filename[256];
 			sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_charts.obj", m_sourceId, m_id);
 			FILE *file = fopen(filename, "w");
@@ -6655,8 +6613,35 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 	mesh->createColocals();
 	mesh->createFaceGroups();
 	mesh->createBoundaries();
-#if XA_DEBUG_EXPORT_OBJ
-	mesh->writeObj();
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES
+	char filename[256];
+	sprintf(filename, "debug_mesh_%0.3u.obj", mesh->id());
+	FILE *file = fopen(filename, "w");
+	if (file) {
+		mesh->writeObjVertices(file);
+		// groups
+		uint32_t numGroups = 0;
+		for (uint32_t i = 0; i < mesh->faceGroupCount(); i++) {
+			if (mesh->faceGroupAt(i) != UINT32_MAX)
+				numGroups = internal::max(numGroups, mesh->faceGroupAt(i) + 1);
+		}
+		for (uint32_t i = 0; i < numGroups; i++) {
+			fprintf(file, "o group_%0.4d\n", i);
+			fprintf(file, "s off\n");
+			for (uint32_t f = 0; f < mesh->faceGroupCount(); f++) {
+				if (mesh->faceGroupAt(f) == i)
+					mesh->writeObjFace(file, f);
+			}
+		}
+		fprintf(file, "o group_ignored\n");
+		fprintf(file, "s off\n");
+		for (uint32_t f = 0; f < mesh->faceGroupCount(); f++) {
+			if (mesh->faceGroupAt(f) == UINT32_MAX)
+				mesh->writeObjFace(file, f);
+		}
+		mesh->writeObjBoundaryEges(file);
+		fclose(file);
+	}
 #endif
 	ctx->paramAtlas.addMesh(mesh);
 	mesh->~Mesh();
@@ -6696,9 +6681,11 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 				if (chart->paramQuality().flippedTriangleCount() > 0) {
-					XA_PRINT_WARNING("Chart %u: invalid parameterization, %d flipped triangles.\n", i, chart->paramQuality().flippedTriangleCount());
-#if XA_DEBUG_EXPORT_OBJ
-					chart->unifiedMesh()->writeSimpleObj("debug_invalid_parameterization.obj");
+					XA_PRINT_WARNING("Chart %u: invalid parameterization, %d flipped triangles.\n", atlas->chartCount, chart->paramQuality().flippedTriangleCount());
+#if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
+					char filename[256];
+					sprintf(filename, "debug_chart_%0.3u_invalid_parameterization.obj", atlas->chartCount);
+					chart->unifiedMesh()->writeObjFile(filename);
 #endif
 				}
 				atlas->chartCount++;
