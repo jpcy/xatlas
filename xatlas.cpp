@@ -75,7 +75,9 @@ static bool s_printVerbose = false;
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION 0
+#define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES 0
+#define XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES 0
 
 #if XA_DEBUG_HEAP
 struct AllocHeader
@@ -2703,6 +2705,7 @@ Fixing T-junctions.
 */
 struct SplitEdge
 {
+	uint32_t index;
 	uint32_t edge;
 	float t;
 	uint32_t vertex;
@@ -2748,6 +2751,7 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 				continue;
 			//XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
 			SplitEdge splitEdge;
+			splitEdge.index = splitEdges.size();
 			splitEdge.edge = e;
 			splitEdge.t = t;
 			splitEdge.vertex = v;
@@ -2771,14 +2775,14 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 	}
 	Array<uint32_t> indexArray;
 	indexArray.reserve(4);
-	Array<uint32_t> faceSplitEdges;
+	Array<SplitEdge> faceSplitEdges;
 	faceSplitEdges.reserve(4);
 	for (uint32_t f = 0; f < faceCount; f++) {
 		// Find t-junctions in this face.
 		faceSplitEdges.clear();
 		for (uint32_t i = 0; i < splitEdges.size(); i++) {
 			if (inputMesh.edgeAt(splitEdges[i].edge)->face == f)
-				faceSplitEdges.push_back(i);
+				faceSplitEdges.push_back(splitEdges[i]);
 		}
 		// Need to split edges in winding order when a single edge has multiple t-junctions.
 		if (!faceSplitEdges.isEmpty())
@@ -2787,9 +2791,9 @@ static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no
 		for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
 			indexArray.push_back(it.vertex0());
 			for (uint32_t se = 0; se < faceSplitEdges.size(); se++) {
-				const SplitEdge &splitEdge = splitEdges[faceSplitEdges[se]];
+				const SplitEdge &splitEdge = faceSplitEdges[se];
 				if (splitEdge.edge == it.edge())
-					indexArray.push_back(vertexCount + faceSplitEdges[se]);
+					indexArray.push_back(vertexCount + faceSplitEdges[se].index);
 			}
 		}
 		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
@@ -5122,6 +5126,9 @@ public:
 		m_mesh->createBoundaries();
 		m_unifiedMesh->createBoundaries();
 		m_unifiedMesh->linkBoundaries();
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
+		m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
+#endif
 		Mesh *splitUnifiedMesh = meshSplitBoundaryEdges(*m_unifiedMesh);
 		if (splitUnifiedMesh) {
 			m_unifiedMesh->~Mesh();
@@ -5146,8 +5153,12 @@ public:
 			// - Use minimal spanning trees or seamster.
 			closeHoles(boundaryEdges);
 			meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
-			if (boundaryEdges.size() > 1)
+			if (boundaryEdges.size() > 1) {
 				XA_PRINT_WARNING("Failed to close chart holes\n");
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
+				m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
+#endif
+			}
 		}
 		Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
 		if (triangulatedMesh) {
