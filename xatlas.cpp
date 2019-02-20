@@ -68,6 +68,8 @@ static ReallocFunc s_realloc = realloc;
 static PrintFunc s_print = printf;
 static bool s_printVerbose = false;
 
+#define XA_CHECK_FACE_OVERLAP 0
+
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
 #define XA_DEBUG_EXPORT_OBJ 0
@@ -449,6 +451,20 @@ static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b
 {
 	return triangleArea(a, b, p) >= 0.00001f && triangleArea(b, c, p) >= 0.00001f && triangleArea(c, a, p) >= 0.00001f;
 }
+
+#if XA_CHECK_FACE_OVERLAP
+static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &b1, const Vector2 &b2)
+{
+	const Vector2 v0 = a2 - a1;
+	const Vector2 v1 = b2 - b1;
+	const float denom = -v1.x * v0.y + v0.x * v1.y;
+	if (equal(denom, 0.0f))
+		return false;
+	const float s = (-v0.y * (a1.x - b1.x) + v0.x * (a1.y - b1.y)) / denom;
+	const float t = ( v1.x * (a1.y - b1.y) - v1.y * (a1.x - b1.x)) / denom;
+	return s > 0.0f && s < 1.0f && t > 0.0f && t < 1.0f;
+}
+#endif
 
 class Vector3
 {
@@ -1942,6 +1958,61 @@ public:
 		return false;
 	}
 
+#if XA_CHECK_FACE_OVERLAP
+	bool faceOverlapsGroupFace(uint32_t group, uint32_t face) const
+	{
+		const uint32_t faceCount = m_faces.size();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			if (f == face || m_faceGroups[f] != group)
+				continue;
+			bool touching = false;
+			for (FaceEdgeIterator edgeIt0(this, face); !edgeIt0.isDone(); edgeIt0.advance()) {
+				for (FaceEdgeIterator edgeIt1(this, f); !edgeIt1.isDone(); edgeIt1.advance()) {
+					if (areColocal(edgeIt0.vertex0(), edgeIt1.vertex0())) {
+						touching = true;
+						break;
+					}
+				}
+				if (touching)
+					break;
+			}
+			if (touching)
+				continue;
+			for (FaceEdgeIterator edgeIt0(this, face); !edgeIt0.isDone(); edgeIt0.advance()) {
+				for (FaceEdgeIterator edgeIt1(this, f); !edgeIt1.isDone(); edgeIt1.advance()) {
+					Vector3 points[4];
+					points[0] = edgeIt0.position0();
+					points[1] = edgeIt0.position1();
+					points[2] = edgeIt1.position0();
+					points[3] = edgeIt1.position1();
+					int planarDimension = -1;
+					for (uint32_t i = 0; i < 3; i++) {
+						if (equal((&points[0].x)[i], (&points[1].x)[i]) && equal((&points[1].x)[i], (&points[2].x)[i]) && equal((&points[2].x)[i], (&points[3].x)[i])) {
+							planarDimension = i;
+							break;
+						}
+					}
+					if (planarDimension == -1)
+						continue; // Points don't lie on the same plane.
+					Vector2 points2[4];
+					for (uint32_t i = 0; i < 4; i++) {
+						uint32_t k = 0;
+						for (uint32_t j = 0; j < 2; j++) {
+							if (k == (uint32_t)planarDimension)
+								k++;
+							(&points2[i].x)[j] = (&points[i].x)[k];
+							k++;
+						}
+					}
+					if (linesIntersect(points2[0], points2[1], points2[2], points2[3]))
+						return true;
+				}
+			}
+		}
+		return false;
+	}
+#endif
+
 	void createFaceGroups()
 	{
 		const uint32_t faceCount = m_faces.size();
@@ -1987,6 +2058,10 @@ public:
 							continue; // Don't want duplicate edges in a group.
 						if (faceMirrorsGroupFace(group, oppositeEdge.face))
 							continue; // Don't want two-sided faces in a group.
+#if XA_CHECK_FACE_OVERLAP
+						if (faceOverlapsGroupFace(group, oppositeEdge.face))
+							continue; // Don't want overlapping geometry.
+#endif
 						const uint32_t oppositeVertex0 = m_indices[oppositeEdge.index0];
 						const uint32_t oppositeVertex1 = m_indices[oppositeEdge.index1];
 						if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
