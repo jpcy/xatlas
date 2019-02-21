@@ -2655,7 +2655,7 @@ struct Progress
 		m_mutex.unlock();
 	}
 
-	std::atomic_uint32_t value;
+	std::atomic<uint32_t> value;
 
 private:
 	ProgressCategory::Enum m_category;
