@@ -1,9 +1,16 @@
 /*
+xatlas
 https://github.com/jpcy/xatlas
-
 Copyright (c) 2018 Jonathan Young
+
+thekla_atlas
+https://github.com/Thekla/thekla_atlas
 Copyright (c) 2013 Thekla, Inc
 Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
+
+Fast-BVH
+https://github.com/brandonpelfrey/Fast-BVH
+Copyright (c) 2012 Brandon Pelfrey
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -68,7 +75,7 @@ static ReallocFunc s_realloc = realloc;
 static PrintFunc s_print = printf;
 static bool s_printVerbose = false;
 
-#define XA_CHECK_FACE_OVERLAP 0
+#define XA_CHECK_FACE_OVERLAP 1
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
@@ -639,6 +646,16 @@ static bool equal(const Vector3 &v0, const Vector3 &v1, float epsilon = XA_EPSIL
 	return fabs(v0.x - v1.x) <= epsilon && fabs(v0.y - v1.y) <= epsilon && fabs(v0.z - v1.z) <= epsilon;
 }
 
+static Vector3 min(const Vector3 &a, const Vector3 &b)
+{
+	return Vector3(min(a.x, b.x), min(a.y, b.y), min(a.z, b.z));
+}
+
+static Vector3 max(const Vector3 &a, const Vector3 &b)
+{
+	return Vector3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z));
+}
+
 #ifdef _DEBUG
 bool isFinite(const Vector3 &v)
 {
@@ -1136,6 +1153,194 @@ private:
 	uint32_t m_height;
 	BitArray m_bitArray;
 };
+
+#if XA_CHECK_FACE_OVERLAP
+// From Fast-BVH
+struct AABB
+{
+	AABB() : min(FLT_MAX, FLT_MAX, FLT_MAX), max(-FLT_MAX, -FLT_MAX, -FLT_MAX) {}
+	AABB(const Vector3 &min, const Vector3 &max) : min(min), max(max) { }
+	AABB(const Vector3 &p) : min(p), max(p) { }
+
+	bool intersect(const AABB &other) const
+	{
+		return min.x <= other.max.x && max.x >= other.min.x && min.y <= other.max.y && max.y >= other.min.y && min.z <= other.max.z && max.z >= other.min.z;
+	}
+	
+	void expandToInclude(const Vector3 &p)
+	{
+		min = internal::min(min, p);
+		max = internal::max(max, p);
+	}
+
+	void expandToInclude(const AABB &aabb)
+	{
+		min = internal::min(min, aabb.min);
+		max = internal::max(max, aabb.max);
+	}
+
+	void expand(float amount)
+	{
+		min -= Vector3(amount);
+		max += Vector3(amount);
+	}
+
+	Vector3 centroid() const
+	{
+		return min + (max - min) * 0.5f;
+	}
+
+	uint32_t maxDimension() const
+	{
+		const Vector3 extent = max - min;
+		uint32_t result = 0;
+		if (extent.y > extent.x) {
+			result = 1;
+			if (extent.z > extent.y)
+				result = 2;
+		}
+		else if(extent.z > extent.x)
+			result = 2;
+		return result;
+	}
+
+	Vector3 min, max;
+};
+
+// From Fast-BVH
+class BVH
+{
+public:
+	BVH(const Array<AABB> &objectAabbs, uint32_t leafSize = 4)
+	{
+		m_objectIds.resize(objectAabbs.size());
+		for (uint32_t i = 0; i < m_objectIds.size(); i++)
+			m_objectIds[i] = i;
+		BuildEntry todo[128];
+		uint32_t stackptr = 0;
+		const uint32_t kRoot = 0xfffffffc;
+		const uint32_t kUntouched = 0xffffffff;
+		const uint32_t kTouchedTwice = 0xfffffffd;
+		// Push the root
+		todo[stackptr].start = 0;
+		todo[stackptr].end = objectAabbs.size();
+		todo[stackptr].parent = kRoot;
+		stackptr++;
+		Node node;
+		m_nodes.reserve(objectAabbs.size() * 2);
+		uint32_t nNodes = 0;
+		while(stackptr > 0) {
+			// Pop the next item off of the stack
+			const BuildEntry &bnode = todo[--stackptr];
+			const uint32_t start = bnode.start;
+			const uint32_t end = bnode.end;
+			const uint32_t nPrims = end - start;
+			nNodes++;
+			node.start = start;
+			node.nPrims = nPrims;
+			node.rightOffset = kUntouched;
+			// Calculate the bounding box for this node
+			AABB bb(objectAabbs[m_objectIds[start]]);
+			AABB bc(objectAabbs[m_objectIds[start]].centroid());
+			for(uint32_t p = start + 1; p < end; ++p) {
+				bb.expandToInclude(objectAabbs[m_objectIds[p]]);
+				bc.expandToInclude(objectAabbs[m_objectIds[p]].centroid());
+			}
+			node.aabb = bb;
+			// If the number of primitives at this point is less than the leaf
+			// size, then this will become a leaf. (Signified by rightOffset == 0)
+			if (nPrims <= leafSize)
+				node.rightOffset = 0;
+			m_nodes.push_back(node);
+			// Child touches parent...
+			// Special case: Don't do this for the root.
+			if (bnode.parent != kRoot) {
+				m_nodes[bnode.parent].rightOffset--;
+				// When this is the second touch, this is the right child.
+				// The right child sets up the offset for the flat tree.
+				if (m_nodes[bnode.parent].rightOffset == kTouchedTwice )
+					m_nodes[bnode.parent].rightOffset = nNodes - 1 - bnode.parent;
+			}
+			// If this is a leaf, no need to subdivide.
+			if (node.rightOffset == 0)
+				continue;
+			// Set the split dimensions
+			const uint32_t split_dim = bc.maxDimension();
+			// Split on the center of the longest axis
+			const float split_coord = 0.5f * ((&bc.min.x)[split_dim] + (&bc.max.x)[split_dim]);
+			// Partition the list of objects on this split
+			uint32_t mid = start;
+			for (uint32_t i = start; i < end; ++i) {
+				const Vector3 centroid(objectAabbs[m_objectIds[i]].centroid());
+				if ((&centroid.x)[split_dim] < split_coord) {
+					swap(m_objectIds[i], m_objectIds[mid]);
+					++mid;
+				}
+			}
+			// If we get a bad split, just choose the center...
+			if (mid == start || mid == end)
+				mid = start + (end - start) / 2;
+			// Push right child
+			todo[stackptr].start = mid;
+			todo[stackptr].end = end;
+			todo[stackptr].parent = nNodes - 1;
+			stackptr++;
+			// Push left child
+			todo[stackptr].start = start;
+			todo[stackptr].end = mid;
+			todo[stackptr].parent = nNodes - 1;
+			stackptr++;
+		}
+		m_objectAabbs = &objectAabbs;
+	}
+
+	void query(const AABB &queryAabb, Array<uint32_t> &result) const
+	{
+		// Working set
+		uint32_t todo[64];
+		int32_t stackptr = 0;
+		// "Push" on the root node to the working set
+		todo[stackptr] = 0;
+		while(stackptr >= 0) {
+			// Pop off the next node to work on.
+			const int ni = todo[stackptr--];
+			const Node &node = m_nodes[ni];
+			// Is leaf -> Intersect
+			if (node.rightOffset == 0) {
+				for(uint32_t o = 0; o < node.nPrims; ++o) {
+					const uint32_t obj = node.start + o;
+					if (queryAabb.intersect((*m_objectAabbs)[m_objectIds[obj]]))
+						result.push_back(m_objectIds[obj]);
+				}
+			} else { // Not a leaf
+				const uint32_t left = ni + 1;
+				const uint32_t right = ni + node.rightOffset;
+				if (queryAabb.intersect(m_nodes[left].aabb))
+					todo[++stackptr] = left;
+				if (queryAabb.intersect(m_nodes[right].aabb))
+					todo[++stackptr] = right;
+			}
+		}
+	}
+
+private:
+	struct BuildEntry
+	{
+		uint32_t parent; // If non-zero then this is the index of the parent. (used in offsets)
+		uint32_t start, end; // The range of objects in the object list covered by this node.
+	};
+
+	struct Node
+	{
+		AABB aabb;
+		uint32_t start, nPrims, rightOffset;
+	};
+
+	const Array<AABB> *m_objectAabbs;
+	Array<uint32_t> m_objectIds;
+	Array<Node> m_nodes;
+};
+#endif
 
 class Fit
 {
@@ -1959,54 +2164,47 @@ public:
 	}
 
 #if XA_CHECK_FACE_OVERLAP
-	bool faceOverlapsGroupFace(uint32_t group, uint32_t face) const
+	bool faceOverlapsGroupFace(const Array<AABB> &edgeAabbs, const BVH &edgeBvh, uint32_t group, uint32_t face) const
 	{
-		const uint32_t faceCount = m_faces.size();
-		for (uint32_t f = 0; f < faceCount; f++) {
-			if (f == face || m_faceGroups[f] != group)
-				continue;
-			bool touching = false;
-			for (FaceEdgeIterator edgeIt0(this, face); !edgeIt0.isDone(); edgeIt0.advance()) {
-				for (FaceEdgeIterator edgeIt1(this, f); !edgeIt1.isDone(); edgeIt1.advance()) {
-					if (areColocal(edgeIt0.vertex0(), edgeIt1.vertex0())) {
-						touching = true;
+		Array<uint32_t> hitEdges;
+		hitEdges.reserve(8);
+		for (FaceEdgeIterator it(this, face); !it.isDone(); it.advance()) {
+			hitEdges.clear();
+			edgeBvh.query(edgeAabbs[it.edge()], hitEdges);
+			for (uint32_t e = 0; e < hitEdges.size(); e++) {
+				const Edge &otherEdge = m_edges[hitEdges[e]];
+				if (otherEdge.face == face || m_faceGroups[otherEdge.face] != group)
+					continue;
+				const Vector3 &otherPosition0 = m_positions[m_indices[otherEdge.index0]];
+				const Vector3 &otherPosition1 = m_positions[m_indices[otherEdge.index1]];
+				if (equal(it.position0(), otherPosition0) || equal(it.position0(), otherPosition1) || equal(it.position1(), otherPosition0) || equal(it.position1(), otherPosition1))
+					continue;
+				Vector3 points[4];
+				points[0] = it.position0();
+				points[1] = it.position1();
+				points[2] = otherPosition0;
+				points[3] = otherPosition1;
+				int planarDimension = -1;
+				for (uint32_t i = 0; i < 3; i++) {
+					if (equal((&points[0].x)[i], (&points[1].x)[i]) && equal((&points[1].x)[i], (&points[2].x)[i]) && equal((&points[2].x)[i], (&points[3].x)[i])) {
+						planarDimension = i;
 						break;
 					}
 				}
-				if (touching)
-					break;
-			}
-			if (touching)
-				continue;
-			for (FaceEdgeIterator edgeIt0(this, face); !edgeIt0.isDone(); edgeIt0.advance()) {
-				for (FaceEdgeIterator edgeIt1(this, f); !edgeIt1.isDone(); edgeIt1.advance()) {
-					Vector3 points[4];
-					points[0] = edgeIt0.position0();
-					points[1] = edgeIt0.position1();
-					points[2] = edgeIt1.position0();
-					points[3] = edgeIt1.position1();
-					int planarDimension = -1;
-					for (uint32_t i = 0; i < 3; i++) {
-						if (equal((&points[0].x)[i], (&points[1].x)[i]) && equal((&points[1].x)[i], (&points[2].x)[i]) && equal((&points[2].x)[i], (&points[3].x)[i])) {
-							planarDimension = i;
-							break;
-						}
-					}
-					if (planarDimension == -1)
-						continue; // Points don't lie on the same plane.
-					Vector2 points2[4];
-					for (uint32_t i = 0; i < 4; i++) {
-						uint32_t k = 0;
-						for (uint32_t j = 0; j < 2; j++) {
-							if (k == (uint32_t)planarDimension)
-								k++;
-							(&points2[i].x)[j] = (&points[i].x)[k];
+				if (planarDimension == -1)
+					continue; // Points don't lie on the same plane.
+				Vector2 points2[4];
+				for (uint32_t i = 0; i < 4; i++) {
+					uint32_t k = 0;
+					for (uint32_t j = 0; j < 2; j++) {
+						if (k == (uint32_t)planarDimension)
 							k++;
-						}
+						(&points2[i].x)[j] = (&points[i].x)[k];
+						k++;
 					}
-					if (linesIntersect(points2[0], points2[1], points2[2], points2[3]))
-						return true;
 				}
+				if (linesIntersect(points2[0], points2[1], points2[2], points2[3]))
+					return true;
 			}
 		}
 		return false;
@@ -2018,6 +2216,17 @@ public:
 		const uint32_t faceCount = m_faces.size();
 		uint32_t group = 0;
 		Array<uint32_t> growFaces;
+#if XA_CHECK_FACE_OVERLAP
+		const uint32_t edgeCount = m_edges.size();
+		Array<AABB> edgeAabbs;
+		edgeAabbs.resize(edgeCount);
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			edgeAabbs[i].expandToInclude(m_positions[m_indices[m_edges[i].index0]]);
+			edgeAabbs[i].expandToInclude(m_positions[m_indices[m_edges[i].index1]]);
+			edgeAabbs[i].expand(XA_EPSILON);
+		}
+		BVH edgeBvh(edgeAabbs);
+#endif
 		for (;;) {
 			// Find an unassigned face.
 			uint32_t face = UINT32_MAX;
@@ -2059,7 +2268,7 @@ public:
 						if (faceMirrorsGroupFace(group, oppositeEdge.face))
 							continue; // Don't want two-sided faces in a group.
 #if XA_CHECK_FACE_OVERLAP
-						if (faceOverlapsGroupFace(group, oppositeEdge.face))
+						if (faceOverlapsGroupFace(edgeAabbs, edgeBvh, group, oppositeEdge.face))
 							continue; // Don't want overlapping geometry.
 #endif
 						const uint32_t oppositeVertex0 = m_indices[oppositeEdge.index0];

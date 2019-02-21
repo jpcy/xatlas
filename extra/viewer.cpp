@@ -1,9 +1,7 @@
 /*
+xatlas
 https://github.com/jpcy/xatlas
-
 Copyright (c) 2018 Jonathan Young
-Copyright (c) 2013 Thekla, Inc
-Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -983,6 +981,7 @@ static void atlasSetPixel(uint8_t *dest, int destWidth, int x, int y, const uint
 }
 
 // https://github.com/miloyip/line/blob/master/line_bresenham.c
+// License: public domain.
 static void atlasRasterizeLine(uint8_t *dest, int destWidth, const int *p1, const int *p2, const uint8_t *color)
 {
 	const int dx = abs(p2[0] - p1[0]), sx = p1[0] < p2[0] ? 1 : -1;
@@ -998,7 +997,20 @@ static void atlasRasterizeLine(uint8_t *dest, int destWidth, const int *p1, cons
 	}
 }
 
-// https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
+/*
+https://github.com/ssloy/tinyrenderer/wiki/Lesson-2:-Triangle-rasterization-and-back-face-culling
+Copyright Dmitry V. Sokolov
+
+This software is provided 'as-is', without any express or implied warranty.
+In no event will the authors be held liable for any damages arising from the use of this software.
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it freely,
+subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not claim that you wrote the original software. If you use this software in a product, an acknowledgment in the product documentation would be appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
+*/
 static void atlasRasterizeTriangle(uint8_t *dest, int destWidth, const int *t0, const int *t1, const int *t2, const uint8_t *color)
 {
 	if (t0[1] > t1[1]) std::swap(t0, t1);
