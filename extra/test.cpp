@@ -110,9 +110,9 @@ int main(int /*argc*/, char ** /*argv*/)
 	if (generateAtlas("gazebo", &result)) {
 		ASSERT(result.chartCount == 333);
 	}
-	/*if (generateAtlas("zero_area_face", &result)) {
+	if (generateAtlas("zero_area_face", &result)) {
 		ASSERT(result.chartCount == 0);
-	}*/
+	}
 	if (generateAtlas("zero_length_edge", &result)) {
 		ASSERT(result.chartCount == 1);
 	}
