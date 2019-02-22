@@ -133,6 +133,8 @@ struct ProgressCategory
 
 typedef void (*ProgressCallback)(ProgressCategory::Enum category, int progress, void *userData);
 
+typedef void (*ParameterizationCallback)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount);
+
 struct CharterOptions
 {
 	float proxyFitMetricWeight;
@@ -145,6 +147,7 @@ struct CharterOptions
 	float maxThreshold;
 	uint32_t growFaceCount;
 	uint32_t maxIterations;
+	ParameterizationCallback parameterizationCallback;
 
 	CharterOptions()
 	{
@@ -158,6 +161,7 @@ struct CharterOptions
 		maxThreshold = 2.0f;
 		growFaceCount = 32;
 		maxIterations = 1;
+		parameterizationCallback = NULL;
 	}
 };
 

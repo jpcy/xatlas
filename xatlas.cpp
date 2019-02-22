@@ -3414,6 +3414,8 @@ public:
 	uint32_t faceGroupCount() const { return m_faceGroups.size(); }
 	uint32_t faceGroupAt(uint32_t face) const { return m_faceGroups[face]; }
 	const Vector3 &faceNormalAt(uint32_t face) const { return m_faceNormals[face]; }
+	const uint32_t *indices() const { return m_indices.data(); }
+	uint32_t indexCount() const { return m_indices.size(); }
 
 private:
 	uint32_t m_flags;
@@ -6531,19 +6533,23 @@ public:
 #endif
 	}
 
-	void parameterizeCharts()
+	void parameterizeCharts(const CharterOptions &options)
 	{
 		ParameterizationQuality globalParameterizationQuality;
 		// Parameterize the charts.
 		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_chartArray[i];
-			if (chart->unifiedMesh()->faceCount() == 1) {
-				computeSingleFaceMap(chart->unifiedMesh());
+			Mesh *mesh = chart->unifiedMesh();
+			if (mesh->faceCount() == 1) {
+				computeSingleFaceMap(mesh);
 			} else {
-				computeOrthogonalProjectionMap(chart->unifiedMesh());
-				if (chart->isDisk())
-					computeLeastSquaresConformalMap(chart->unifiedMesh());
+				computeOrthogonalProjectionMap(mesh);
+				if (options.parameterizationCallback) {
+					options.parameterizationCallback(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
+				} else if (chart->isDisk()) {
+					computeLeastSquaresConformalMap(mesh);
+				}
 			}
 			// @@ Check that parameterization quality is above a certain threshold.
 			// @@ Detect boundary self-intersections.
@@ -6587,13 +6593,14 @@ static void runComputeChartsJob(void *userData)
 struct ParameterizeChartsJobArgs
 {
 	ChartGroup *chartGroup;
+	const CharterOptions *options;
 	task::Progress *progress;
 };
 
 static void runParameterizeChartsJob(void *userData)
 {
 	ParameterizeChartsJobArgs *args = (ParameterizeChartsJobArgs *)userData;
-	args->chartGroup->parameterizeCharts();
+	args->chartGroup->parameterizeCharts(*args->options);
 	args->progress->value++;
 	args->progress->update();
 }
@@ -6711,7 +6718,7 @@ public:
 		taskScheduler->waitFor(sync);
 	}
 
-	void parameterizeCharts(task::Scheduler *taskScheduler, ProgressCallback progressCallback, void *progressCallbackUserData)
+	void parameterizeCharts(task::Scheduler *taskScheduler, const CharterOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
 	{
 		uint32_t jobCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
@@ -6725,6 +6732,7 @@ public:
 			if (!m_chartGroups[i]->isVertexMap()) {
 				ParameterizeChartsJobArgs args;
 				args.chartGroup = m_chartGroups[i];
+				args.options = &options;
 				args.progress = &progress;
 				jobArgs.push_back(args);
 			}
@@ -7726,7 +7734,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	XA_PRINT("Computing charts\n");
 	ctx->paramAtlas.computeCharts(ctx->taskScheduler, charterOptions, progressCallback, progressCallbackUserData);
 	XA_PRINT("Parameterizing charts\n");
-	ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, progressCallback, progressCallbackUserData);
+	ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, charterOptions, progressCallback, progressCallbackUserData);
 	// Count charts.
 	// Print warnings for charts the have invalid parameterizations. Do that here, rather than when the parameterization quality is evaulated, so the chart index can be paired with the warning.
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {

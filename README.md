@@ -28,7 +28,6 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 ## TODO
 
 * Fix issues with chart boundaries
-* API to use custom parameterization. Use it to integrate [BFF](https://github.com/GeometryCollective/boundary-first-flattening) in the viewer.
 * glTF support in the viewer
 
 ## Links
