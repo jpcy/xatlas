@@ -168,7 +168,7 @@ int main(int argc, char *argv[])
 	xatlas::SetPrint(Print, s_verbose);
 	xatlas::Atlas *atlas = xatlas::Create();
 	// Add meshes to atlas.
-	Stopwatch stopwatch;
+	Stopwatch globalStopwatch, stopwatch;
 	int progress = 0;
 	PrintProgress("Adding meshes", "", "   ", 0, &stopwatch);
 	uint32_t totalVertices = 0, totalFaces = 0;
@@ -228,6 +228,7 @@ int main(int argc, char *argv[])
 	}
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
+	printf("%.2f seconds (%g ms) elapsed total\n", globalStopwatch.elapsed() / 1000.0, globalStopwatch.elapsed());
 	// Write meshes.
 	char filename[256];
 	snprintf(filename, sizeof(filename), "output.obj");

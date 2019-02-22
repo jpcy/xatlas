@@ -2640,15 +2640,25 @@ private:
 
 struct Progress
 {
-	Progress(ProgressCategory::Enum category, ProgressCallback callback, void *callbackUserData, uint32_t maxValue) : value(0), m_category(category), m_callback(callback), m_callbackUserData(callbackUserData), m_maxValue(maxValue), m_progress(0) {}
+	Progress(ProgressCategory::Enum category, ProgressCallback callback, void *callbackUserData, uint32_t maxValue) : value(0), m_category(category), m_callback(callback), m_callbackUserData(callbackUserData), m_maxValue(maxValue), m_progress(0)
+	{
+		if (callback)
+			callback(category, 0, callbackUserData);
+	}
+
+	~Progress()
+	{
+		if (m_callback)
+			m_callback(m_category, 100, m_callbackUserData);
+	}
 
 	void update()
 	{
 		if (!m_callback)
 			return;
 		m_mutex.lock();
-		const uint32_t newProgress = uint32_t(ceilf(value.load() / (float)(m_maxValue - 1) * 100.0f));
-		if (newProgress != m_progress) {
+		const uint32_t newProgress = uint32_t(ceilf(value.load() / (float)m_maxValue * 100.0f));
+		if (newProgress != m_progress && newProgress < 100) {
 			m_progress = newProgress;
 			m_callback(m_category, m_progress, m_callbackUserData);
 		}
@@ -6566,10 +6576,24 @@ struct ComputeChartsJobArgs
 	task::Progress *progress;
 };
 
-static void computeChartsJob(void *userData)
+static void runComputeChartsJob(void *userData)
 {
 	ComputeChartsJobArgs *args = (ComputeChartsJobArgs *)userData;
 	args->chartGroup->computeCharts(*args->options);
+	args->progress->value++;
+	args->progress->update();
+}
+
+struct ParameterizeChartsJobArgs
+{
+	ChartGroup *chartGroup;
+	task::Progress *progress;
+};
+
+static void runParameterizeChartsJob(void *userData)
+{
+	ParameterizeChartsJobArgs *args = (ParameterizeChartsJobArgs *)userData;
+	args->chartGroup->parameterizeCharts();
 	args->progress->value++;
 	args->progress->update();
 }
@@ -6666,7 +6690,6 @@ public:
 				jobCount++;
 		}
 		task::Progress progress(ProgressCategory::ComputingCharts, progressCallback, progressCallbackUserData, jobCount);
-		progress.update();
 		Array<ComputeChartsJobArgs> jobArgs;
 		jobArgs.reserve(jobCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
@@ -6682,30 +6705,38 @@ public:
 		for (uint32_t i = 0; i < jobCount; i++) {
 			task::Job job;
 			job.userData = &jobArgs[i];
-			job.func = computeChartsJob;
+			job.func = runComputeChartsJob;
 			taskScheduler->run(job, &sync);
 		}
 		taskScheduler->waitFor(sync);
 	}
 
-	void parameterizeCharts(ProgressCallback progressCallback, void *progressCallbackUserData)
+	void parameterizeCharts(task::Scheduler *taskScheduler, ProgressCallback progressCallback, void *progressCallbackUserData)
 	{
-		int progress = 0;
-		if (progressCallback)
-			progressCallback(ProgressCategory::ParametizingCharts, 0, progressCallbackUserData);
+		uint32_t jobCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
-				m_chartGroups[i]->parameterizeCharts();
-			if (progressCallback) {
-				const int newProgress = int((i + 1) / (float)m_chartGroups.size() * 100.0f);
-				if (newProgress != progress) {
-					progress = newProgress;
-					progressCallback(ProgressCategory::ParametizingCharts, progress, progressCallbackUserData);
-				}
+				jobCount++;
+		}
+		task::Progress progress(ProgressCategory::ParametizingCharts, progressCallback, progressCallbackUserData, jobCount);
+		Array<ParameterizeChartsJobArgs> jobArgs;
+		jobArgs.reserve(jobCount);
+		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
+			if (!m_chartGroups[i]->isVertexMap()) {
+				ParameterizeChartsJobArgs args;
+				args.chartGroup = m_chartGroups[i];
+				args.progress = &progress;
+				jobArgs.push_back(args);
 			}
 		}
-		if (progressCallback && progress != 100)
-			progressCallback(ProgressCategory::ParametizingCharts, 100, progressCallbackUserData);
+		task::Sync sync;
+		for (uint32_t i = 0; i < jobCount; i++) {
+			task::Job job;
+			job.userData = &jobArgs[i];
+			job.func = runParameterizeChartsJob;
+			taskScheduler->run(job, &sync);
+		}
+		taskScheduler->waitFor(sync);
 	}
 
 	void resetChartTexcoords()
@@ -7695,7 +7726,7 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 	XA_PRINT("Computing charts\n");
 	ctx->paramAtlas.computeCharts(ctx->taskScheduler, charterOptions, progressCallback, progressCallbackUserData);
 	XA_PRINT("Parameterizing charts\n");
-	ctx->paramAtlas.parameterizeCharts(progressCallback, progressCallbackUserData);
+	ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, progressCallback, progressCallbackUserData);
 	// Count charts.
 	// Print warnings for charts the have invalid parameterizations. Do that here, rather than when the parameterization quality is evaulated, so the chart index can be paired with the warning.
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
