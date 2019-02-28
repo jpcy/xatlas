@@ -3701,7 +3701,8 @@ struct SplitEdge
 	}
 };
 
-static Mesh *meshSplitBoundaryEdges(const Mesh &inputMesh) // Returns NULL if no split was made.
+// Returns NULL if there were no t-junctions to fix.
+static Mesh *meshFixTJunctions(const Mesh &inputMesh)
 {
 	Array<SplitEdge> splitEdges;
 	const uint32_t vertexCount = inputMesh.vertexCount();
@@ -6106,13 +6107,13 @@ public:
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
 		m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
 #endif
-		Mesh *splitUnifiedMesh = meshSplitBoundaryEdges(*m_unifiedMesh);
-		if (splitUnifiedMesh) {
+		Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh);
+		if (fixedUnifiedMesh) {
 			m_unifiedMesh->~Mesh();
 			XA_FREE(m_unifiedMesh);
-			m_unifiedMesh = meshUnifyVertices(*splitUnifiedMesh);
-			splitUnifiedMesh->~Mesh();
-			XA_FREE(splitUnifiedMesh);
+			m_unifiedMesh = meshUnifyVertices(*fixedUnifiedMesh);
+			fixedUnifiedMesh->~Mesh();
+			XA_FREE(fixedUnifiedMesh);
 			m_unifiedMesh->createBoundaries();
 			m_unifiedMesh->linkBoundaries();
 		}
