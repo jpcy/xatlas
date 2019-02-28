@@ -75,7 +75,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define XA_NORMAL_EPSILON (0.001f)
 #define XA_RANDOM_SEED (845281456)
 #define XA_UNUSED(a) ((void)(a))
-#define XA_SINGLE_THREADED 0
+
+#ifndef XA_MULTITHREADED
+#define XA_MULTITHREADED 1
+#endif
+
 #define XA_CHECK_FACE_OVERLAP 1
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
@@ -2262,43 +2266,7 @@ struct SchedulerParams
 	uint32_t thread_sleep_on_idle_in_microseconds = 5; // time spent waiting between tries
 };
 
-#if XA_SINGLE_THREADED
-class Scheduler
-{
-public:
-	Scheduler() {}
-	~Scheduler() {}
-	void init(const SchedulerParams &params = SchedulerParams())
-	{
-		XA_UNUSED(params);
-	}
-
-	void stop() {}
-	void run(const Job &job, Sync *)
-	{
-		Job j(job);
-		j.func(j.userData);
-	}
-	
-	void runAfter(Sync, const Job &job, Sync *)
-	{
-		Job j(job);
-		j.func(j.userData);
-	}
-
-	void waitFor(Sync) {}
-	uint32_t numPendingTasks(Sync) { return 0; }
-
-	void getDebugStatus(char *buffer, size_t buffer_size) {
-		if (buffer_size)
-			buffer[0] = 0;
-	}
-
-	void incrementSync(Sync *) {}
-	void decrementSync(Sync *) {}
-	void wakeUpOneThread() {}
-};
-#else
+#if XA_MULTITHREADED
 class Scheduler
 {
 public:
@@ -2635,6 +2603,42 @@ private:
 		worker_data->thread_tls = nullptr;
 		local_storage->scheduler = nullptr;
 	}
+};
+#else
+class Scheduler
+{
+public:
+	Scheduler() {}
+	~Scheduler() {}
+	void init(const SchedulerParams &params = SchedulerParams())
+	{
+		XA_UNUSED(params);
+	}
+
+	void stop() {}
+	void run(const Job &job, Sync *)
+	{
+		Job j(job);
+		j.func(j.userData);
+	}
+
+	void runAfter(Sync, const Job &job, Sync *)
+	{
+		Job j(job);
+		j.func(j.userData);
+	}
+
+	void waitFor(Sync) {}
+	uint32_t numPendingTasks(Sync) { return 0; }
+
+	void getDebugStatus(char *buffer, size_t buffer_size) {
+		if (buffer_size)
+			buffer[0] = 0;
+	}
+
+	void incrementSync(Sync *) {}
+	void decrementSync(Sync *) {}
+	void wakeUpOneThread() {}
 };
 #endif
 
