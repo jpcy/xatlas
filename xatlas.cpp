@@ -2711,7 +2711,7 @@ struct MeshFlags
 class Mesh
 {
 public:
-	Mesh(uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_flags(flags), m_id(id), m_colocalVertexCount(0), m_firstTJunctionVertex(UINT32_MAX), m_edgeMap(approxFaceCount * 3)
+	Mesh(uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_flags(flags), m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3)
 	{
 		m_edges.reserve(approxFaceCount * 3);
 		m_faces.reserve(approxFaceCount);
@@ -2726,7 +2726,6 @@ public:
 
 	uint32_t flags() const { return m_flags; }
 	uint32_t id() const { return m_id; }
-	bool isTJunctionVertex(uint32_t vertex) const { return m_firstTJunctionVertex == UINT32_MAX ? false : vertex >= m_firstTJunctionVertex; }
 
 	void addVertex(const Vector3 &pos, const Vector3 &normal = Vector3(0.0f), const Vector2 &texcoord = Vector2(0.0f))
 	{
@@ -3438,9 +3437,6 @@ private:
 	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
 	Array<bool> m_boundaryVertices;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
-
-	// Populated by fixTJunctions
-	uint32_t m_firstTJunctionVertex;
 
 	struct EdgeKey
 	{
@@ -6378,9 +6374,6 @@ public:
 			m_mesh->createBoundaries();
 			m_mesh->linkBoundaries();
 		}
-		m_isTJunctionVertex.resize(m_mesh->vertexCount());
-		for (uint32_t i = 0; i < m_mesh->vertexCount(); i++)
-			m_isTJunctionVertex[i] = sourceMesh->isTJunctionVertex(m_vertexToSourceVertexMap[i]);
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHART_GROUPS
 		char filename[256];
 		sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u.obj", m_sourceId, m_id);
@@ -6405,7 +6398,6 @@ public:
 	bool isVertexMap() const { return m_isVertexMap; }
 	uint32_t mapFaceToSourceFace(uint32_t face) const { return m_faceArray[face]; }
 	uint32_t mapVertexToSourceVertex(uint32_t i) const { return m_vertexToSourceVertexMap[i]; }
-	bool isTJunctionVertex(uint32_t vertex) const { return m_isTJunctionVertex[vertex]; }
 	const Mesh *mesh() const { return m_mesh; }
 
 	/*
@@ -6572,7 +6564,6 @@ private:
 	Array<uint32_t> m_faceArray; // List of faces of the source mesh that belong to this chart group.
 	Array<uint32_t> m_vertexToSourceVertexMap; // Map vertices of the mesh to vertices of the source mesh.
 	Array<Chart *> m_chartArray;
-	Array<bool> m_isTJunctionVertex; // Whether the vertex was added to fix a t-junction.
 };
 
 struct ComputeChartsJobArgs
