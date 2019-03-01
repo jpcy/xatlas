@@ -3674,6 +3674,29 @@ public:
 	};
 };
 
+static bool meshIsPlanar(const Mesh &mesh)
+{
+	const uint32_t vertexCount = mesh.vertexCount();
+	const Face *face = mesh.faceAt(0);
+	const Vector3 p1 = mesh.position(mesh.vertexAt(face->firstIndex + 0));
+	const Vector3 p2 = mesh.position(mesh.vertexAt(face->firstIndex + 1));
+	const Vector3 p3 = mesh.position(mesh.vertexAt(face->firstIndex + 2));
+	Vector3 planeNormal = cross(p2 - p1, p3 - p1);
+	float planeDist = dot(planeNormal, p1);
+	const float len = length(planeNormal);
+	if (len > 0.0f) {
+		const float il = 1.0f / len;
+		planeNormal *= il;
+		planeDist *= il;
+	}
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		const float d = dot(planeNormal, mesh.position(v)) - planeDist;
+		if (!equal(d, 0.0f))
+			return false;
+	}
+	return true;
+}
+
 /*
 Fixing T-junctions.
 
@@ -6059,7 +6082,7 @@ private:
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_mesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_mesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isPlanar(false), m_faceArray(faceArray)
 	{
 		// Copy face indices.
 		m_mesh = XA_NEW(Mesh);
@@ -6108,50 +6131,55 @@ public:
 		m_mesh->createBoundaries();
 		m_unifiedMesh->createBoundaries();
 		m_unifiedMesh->linkBoundaries();
+		m_isPlanar = meshIsPlanar(*m_unifiedMesh);
+		if (m_isPlanar) {
+			m_isDisk = true;
+		} else {
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
-		m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
+			m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
 #endif
-		Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh);
-		if (fixedUnifiedMesh) {
-			m_unifiedMesh->~Mesh();
-			XA_FREE(m_unifiedMesh);
-			m_unifiedMesh = meshUnifyVertices(*fixedUnifiedMesh);
-			fixedUnifiedMesh->~Mesh();
-			XA_FREE(fixedUnifiedMesh);
-			m_unifiedMesh->createBoundaries();
-			m_unifiedMesh->linkBoundaries();
-		}
-		// See if there are any holes that need closing.
-		Array<uint32_t> boundaryEdges;
-		meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
-		if (boundaryEdges.size() > 1) {
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
-			m_unifiedMesh->writeObjFile("debug_before_close_holes.obj");
-#endif
-			// Closing the holes is not always the best solution and does not fix all the problems.
-			// We need to do some analysis of the holes and the genus to:
-			// - Find cuts that reduce genus.
-			// - Find cuts to connect holes.
-			// - Use minimal spanning trees or seamster.
-			closeHoles(boundaryEdges);
+			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh);
+			if (fixedUnifiedMesh) {
+				m_unifiedMesh->~Mesh();
+				XA_FREE(m_unifiedMesh);
+				m_unifiedMesh = meshUnifyVertices(*fixedUnifiedMesh);
+				fixedUnifiedMesh->~Mesh();
+				XA_FREE(fixedUnifiedMesh);
+				m_unifiedMesh->createBoundaries();
+				m_unifiedMesh->linkBoundaries();
+			}
+			// See if there are any holes that need closing.
+			Array<uint32_t> boundaryEdges;
 			meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
 			if (boundaryEdges.size() > 1) {
-				XA_PRINT_WARNING("Failed to close chart holes\n");
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
-				m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
+				m_unifiedMesh->writeObjFile("debug_before_close_holes.obj");
+#endif
+				// Closing the holes is not always the best solution and does not fix all the problems.
+				// We need to do some analysis of the holes and the genus to:
+				// - Find cuts that reduce genus.
+				// - Find cuts to connect holes.
+				// - Use minimal spanning trees or seamster.
+				closeHoles(boundaryEdges);
+				meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
+				if (boundaryEdges.size() > 1) {
+					XA_PRINT_WARNING("Failed to close chart holes\n");
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
+					m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
 #endif
 			}
+			}
+			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
+			if (triangulatedMesh) {
+				m_unifiedMesh->~Mesh();
+				XA_FREE(m_unifiedMesh);
+				m_unifiedMesh = triangulatedMesh;
+			}
+			MeshTopology topology(m_unifiedMesh);
+			m_isDisk = topology.isDisk();
+			if (!m_isDisk)
+				XA_PRINT_WARNING("Chart doesn't have disk topology\n");
 		}
-		Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
-		if (triangulatedMesh) {
-			m_unifiedMesh->~Mesh();
-			XA_FREE(m_unifiedMesh);
-			m_unifiedMesh = triangulatedMesh;
-		}
-		MeshTopology topology(m_unifiedMesh);
-		m_isDisk = topology.isDisk();
-		if (!m_isDisk)
-			XA_PRINT_WARNING("Chart doesn't have disk topology\n");
 	}
 
 	~Chart()
@@ -6167,6 +6195,7 @@ public:
 	}
 
 	bool isDisk() const { return m_isDisk; }
+	bool isPlanar() const { return m_isPlanar; }
 	const ParameterizationQuality& paramQuality() const { return m_paramQuality; }
 	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceArray[i]; }
 	const Mesh *mesh() const { return m_mesh; }
@@ -6315,6 +6344,7 @@ private:
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
 	bool m_isDisk;
+	bool m_isPlanar;
 
 	// List of faces of the original mesh that belong to this chart.
 	Array<uint32_t> m_faceArray;
@@ -6542,10 +6572,12 @@ public:
 				computeSingleFaceMap(mesh);
 			} else {
 				computeOrthogonalProjectionMap(mesh);
-				if (options.parameterizationCallback) {
-					options.parameterizationCallback(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
-				} else if (chart->isDisk()) {
-					computeLeastSquaresConformalMap(mesh);
+				if (!chart->isPlanar()) {
+					if (options.parameterizationCallback) {
+						options.parameterizationCallback(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
+					} else if (chart->isDisk()) {
+						computeLeastSquaresConformalMap(mesh);
+					}
 				}
 			}
 			// @@ Check that parameterization quality is above a certain threshold.
