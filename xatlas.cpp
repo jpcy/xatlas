@@ -5926,7 +5926,7 @@ public:
 		m_authalicMetric = 0.0f;
 	}
 
-	ParameterizationQuality(const Mesh *mesh)
+	ParameterizationQuality(const Mesh *mesh, Array<uint32_t> *flippedFaces)
 	{
 		XA_DEBUG_ASSERT(mesh != NULL);
 		m_totalTriangleCount = 0;
@@ -5943,6 +5943,7 @@ public:
 			uint32_t vertex0 = UINT32_MAX;
 			Vector3 p[3];
 			Vector2 t[3];
+			bool isFlipped = false;
 			for (Mesh::FaceEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
 				if (vertex0 == UINT32_MAX) {
 					vertex0 = it.vertex0();
@@ -5953,13 +5954,38 @@ public:
 					p[2] = it.position1();
 					t[1] = it.texcoord0();
 					t[2] = it.texcoord1();
-					processTriangle(p, t);
+					bool isTriFlipped = false;
+					processTriangle(p, t, &isTriFlipped);
+					if (isTriFlipped)
+						isFlipped = true;
 				}
 			}
+			if (flippedFaces && isFlipped)
+				flippedFaces->push_back(f);
 		}
-		if (m_flippedTriangleCount + m_zeroAreaTriangleCount == faceCount) {
+		if (m_flippedTriangleCount + m_zeroAreaTriangleCount == m_totalTriangleCount) {
 			// If all triangles are flipped, then none is.
 			m_flippedTriangleCount = 0;
+		}
+		if (m_flippedTriangleCount > m_totalTriangleCount / 2)
+		{
+			// If more than half the triangles are flipped, reverse the flipped / not flipped classification.
+			m_flippedTriangleCount = m_totalTriangleCount - m_flippedTriangleCount;
+			if (flippedFaces) {
+				Array<uint32_t> temp(*flippedFaces);
+				flippedFaces->clear();
+				for (uint32_t f = 0; f < faceCount; f++) {
+					bool match = false;
+					for (uint32_t ff = 0; ff < temp.size(); ff++) {
+						if (temp[ff] == f) {
+							match = true;
+							break;
+						}
+					}
+					if (!match)
+						flippedFaces->push_back(f);
+				}
+			}
 		}
 		XA_DEBUG_ASSERT(isFinite(m_parametricArea) && m_parametricArea >= 0);
 		XA_DEBUG_ASSERT(isFinite(m_geometricArea) && m_geometricArea >= 0);
@@ -5970,6 +5996,8 @@ public:
 	}
 
 	uint32_t flippedTriangleCount() const { return m_flippedTriangleCount; }
+	uint32_t zeroAreaTriangleCount() const { return m_zeroAreaTriangleCount; }
+	uint32_t totalTriangleCount() const { return m_totalTriangleCount; }
 
 	float rmsStretchMetric() const
 	{
@@ -6015,8 +6043,10 @@ public:
 	}
 
 private:
-	void processTriangle(Vector3 q[3], Vector2 p[3])
+	void processTriangle(Vector3 q[3], Vector2 p[3], bool *isFlipped)
 	{
+		if (isFlipped)
+			*isFlipped = false;
 		m_totalTriangleCount++;
 		// Evaluate texture stretch metric. See:
 		// - "Texture Mapping Progressive Meshes", Sander, Snyder, Gortler & Hoppe
@@ -6052,6 +6082,8 @@ private:
 		if (parametricArea < 0.0f) {
 			// Count flipped triangles.
 			m_flippedTriangleCount++;
+			if (isFlipped)
+				*isFlipped = true;
 			parametricArea = fabsf(parametricArea);
 		}
 		m_stretchMetric += square(rmsStretch) * geometricArea;
@@ -6196,7 +6228,8 @@ public:
 
 	bool isDisk() const { return m_isDisk; }
 	bool isPlanar() const { return m_isPlanar; }
-	const ParameterizationQuality& paramQuality() const { return m_paramQuality; }
+	const ParameterizationQuality &paramQuality() const { return m_paramQuality; }
+	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
 	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceArray[i]; }
 	const Mesh *mesh() const { return m_mesh; }
 	Mesh *mesh() { return m_mesh; }
@@ -6206,7 +6239,11 @@ public:
 
 	void evaluateParameterizationQuality()
 	{
-		m_paramQuality = ParameterizationQuality(m_unifiedMesh);
+#if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
+		m_paramQuality = ParameterizationQuality(m_unifiedMesh, &m_paramFlippedFaces);
+#else
+		m_paramQuality = ParameterizationQuality(m_unifiedMesh, nullptr);
+#endif
 	}
 
 	// Transfer parameterization from unified mesh to chart mesh.
@@ -6355,6 +6392,7 @@ private:
 	Array<uint32_t> m_chartToUnifiedMap;
 
 	ParameterizationQuality m_paramQuality;
+	Array<uint32_t> m_paramFlippedFaces;
 };
 
 // Set of charts corresponding to mesh faces in the same face group.
@@ -7772,12 +7810,29 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 				continue;
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
-				if (chart->paramQuality().flippedTriangleCount() > 0) {
-					XA_PRINT_WARNING("Chart %u: invalid parameterization, %d flipped triangles.\n", atlas->chartCount, chart->paramQuality().flippedTriangleCount());
+				const internal::param::ParameterizationQuality &quality = chart->paramQuality();
+				if (quality.flippedTriangleCount() > 0) {
+					XA_PRINT_WARNING("Chart %u: invalid parameterization, %u / %u flipped triangles.\n", atlas->chartCount, quality.flippedTriangleCount(), quality.totalTriangleCount());
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 					char filename[256];
 					sprintf(filename, "debug_chart_%0.3u_invalid_parameterization.obj", atlas->chartCount);
-					chart->unifiedMesh()->writeObjFile(filename);
+					const internal::Mesh *mesh = chart->unifiedMesh();
+					FILE *file = fopen(filename, "w");
+					if (file) {
+						mesh->writeObjVertices(file);
+						fprintf(file, "s off\n");
+						fprintf(file, "o object\n");
+						for (uint32_t f = 0; f < mesh->faceCount(); f++)
+							mesh->writeObjFace(file, f);
+						if (!chart->paramFlippedFaces().isEmpty()) {
+							fprintf(file, "o flipped_faces\n");
+							for (uint32_t f = 0; f < chart->paramFlippedFaces().size(); f++)
+								mesh->writeObjFace(file, chart->paramFlippedFaces()[f]);
+						}
+						mesh->writeObjBoundaryEges(file);
+						mesh->writeObjLinkedBoundaries(file);
+						fclose(file);
+					}
 #endif
 				}
 				atlas->chartCount++;
