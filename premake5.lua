@@ -53,7 +53,9 @@ project "test"
 	links { "tiny_obj_loader", "xatlas" }
 
 local THIRDPARTY_DIR = "extra/thirdparty"
+local EIGEN_DIR = path.join(THIRDPARTY_DIR, "eigen")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
+local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
 
 project "viewer"
 	kind "ConsoleApp"
@@ -65,8 +67,10 @@ project "viewer"
 	files "extra/viewer.cpp"
 	includedirs
 	{
+		EIGEN_DIR,
 		THIRDPARTY_DIR,
-		path.join(GLFW_DIR, "include")
+		path.join(GLFW_DIR, "include"),
+		path.join(IGL_DIR, "include")
 	}
 	links { "flextGL", "glfw", "HandmadeMath", "imgui", "nativefiledialog", "objzero", "xatlas" }
 	filter "system:windows"

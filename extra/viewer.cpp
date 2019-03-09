@@ -32,6 +32,31 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "objzero/objzero.h"
 #include "../xatlas.h"
 
+#define USE_LIBIGL 0
+
+#if USE_LIBIGL
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4018)
+#pragma warning(disable : 4127)
+#pragma warning(disable : 4244)
+#pragma warning(disable : 4267)
+#pragma warning(disable : 4305)
+#pragma warning(disable : 4427)
+#pragma warning(disable : 4459)
+#pragma warning(disable : 4702)
+#pragma warning(disable : 4996)
+#endif
+#include "igl/arap.h"
+#include "igl/boundary_loop.h"
+#include "igl/harmonic.h"
+#include "igl/lscm.h"
+#include "igl/map_vertices_to_circle.h"
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+#endif
+
 #define WINDOW_TITLE "xatlas viewer"
 #define WINDOW_DEFAULT_WIDTH 1920
 #define WINDOW_DEFAULT_HEIGHT 1080
@@ -169,6 +194,14 @@ private:
 	int m_progress = 0;
 };
 
+enum class ParamMethod
+{
+	LSCM,
+	libigl_Harmonic,
+	libigl_LSCM,
+	libigl_ARAP
+};
+
 struct
 {
 	const int chartColorSeed = 13;
@@ -185,6 +218,7 @@ struct
 	GLuint chartBoundaryVao = 0, chartBoundaryVbo;
 	xatlas::CharterOptions charterOptions;
 	xatlas::PackerOptions packerOptions;
+	ParamMethod paramMethod = ParamMethod::LSCM;
 	std::vector<ModelVertex> chartVertices;
 	std::vector<uint32_t> chartIndices;
 	std::vector<hmm_vec3> chartBoundaryVertices;
@@ -1082,6 +1116,66 @@ struct EdgeKeyEqual
 	}
 };
 
+#if USE_LIBIGL
+static void atlasParameterizationCallback(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount)
+{
+	Eigen::MatrixXd V(vertexCount, 3);
+	for (uint32_t i = 0; i < vertexCount; i++) {
+		V(i, 0) = positions[i * 3 + 0];
+		V(i, 1) = positions[i * 3 + 1];
+		V(i, 2) = positions[i * 3 + 2];
+	}
+	Eigen::MatrixXi F(indexCount / 3, 3);	
+	for (uint32_t i = 0; i < indexCount / 3; i++) {
+		F(i, 0) = indices[i * 3 + 0];
+		F(i, 1) = indices[i * 3 + 1];
+		F(i, 2) = indices[i * 3 + 2];
+	}
+	// Fix two points on the boundary
+	Eigen::VectorXi bnd;
+	igl::boundary_loop(F, bnd);
+	Eigen::MatrixXd V_uv;
+	if (s_atlas.paramMethod == ParamMethod::libigl_Harmonic) {
+		Eigen::MatrixXd bnd_uv;
+		igl::map_vertices_to_circle(V,bnd,bnd_uv);
+		igl::harmonic(V,F,bnd,bnd_uv,1,V_uv);
+	} else if (s_atlas.paramMethod == ParamMethod::libigl_LSCM) {
+		Eigen::VectorXi b(2, 1);
+		b(0) = bnd(0);
+		b(1) = bnd((int)round(bnd.size()/2));
+		// Use existing orthographic parameterization to scale the result.
+		Eigen::MatrixXd bc(2,2);
+		bc(0, 0) = texcoords[b(0) * 2 + 0];
+		bc(0, 1) = texcoords[b(0) * 2 + 1];
+		bc(1, 0) = texcoords[b(1) * 2 + 0];
+		bc(1, 1) = texcoords[b(1) * 2 + 1];
+		igl::lscm(V, F, b, bc, V_uv);
+	} else if (s_atlas.paramMethod == ParamMethod::libigl_ARAP) {
+		// Compute the initial solution for ARAP (harmonic parametrization)
+		Eigen::MatrixXd initial_guess;
+		Eigen::MatrixXd bnd_uv;
+		igl::map_vertices_to_circle(V,bnd,bnd_uv);
+		igl::harmonic(V,F,bnd,bnd_uv,1,initial_guess);
+		// Add dynamic regularization to avoid to specify boundary conditions
+		igl::ARAPData arap_data;
+		arap_data.with_dynamics = true;
+		Eigen::VectorXi b  = Eigen::VectorXi::Zero(0);
+		Eigen::MatrixXd bc = Eigen::MatrixXd::Zero(0,0);
+		// Initialize ARAP
+		arap_data.max_iter = 100;
+		// 2 means that we're going to *solve* in 2d
+		arap_precomputation(V,F,2,b,arap_data);
+		// Solve arap using the harmonic map as initial guess
+		V_uv = initial_guess;
+		arap_solve(bc,arap_data,V_uv);
+	}
+	for (uint32_t i = 0; i < vertexCount; i++) {
+		texcoords[i * 2 + 0] = (float)V_uv(i, 0);
+		texcoords[i * 2 + 1] = (float)V_uv(i, 1);
+	}
+}
+#endif
+
 static void atlasGenerateThread()
 {
 	int progress = 0;
@@ -1119,6 +1213,9 @@ static void atlasGenerateThread()
 			}
 		}
 		s_atlas.status.set(AtlasStatus::Generating);
+#if USE_LIBIGL
+		s_atlas.charterOptions.parameterizationCallback = s_atlas.paramMethod == ParamMethod::LSCM ? nullptr : atlasParameterizationCallback;
+#endif
 		xatlas::GenerateCharts(s_atlas.data, s_atlas.charterOptions, atlasProgressCallback);
 	} else
 		s_atlas.status.set(AtlasStatus::Generating);
@@ -1358,7 +1455,7 @@ int main(int /*argc*/, char ** /*argv*/)
 				}
 				ImGui::EndPopup();
 			}
-			const float margin = 8.0f;
+			const float margin = 4.0f;
 			ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_FirstUseEver);
 			ImGui::SetNextWindowSize(ImVec2(400.0f, io.DisplaySize.y - margin * 2.0f), ImGuiCond_FirstUseEver);
 			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
@@ -1426,6 +1523,17 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
+#if USE_LIBIGL
+					ImGui::Text("Parameterization options");
+					ImGui::Spacing();
+					ImGui::RadioButton("LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::LSCM);
+					ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_Harmonic);
+					ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_LSCM);
+					ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_ARAP);
+					ImGui::Spacing();
+					ImGui::Separator();
+					ImGui::Spacing();
+#endif
 					ImGui::Text("Packer options");
 					ImGui::Spacing();
 					ImGui::SliderInt("Attempts", &s_atlas.packerOptions.attempts, 0, 4096);
