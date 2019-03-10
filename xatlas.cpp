@@ -2644,27 +2644,27 @@ public:
 
 struct Progress
 {
-	Progress(ProgressCategory::Enum category, ProgressCallback callback, void *callbackUserData, uint32_t maxValue) : value(0), m_category(category), m_callback(callback), m_callbackUserData(callbackUserData), m_maxValue(maxValue), m_progress(0)
+	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : value(0), m_category(category), m_func(func), m_userData(userData), m_maxValue(maxValue), m_progress(0)
 	{
-		if (callback)
-			callback(category, 0, callbackUserData);
+		if (func)
+			func(category, 0, userData);
 	}
 
 	~Progress()
 	{
-		if (m_callback)
-			m_callback(m_category, 100, m_callbackUserData);
+		if (m_func)
+			m_func(m_category, 100, m_userData);
 	}
 
 	void update()
 	{
-		if (!m_callback)
+		if (!m_func)
 			return;
 		m_mutex.lock();
 		const uint32_t newProgress = uint32_t(ceilf(value.load() / (float)m_maxValue * 100.0f));
 		if (newProgress != m_progress && newProgress < 100) {
 			m_progress = newProgress;
-			m_callback(m_category, m_progress, m_callbackUserData);
+			m_func(m_category, m_progress, m_userData);
 		}
 		m_mutex.unlock();
 	}
@@ -2673,8 +2673,8 @@ struct Progress
 
 private:
 	ProgressCategory::Enum m_category;
-	ProgressCallback m_callback;
-	void *m_callbackUserData;
+	ProgressFunc m_func;
+	void *m_userData;
 	uint32_t m_maxValue;
 	uint32_t m_progress;
 	std::mutex m_mutex;
@@ -5308,7 +5308,7 @@ struct ChartBuildData
 struct AtlasBuilder
 {
 	// @@ Hardcoded to 10?
-	AtlasBuilder(const Mesh *rm, const CharterOptions &options) : m_mesh(rm), m_facesLeft(rm->faceCount()), m_bestTriangles(10), m_options(options)
+	AtlasBuilder(const Mesh *rm, const ChartOptions &options) : m_mesh(rm), m_facesLeft(rm->faceCount()), m_bestTriangles(10), m_options(options)
 	{
 		const uint32_t faceCount = m_mesh->faceCount();
 		m_faceChartArray.resize(faceCount, -1);
@@ -5906,7 +5906,7 @@ private:
 	Array<uint32_t> m_faceCandidateArray; // Map face index to candidate index.
 	PriorityQueue m_bestTriangles;
 	MTRand m_rand;
-	CharterOptions m_options;
+	ChartOptions m_options;
 };
 
 // Estimate quality of existing parameterization.
@@ -6533,7 +6533,7 @@ public:
 		  - emphasize roundness metrics to prevent those cases.
 	  - If interior self-overlaps: preserve boundary parameterization and use mean-value map.
 	*/
-	void computeCharts(const CharterOptions &options)
+	void computeCharts(const ChartOptions &options)
 	{
 #if XA_DEBUG_SINGLE_CHART
 		Array<uint32_t> chartFaces;
@@ -6598,7 +6598,7 @@ public:
 #endif
 	}
 
-	void parameterizeCharts(const CharterOptions &options)
+	void parameterizeCharts(ParameterizeFunc func)
 	{
 		ParameterizationQuality globalParameterizationQuality;
 		// Parameterize the charts.
@@ -6611,8 +6611,8 @@ public:
 			} else {
 				computeOrthogonalProjectionMap(mesh);
 				if (!chart->isPlanar()) {
-					if (options.parameterizationCallback) {
-						options.parameterizationCallback(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
+					if (func) {
+						func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
 					} else if (chart->isDisk()) {
 						computeLeastSquaresConformalMap(mesh);
 					}
@@ -6644,7 +6644,7 @@ private:
 struct ComputeChartsJobArgs
 {
 	ChartGroup *chartGroup;
-	const CharterOptions *options;
+	const ChartOptions *options;
 	task::Progress *progress;
 };
 
@@ -6659,14 +6659,14 @@ static void runComputeChartsJob(void *userData)
 struct ParameterizeChartsJobArgs
 {
 	ChartGroup *chartGroup;
-	const CharterOptions *options;
+	ParameterizeFunc func;
 	task::Progress *progress;
 };
 
 static void runParameterizeChartsJob(void *userData)
 {
 	ParameterizeChartsJobArgs *args = (ParameterizeChartsJobArgs *)userData;
-	args->chartGroup->parameterizeCharts(*args->options);
+	args->chartGroup->parameterizeCharts(args->func);
 	args->progress->value++;
 	args->progress->update();
 }
@@ -6755,14 +6755,14 @@ public:
 		m_meshCount++;
 	}
 
-	void computeCharts(task::Scheduler *taskScheduler, const CharterOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
+	void computeCharts(task::Scheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
 		uint32_t jobCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
 				jobCount++;
 		}
-		task::Progress progress(ProgressCategory::ComputingCharts, progressCallback, progressCallbackUserData, jobCount);
+		task::Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, jobCount);
 		Array<ComputeChartsJobArgs> jobArgs;
 		jobArgs.reserve(jobCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
@@ -6784,21 +6784,21 @@ public:
 		taskScheduler->waitFor(sync);
 	}
 
-	void parameterizeCharts(task::Scheduler *taskScheduler, const CharterOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
+	void parameterizeCharts(task::Scheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
 	{
 		uint32_t jobCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
 				jobCount++;
 		}
-		task::Progress progress(ProgressCategory::ParametizingCharts, progressCallback, progressCallbackUserData, jobCount);
+		task::Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, jobCount);
 		Array<ParameterizeChartsJobArgs> jobArgs;
 		jobArgs.reserve(jobCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap()) {
 				ParameterizeChartsJobArgs args;
 				args.chartGroup = m_chartGroups[i];
-				args.options = &options;
+				args.func = func;
 				args.progress = &progress;
 				jobArgs.push_back(args);
 			}
@@ -6860,10 +6860,10 @@ struct AtlasPacker
 	float getTexelsPerUnit() const { return m_texelsPerUnit; }
 
 	// Pack charts in the smallest possible rectangle.
-	void packCharts(const PackerOptions &options, ProgressCallback progressCallback, void *progressCallbackUserData)
+	void packCharts(const PackOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
-		if (progressCallback)
-			progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
+		if (progressFunc)
+			progressFunc(ProgressCategory::PackCharts, 0, progressUserData);
 		const uint32_t chartCount = m_atlas->chartCount();
 		XA_PRINT("Packing %u charts\n", chartCount);
 		if (chartCount == 0) return;
@@ -7084,11 +7084,11 @@ struct AtlasPacker
 				XA_ASSERT(texcoord.x >= 0 && texcoord.y >= 0);
 				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 			}
-			if (progressCallback) {
+			if (progressFunc) {
 				const int newProgress = int((i + 1) / (float)chartCount * 100.0f);
 				if (newProgress != progress) {
 					progress = newProgress;
-					progressCallback(ProgressCategory::PackingCharts, progress, progressCallbackUserData);
+					progressFunc(ProgressCategory::PackCharts, progress, progressUserData);
 				}
 			}
 		}
@@ -7099,8 +7099,8 @@ struct AtlasPacker
 		if (options.resolution > 0)
 			m_width = m_height = options.resolution;
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
-		if (progressCallback && progress != 100)
-			progressCallback(ProgressCategory::PackingCharts, 0, progressCallbackUserData);
+		if (progressFunc && progress != 100)
+			progressFunc(ProgressCategory::PackCharts, 0, progressUserData);
 	}
 
 	float computeAtlasUtilization(uint32_t atlasIndex) const
@@ -7780,7 +7780,14 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 	return AddMeshError::Success;
 }
 
-void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallback progressCallback, void *progressCallbackUserData)
+void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFunc, PackOptions packOptions, ProgressFunc progressFunc, void *progressUserData)
+{
+	ComputeCharts(atlas, chartOptions, progressFunc, progressUserData);
+	ParameterizeCharts(atlas, paramFunc, progressFunc, progressUserData);
+	PackCharts(atlas, packOptions, progressFunc, progressUserData);
+}
+
+void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progressFunc, void *progressUserData)
 {
 	XA_DEBUG_ASSERT(atlas);
 	Context *ctx = (Context *)atlas;
@@ -7796,13 +7803,37 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 		atlas->utilization = NULL;
 	}
 	DestroyOutputMeshes(ctx);
-	// Chart meshes.
 	XA_PRINT("Computing charts\n");
-	ctx->paramAtlas.computeCharts(ctx->taskScheduler, charterOptions, progressCallback, progressCallbackUserData);
-	XA_PRINT("Parameterizing charts\n");
-	ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, charterOptions, progressCallback, progressCallbackUserData);
+	ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData);
 	// Count charts.
+	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
+		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
+			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
+			if (!chartGroup->isVertexMap())
+				atlas->chartCount += chartGroup->chartCount();
+		}
+	}
+}
+
+void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
+{
+	XA_DEBUG_ASSERT(atlas);
+	Context *ctx = (Context *)atlas;
+	if (ctx->paramAtlas.meshCount() == 0)
+		return;
+	atlas->atlasCount = 0;
+	atlas->height = 0;
+	atlas->texelsPerUnit = 0;
+	atlas->width = 0;
+	if (atlas->utilization) {
+		XA_FREE(atlas->utilization);
+		atlas->utilization = NULL;
+	}
+	DestroyOutputMeshes(ctx);
+	XA_PRINT("Parameterizing charts\n");
+	ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, func, progressFunc, progressUserData);
 	// Print warnings for charts the have invalid parameterizations. Do that here, rather than when the parameterization quality is evaulated, so the chart index can be paired with the warning.
+	uint32_t chartIndex = 0;
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
@@ -7812,10 +7843,10 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 				const internal::param::ParameterizationQuality &quality = chart->paramQuality();
 				if (quality.flippedTriangleCount() > 0) {
-					XA_PRINT_WARNING("Chart %u: invalid parameterization, %u / %u flipped triangles.\n", atlas->chartCount, quality.flippedTriangleCount(), quality.totalTriangleCount());
+					XA_PRINT_WARNING("Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount(), quality.totalTriangleCount());
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 					char filename[256];
-					sprintf(filename, "debug_chart_%0.3u_invalid_parameterization.obj", atlas->chartCount);
+					sprintf(filename, "debug_chart_%0.3u_invalid_parameterization.obj", chartIndex);
 					const internal::Mesh *mesh = chart->unifiedMesh();
 					FILE *file = fopen(filename, "w");
 					if (file) {
@@ -7835,19 +7866,19 @@ void GenerateCharts(Atlas *atlas, CharterOptions charterOptions, ProgressCallbac
 					}
 #endif
 				}
-				atlas->chartCount++;
+				chartIndex++;
 			}
 		}
 	}
 }
 
-void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback progressCallback, void *progressCallbackUserData)
+void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc, void *progressUserData)
 {
 	XA_DEBUG_ASSERT(atlas);
 	Context *ctx = (Context *)atlas;
 	atlas->atlasCount = 0;
 	atlas->height = 0;
-	atlas->texelsPerUnit = packerOptions.texelsPerUnit;
+	atlas->texelsPerUnit = packOptions.texelsPerUnit;
 	atlas->width = 0;
 	DestroyOutputMeshes(ctx);
 	if (atlas->utilization) {
@@ -7857,7 +7888,7 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	if (atlas->chartCount > 0) {
 		ctx->paramAtlas.resetChartTexcoords();
 		internal::param::AtlasPacker packer(&ctx->paramAtlas);
-		packer.packCharts(packerOptions, progressCallback, progressCallbackUserData);
+		packer.packCharts(packOptions, progressFunc, progressUserData);
 		atlas->atlasCount = packer.getNumAtlases();
 		atlas->width = packer.getWidth();
 		atlas->height = packer.getHeight();
@@ -7868,8 +7899,8 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 	}
 	XA_PRINT("Building output meshes\n");
 	int progress = 0;
-	if (progressCallback)
-		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
+	if (progressFunc)
+		progressFunc(ProgressCategory::BuildOutputMeshes, 0, progressUserData);
 	atlas->meshes = XA_ALLOC_ARRAY(Mesh, atlas->meshCount);
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
 		Mesh &outputMesh = atlas->meshes[i];
@@ -7958,16 +7989,16 @@ void PackCharts(Atlas *atlas, PackerOptions packerOptions, ProgressCallback prog
 		XA_DEBUG_ASSERT(outputMesh.vertexCount == firstVertex);
 		XA_DEBUG_ASSERT(outputMesh.chartCount == outputChartIndex);
 		XA_PRINT("   mesh %u: %u vertices, %u triangles, %u charts\n", i, outputMesh.vertexCount, outputMesh.indexCount / 3, outputMesh.chartCount);
-		if (progressCallback) {
+		if (progressFunc) {
 			const int newProgress = int((i + 1) / (float)atlas->meshCount * 100.0f);
 			if (newProgress != progress) {
 				progress = newProgress;
-				progressCallback(ProgressCategory::BuildingOutputMeshes, progress, progressCallbackUserData);
+				progressFunc(ProgressCategory::BuildOutputMeshes, progress, progressUserData);
 			}
 		}
 	}
-	if (progressCallback && progress != 100)
-		progressCallback(ProgressCategory::BuildingOutputMeshes, 0, progressCallbackUserData);
+	if (progressFunc && progress != 100)
+		progressFunc(ProgressCategory::BuildOutputMeshes, 0, progressUserData);
 }
 
 void SetRealloc(ReallocFunc reallocFunc)
@@ -7992,13 +8023,13 @@ const char *StringForEnum(AddMeshError::Enum error)
 
 const char *StringForEnum(ProgressCategory::Enum category)
 {
-	if (category == ProgressCategory::ComputingCharts)
+	if (category == ProgressCategory::ComputeCharts)
 		return "Computing charts";
-	if (category == ProgressCategory::ParametizingCharts)
-		return "Parametizing charts";
-	if (category == ProgressCategory::PackingCharts)
+	if (category == ProgressCategory::ParameterizeCharts)
+		return "Parameterizing charts";
+	if (category == ProgressCategory::PackCharts)
 		return "Packing charts";
-	if (category == ProgressCategory::BuildingOutputMeshes)
+	if (category == ProgressCategory::BuildOutputMeshes)
 		return "Building output meshes";
 	return "";
 }

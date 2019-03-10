@@ -207,13 +207,12 @@ int main(int argc, char *argv[])
 		PrintProgress("Adding meshes", "", "   ", 100, &stopwatch);
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
-	// Generate output meshes.
+	// Generate atlas.
 	printf("Generating atlas\n");
-	xatlas::GenerateCharts(atlas, xatlas::CharterOptions(), ProgressCallback, &stopwatch);
-	xatlas::PackerOptions packerOptions;
+	xatlas::PackOptions packerOptions;
 	packerOptions.conservative = true;
 	packerOptions.padding = 1;
-	xatlas::PackCharts(atlas, packerOptions, ProgressCallback, &stopwatch);
+	xatlas::Generate(atlas, xatlas::ChartOptions(), NULL, packerOptions, ProgressCallback, &stopwatch);
 	printf("   %d charts\n", atlas->chartCount);
 	printf("   %d atlases\n", atlas->atlasCount);
 	for (uint32_t i = 0; i < atlas->atlasCount; i++)

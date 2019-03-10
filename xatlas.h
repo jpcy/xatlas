@@ -57,7 +57,7 @@ struct Atlas
 	// Normalized atlas texel utilization. atlasCount in length.
 	float *utilization;
 
-	// PackerOptions::texelsPerUnit if >= 0, otherwise an estimated value.
+	// PackOptions::texelsPerUnit if >= 0, otherwise an estimated value.
 	float texelsPerUnit;
 };
 
@@ -124,18 +124,16 @@ struct ProgressCategory
 {
 	enum Enum
 	{
-		ComputingCharts,
-		ParametizingCharts,
-		PackingCharts,
-		BuildingOutputMeshes
+		ComputeCharts,
+		ParameterizeCharts,
+		PackCharts,
+		BuildOutputMeshes
 	};
 };
 
-typedef void (*ProgressCallback)(ProgressCategory::Enum category, int progress, void *userData);
+typedef void (*ProgressFunc)(ProgressCategory::Enum category, int progress, void *userData);
 
-typedef void (*ParameterizationCallback)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount);
-
-struct CharterOptions
+struct ChartOptions
 {
 	float proxyFitMetricWeight;
 	float roundnessMetricWeight;
@@ -147,9 +145,8 @@ struct CharterOptions
 	float maxThreshold;
 	uint32_t growFaceCount;
 	uint32_t maxIterations;
-	ParameterizationCallback parameterizationCallback;
 
-	CharterOptions()
+	ChartOptions()
 	{
 		proxyFitMetricWeight = 2.0f;
 		roundnessMetricWeight = 0.01f;
@@ -161,13 +158,12 @@ struct CharterOptions
 		maxThreshold = 2.0f;
 		growFaceCount = 32;
 		maxIterations = 1;
-		parameterizationCallback = NULL;
 	}
 };
 
-void GenerateCharts(Atlas *atlas, CharterOptions charterOptions = CharterOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
+typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount);
 
-struct PackerOptions
+struct PackOptions
 {
 	// The number of attempts to find a suitable random chart location.
 	// 0 is brute force - very slow, but best results. Faster if blockAlign is true;
@@ -194,7 +190,7 @@ struct PackerOptions
 	// Number of pixels to pad. conservative must be true.
 	int padding;
 
-	PackerOptions()
+	PackOptions()
 	{
 		attempts = 4096;
 		texelsPerUnit = 0.0f;
@@ -206,7 +202,17 @@ struct PackerOptions
 	}
 };
 
-void PackCharts(Atlas *atlas, PackerOptions packerOptions = PackerOptions(), ProgressCallback progressCallback = NULL, void *progressCallbackUserData = NULL);
+// Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence.
+void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeFunc paramFunc = NULL, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
+
+// Call after AddMesh.
+void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
+
+// Call after ComputeCharts.
+void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = NULL, ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
+
+// Call after ParameterizeCharts. Can be called multiple times to re-pack charts with different options.
+void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
 
 typedef void *(*ReallocFunc)(void *, size_t);
 void SetRealloc(ReallocFunc reallocFunc);

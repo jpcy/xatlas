@@ -216,8 +216,8 @@ struct
 	std::vector<std::vector<uint8_t>> chartsImages;
 	GLuint chartVao = 0, chartVbo, chartIbo;
 	GLuint chartBoundaryVao = 0, chartBoundaryVbo;
-	xatlas::CharterOptions charterOptions;
-	xatlas::PackerOptions packerOptions;
+	xatlas::ChartOptions chartOptions;
+	xatlas::PackOptions packOptions;
 	ParamMethod paramMethod = ParamMethod::LSCM;
 	std::vector<ModelVertex> chartVertices;
 	std::vector<uint32_t> chartIndices;
@@ -1213,13 +1213,16 @@ static void atlasGenerateThread()
 			}
 		}
 		s_atlas.status.set(AtlasStatus::Generating);
+		xatlas::ComputeCharts(s_atlas.data, s_atlas.chartOptions, atlasProgressCallback);
+		xatlas::ParameterizeFunc paramFunc = nullptr;
 #if USE_LIBIGL
-		s_atlas.charterOptions.parameterizationCallback = s_atlas.paramMethod == ParamMethod::LSCM ? nullptr : atlasParameterizationCallback;
+		if (s_atlas.paramMethod != ParamMethod::LSCM)
+			paramFunc = atlasParameterizationCallback;
 #endif
-		xatlas::GenerateCharts(s_atlas.data, s_atlas.charterOptions, atlasProgressCallback);
+		xatlas::ParameterizeCharts(s_atlas.data, paramFunc, atlasProgressCallback);
 	} else
 		s_atlas.status.set(AtlasStatus::Generating);
-	xatlas::PackCharts(s_atlas.data, s_atlas.packerOptions, atlasProgressCallback);
+	xatlas::PackCharts(s_atlas.data, s_atlas.packOptions, atlasProgressCallback);
 	// Find chart boundary edges.
 	uint32_t numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -1508,18 +1511,18 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
-					ImGui::Text("Charter options");
+					ImGui::Text("Chart options");
 					ImGui::Spacing();
-					ImGui::InputFloat("Proxy fit metric weight", &s_atlas.charterOptions.proxyFitMetricWeight);
-					ImGui::InputFloat("Roundness metric weight", &s_atlas.charterOptions.roundnessMetricWeight);
-					ImGui::InputFloat("Straightness metric weight", &s_atlas.charterOptions.straightnessMetricWeight);
-					ImGui::InputFloat("NormalSeam metric weight", &s_atlas.charterOptions.normalSeamMetricWeight);
-					ImGui::InputFloat("Texture seam metric weight", &s_atlas.charterOptions.textureSeamMetricWeight);
-					ImGui::InputFloat("Max chart area", &s_atlas.charterOptions.maxChartArea);
-					ImGui::InputFloat("Max boundary length", &s_atlas.charterOptions.maxBoundaryLength);
-					ImGui::InputFloat("Max threshold", &s_atlas.charterOptions.maxThreshold);
-					ImGui::InputInt("Grow face count", (int *)&s_atlas.charterOptions.growFaceCount);
-					ImGui::InputInt("Max iterations", (int *)&s_atlas.charterOptions.maxIterations);
+					ImGui::InputFloat("Proxy fit metric weight", &s_atlas.chartOptions.proxyFitMetricWeight);
+					ImGui::InputFloat("Roundness metric weight", &s_atlas.chartOptions.roundnessMetricWeight);
+					ImGui::InputFloat("Straightness metric weight", &s_atlas.chartOptions.straightnessMetricWeight);
+					ImGui::InputFloat("NormalSeam metric weight", &s_atlas.chartOptions.normalSeamMetricWeight);
+					ImGui::InputFloat("Texture seam metric weight", &s_atlas.chartOptions.textureSeamMetricWeight);
+					ImGui::InputFloat("Max chart area", &s_atlas.chartOptions.maxChartArea);
+					ImGui::InputFloat("Max boundary length", &s_atlas.chartOptions.maxBoundaryLength);
+					ImGui::InputFloat("Max threshold", &s_atlas.chartOptions.maxThreshold);
+					ImGui::InputInt("Grow face count", (int *)&s_atlas.chartOptions.growFaceCount);
+					ImGui::InputInt("Max iterations", (int *)&s_atlas.chartOptions.maxIterations);
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
@@ -1534,16 +1537,16 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::Separator();
 					ImGui::Spacing();
 #endif
-					ImGui::Text("Packer options");
+					ImGui::Text("Pack options");
 					ImGui::Spacing();
-					ImGui::SliderInt("Attempts", &s_atlas.packerOptions.attempts, 0, 4096);
-					ImGui::InputFloat("Texels per unit", &s_atlas.packerOptions.texelsPerUnit, 0.0f, 32.0f, 2);
-					ImGui::InputInt("Resolution", (int *)&s_atlas.packerOptions.resolution, 8);
-					ImGui::InputInt("Max chart size", (int *)&s_atlas.packerOptions.maxChartSize);
-					ImGui::Checkbox("Block align", &s_atlas.packerOptions.blockAlign);
+					ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
+					ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
+					ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
+					ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
+					ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
 					ImGui::SameLine();
-					ImGui::Checkbox("Conservative", &s_atlas.packerOptions.conservative);
-					ImGui::SliderInt("Padding", &s_atlas.packerOptions.padding, 0, 8);
+					ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
+					ImGui::SliderInt("Padding", &s_atlas.packOptions.padding, 0, 8);
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
