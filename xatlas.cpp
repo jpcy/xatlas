@@ -5150,23 +5150,17 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 
 static bool computeOrthogonalProjectionMap(Mesh *mesh)
 {
-	Vector3 axis[2];
 	uint32_t vertexCount = mesh->vertexCount();
-	Array<Vector3> points(vertexCount);
-	points.resize(vertexCount);
-	for (uint32_t i = 0; i < vertexCount; i++)
-		points[i] = mesh->position(i);
 	// Avoid redundant computations.
 	float matrix[6];
-	Fit::computeCovariance(vertexCount, points.data(), matrix);
-	if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0) {
+	Fit::computeCovariance(vertexCount, &mesh->position(0), matrix);
+	if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0)
 		return false;
-	}
 	float eigenValues[3];
 	Vector3 eigenVectors[3];
-	if (!Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors)) {
+	if (!Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors))
 		return false;
-	}
+	Vector3 axis[2];
 	axis[0] = normalize(eigenVectors[0]);
 	axis[1] = normalize(eigenVectors[1]);
 	// Project vertices to plane.
