@@ -161,7 +161,7 @@ struct ChartOptions
 	}
 };
 
-typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount);
+typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount, bool isPlanar);
 
 struct PackOptions
 {
@@ -208,7 +208,7 @@ void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), Paramete
 // Call after AddMesh.
 void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
 
-// Call after ComputeCharts.
+// Call after ComputeCharts. Can be called multiple times to re-parameterize charts with a different ParameterizeFunc.
 void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = NULL, ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
 
 // Call after ParameterizeCharts. Can be called multiple times to re-pack charts with different options.

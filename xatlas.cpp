@@ -6610,12 +6610,10 @@ public:
 				computeSingleFaceMap(mesh);
 			} else {
 				computeOrthogonalProjectionMap(mesh);
-				if (!chart->isPlanar()) {
-					if (func) {
-						func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
-					} else if (chart->isDisk()) {
-						computeLeastSquaresConformalMap(mesh);
-					}
+				if (func) {
+					func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount(), chart->isPlanar());
+				} else if (chart->isDisk() && !chart->isPlanar()) {
+					computeLeastSquaresConformalMap(mesh);
 				}
 			}
 			// @@ Check that parameterization quality is above a certain threshold.
@@ -6811,27 +6809,24 @@ public:
 			taskScheduler->run(job, &sync);
 		}
 		taskScheduler->waitFor(sync);
+		// Save original texcoords so PackCharts can be called multiple times (packing overwrites the texcoords).
+		const uint32_t nCharts = chartCount();
+		m_originalChartTexcoords.resize(nCharts);
+		for (uint32_t i = 0; i < nCharts; i++) {
+			const Mesh *mesh = chartAt(i)->mesh();
+			m_originalChartTexcoords[i].resize(mesh->vertexCount());
+			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
+				m_originalChartTexcoords[i][j] = mesh->texcoord(j);
+		}
 	}
 
-	void resetChartTexcoords()
+	void restoreOriginalChartTexcoords()
 	{
 		const uint32_t nCharts = chartCount();
-		if (m_originalChartTexcoords.isEmpty()) {
-			// save
-			m_originalChartTexcoords.resize(nCharts);
-			for (uint32_t i = 0; i < nCharts; i++) {
-				const Mesh *mesh = chartAt(i)->mesh();
-				m_originalChartTexcoords[i].resize(mesh->vertexCount());
-				for (uint32_t j = 0; j < mesh->vertexCount(); j++)
-					m_originalChartTexcoords[i][j] = mesh->texcoord(j);
-			}
-		} else {
-			// restore
-			for (uint32_t i = 0; i < nCharts; i++) {
-				Mesh *mesh = chartAt(i)->mesh();
-				for (uint32_t j = 0; j < mesh->vertexCount(); j++)
-					mesh->texcoord(j) = m_originalChartTexcoords[i][j];
-			}
+		for (uint32_t i = 0; i < nCharts; i++) {
+			Mesh *mesh = chartAt(i)->mesh();
+			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
+				mesh->texcoord(j) = m_originalChartTexcoords[i][j];
 		}
 	}
 
@@ -7886,7 +7881,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 		atlas->utilization = NULL;
 	}
 	if (atlas->chartCount > 0) {
-		ctx->paramAtlas.resetChartTexcoords();
+		ctx->paramAtlas.restoreOriginalChartTexcoords();
 		internal::param::AtlasPacker packer(&ctx->paramAtlas);
 		packer.packCharts(packOptions, progressFunc, progressUserData);
 		atlas->atlasCount = packer.getNumAtlases();

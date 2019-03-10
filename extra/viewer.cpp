@@ -219,6 +219,7 @@ struct
 	xatlas::ChartOptions chartOptions;
 	xatlas::PackOptions packOptions;
 	ParamMethod paramMethod = ParamMethod::LSCM;
+	bool paramMethodChanged = false;
 	std::vector<ModelVertex> chartVertices;
 	std::vector<uint32_t> chartIndices;
 	std::vector<hmm_vec3> chartBoundaryVertices;
@@ -1117,8 +1118,10 @@ struct EdgeKeyEqual
 };
 
 #if USE_LIBIGL
-static void atlasParameterizationCallback(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount)
+static void atlasParameterizationCallback(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount, bool isPlanar)
 {
+	if (isPlanar)
+		return;
 	Eigen::MatrixXd V(vertexCount, 3);
 	for (uint32_t i = 0; i < vertexCount; i++) {
 		V(i, 0) = positions[i * 3 + 0];
@@ -1179,8 +1182,9 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 static void atlasGenerateThread()
 {
 	int progress = 0;
-	if (!s_atlas.data) {
-		// Create xatlas context and generate charts on first run only.
+	const bool firstRun = !s_atlas.data;
+	if (firstRun) {
+		// Create xatlas context and compute charts on first run only.
 		s_atlas.data = xatlas::Create();
 		for (uint32_t i = 0; i < s_model.data->numObjects; i++) {
 			const objzObject &object = s_model.data->objects[i];
@@ -1214,14 +1218,17 @@ static void atlasGenerateThread()
 		}
 		s_atlas.status.set(AtlasStatus::Generating);
 		xatlas::ComputeCharts(s_atlas.data, s_atlas.chartOptions, atlasProgressCallback);
+	} else
+		s_atlas.status.set(AtlasStatus::Generating);
+	if (firstRun || s_atlas.paramMethodChanged) {
+		s_atlas.paramMethodChanged = false;
 		xatlas::ParameterizeFunc paramFunc = nullptr;
 #if USE_LIBIGL
 		if (s_atlas.paramMethod != ParamMethod::LSCM)
 			paramFunc = atlasParameterizationCallback;
 #endif
 		xatlas::ParameterizeCharts(s_atlas.data, paramFunc, atlasProgressCallback);
-	} else
-		s_atlas.status.set(AtlasStatus::Generating);
+	}
 	xatlas::PackCharts(s_atlas.data, s_atlas.packOptions, atlasProgressCallback);
 	// Find chart boundary edges.
 	uint32_t numEdges = 0;
@@ -1529,10 +1536,13 @@ int main(int /*argc*/, char ** /*argv*/)
 #if USE_LIBIGL
 					ImGui::Text("Parameterization options");
 					ImGui::Spacing();
+					const ParamMethod oldParamMethod = s_atlas.paramMethod;
 					ImGui::RadioButton("LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::LSCM);
 					ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_Harmonic);
 					ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_LSCM);
 					ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_ARAP);
+					if (s_atlas.paramMethod != oldParamMethod)
+						s_atlas.paramMethodChanged = true;
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
