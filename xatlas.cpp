@@ -91,6 +91,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES 0
 #define XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES 0
+#define XA_DEBUG_EXPORT_OBJ_NOT_DISK 0
 
 namespace xatlas {
 namespace internal {
@@ -6203,7 +6204,7 @@ public:
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 				if (boundaryLoops.size() > 1) {
 					XA_PRINT_WARNING("Failed to close chart holes\n");
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES
 					m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
 #endif
 				}
@@ -7846,7 +7847,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 				const internal::param::ParameterizationQuality &quality = chart->paramQuality();
 				if (quality.flippedTriangleCount() > 0) {
 					XA_PRINT_WARNING("Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount(), quality.totalTriangleCount());
-#if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 					char filename[256];
 					sprintf(filename, "debug_chart_%0.3u_invalid_parameterization.obj", chartIndex);
 					const internal::Mesh *mesh = chart->unifiedMesh();
@@ -7868,6 +7869,13 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 					}
 #endif
 				}
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_NOT_DISK
+				if (!chart->isDisk()) {
+					char filename[256];
+					sprintf(filename, "debug_chart_%0.3u_not_disk.obj", chartIndex);
+					chart->unifiedMesh()->writeObjFile(filename);
+				}
+#endif
 				chartIndex++;
 			}
 		}
