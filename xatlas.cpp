@@ -6681,7 +6681,7 @@ static void runParameterizeChartsJob(void *userData)
 class Atlas
 {
 public:
-	Atlas() : m_meshCount(0) {}
+	Atlas() : m_chartsComputed(false), m_chartsParameterized(false), m_meshCount(0) {}
 
 	~Atlas()
 	{
@@ -6691,6 +6691,8 @@ public:
 		}
 	}
 
+	bool chartsComputed() const { return m_chartsComputed; }
+	bool chartsParameterized() const { return m_chartsParameterized; }
 	uint32_t meshCount() const { return m_meshCount; }
 
 	uint32_t chartGroupCount(uint32_t mesh) const
@@ -6788,6 +6790,7 @@ public:
 			taskScheduler->run(job, &sync);
 		}
 		taskScheduler->waitFor(sync);
+		m_chartsComputed = true;
 	}
 
 	void parameterizeCharts(task::Scheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
@@ -6826,6 +6829,7 @@ public:
 			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
 				m_originalChartTexcoords[i][j] = mesh->texcoord(j);
 		}
+		m_chartsParameterized = true;
 	}
 
 	void restoreOriginalChartTexcoords()
@@ -6839,6 +6843,8 @@ public:
 	}
 
 private:
+	bool m_chartsComputed;
+	bool m_chartsParameterized;
 	uint32_t m_meshCount;
 	Array<ChartGroup *> m_chartGroups;
 	Array<uint32_t> m_chartGroupSourceMeshes;
@@ -7785,6 +7791,15 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 
 void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFunc, PackOptions packOptions, ProgressFunc progressFunc, void *progressUserData)
 {
+	if (!atlas) {
+		XA_PRINT_WARNING("Generate: atlas is NULL.\n");
+		return;
+	}
+	Context *ctx = (Context *)atlas;
+	if (ctx->paramAtlas.meshCount() == 0) {
+		XA_PRINT_WARNING("Generate: No meshes. Call AddMesh first.\n");
+		return;
+	}
 	ComputeCharts(atlas, chartOptions, progressFunc, progressUserData);
 	ParameterizeCharts(atlas, paramFunc, progressFunc, progressUserData);
 	PackCharts(atlas, packOptions, progressFunc, progressUserData);
@@ -7792,20 +7807,19 @@ void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFun
 
 void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progressFunc, void *progressUserData)
 {
-	XA_DEBUG_ASSERT(atlas);
-	Context *ctx = (Context *)atlas;
-	if (ctx->paramAtlas.meshCount() == 0)
+	if (!atlas) {
+		XA_PRINT_WARNING("ComputeCharts: atlas is NULL.\n");
 		return;
-	atlas->atlasCount = 0;
-	atlas->chartCount = 0;
-	atlas->height = 0;
-	atlas->texelsPerUnit = 0;
-	atlas->width = 0;
-	if (atlas->utilization) {
-		XA_FREE(atlas->utilization);
-		atlas->utilization = NULL;
 	}
-	DestroyOutputMeshes(ctx);
+	Context *ctx = (Context *)atlas;
+	if (ctx->paramAtlas.meshCount() == 0) {
+		XA_PRINT_WARNING("ComputeCharts: No meshes. Call AddMesh first.\n");
+		return;
+	}
+	if (ctx->paramAtlas.chartsComputed()) {
+		XA_PRINT_WARNING("ComputeCharts: this function can only be called once per context.\n");
+		return;
+	}
 	XA_PRINT("Computing charts\n");
 	ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData);
 	// Count charts.
@@ -7820,10 +7834,19 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 
 void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
 {
-	XA_DEBUG_ASSERT(atlas);
-	Context *ctx = (Context *)atlas;
-	if (ctx->paramAtlas.meshCount() == 0)
+	if (!atlas) {
+		XA_PRINT_WARNING("ParameterizeCharts: atlas is NULL.\n");
 		return;
+	}
+	Context *ctx = (Context *)atlas;
+	if (ctx->paramAtlas.meshCount() == 0) {
+		XA_PRINT_WARNING("ParameterizeCharts: No meshes. Call AddMesh first.\n");
+		return;
+	}
+	if (!ctx->paramAtlas.chartsComputed()) {
+		XA_PRINT_WARNING("ParameterizeCharts: ComputeCharts must be called first.\n");
+		return;
+	}
 	atlas->atlasCount = 0;
 	atlas->height = 0;
 	atlas->texelsPerUnit = 0;
@@ -7884,8 +7907,23 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 
 void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc, void *progressUserData)
 {
-	XA_DEBUG_ASSERT(atlas);
+	if (!atlas) {
+		XA_PRINT_WARNING("PackCharts: atlas is NULL.\n");
+		return;
+	}
 	Context *ctx = (Context *)atlas;
+	if (ctx->paramAtlas.meshCount() == 0) {
+		XA_PRINT_WARNING("PackCharts: No meshes. Call AddMesh first.\n");
+		return;
+	}
+	if (!ctx->paramAtlas.chartsComputed()) {
+		XA_PRINT_WARNING("PackCharts: ComputeCharts must be called first.\n");
+		return;
+	}
+	if (!ctx->paramAtlas.chartsParameterized()) {
+		XA_PRINT_WARNING("PackCharts: ParameterizeCharts must be called first.\n");
+		return;
+	}
 	atlas->atlasCount = 0;
 	atlas->height = 0;
 	atlas->texelsPerUnit = packOptions.texelsPerUnit;

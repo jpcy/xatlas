@@ -74,8 +74,7 @@ bool generateAtlas(const char *name, AtlasResult *result)
 		totalVertices += meshDecl.vertexCount;
 		totalFaces += meshDecl.indexCount / 3;
 	}
-	xatlas::ComputeCharts(atlas);
-	xatlas::PackCharts(atlas);
+	xatlas::Generate(atlas);
 	const clock_t end = clock();
 	printf(" [%g ms]\n", (end - start) * 1000.0 / (double)CLOCKS_PER_SEC);
 	uint32_t atlasTotalVertices = 0, atlasTotalFaces = 0;
