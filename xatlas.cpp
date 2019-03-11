@@ -2712,6 +2712,9 @@ struct MeshFlags
 	};
 };
 
+class Mesh;
+void meshGetBoundaryEdges(const Mesh &mesh, Array<uint32_t> &boundaryEdges);
+
 class Mesh
 {
 public:
@@ -3172,38 +3175,22 @@ public:
 
 	void writeObjLinkedBoundaries(FILE *file) const
 	{
-		if (m_nextBoundaryEdges.size() == 0)
-			return; // Boundaries aren't linked.
-		const uint32_t edgeCount = m_edges.size();
-		BitArray bitFlags(edgeCount);
-		bitFlags.clearAll();
-		uint32_t boundary = 0;
-		for (;;) {
-			uint32_t firstEdge = UINT32_MAX;
-			for (uint32_t i = 0; i < edgeCount; i++) {
-				if (m_oppositeEdges[i] == UINT32_MAX && !bitFlags.bitAt(i)) {
-					firstEdge = i;
-					break;
-				}
-			}
-			if (firstEdge == UINT32_MAX)
-				break;
-			uint32_t edge = firstEdge;
-			fprintf(file, "o boundary_%0.4d\n", boundary);
+		Array<uint32_t> boundaryEdges;
+		meshGetBoundaryEdges(*this, boundaryEdges);
+		for (uint32_t i = 0; i < boundaryEdges.size(); i++) {
+			uint32_t edge = boundaryEdges[i];
+			fprintf(file, "o boundary_%0.4d\n", i);
 			fprintf(file, "l");
 			for (;;) {
-				bitFlags.setBitAt(edge);
 				const uint32_t vertex0 = m_indices[m_edges[edge].index0];
 				const uint32_t vertex1 = m_indices[m_edges[edge].index1];
 				fprintf(file, " %d", vertex0 + 1); // 1-indexed
 				edge = m_nextBoundaryEdges[edge];
-				if (edge == firstEdge || edge == UINT32_MAX) {
+				if (edge == boundaryEdges[i] || edge == UINT32_MAX) {
 					fprintf(file, " %d\n", vertex1 + 1); // 1-indexed
 					break;
 				}
-
 			}
-			boundary++;
 		}
 	}
 
