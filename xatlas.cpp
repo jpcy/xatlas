@@ -2713,7 +2713,7 @@ struct MeshFlags
 };
 
 class Mesh;
-void meshGetBoundaryEdges(const Mesh &mesh, Array<uint32_t> &boundaryEdges);
+static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoops);
 
 class Mesh
 {
@@ -3070,9 +3070,9 @@ public:
 							goto next; // Face is ignored.
 						if (m_indices[otherEdge.index0] != it.vertex())
 							goto next; // Edge contains the vertex, but it's the wrong one.
-						// First edge has the lowest priority, don't want to close the boundary loop prematurely.
-						// Non-colocal vertex has the highest.
-						if (bestNextEdge == UINT32_MAX || bestNextEdge == firstEdge || it.vertex() == startVertex)
+						// First edge (closing the boundary loop) has the highest priority.
+						// Non-colocal vertex has the next highest.
+						if (bestNextEdge != firstEdge && (bestNextEdge == UINT32_MAX || it.vertex() == startVertex))
 							bestNextEdge = mapEdge;
 					next:
 						mapEdgeIndex = vertexToEdgeMap.getNext(mapEdgeIndex);
@@ -3090,6 +3090,32 @@ public:
 				if (currentEdge == firstEdge) {
 					numBoundaryLoops++;
 					break; // Closed the boundary loop.
+				}
+			}
+		}
+		// Find internal boundary loops and separate them.
+		// Detect by finding two edges in a boundary loop that have a colocal end vertex.
+		// Fix by swapping their next boundary edge.
+		// Need to start over after every fix since known boundary loops have changed.
+		Array<uint32_t> boundaryLoops;
+	fixInternalBoundary:
+		meshGetBoundaryLoops(*this, boundaryLoops);
+		for (uint32_t loop = 0; loop < boundaryLoops.size(); loop++) {
+			linkedEdges.clearAll();
+			for (Mesh::BoundaryEdgeIterator it1(this, boundaryLoops[loop]); !it1.isDone(); it1.advance()) {
+				const uint32_t e1 = it1.edge();
+				if (linkedEdges.bitAt(e1))
+					continue;
+				for (Mesh::BoundaryEdgeIterator it2(this, boundaryLoops[loop]); !it2.isDone(); it2.advance()) {
+					const uint32_t e2 = it2.edge();
+					if (e1 == e2 || !isBoundaryEdge(e2) || linkedEdges.bitAt(e2))
+						continue;
+					if (!areColocal(m_indices[m_edges[e1].index1], m_indices[m_edges[e2].index1]))
+						continue;
+					swap(m_nextBoundaryEdges[e1], m_nextBoundaryEdges[e2]);
+					linkedEdges.setBitAt(e1);
+					linkedEdges.setBitAt(e2);
+					goto fixInternalBoundary; // start over
 				}
 			}
 		}
@@ -3175,10 +3201,10 @@ public:
 
 	void writeObjLinkedBoundaries(FILE *file) const
 	{
-		Array<uint32_t> boundaryEdges;
-		meshGetBoundaryEdges(*this, boundaryEdges);
-		for (uint32_t i = 0; i < boundaryEdges.size(); i++) {
-			uint32_t edge = boundaryEdges[i];
+		Array<uint32_t> boundaryLoops;
+		meshGetBoundaryLoops(*this, boundaryLoops);
+		for (uint32_t i = 0; i < boundaryLoops.size(); i++) {
+			uint32_t edge = boundaryLoops[i];
 			fprintf(file, "o boundary_%0.4d\n", i);
 			fprintf(file, "l");
 			for (;;) {
@@ -3186,7 +3212,7 @@ public:
 				const uint32_t vertex1 = m_indices[m_edges[edge].index1];
 				fprintf(file, " %d", vertex0 + 1); // 1-indexed
 				edge = m_nextBoundaryEdges[edge];
-				if (edge == boundaryEdges[i] || edge == UINT32_MAX) {
+				if (edge == boundaryLoops[i] || edge == UINT32_MAX) {
 					fprintf(file, " %d\n", vertex1 + 1); // 1-indexed
 					break;
 				}
@@ -3914,20 +3940,20 @@ static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 	return mesh;
 }
 
-// boundaryEdges are the first edges for each boundary loop.
-static void meshGetBoundaryEdges(const Mesh &mesh, Array<uint32_t> &boundaryEdges)
+// boundaryLoops are the first edges for each boundary loop.
+static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoops)
 {
 	const uint32_t edgeCount = mesh.edgeCount();
 	BitArray bitFlags(edgeCount);
 	bitFlags.clearAll();
-	boundaryEdges.clear();
+	boundaryLoops.clear();
 	// Search for boundary edges. Mark all the edges that belong to the same boundary.
 	for (uint32_t e = 0; e < edgeCount; e++) {
 		if (bitFlags.bitAt(e) || !mesh.isBoundaryEdge(e))
 			continue;
 		for (Mesh::BoundaryEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
 			bitFlags.setBitAt(it.edge());
-		boundaryEdges.push_back(e);
+		boundaryLoops.push_back(e);
 	}
 }
 
@@ -6162,9 +6188,9 @@ public:
 				m_unifiedMesh->linkBoundaries();
 			}
 			// See if there are any holes that need closing.
-			Array<uint32_t> boundaryEdges;
-			meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
-			if (boundaryEdges.size() > 1) {
+			Array<uint32_t> boundaryLoops;
+			meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
+			if (boundaryLoops.size() > 1) {
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
 				m_unifiedMesh->writeObjFile("debug_before_close_holes.obj");
 #endif
@@ -6173,14 +6199,14 @@ public:
 				// - Find cuts that reduce genus.
 				// - Find cuts to connect holes.
 				// - Use minimal spanning trees or seamster.
-				closeHoles(boundaryEdges);
-				meshGetBoundaryEdges(*m_unifiedMesh, boundaryEdges);
-				if (boundaryEdges.size() > 1) {
+				closeHoles(boundaryLoops);
+				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
+				if (boundaryLoops.size() > 1) {
 					XA_PRINT_WARNING("Failed to close chart holes\n");
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
 					m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
 #endif
-			}
+				}
 			}
 			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
 			if (triangulatedMesh) {
@@ -6260,14 +6286,14 @@ public:
 	int32_t atlasIndex;
 
 private:
-	void closeHoles(const Array<uint32_t> &boundaryEdges)
+	void closeHoles(const Array<uint32_t> &boundaryLoops)
 	{
 		// Compute lengths.
-		const uint32_t boundaryCount = boundaryEdges.size();
+		const uint32_t boundaryCount = boundaryLoops.size();
 		Array<float> boundaryLengths;
 		for (uint32_t i = 0; i < boundaryCount; i++) {
 			float boundaryLength = 0.0f;
-			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryEdges[i]); !it.isDone(); it.advance()) {
+			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
 				const Edge *edge = m_unifiedMesh->edgeAt(it.edge());
 				const Vector3 &t0 = m_unifiedMesh->position(m_unifiedMesh->vertexAt(edge->index0));
 				const Vector3 &t1 = m_unifiedMesh->position(m_unifiedMesh->vertexAt(edge->index1));
@@ -6293,7 +6319,7 @@ private:
 			Array<uint32_t> vertexLoop;
 			Array<const Edge *> edgeLoop;
 			startOver:
-			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryEdges[i]); !it.isDone(); it.advance()) {
+			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
 				const Edge *edge = m_unifiedMesh->edgeAt(it.edge());
 				const uint32_t vertex = m_unifiedMesh->vertexAt(edge->index1);
 				uint32_t j;

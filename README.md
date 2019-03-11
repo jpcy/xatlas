@@ -28,7 +28,6 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 
 ## TODO
 
-* Fix issues with chart boundaries
 * Check for overlapping and intersecting geometry
 * Use a better hole filling argorithm for non-planar holes
 * glTF support in the viewer
