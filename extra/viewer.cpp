@@ -70,6 +70,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 static const bgfx::ViewId kModelView = 0;
 static const bgfx::ViewId kGuiView = 1;
 
+static const uint8_t kPaletteBlack = 0;
+
 static GLFWwindow *s_window;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
 static bool s_showBgfxStats = false;
@@ -869,6 +871,7 @@ static void atlasInit()
 		.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 		.end();
 	assert(s_atlas.wireVertexDecll.getStride() == sizeof(bx::Vec3));
+	bgfx::setPaletteColor(kPaletteBlack, 0x000000ff);
 }
 
 static void atlasProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void * /*userData*/)
@@ -1257,7 +1260,7 @@ static void atlasFinalize()
 		bgfx::TextureHandle &tex = s_atlas.chartsTextures[i];
 		const bgfx::Memory *mem = bgfx::makeRef(s_atlas.chartsImages[i].data(), (uint32_t)s_atlas.chartsImages[i].size());
 		if (!bgfx::isValid(tex))
-			tex = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::RGB8, BGFX_SAMPLER_UVW_CLAMP, mem);
+			tex = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::RGB8, BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack), mem);
 		else
 			bgfx::updateTexture2D(tex, 0, 0, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, mem);
 	}
