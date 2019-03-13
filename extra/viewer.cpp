@@ -87,6 +87,14 @@ struct
 {
 	bgfx::ProgramHandle program;
 	bgfx::UniformHandle u_color;
+	bgfx::UniformHandle u_lightDir;
+}
+s_flatShader;
+
+struct
+{
+	bgfx::ProgramHandle program;
+	bgfx::UniformHandle u_color;
 	bgfx::UniformHandle u_textureSize_cellSize;
 }
 s_checkerboardShader;
@@ -536,6 +544,9 @@ static void shadersInit()
 	s_checkerboardShader.program = LOAD_PROGRAM(Checkerboard);
 	s_checkerboardShader.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
 	s_checkerboardShader.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize", bgfx::UniformType::Vec4);
+	s_flatShader.program = LOAD_PROGRAM(Flat);
+	s_flatShader.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
+	s_flatShader.u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
 	s_gui.program = LOAD_PROGRAM(Gui);
 	s_gui.u_texture = bgfx::createUniform("u_texture", bgfx::UniformType::Sampler);
 }
@@ -544,10 +555,13 @@ static void shadersShutdown()
 {
 	bgfx::destroy(s_colorShader.program);
 	bgfx::destroy(s_checkerboardShader.program);
+	bgfx::destroy(s_flatShader.program);
 	bgfx::destroy(s_gui.program);
 	bgfx::destroy(s_colorShader.u_color);
 	bgfx::destroy(s_checkerboardShader.u_color);
 	bgfx::destroy(s_checkerboardShader.u_textureSize_cellSize);
+	bgfx::destroy(s_flatShader.u_color);
+	bgfx::destroy(s_flatShader.u_lightDir);
 	bgfx::destroy(s_gui.u_texture);
 }
 
@@ -842,12 +856,14 @@ static void modelRender(const float *view, const float *projection)
 		}
 	} else {
 		const float color[] = { 0.75f, 0.75f, 0.75f, 1.0f };
-		bgfx::setUniform(s_colorShader.u_color, color);
+		bgfx::setUniform(s_flatShader.u_color, color);
+		const float lightDir[] = { view[2], view[6], view[10], 0 };
+		bgfx::setUniform(s_flatShader.u_lightDir, lightDir);
 		bgfx::setState(BGFX_STATE_DEFAULT);
 		bgfx::setTransform(model);
 		bgfx::setIndexBuffer(s_model.ib);
 		bgfx::setVertexBuffer(0, s_model.vb);
-		bgfx::submit(kModelView, s_colorShader.program);
+		bgfx::submit(kModelView, s_flatShader.program);
 	}
 	if (s_options.wireframe) {
 		const float color[] = { 1.0f, 1.0f, 1.0f, 0.5f };
@@ -1451,7 +1467,6 @@ int main(int /*argc*/, char ** /*argv*/)
 						ImGui::Checkbox("Show atlas", &s_atlas.showTexture);
 					}
 				}
-				ImGui::End();
 			}
 			const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 			if (s_model.status.get() == ModelStatus::Loading) {

@@ -18,6 +18,7 @@ newaction
 		{
 			"Checkerboard",
 			"Color",
+			"Flat",
 			"Gui"
 		}
 		local shaderTypes = { "vertex", "fragment" }
@@ -192,6 +193,11 @@ project "bgfx"
 	filter "action:vs*"
 		defines { "_CRT_SECURE_NO_WARNINGS" }
 		includedirs { path.join(BX_DIR, "include/compat/msvc") }
+		excludes
+		{
+			path.join(BGFX_DIR, "src/glcontext_glx.cpp"),
+			path.join(BGFX_DIR, "src/glcontext_egl.cpp")
+		}
 	filter { "system:windows", "action:gmake" }
 		includedirs { path.join(BX_DIR, "include/compat/mingw") }
 		
