@@ -13,7 +13,7 @@ function compileShader(args)
 	if os.ishost("windows") then
 		command = "bin\\shaderc.exe"
 	elseif os.ishost("linux") then
-		command = "`./bin/shaderc64"
+		command = "`./bin/shaderc"
 	end
 	command = command .. string.format(" -i \"%s\" -f \"%s\" -o \"%s\" --varyingdef \"%s\" --type %s", args.includeDirs, args.inputFilename, args.outputFilename, args.varyingFilename, args.type)
 	if args.bin2c then

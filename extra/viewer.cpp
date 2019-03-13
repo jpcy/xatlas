@@ -24,6 +24,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define GLFW_EXPOSE_NATIVE_WIN32
 #endif
 #include "GLFW/glfw3native.h"
+#undef Success
 #include "imgui/imgui.h"
 #include "nativefiledialog/nfd.h"
 #include "objzero/objzero.h"
@@ -476,7 +477,9 @@ struct ProgramSource
 
 struct ProgramSourceBundle
 {
+#if BX_PLATFORM_WINDOWS
 	ProgramSource d3d11;
+#endif
 	ProgramSource gl;
 };
 
@@ -492,10 +495,12 @@ struct ProgramSourceBundle
 static bgfx::ProgramHandle loadProgram(const char *name, ProgramSourceBundle sourceBundle)
 {
 	ProgramSource source;
-	if (bgfx::getRendererType() == bgfx::RendererType::Direct3D11)
-		source = sourceBundle.d3d11;
-	else if (bgfx::getRendererType() == bgfx::RendererType::OpenGL)
+	if (bgfx::getRendererType() == bgfx::RendererType::OpenGL)
 		source = sourceBundle.gl;
+#if BX_PLATFORM_WINDOWS
+	else if (bgfx::getRendererType() == bgfx::RendererType::Direct3D11)
+		source = sourceBundle.d3d11;
+#endif
 	else {
 		fprintf(stderr, "Unsupported renderer type.");
 		return BGFX_INVALID_HANDLE;
