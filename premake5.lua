@@ -173,9 +173,7 @@ project "bgfx"
 	}
 	excludes
 	{
-		path.join(BGFX_DIR, "src/amalgamated.cpp"),
-		path.join(BGFX_DIR, "src/glcontext_glx.cpp"),
-		path.join(BGFX_DIR, "src/glcontext_egl.cpp")
+		path.join(BGFX_DIR, "src/amalgamated.cpp")
 	}
 	includedirs
 	{
