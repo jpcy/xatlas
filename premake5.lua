@@ -114,6 +114,8 @@ project "example"
 	warnings "Extra"
 	files "extra/example.cpp"
 	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
+	filter "system:linux"
+		links { "pthread" }
 
 project "test"
 	kind "ConsoleApp"
@@ -124,6 +126,8 @@ project "test"
 	warnings "Extra"
 	files "extra/test.cpp"
 	links { "tiny_obj_loader", "xatlas" }
+	filter "system:linux"
+		links { "pthread" }
 
 project "viewer"
 	kind "ConsoleApp"
