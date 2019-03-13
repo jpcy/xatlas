@@ -1,3 +1,76 @@
+local SHADERS_DIR = "extra/shaders"
+local SHADERS_BIN_DIR = "extra/shaders_bin"
+local THIRDPARTY_DIR = "extra/thirdparty"
+local BGFX_DIR = path.join(THIRDPARTY_DIR, "bgfx")
+local BIMG_DIR = path.join(THIRDPARTY_DIR, "bimg")
+local BX_DIR = path.join(THIRDPARTY_DIR, "bx")
+local EIGEN_DIR = path.join(THIRDPARTY_DIR, "eigen")
+local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
+local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
+
+newaction
+{
+	trigger = "shaders",
+	description = "Compile shaders",
+	onStart = function()
+		dofile("extra/shaderc.lua")
+		local shaders =
+		{
+			"Checkerboard",
+			"Color",
+			"Gui"
+		}
+		local shaderTypes = { "vertex", "fragment" }
+		local renderers = nil
+		if os.ishost("windows") then
+			renderers = { "d3d11", "gl" }
+		else
+			renderers = { "gl" }
+		end
+		for _,renderer in pairs(renderers) do
+			os.mkdir(path.join(SHADERS_BIN_DIR, renderer))
+		end
+		pcall(function()
+			for _,shader in pairs(shaders) do
+				for _,shaderType in pairs(shaderTypes) do
+					io.write("Compiling " .. shader .. " " .. shaderType .. "\n")
+					io.flush()
+					for _,renderer in pairs(renderers) do
+						compileShader(
+						{
+							type = shaderType,
+							renderer = renderer,
+							inputFilename = path.join(SHADERS_DIR, shader) .. "." .. shaderType .. ".sc",
+							includeDirs = path.join(BGFX_DIR, "src"),
+							varyingFilename = path.join(SHADERS_DIR, shader) .. ".varying.sc",
+							outputFilename = path.join(SHADERS_BIN_DIR, renderer, shader) .. "." .. shaderType .. ".h",
+							bin2c = true,
+							variableName = shader .. "_" .. shaderType .. "_" .. renderer
+						})
+					end
+				end
+			end
+			-- Write a header file that includes all the shader headers.
+			local filename = path.join(SHADERS_BIN_DIR, "shaders.h")
+			io.write("Writing " .. filename .. "\n")
+			io.flush()
+			local file = assert(io.open(filename, "w"))
+			for _,renderer in pairs(renderers) do
+				for _,shader in pairs(shaders) do
+					for _,shaderType in pairs(shaderTypes) do
+						file:write(string.format("#include \"%s.%s.h\"\n", path.join(renderer, shader), shaderType))
+					end
+				end
+			end
+			file:close()
+		end)
+	end
+}
+
+if _ACTION == nil then
+	return
+end
+
 solution "xatlas"
 	configurations { "Release", "Debug" }
 	if _OPTIONS["cc"] ~= nil then
@@ -52,40 +125,127 @@ project "test"
 	files "extra/test.cpp"
 	links { "tiny_obj_loader", "xatlas" }
 
-local THIRDPARTY_DIR = "extra/thirdparty"
-local EIGEN_DIR = path.join(THIRDPARTY_DIR, "eigen")
-local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
-local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
-
 project "viewer"
 	kind "ConsoleApp"
 	language "C++"
-	cppdialect "C++11"
+	cppdialect "C++14"
 	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
-	files "extra/viewer.cpp"
+	files { "extra/viewer.cpp", "extra/shaders/*.*" }
 	includedirs
 	{
+		path.join(BGFX_DIR, "include"),
+		path.join(BX_DIR, "include"),
 		EIGEN_DIR,
 		THIRDPARTY_DIR,
 		path.join(GLFW_DIR, "include"),
 		path.join(IGL_DIR, "include")
 	}
-	links { "flextGL", "glfw", "HandmadeMath", "imgui", "nativefiledialog", "objzero", "xatlas" }
+	links { "bgfx", "bimg", "bx", "glfw", "imgui", "nativefiledialog", "objzero", "xatlas" }
 	filter "system:windows"
-		links { "gdi32", "ole32", "opengl32", "uuid" }
+		links { "gdi32", "ole32", "psapi", "uuid" }
 	filter "system:linux"
 		links { "dl", "GL", "gtk-3", "gobject-2.0", "glib-2.0", "pthread", "X11", "Xcursor", "Xinerama", "Xrandr" }
+	filter "action:vs*"
+		includedirs { path.join(BX_DIR, "include/compat/msvc") }
+	filter { "system:windows", "action:gmake" }
+		includedirs { path.join(BX_DIR, "include/compat/mingw") }
 
 group "thirdparty"
 
-project "flextGL"
+project "bgfx"
 	kind "StaticLib"
-	language "C"
-	files(path.join(THIRDPARTY_DIR, "flextGL.*"))
-	filter "toolset:clang or gcc"
-		buildoptions "-Wno-incompatible-pointer-types"
+	language "C++"
+	cppdialect "C++14"
+	exceptionhandling "Off"
+	rtti "Off"
+	defines	{ "__STDC_FORMAT_MACROS" }
+	files
+	{
+		path.join(BGFX_DIR, "include/bgfx/**.h"),
+		path.join(BGFX_DIR, "src/*.cpp"),
+		path.join(BGFX_DIR, "src/*.h")
+	}
+	excludes
+	{
+		path.join(BGFX_DIR, "src/amalgamated.cpp"),
+		path.join(BGFX_DIR, "src/glcontext_glx.cpp"),
+		path.join(BGFX_DIR, "src/glcontext_egl.cpp")
+	}
+	includedirs
+	{
+		path.join(BX_DIR, "include"),
+		path.join(BIMG_DIR, "include"),
+		path.join(BIMG_DIR, "3rdparty"),
+		path.join(BIMG_DIR, "3rdparty/astc-codec/include"),
+		path.join(BIMG_DIR, "3rdparty/iqa/include"),
+		path.join(BGFX_DIR, "include"),
+		path.join(BGFX_DIR, "3rdparty"),
+		path.join(BGFX_DIR, "3rdparty/dxsdk/include"),
+		path.join(BGFX_DIR, "3rdparty/khronos")
+	}
+	filter "configurations:Debug"
+		defines "BGFX_CONFIG_DEBUG=1"
+	filter "action:vs*"
+		defines { "_CRT_SECURE_NO_WARNINGS" }
+		includedirs { path.join(BX_DIR, "include/compat/msvc") }
+	filter { "system:windows", "action:gmake" }
+		includedirs { path.join(BX_DIR, "include/compat/mingw") }
+		
+project "bimg"
+	kind "StaticLib"
+	language "C++"
+	cppdialect "C++14"
+	exceptionhandling "Off"
+	rtti "Off"
+	files
+	{
+		path.join(BIMG_DIR, "include/bimg/*.h"),
+		path.join(BIMG_DIR, "src/*.cpp"),
+		path.join(BIMG_DIR, "src/*.h")
+	}
+	includedirs
+	{
+		path.join(BX_DIR, "include"),
+		path.join(BIMG_DIR, "include")
+	}
+	filter "action:vs*"
+		defines { "_CRT_SECURE_NO_WARNINGS" }
+		includedirs { path.join(BX_DIR, "include/compat/msvc") }
+	filter { "system:windows", "action:gmake" }
+		includedirs { path.join(BX_DIR, "include/compat/mingw") }
+
+project "bx"
+	kind "StaticLib"
+	language "C++"
+	cppdialect "C++14"
+	exceptionhandling "Off"
+	rtti "Off"
+	defines	{ "__STDC_FORMAT_MACROS" }
+	files
+	{
+		path.join(BX_DIR, "include/bx/*.h"),
+		path.join(BX_DIR, "include/bx/inline/*.inl"),
+		path.join(BX_DIR, "include/tinystl/*.h"),
+		path.join(BX_DIR, "src/*.cpp")
+	}
+	excludes
+	{
+		path.join(BX_DIR, "src/amalgamated.cpp"),
+		path.join(BX_DIR, "src/crtnone.cpp")
+	}
+	includedirs
+	{
+		path.join(BX_DIR, "3rdparty"),
+		path.join(BX_DIR, "include")
+	}
+	filter "action:vs*"
+		defines { "_CRT_SECURE_NO_WARNINGS" }
+		includedirs { path.join(BX_DIR, "include/compat/msvc") }
+	filter { "system:windows", "action:gmake" }
+		includedirs { path.join(BX_DIR, "include/compat/mingw") }
+
 
 project "glfw"
 	kind "StaticLib"
@@ -128,11 +288,6 @@ project "glfw"
 	filter "action:vs*"
 		defines { "_CRT_SECURE_NO_WARNINGS" }
 	filter {}
-	
-project "HandmadeMath"
-	kind "StaticLib"
-	language "C"
-	files(path.join(THIRDPARTY_DIR, "HandmadeMath.*"))
 	
 project "imgui"
 	kind "StaticLib"
