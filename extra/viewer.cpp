@@ -886,7 +886,7 @@ static void atlasInit()
 		.begin()
 		.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 		.end();
-	assert(s_atlas.wireVertexDecll.getStride() == sizeof(bx::Vec3));
+	assert(s_atlas.wireVertexDecl.getStride() == sizeof(bx::Vec3));
 	bgfx::setPaletteColor(kPaletteBlack, 0x000000ff);
 }
 
@@ -1467,6 +1467,7 @@ int main(int /*argc*/, char ** /*argv*/)
 						ImGui::Checkbox("Show atlas", &s_atlas.showTexture);
 					}
 				}
+				ImGui::End();
 			}
 			const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 			if (s_model.status.get() == ModelStatus::Loading) {
