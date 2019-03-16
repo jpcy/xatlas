@@ -717,8 +717,10 @@ static void atlasDestroy()
 		s_atlas.data = nullptr;
 	}
 	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++) {
-		bgfx::destroy(s_atlas.chartsTextures[i]);
-		s_atlas.chartsTextures[i] = BGFX_INVALID_HANDLE;
+		if (bgfx::isValid(s_atlas.chartsTextures[i])) {
+			bgfx::destroy(s_atlas.chartsTextures[i]);
+			s_atlas.chartsTextures[i] = BGFX_INVALID_HANDLE;
+		}
 	}
 	if (bgfx::isValid(s_atlas.chartVb)) {
 		bgfx::destroy(s_atlas.chartVb);
@@ -1752,6 +1754,7 @@ int main(int /*argc*/, char ** /*argv*/)
 	atlasDestroy();
 	modelDestroy();
 	shadersShutdown();
+	bgfx::shutdown();
 	glfwTerminate();
 	return 0;
 }
