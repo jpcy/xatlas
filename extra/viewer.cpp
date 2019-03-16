@@ -258,6 +258,12 @@ struct
 }
 s_atlas;
 
+enum class ShadeMode
+{
+	Flat,
+	Charts
+};
+
 enum class WireframeMode
 {
 	Charts,
@@ -268,6 +274,7 @@ struct
 {
 	bool gui = true;
 	bool wireframe = true;
+	ShadeMode shadeMode = ShadeMode::Flat;
 	WireframeMode wireframeMode = WireframeMode::Triangles;
 }
 s_options;
@@ -699,35 +706,7 @@ static void guiRender()
 	}
 }
 
-static void atlasDestroy()
-{
-	if (s_atlas.thread) {
-		s_atlas.thread->join();
-		delete s_atlas.thread;
-		s_atlas.thread = nullptr;
-	}
-	if (s_atlas.data) {
-		xatlas::Destroy(s_atlas.data);
-		s_atlas.data = nullptr;
-	}
-	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++) {
-		if (bgfx::isValid(s_atlas.chartsTextures[i])) {
-			bgfx::destroy(s_atlas.chartsTextures[i]);
-			s_atlas.chartsTextures[i] = BGFX_INVALID_HANDLE;
-		}
-	}
-	if (bgfx::isValid(s_atlas.chartVb)) {
-		bgfx::destroy(s_atlas.chartVb);
-		bgfx::destroy(s_atlas.chartIb);
-		s_atlas.chartVb = BGFX_INVALID_HANDLE;
-		s_atlas.chartIb = BGFX_INVALID_HANDLE;
-	}
-	if (bgfx::isValid(s_atlas.chartBoundaryVb)) {
-		bgfx::destroy(s_atlas.chartBoundaryVb);
-		s_atlas.chartBoundaryVb = BGFX_INVALID_HANDLE;
-	}
-	s_atlas.status.set(AtlasStatus::NotGenerated);
-}
+static void atlasDestroy();
 
 static void modelInit()
 {
@@ -805,6 +784,7 @@ static void modelFinalize()
 	s_model.wireframeIb = bgfx::createIndexBuffer(wireframeIndices, BGFX_BUFFER_INDEX32);
 	s_camera.firstPerson = FirstPersonCamera();
 	s_camera.orbit = OrbitCamera();
+	s_options.shadeMode = ShadeMode::Flat;
 	s_options.wireframeMode = WireframeMode::Triangles;
 	s_model.status.set(ModelStatus::Ready);
 }
@@ -838,7 +818,17 @@ static void modelRender(const float *view, const float *projection)
 	float model[16];
 	bx::mtxScale(model, s_model.scale);
 	bgfx::setViewTransform(kModelView, view, projection);
-	if (s_atlas.status.get() == AtlasStatus::Ready) {
+	if (s_options.shadeMode == ShadeMode::Flat) {
+		const float color[] = { 0.75f, 0.75f, 0.75f, 1.0f };
+		bgfx::setUniform(s_flatShader.u_color, color);
+		const float lightDir[] = { view[2], view[6], view[10], 0 };
+		bgfx::setUniform(s_flatShader.u_lightDir, lightDir);
+		bgfx::setState(BGFX_STATE_DEFAULT);
+		bgfx::setTransform(model);
+		bgfx::setIndexBuffer(s_model.ib);
+		bgfx::setVertexBuffer(0, s_model.vb);
+		bgfx::submit(kModelView, s_flatShader.program);
+	} else if (s_options.shadeMode == ShadeMode::Charts && s_atlas.status.get() == AtlasStatus::Ready) {
 		srand(s_atlas.chartColorSeed);
 		uint32_t firstIndex = 0;
 		for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -867,27 +857,17 @@ static void modelRender(const float *view, const float *projection)
 				firstIndex += chart.indexCount;
 			}
 		}
-	} else {
-		const float color[] = { 0.75f, 0.75f, 0.75f, 1.0f };
-		bgfx::setUniform(s_flatShader.u_color, color);
-		const float lightDir[] = { view[2], view[6], view[10], 0 };
-		bgfx::setUniform(s_flatShader.u_lightDir, lightDir);
-		bgfx::setState(BGFX_STATE_DEFAULT);
-		bgfx::setTransform(model);
-		bgfx::setIndexBuffer(s_model.ib);
-		bgfx::setVertexBuffer(0, s_model.vb);
-		bgfx::submit(kModelView, s_flatShader.program);
 	}
 	if (s_options.wireframe) {
 		const float color[] = { 1.0f, 1.0f, 1.0f, 0.5f };
 		bgfx::setUniform(s_colorShader.u_color, color);
 		bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
 		bgfx::setTransform(model);
-		if (s_atlas.status.get() == AtlasStatus::Ready && s_options.wireframeMode == WireframeMode::Charts) {
-			bgfx::setVertexBuffer(0, s_atlas.chartBoundaryVb);
-		} else {
+		if (s_options.wireframeMode == WireframeMode::Triangles) {
 			bgfx::setIndexBuffer(s_model.wireframeIb);
 			bgfx::setVertexBuffer(0, s_model.vb);
+		} else if (s_atlas.status.get() == AtlasStatus::Ready && s_options.wireframeMode == WireframeMode::Charts) {
+			bgfx::setVertexBuffer(0, s_atlas.chartBoundaryVb);
 		}
 		bgfx::submit(kModelView, s_colorShader.program);
 	}
@@ -901,6 +881,36 @@ static void atlasInit()
 		.end();
 	assert(s_atlas.wireVertexDecl.getStride() == sizeof(bx::Vec3));
 	bgfx::setPaletteColor(kPaletteBlack, 0x000000ff);
+}
+
+static void atlasDestroy()
+{
+	if (s_atlas.thread) {
+		s_atlas.thread->join();
+		delete s_atlas.thread;
+		s_atlas.thread = nullptr;
+	}
+	if (s_atlas.data) {
+		xatlas::Destroy(s_atlas.data);
+		s_atlas.data = nullptr;
+	}
+	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++) {
+		if (bgfx::isValid(s_atlas.chartsTextures[i])) {
+			bgfx::destroy(s_atlas.chartsTextures[i]);
+			s_atlas.chartsTextures[i] = BGFX_INVALID_HANDLE;
+		}
+	}
+	if (bgfx::isValid(s_atlas.chartVb)) {
+		bgfx::destroy(s_atlas.chartVb);
+		bgfx::destroy(s_atlas.chartIb);
+		s_atlas.chartVb = BGFX_INVALID_HANDLE;
+		s_atlas.chartIb = BGFX_INVALID_HANDLE;
+	}
+	if (bgfx::isValid(s_atlas.chartBoundaryVb)) {
+		bgfx::destroy(s_atlas.chartBoundaryVb);
+		s_atlas.chartBoundaryVb = BGFX_INVALID_HANDLE;
+	}
+	s_atlas.status.set(AtlasStatus::NotGenerated);
 }
 
 static void atlasProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void * /*userData*/)
@@ -1294,6 +1304,7 @@ static void atlasFinalize()
 			bgfx::updateTexture2D(tex, 0, 0, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, mem);
 	}
 	s_atlas.currentTexture = 0;
+	s_options.shadeMode = ShadeMode::Charts;
 	s_options.wireframeMode = WireframeMode::Charts;
 	s_atlas.status.set(AtlasStatus::Ready);
 }
@@ -1548,11 +1559,10 @@ int main(int /*argc*/, char ** /*argv*/)
 				ImGui::Spacing();
 				if (ImGui::Button("Open model...", ImVec2(-1.0f, 0.0f)))
 					modelOpenDialog();
-				if (s_model.data) {
-					ImGui::Text("%u objects", s_model.data->numObjects);
-					ImGui::Text("%u vertices", s_model.data->numVertices);
-					ImGui::Text("%u triangles", s_model.data->numIndices / 3);
-				}
+				if (s_model.status.get() == ModelStatus::Ready) {
+				ImGui::Text("%u objects", s_model.data->numObjects);
+				ImGui::Text("%u vertices", s_model.data->numVertices);
+				ImGui::Text("%u triangles", s_model.data->numIndices / 3);
 				ImGui::InputFloat("Model scale", &s_model.scale, 0.01f, 0.1f);
 				s_model.scale = bx::max(0.001f, s_model.scale);
 				ImGui::Spacing();
@@ -1560,8 +1570,13 @@ int main(int /*argc*/, char ** /*argv*/)
 				ImGui::Spacing();
 				ImGui::Text("View");
 				ImGui::Spacing();
-				ImGui::Checkbox("Wireframe", &s_options.wireframe);
 				if (s_atlas.status.get() == AtlasStatus::Ready) {
+					ImGui::RadioButton("Flat shading", (int *)&s_options.shadeMode, (int)ShadeMode::Flat);
+					ImGui::SameLine();
+					ImGui::RadioButton("Charts shading", (int *)&s_options.shadeMode, (int)ShadeMode::Charts);
+				}
+				ImGui::Checkbox("Wireframe overlay", &s_options.wireframe);
+				if (s_options.wireframe && s_atlas.status.get() == AtlasStatus::Ready) {
 					ImGui::SameLine();
 					ImGui::RadioButton("Charts", (int *)&s_options.wireframeMode, (int)WireframeMode::Charts);
 					ImGui::SameLine();
@@ -1584,9 +1599,13 @@ int main(int /*argc*/, char ** /*argv*/)
 					ImGui::Text("Hold left mouse button on 3D view to enable camera");
 					ImGui::EndTooltip();
 				}
+				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.25f);
 				ImGui::DragFloat("FOV", &s_camera.fov, 1.0f, 45.0f, 150.0f, "%.0f");
+				ImGui::SameLine();
+				ImGui::Text(" ");
+				ImGui::SameLine();
 				ImGui::DragFloat("Sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
-				if (s_model.status.get() == ModelStatus::Ready) {
+				ImGui::PopItemWidth();
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
@@ -1659,6 +1678,7 @@ int main(int /*argc*/, char ** /*argv*/)
 						}
 					}
 				}
+				ImGui::PopItemWidth();
 				ImGui::End();
 			}
 			const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
