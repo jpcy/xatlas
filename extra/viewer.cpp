@@ -90,7 +90,8 @@ s_colorShader;
 struct
 {
 	bgfx::ProgramHandle program;
-	bgfx::UniformHandle u_color;
+	bgfx::UniformHandle u_diffuse;
+	bgfx::UniformHandle u_emission;
 	bgfx::UniformHandle u_lightDir;
 }
 s_flatShader;
@@ -568,7 +569,8 @@ static void shadersInit()
 	s_checkerboardShader.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
 	s_checkerboardShader.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize", bgfx::UniformType::Vec4);
 	s_checkerboardShader.program = LOAD_PROGRAM(Checkerboard);
-	s_flatShader.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
+	s_flatShader.u_diffuse = bgfx::createUniform("u_diffuse", bgfx::UniformType::Vec4);
+	s_flatShader.u_emission = bgfx::createUniform("u_emission", bgfx::UniformType::Vec4);
 	s_flatShader.u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
 	s_flatShader.program = LOAD_PROGRAM(Flat);
 	s_gui.u_texture = bgfx::createUniform("u_texture", bgfx::UniformType::Sampler);
@@ -584,7 +586,8 @@ static void shadersShutdown()
 	bgfx::destroy(s_colorShader.u_color);
 	bgfx::destroy(s_checkerboardShader.u_color);
 	bgfx::destroy(s_checkerboardShader.u_textureSize_cellSize);
-	bgfx::destroy(s_flatShader.u_color);
+	bgfx::destroy(s_flatShader.u_diffuse);
+	bgfx::destroy(s_flatShader.u_emission);
 	bgfx::destroy(s_flatShader.u_lightDir);
 	bgfx::destroy(s_gui.u_texture);
 }
@@ -819,15 +822,28 @@ static void modelRender(const float *view, const float *projection)
 	bx::mtxScale(model, s_model.scale);
 	bgfx::setViewTransform(kModelView, view, projection);
 	if (s_options.shadeMode == ShadeMode::Flat) {
-		const float color[] = { 0.75f, 0.75f, 0.75f, 1.0f };
-		bgfx::setUniform(s_flatShader.u_color, color);
 		const float lightDir[] = { view[2], view[6], view[10], 0 };
 		bgfx::setUniform(s_flatShader.u_lightDir, lightDir);
-		bgfx::setState(BGFX_STATE_DEFAULT);
-		bgfx::setTransform(model);
-		bgfx::setIndexBuffer(s_model.ib);
-		bgfx::setVertexBuffer(0, s_model.vb);
-		bgfx::submit(kModelView, s_flatShader.program);
+		for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
+			const objzMesh &mesh = s_model.data->meshes[i];
+			const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
+			if (!mat) {
+				const float diffuse[] = { 0.75f, 0.75f, 0.75f, 1.0f };
+				const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+				bgfx::setUniform(s_flatShader.u_diffuse, diffuse);
+				bgfx::setUniform(s_flatShader.u_emission, emission);
+			} else {
+				const float diffuse[] = { mat->diffuse[0], mat->diffuse[1], mat->diffuse[2], 1.0f };
+				const float emission[] = { mat->emission[0], mat->emission[1], mat->emission[2], 1.0f };
+				bgfx::setUniform(s_flatShader.u_diffuse, diffuse);
+				bgfx::setUniform(s_flatShader.u_emission, emission);
+			}
+			bgfx::setState(BGFX_STATE_DEFAULT);
+			bgfx::setTransform(model);
+			bgfx::setIndexBuffer(s_model.ib, mesh.firstIndex, mesh.numIndices);
+			bgfx::setVertexBuffer(0, s_model.vb);
+			bgfx::submit(kModelView, s_flatShader.program);
+		}
 	} else if (s_options.shadeMode == ShadeMode::Charts && s_atlas.status.get() == AtlasStatus::Ready) {
 		srand(s_atlas.chartColorSeed);
 		uint32_t firstIndex = 0;
@@ -1446,8 +1462,10 @@ static void bakeFrame(const float *view, const float *projection)
 	bgfx::setViewTransform(kRayBundleWriteView, view, projection);
 	bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
 	bgfx::setTexture(2, s_bake.u_rayBundleColorSampler, s_bake.rayBundleColor);
-	const float color[] = { 0.75f, 0.75f, 0.75f, 1.0f };
-	bgfx::setUniform(s_flatShader.u_color, color);
+	const float diffuse[] = { 0.75f, 0.75f, 0.75f, 1.0f };
+	const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	bgfx::setUniform(s_flatShader.u_diffuse, diffuse);
+	bgfx::setUniform(s_flatShader.u_emission, emission);
 	const float lightDir[] = { view[2], view[6], view[10], 0 };
 	bgfx::setUniform(s_flatShader.u_lightDir, lightDir);
 	bgfx::setState(BGFX_STATE_WRITE_RGB);
