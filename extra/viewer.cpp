@@ -80,24 +80,6 @@ static GLFWwindow *s_window;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
 static bool s_showBgfxStats = false;
 
-struct ScreenSpaceVertex
-{
-	float pos[2];
-	float texcoord[2];
-	static bgfx::VertexDecl decl;
-
-	static void init()
-	{
-		decl.begin()
-			.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
-			.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-			.end();
-		assert(decl.getStride() == sizeof(ScreenSpaceVertex));
-	}
-};
-
-bgfx::VertexDecl ScreenSpaceVertex::decl;
-
 struct
 {
 	bgfx::ProgramHandle program;
@@ -165,7 +147,20 @@ struct ModelVertex
 	bx::Vec3 pos;
 	bx::Vec3 normal;
 	float texcoord[4];
+	static bgfx::VertexDecl decl;
+
+	static void init()
+	{
+		decl.begin()
+			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+			.add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
+			.add(bgfx::Attrib::TexCoord0, 4, bgfx::AttribType::Float)
+			.end();
+		assert(decl.getStride() == sizeof(ModelVertex));
+	}
 };
+
+bgfx::VertexDecl ModelVertex::decl;
 
 struct
 {
@@ -173,7 +168,6 @@ struct
 	std::thread *thread = nullptr;
 	objzModel *data;
 	bx::Vec3 centroid = bx::Vec3(0.0f, 0.0f, 0.0f);
-	bgfx::VertexDecl vertexDecl;
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle wireframeIb = BGFX_INVALID_HANDLE;
@@ -737,13 +731,7 @@ static void atlasDestroy()
 
 static void modelInit()
 {
-	s_model.vertexDecl
-	.begin()
-	.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-	.add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
-	.add(bgfx::Attrib::TexCoord0, 4, bgfx::AttribType::Float)
-	.end();
-	assert(s_model.vertexDecl.getStride() == sizeof(ModelVertex));
+	ModelVertex::init();
 	bgfx::setViewClear(kModelView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x444444ff);
 	bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);
 }
@@ -809,7 +797,7 @@ static void modelFinalize()
 	for (uint32_t i = 0; i < s_model.data->numVertices; i++)
 		s_model.centroid = bx::add(s_model.centroid, *(bx::Vec3 *)(&((const ModelVertex *)s_model.data->vertices)[i].pos));
 	s_model.centroid = bx::mul(s_model.centroid, 1.0f / s_model.data->numVertices);
-	s_model.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.data->vertices, s_model.data->numVertices * sizeof(ModelVertex)), s_model.vertexDecl);
+	s_model.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.data->vertices, s_model.data->numVertices * sizeof(ModelVertex)), ModelVertex::decl);
 	s_model.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_model.data->indices, s_model.data->numIndices * sizeof(uint32_t)), BGFX_BUFFER_INDEX32);
 	const uint32_t numWireframeIndices = bgfx::topologyConvert(bgfx::TopologyConvert::TriListToLineList, nullptr, 0, s_model.data->indices, s_model.data->numIndices, true);
 	const bgfx::Memory *wireframeIndices = bgfx::alloc(numWireframeIndices * sizeof(uint32_t));
@@ -841,23 +829,6 @@ static void modelOpenDialog()
 	STRNCPY(args.filename, sizeof(args.filename), filename);
 	s_model.thread = new std::thread(modelLoadThread, args);
 	free(filename);
-}
-
-static void setScreenSpaceQuadVertexBuffer()
-{
-	const uint32_t nVerts = 3;
-	if (bgfx::getAvailTransientVertexBuffer(nVerts, ScreenSpaceVertex::decl) < nVerts)
-		return;
-	bgfx::TransientVertexBuffer vb;
-	bgfx::allocTransientVertexBuffer(&vb, nVerts, ScreenSpaceVertex::decl);
-	auto vertices = (ScreenSpaceVertex *)vb.data;
-	vertices[0].pos[0] = -1.0f;
-	vertices[0].pos[1] = 0.0f;
-	vertices[1].pos[0] = 1.0f;
-	vertices[1].pos[1] = 0.0f;
-	vertices[2].pos[0] = 1.0f;
-	vertices[2].pos[1] = 2.0f;
-	bgfx::setVertexBuffer(0, &vb);
 }
 
 static void modelRender(const float *view, const float *projection)
@@ -1302,7 +1273,7 @@ static void atlasFinalize()
 		s_atlas.thread = nullptr;
 	}
 	// Charts geometry.
-	s_atlas.chartVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartVertices.data(), uint32_t(s_atlas.chartVertices.size() * sizeof(ModelVertex))), s_model.vertexDecl);
+	s_atlas.chartVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartVertices.data(), uint32_t(s_atlas.chartVertices.size() * sizeof(ModelVertex))), ModelVertex::decl);
 	s_atlas.chartIb = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.chartIndices.data(), uint32_t(s_atlas.chartIndices.size() * sizeof(uint32_t))), BGFX_BUFFER_INDEX32);
 	// Chart boundaries.
 	s_atlas.chartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartBoundaryVertices.data(), uint32_t(s_atlas.chartBoundaryVertices.size() * sizeof(bx::Vec3))), s_atlas.wireVertexDecl);
@@ -1326,6 +1297,24 @@ static void atlasFinalize()
 	s_options.wireframeMode = WireframeMode::Charts;
 	s_atlas.status.set(AtlasStatus::Ready);
 }
+
+struct ScreenSpaceVertex
+{
+	float pos[2];
+	float texcoord[2];
+	static bgfx::VertexDecl decl;
+
+	static void init()
+	{
+		decl.begin()
+			.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
+			.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+			.end();
+		assert(decl.getStride() == sizeof(ScreenSpaceVertex));
+	}
+};
+
+bgfx::VertexDecl ScreenSpaceVertex::decl;
 
 struct
 {
@@ -1351,6 +1340,7 @@ s_bake;
 
 static void bakeInit()
 {
+	ScreenSpaceVertex::init();
 	s_bake.enabled = (bgfx::getCaps()->supported & BGFX_CAPS_FRAMEBUFFER_RW) != 0;
 	if (!s_bake.enabled)
 		printf("Read/Write frame buffer attachments are not supported. Baking is disabled.\n");
@@ -1402,7 +1392,23 @@ static void bakeExecute()
 		bgfx::setViewFrameBuffer(kRayBundleClearView, s_bake.rayBundleFb);
 		bgfx::setViewFrameBuffer(kRayBundleWriteView, s_bake.rayBundleFb);
 	}
-	
+}
+
+static void setScreenSpaceQuadVertexBuffer()
+{
+	const uint32_t nVerts = 3;
+	if (bgfx::getAvailTransientVertexBuffer(nVerts, ScreenSpaceVertex::decl) < nVerts)
+		return;
+	bgfx::TransientVertexBuffer vb;
+	bgfx::allocTransientVertexBuffer(&vb, nVerts, ScreenSpaceVertex::decl);
+	auto vertices = (ScreenSpaceVertex *)vb.data;
+	vertices[0].pos[0] = -1.0f;
+	vertices[0].pos[1] = 0.0f;
+	vertices[1].pos[0] = 1.0f;
+	vertices[1].pos[1] = 0.0f;
+	vertices[2].pos[0] = 1.0f;
+	vertices[2].pos[1] = 2.0f;
+	bgfx::setVertexBuffer(0, &vb);
 }
 
 static void bakeFrame(const float *view, const float *projection)
@@ -1470,7 +1476,6 @@ int main(int /*argc*/, char ** /*argv*/)
 	modelInit();
 	atlasInit();
 	bakeInit();
-	ScreenSpaceVertex::init();
 	glfwSetCharCallback(s_window, glfw_charCallback);
 	glfwSetCursorPosCallback(s_window, glfw_cursorPosCallback);
 	glfwSetKeyCallback(s_window, glfw_keyCallback);
