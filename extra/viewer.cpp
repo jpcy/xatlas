@@ -17,6 +17,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "bx/bx.h"
 #include "bx/math.h"
 #include "bgfx/bgfx.h"
+#include "bgfx/platform.h"
 #include "GLFW/glfw3.h"
 #if BX_PLATFORM_LINUX
 #define GLFW_EXPOSE_NATIVE_X11
@@ -69,12 +70,33 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 static const bgfx::ViewId kModelView = 0;
 static const bgfx::ViewId kGuiView = 1;
+static const bgfx::ViewId kAtomicCounterClearView = 2;
+static const bgfx::ViewId kRayBundleClearView = 3;
+static const bgfx::ViewId kRayBundleWriteView = 4;
 
 static const uint8_t kPaletteBlack = 0;
 
 static GLFWwindow *s_window;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
 static bool s_showBgfxStats = false;
+
+struct ScreenSpaceVertex
+{
+	float pos[2];
+	float texcoord[2];
+	static bgfx::VertexDecl decl;
+
+	static void init()
+	{
+		decl.begin()
+			.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
+			.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+			.end();
+		assert(decl.getStride() == sizeof(ScreenSpaceVertex));
+	}
+};
+
+bgfx::VertexDecl ScreenSpaceVertex::decl;
 
 struct
 {
@@ -502,6 +524,8 @@ struct ProgramSourceBundle
 	{ vname##_vertex_gl, sizeof(vname##_vertex_gl), fname##_fragment_gl, sizeof(fname##_fragment_gl) }}
 #endif
 
+#define LOAD_PROGRAM(name) loadProgram(BX_STRINGIZE(name), PROGRAM_SOURCE_BUNDLE(name, name))
+
 static bgfx::ProgramHandle loadProgram(const char *name, ProgramSourceBundle sourceBundle)
 {
 	ProgramSource source;
@@ -538,17 +562,16 @@ static bgfx::ProgramHandle loadProgram(const char *name, ProgramSourceBundle sou
 
 static void shadersInit()
 {
-	#define LOAD_PROGRAM(name) loadProgram(BX_STRINGIZE(name), PROGRAM_SOURCE_BUNDLE(name, name))
-	s_colorShader.program = LOAD_PROGRAM(Color);
 	s_colorShader.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
-	s_checkerboardShader.program = LOAD_PROGRAM(Checkerboard);
+	s_colorShader.program = LOAD_PROGRAM(Color);
 	s_checkerboardShader.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
 	s_checkerboardShader.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize", bgfx::UniformType::Vec4);
-	s_flatShader.program = LOAD_PROGRAM(Flat);
+	s_checkerboardShader.program = LOAD_PROGRAM(Checkerboard);
 	s_flatShader.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
 	s_flatShader.u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
-	s_gui.program = LOAD_PROGRAM(Gui);
+	s_flatShader.program = LOAD_PROGRAM(Flat);
 	s_gui.u_texture = bgfx::createUniform("u_texture", bgfx::UniformType::Sampler);
+	s_gui.program = LOAD_PROGRAM(Gui);
 }
 
 static void shadersShutdown()
@@ -816,6 +839,23 @@ static void modelOpenDialog()
 	STRNCPY(args.filename, sizeof(args.filename), filename);
 	s_model.thread = new std::thread(modelLoadThread, args);
 	free(filename);
+}
+
+static void setScreenSpaceQuadVertexBuffer()
+{
+	const uint32_t nVerts = 3;
+	if (bgfx::getAvailTransientVertexBuffer(nVerts, ScreenSpaceVertex::decl) < nVerts)
+		return;
+	bgfx::TransientVertexBuffer vb;
+	bgfx::allocTransientVertexBuffer(&vb, nVerts, ScreenSpaceVertex::decl);
+	auto vertices = (ScreenSpaceVertex *)vb.data;
+	vertices[0].pos[0] = -1.0f;
+	vertices[0].pos[1] = 0.0f;
+	vertices[1].pos[0] = 1.0f;
+	vertices[1].pos[1] = 0.0f;
+	vertices[2].pos[0] = 1.0f;
+	vertices[2].pos[1] = 2.0f;
+	bgfx::setVertexBuffer(0, &vb);
 }
 
 static void modelRender(const float *view, const float *projection)
@@ -1285,6 +1325,118 @@ static void atlasFinalize()
 	s_atlas.status.set(AtlasStatus::Ready);
 }
 
+struct
+{
+	const uint16_t rayBundleResolution = 512;
+	bool enabled;
+	bool initialized = false;
+	// programs
+	bgfx::ProgramHandle atomicCounterClearProgram;
+	bgfx::ProgramHandle rayBundleClearProgram;
+	bgfx::ProgramHandle rayBundleWriteProgram;
+	// uniforms
+	bgfx::UniformHandle u_atomicCounterSampler;
+	bgfx::UniformHandle u_rayBundleColorSampler;
+	// atomic counter
+	bgfx::FrameBufferHandle atomicCounterFb;
+	bgfx::TextureHandle atomicCounterTexture;
+	// ray bundle
+	bgfx::FrameBufferHandle rayBundleFb;
+	bgfx::TextureHandle rayBundleTarget;
+	bgfx::TextureHandle rayBundleColor;
+}
+s_bake;
+
+static void bakeInit()
+{
+	s_bake.enabled = (bgfx::getCaps()->supported & BGFX_CAPS_FRAMEBUFFER_RW) != 0;
+	if (!s_bake.enabled)
+		printf("Read/Write frame buffer attachments are not supported. Baking is disabled.\n");
+}
+
+static void bakeShutdown()
+{
+	if (!s_bake.initialized)
+		return;
+	// shaders
+	bgfx::destroy(s_bake.atomicCounterClearProgram);
+	bgfx::destroy(s_bake.rayBundleClearProgram);
+	bgfx::destroy(s_bake.rayBundleWriteProgram);
+	bgfx::destroy(s_bake.u_atomicCounterSampler);
+	bgfx::destroy(s_bake.u_rayBundleColorSampler);
+	// framebuffers
+	bgfx::destroy(s_bake.atomicCounterTexture);
+	bgfx::destroy(s_bake.atomicCounterFb);
+	bgfx::destroy(s_bake.rayBundleTarget);
+	bgfx::destroy(s_bake.rayBundleColor);
+	bgfx::destroy(s_bake.rayBundleFb);
+}
+
+static void bakeExecute()
+{
+	if (!s_bake.initialized) {
+		s_bake.initialized = true;
+		// shaders
+		s_bake.u_atomicCounterSampler = bgfx::createUniform("u_atomicCounterSampler", bgfx::UniformType::Sampler);
+		s_bake.u_rayBundleColorSampler = bgfx::createUniform("u_rayBundleColorSampler", bgfx::UniformType::Sampler);
+		s_bake.atomicCounterClearProgram = LOAD_PROGRAM(AtomicCounterClear);
+		s_bake.rayBundleClearProgram = LOAD_PROGRAM(RayBundleClear);
+		s_bake.rayBundleWriteProgram = LOAD_PROGRAM(RayBundleWrite);
+		// framebuffers
+		s_bake.atomicCounterTexture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+		bgfx::Attachment attachment;
+		attachment.init(s_bake.atomicCounterTexture, bgfx::Access::Write);
+		s_bake.atomicCounterFb = bgfx::createFrameBuffer(1, &attachment);
+		s_bake.rayBundleTarget = bgfx::createTexture2D(s_bake.rayBundleResolution, s_bake.rayBundleResolution, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+		s_bake.rayBundleColor = bgfx::createTexture2D(s_bake.rayBundleResolution, s_bake.rayBundleResolution, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+		bgfx::Attachment attachments[3];
+		attachments[0].init(s_bake.rayBundleTarget);
+		attachments[1].init(s_bake.atomicCounterTexture, bgfx::Access::ReadWrite);
+		attachments[2].init(s_bake.rayBundleColor, bgfx::Access::ReadWrite);
+		s_bake.rayBundleFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
+		// views
+		bgfx::setViewFrameBuffer(kAtomicCounterClearView, s_bake.atomicCounterFb);
+		bgfx::setViewRect(kAtomicCounterClearView, 0, 0, 1, 1);
+		bgfx::setViewFrameBuffer(kRayBundleClearView, s_bake.rayBundleFb);
+		bgfx::setViewFrameBuffer(kRayBundleWriteView, s_bake.rayBundleFb);
+	}
+	
+}
+
+static void bakeFrame(const float *view, const float *projection)
+{
+	if (!s_bake.initialized)
+		return;
+	float ortho[16];
+	bx::mtxOrtho(ortho, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
+	// Atomic counter clear.
+	bgfx::setViewTransform(kAtomicCounterClearView, nullptr, ortho);
+	bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
+	setScreenSpaceQuadVertexBuffer();
+	bgfx::setState(BGFX_STATE_WRITE_RGB);
+	bgfx::submit(kAtomicCounterClearView, s_bake.atomicCounterClearProgram);
+	// Ray bundle clear.
+	bgfx::setViewRect(kRayBundleClearView, 0, 0, s_bake.rayBundleResolution, s_bake.rayBundleResolution);
+	bgfx::setViewTransform(kRayBundleClearView, nullptr, ortho);
+	bgfx::setTexture(2, s_bake.u_rayBundleColorSampler, s_bake.rayBundleColor);
+	setScreenSpaceQuadVertexBuffer();
+	bgfx::setState(BGFX_STATE_WRITE_RGB);
+	bgfx::submit(kRayBundleClearView, s_bake.rayBundleClearProgram);
+	// Ray bundle write.
+	bgfx::setViewRect(kRayBundleWriteView, 0, 0, s_bake.rayBundleResolution, s_bake.rayBundleResolution);
+	bgfx::setViewTransform(kRayBundleWriteView, view, projection);
+	bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
+	bgfx::setTexture(2, s_bake.u_rayBundleColorSampler, s_bake.rayBundleColor);
+	const float color[] = { 0.75f, 0.75f, 0.75f, 1.0f };
+	bgfx::setUniform(s_flatShader.u_color, color);
+	const float lightDir[] = { view[2], view[6], view[10], 0 };
+	bgfx::setUniform(s_flatShader.u_lightDir, lightDir);
+	bgfx::setState(BGFX_STATE_WRITE_RGB);
+	bgfx::setIndexBuffer(s_model.ib);
+	bgfx::setVertexBuffer(0, s_model.vb);
+	bgfx::submit(kRayBundleWriteView, s_bake.rayBundleWriteProgram);
+}
+
 int main(int /*argc*/, char ** /*argv*/)
 {
 	glfwSetErrorCallback(glfw_errorCallback);
@@ -1295,6 +1447,7 @@ int main(int /*argc*/, char ** /*argv*/)
 	if (!s_window)
 		return EXIT_FAILURE;
 	glfwMaximizeWindow(s_window);
+	bgfx::renderFrame();
 	bgfx::Init init;
 #if BX_PLATFORM_LINUX || BX_PLATFORM_BSD
 	init.platformData.ndt = glfwGetX11Display();
@@ -1314,6 +1467,8 @@ int main(int /*argc*/, char ** /*argv*/)
 	guiInit();
 	modelInit();
 	atlasInit();
+	bakeInit();
+	ScreenSpaceVertex::init();
 	glfwSetCharCallback(s_window, glfw_charCallback);
 	glfwSetCursorPosCallback(s_window, glfw_cursorPosCallback);
 	glfwSetKeyCallback(s_window, glfw_keyCallback);
@@ -1330,6 +1485,7 @@ int main(int /*argc*/, char ** /*argv*/)
 		const double currentFrameTime = glfwGetTime();
 		const float deltaTime = float(currentFrameTime - lastFrameTime);
 		lastFrameTime = currentFrameTime;
+		// Handle window resize.
 		int oldWidth = width, oldHeight = height;
 		glfwGetWindowSize(s_window, &width, &height);
 		if (width != oldWidth || height != oldHeight) {
@@ -1337,6 +1493,27 @@ int main(int /*argc*/, char ** /*argv*/)
 			guiResize(width, height);
 			bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);
 		}
+		// Update camera.
+		if (s_camera.mode == CameraMode::FirstPerson && glfwGetInputMode(s_window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) {
+			const float speed = (s_keyDown[GLFW_KEY_LEFT_SHIFT] ? 20.0f : 5.0f) * deltaTime;
+			float deltaForward = 0.0f, deltaRight = 0.0f;
+			if (s_keyDown[GLFW_KEY_W]) deltaForward += speed;
+			if (s_keyDown[GLFW_KEY_S]) deltaForward -= speed;
+			if (s_keyDown[GLFW_KEY_A]) deltaRight -= speed;
+			if (s_keyDown[GLFW_KEY_D]) deltaRight += speed;
+			s_camera.firstPerson.move(deltaForward, deltaRight);
+			if (s_keyDown[GLFW_KEY_Q]) s_camera.firstPerson.position.y -= speed;
+			if (s_keyDown[GLFW_KEY_E]) s_camera.firstPerson.position.y += speed;
+		}
+		float view[16];
+		if (s_camera.mode == CameraMode::FirstPerson)
+			s_camera.firstPerson.calculateViewMatrix(view);
+		else if (s_camera.mode == CameraMode::Orbit)
+			s_camera.orbit.calculateViewMatrix(view);
+		float projection[16];
+		const float ar = width / (float)height;
+		bx::mtxProj(projection, s_camera.fov / ar, ar, 0.01f, 1000.0f, bgfx::getCaps()->homogeneousDepth, bx::Handness::Right);
+		// GUI
 		if (s_options.gui) {
 			guiRunFrame(deltaTime);
 			ImGui::NewFrame();
@@ -1465,6 +1642,14 @@ int main(int /*argc*/, char ** /*argv*/)
 						ImGui::Text("%u vertices", numVertices);
 						ImGui::Text("%u triangles", numIndices / 3);
 						ImGui::Checkbox("Show atlas", &s_atlas.showTexture);
+						if (s_bake.enabled) {
+							ImGui::Spacing();
+							ImGui::Separator();
+							ImGui::Spacing();
+							ImGui::Text("Bake");
+							if (ImGui::Button("Bake", ImVec2(-1.0f, 0.0f)))
+								bakeExecute();
+						}
 					}
 				}
 				ImGui::End();
@@ -1536,30 +1721,19 @@ int main(int /*argc*/, char ** /*argv*/)
 					}
 					ImGui::End();
 				}
+				if (s_bake.initialized) {
+					ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
+					ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
+					if (ImGui::Begin("Bake", &s_atlas.showTexture)) {
+						ImTextureID texture = (ImTextureID)(intptr_t)s_bake.rayBundleColor.idx;
+						ImGui::Image(texture, ImGui::GetContentRegionAvail(), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+						ImGui::End();
+					}
+				}
 			}
 		}
-		if (s_camera.mode == CameraMode::FirstPerson && glfwGetInputMode(s_window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) {
-			const float speed = (s_keyDown[GLFW_KEY_LEFT_SHIFT] ? 20.0f : 5.0f) * deltaTime;
-			float deltaForward = 0.0f, deltaRight = 0.0f;
-			if (s_keyDown[GLFW_KEY_W]) deltaForward += speed;
-			if (s_keyDown[GLFW_KEY_S]) deltaForward -= speed;
-			if (s_keyDown[GLFW_KEY_A]) deltaRight -= speed;
-			if (s_keyDown[GLFW_KEY_D]) deltaRight += speed;
-			s_camera.firstPerson.move(deltaForward, deltaRight);
-			if (s_keyDown[GLFW_KEY_Q]) s_camera.firstPerson.position.y -= speed;
-			if (s_keyDown[GLFW_KEY_E]) s_camera.firstPerson.position.y += speed;
-		}
-		if (s_model.status.get() == ModelStatus::Ready) {
-			float view[16];
-			if (s_camera.mode == CameraMode::FirstPerson)
-				s_camera.firstPerson.calculateViewMatrix(view);
-			else if (s_camera.mode == CameraMode::Orbit)
-				s_camera.orbit.calculateViewMatrix(view);
-			float projection[16];
-			const float ar = width / (float)height;
-			bx::mtxProj(projection, s_camera.fov / ar, ar, 0.01f, 1000.0f, bgfx::getCaps()->homogeneousDepth, bx::Handness::Right);
-			modelRender(view, projection);
-		}
+		modelRender(view, projection);
+		bakeFrame(view, projection);
 		if (s_options.gui)
 			guiRender();
 		bgfx::touch(kModelView);
@@ -1574,6 +1748,7 @@ int main(int /*argc*/, char ** /*argv*/)
 			atlasFinalize();
 	}
 	guiShutdown();
+	bakeShutdown();
 	atlasDestroy();
 	modelDestroy();
 	shadersShutdown();

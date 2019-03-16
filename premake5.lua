@@ -16,10 +16,13 @@ newaction
 		dofile("extra/shaderc.lua")
 		local shaders =
 		{
+			"AtomicCounterClear",
 			"Checkerboard",
 			"Color",
 			"Flat",
-			"Gui"
+			"Gui",
+			"RayBundleClear",
+			"RayBundleWrite"
 		}
 		local shaderTypes = { "vertex", "fragment" }
 		local renderers = nil
@@ -34,16 +37,16 @@ newaction
 		pcall(function()
 			for _,shader in pairs(shaders) do
 				for _,shaderType in pairs(shaderTypes) do
-					io.write("Compiling " .. shader .. " " .. shaderType .. "\n")
-					io.flush()
 					for _,renderer in pairs(renderers) do
+						io.write("Compiling " .. shader .. " " .. shaderType .. " " .. renderer .. "\n")
+						io.flush()
 						compileShader(
 						{
 							type = shaderType,
 							renderer = renderer,
 							inputFilename = path.join(SHADERS_DIR, shader) .. "." .. shaderType .. ".sc",
 							includeDirs = path.join(BGFX_DIR, "src"),
-							varyingFilename = path.join(SHADERS_DIR, shader) .. ".varying.sc",
+							varyingFilename = path.join(SHADERS_DIR, "varying.def.sc"),
 							outputFilename = path.join(SHADERS_BIN_DIR, renderer, shader) .. "." .. shaderType .. ".h",
 							bin2c = true,
 							variableName = shader .. "_" .. shaderType .. "_" .. renderer

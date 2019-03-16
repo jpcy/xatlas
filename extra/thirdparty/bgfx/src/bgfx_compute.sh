@@ -23,6 +23,7 @@
 #endif // BGFX_SHADER_LANGUAGE_GLSL
 
 #define FRAMEBUFFER_IMAGE2D_RW(_name, _format, _reg) IMAGE2D_RW(_name, _format, __UAV_REG_ ## _reg)
+#define FRAMEBUFFER_UIMAGE2D_RW(_name, _format, _reg) UIMAGE2D_RW(_name, _format, __UAV_REG_ ## _reg)
 
 #if BGFX_SHADER_LANGUAGE_GLSL
 
