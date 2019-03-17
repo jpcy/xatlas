@@ -22,6 +22,7 @@ newaction
 			"Flat",
 			"Gui",
 			"RayBundleClear",
+			"RayBundleIntegrate",
 			"RayBundleWrite"
 		}
 		local shaderTypes = { "vertex", "fragment" }
