@@ -923,8 +923,11 @@ static void atlasInit()
 	bgfx::setPaletteColor(kPaletteBlack, 0x000000ff);
 }
 
+static void bakeClear();
+
 static void atlasDestroy()
 {
+	bakeClear();
 	if (s_atlas.thread) {
 		s_atlas.thread->join();
 		delete s_atlas.thread;
@@ -1310,6 +1313,7 @@ static void atlasGenerate()
 {
 	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
 		return;
+	bakeClear();
 	xatlas::SetPrint(printf, s_atlas.verbose);
 	s_atlas.status.set(AtlasStatus::AddingMeshes);
 	s_atlas.thread = new std::thread(atlasGenerateThread);
@@ -1373,6 +1377,7 @@ struct
 	const uint16_t rayBundleDataResolution = 8192;
 	bool enabled;
 	bool initialized = false;
+	bool executed = false;
 	// programs
 	bgfx::ProgramHandle atomicCounterClearProgram;
 	bgfx::ProgramHandle rayBundleClearProgram;
@@ -1431,6 +1436,8 @@ static void bakeShutdown()
 
 static void bakeExecute()
 {
+	if (s_bake.executed)
+		return;
 	if (!s_bake.initialized) {
 		s_bake.initialized = true;
 		// shaders
@@ -1465,6 +1472,7 @@ static void bakeExecute()
 		bgfx::setViewFrameBuffer(kRayBundleWriteView, s_bake.rayBundleFb);
 		bgfx::setViewFrameBuffer(kRayBundleResolveView, s_bake.rayBundleIntegrateFb);
 	}
+	s_bake.executed = true;
 }
 
 static void setScreenSpaceQuadVertexBuffer()
@@ -1486,7 +1494,7 @@ static void setScreenSpaceQuadVertexBuffer()
 
 static void bakeFrame()
 {
-	if (!s_bake.initialized)
+	if (!s_bake.executed)
 		return;
 	float fsOrtho[16];
 	bx::mtxOrtho(fsOrtho, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
@@ -1540,6 +1548,11 @@ static void bakeFrame()
 	setScreenSpaceQuadVertexBuffer();
 	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
 	bgfx::submit(kRayBundleResolveView, s_bake.rayBundleIntegrateProgram);
+}
+
+static void bakeClear()
+{
+	s_bake.executed = false;
 }
 
 int main(int argc, char **argv)
@@ -1836,7 +1849,7 @@ int main(int argc, char **argv)
 					}
 					ImGui::End();
 				}
-				if (s_bake.initialized) {
+				if (s_bake.executed) {
 					ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
 					ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 					if (ImGui::Begin("Bake", &s_atlas.showTexture)) {
