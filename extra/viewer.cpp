@@ -15,6 +15,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <vector>
 #include <stdio.h>
 #include "bx/bx.h"
+#include "bx/commandline.h"
 #include "bx/math.h"
 #include "bgfx/bgfx.h"
 #include "bgfx/platform.h"
@@ -1506,8 +1507,9 @@ static void bakeFrame()
 	modelRenderMeshes(kRayBundleWriteView, s_bake.rayBundleWriteProgram, BGFX_STATE_WRITE_RGB | BGFX_STATE_CULL_CW, lightDir, nullptr);
 }
 
-int main(int /*argc*/, char ** /*argv*/)
+int main(int argc, char **argv)
 {
+	bx::CommandLine commandLine(argc, argv);
 	glfwSetErrorCallback(glfw_errorCallback);
 	if (!glfwInit())
 		return EXIT_FAILURE;
@@ -1518,6 +1520,8 @@ int main(int /*argc*/, char ** /*argv*/)
 	glfwMaximizeWindow(s_window);
 	bgfx::renderFrame();
 	bgfx::Init init;
+	if (commandLine.hasArg("gl"))
+		init.type = bgfx::RendererType::OpenGL;
 #if BX_PLATFORM_LINUX || BX_PLATFORM_BSD
 	init.platformData.ndt = glfwGetX11Display();
 	init.platformData.nwh = (void*)(uintptr_t)glfwGetX11Window(s_window);
