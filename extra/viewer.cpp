@@ -110,30 +110,6 @@ static bool s_showBgfxStats = false;
 
 struct
 {
-	bgfx::ProgramHandle program;
-	bgfx::UniformHandle u_color;
-}
-s_colorShader;
-
-struct
-{
-	bgfx::ProgramHandle program;
-	bgfx::UniformHandle u_diffuse;
-	bgfx::UniformHandle u_emission;
-	bgfx::UniformHandle u_lightDir;
-}
-s_flatShader;
-
-struct
-{
-	bgfx::ProgramHandle program;
-	bgfx::UniformHandle u_color;
-	bgfx::UniformHandle u_textureSize_cellSize;
-}
-s_checkerboardShader;
-
-struct
-{
 	bgfx::VertexDecl vertexDecl;
 	bgfx::TextureHandle font;
 	bgfx::ProgramHandle program;
@@ -202,6 +178,14 @@ struct
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle wireframeIb = BGFX_INVALID_HANDLE;
 	float scale = 1.0f;
+	bgfx::ProgramHandle colorProgram;
+	bgfx::ProgramHandle flatProgram;
+	bgfx::ProgramHandle checkerboardProgram;
+	bgfx::UniformHandle u_diffuse;
+	bgfx::UniformHandle u_emission;
+	bgfx::UniformHandle u_lightDir;
+	bgfx::UniformHandle u_color;
+	bgfx::UniformHandle u_textureSize_cellSize;
 }
 s_model;
 
@@ -591,36 +575,6 @@ static bgfx::ProgramHandle loadProgram(const char *name, ProgramSourceBundle sou
 	return program;
 }
 
-static void shadersInit()
-{
-	s_colorShader.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
-	s_colorShader.program = LOAD_PROGRAM(Color);
-	s_checkerboardShader.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
-	s_checkerboardShader.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize", bgfx::UniformType::Vec4);
-	s_checkerboardShader.program = LOAD_PROGRAM(Checkerboard);
-	s_flatShader.u_diffuse = bgfx::createUniform("u_diffuse", bgfx::UniformType::Vec4);
-	s_flatShader.u_emission = bgfx::createUniform("u_emission", bgfx::UniformType::Vec4);
-	s_flatShader.u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
-	s_flatShader.program = LOAD_PROGRAM(Flat);
-	s_gui.u_texture = bgfx::createUniform("u_texture", bgfx::UniformType::Sampler);
-	s_gui.program = LOAD_PROGRAM(Gui);
-}
-
-static void shadersShutdown()
-{
-	bgfx::destroy(s_colorShader.program);
-	bgfx::destroy(s_checkerboardShader.program);
-	bgfx::destroy(s_flatShader.program);
-	bgfx::destroy(s_gui.program);
-	bgfx::destroy(s_colorShader.u_color);
-	bgfx::destroy(s_checkerboardShader.u_color);
-	bgfx::destroy(s_checkerboardShader.u_textureSize_cellSize);
-	bgfx::destroy(s_flatShader.u_diffuse);
-	bgfx::destroy(s_flatShader.u_emission);
-	bgfx::destroy(s_flatShader.u_lightDir);
-	bgfx::destroy(s_gui.u_texture);
-}
-
 static void guiInit()
 {
 	bgfx::setViewMode(kGuiView, bgfx::ViewMode::Sequential);
@@ -668,12 +622,17 @@ static void guiInit()
 	.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
 	.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
 	.end();
+	// shader program
+	s_gui.u_texture = bgfx::createUniform("u_texture", bgfx::UniformType::Sampler);
+	s_gui.program = LOAD_PROGRAM(Gui);
 }
 
 static void guiShutdown()
 {
 	ImGui::DestroyContext();
 	bgfx::destroy(s_gui.font);
+	bgfx::destroy(s_gui.u_texture);
+	bgfx::destroy(s_gui.program);
 }
 
 static void guiResize(int width, int height)
@@ -738,37 +697,34 @@ static void guiRender()
 	}
 }
 
-static void atlasDestroy();
-
 static void modelInit()
 {
+	s_model.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
+	s_model.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize", bgfx::UniformType::Vec4);
+	s_model.u_diffuse = bgfx::createUniform("u_diffuse", bgfx::UniformType::Vec4);
+	s_model.u_emission = bgfx::createUniform("u_emission", bgfx::UniformType::Vec4);
+	s_model.u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
+	s_model.colorProgram = LOAD_PROGRAM(Color);
+	s_model.checkerboardProgram = LOAD_PROGRAM(Checkerboard);
+	s_model.flatProgram = LOAD_PROGRAM(Flat);
 	ModelVertex::init();
 	bgfx::setViewClear(kModelView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x444444ff);
 	bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);
 }
 
-static void modelDestroy()
+static void modelDestroy();
+
+static void modelShutdown()
 {
-	atlasDestroy();
-	if (s_model.thread) {
-		s_model.thread->join();
-		delete s_model.thread;
-		s_model.thread = nullptr;
-	}
-	if (s_model.data) {
-		objz_destroy(s_model.data);
-		s_model.data = nullptr;
-	}
-	if (bgfx::isValid(s_model.vb)) {
-		bgfx::destroy(s_model.vb);
-		bgfx::destroy(s_model.ib);
-		bgfx::destroy(s_model.wireframeIb);
-		s_model.vb = BGFX_INVALID_HANDLE;
-		s_model.ib = BGFX_INVALID_HANDLE;
-		s_model.wireframeIb = BGFX_INVALID_HANDLE;
-	}
-	glfwSetWindowTitle(s_window, WINDOW_TITLE);
-	s_model.status.set(ModelStatus::NotLoaded);
+	modelDestroy();
+	bgfx::destroy(s_model.u_color);
+	bgfx::destroy(s_model.u_textureSize_cellSize);
+	bgfx::destroy(s_model.u_diffuse);
+	bgfx::destroy(s_model.u_emission);
+	bgfx::destroy(s_model.u_lightDir);
+	bgfx::destroy(s_model.colorProgram);
+	bgfx::destroy(s_model.checkerboardProgram);
+	bgfx::destroy(s_model.flatProgram);
 }
 
 struct ModelLoadThreadArgs
@@ -847,13 +803,39 @@ static void modelOpenDialog()
 	free(filename);
 }
 
+static void atlasDestroy();
+
+static void modelDestroy()
+{
+	atlasDestroy();
+	if (s_model.thread) {
+		s_model.thread->join();
+		delete s_model.thread;
+		s_model.thread = nullptr;
+	}
+	if (s_model.data) {
+		objz_destroy(s_model.data);
+		s_model.data = nullptr;
+	}
+	if (bgfx::isValid(s_model.vb)) {
+		bgfx::destroy(s_model.vb);
+		bgfx::destroy(s_model.ib);
+		bgfx::destroy(s_model.wireframeIb);
+		s_model.vb = BGFX_INVALID_HANDLE;
+		s_model.ib = BGFX_INVALID_HANDLE;
+		s_model.wireframeIb = BGFX_INVALID_HANDLE;
+	}
+	glfwSetWindowTitle(s_window, WINDOW_TITLE);
+	s_model.status.set(ModelStatus::NotLoaded);
+}
+
 // Preserves draw state (except for the last mesh).
 static void modelRenderMeshes(bgfx::ViewId view, bgfx::ProgramHandle program, uint64_t state, const float *lightDir, const float *modelMatrix)
 {
 	bgfx::setState(state);
 	if (modelMatrix)
 		bgfx::setTransform(modelMatrix);
-	bgfx::setUniform(s_flatShader.u_lightDir, lightDir);
+	bgfx::setUniform(s_model.u_lightDir, lightDir);
 	bgfx::setVertexBuffer(0, s_model.vb);
 	for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
 		const objzMesh &mesh = s_model.data->meshes[i];
@@ -862,13 +844,13 @@ static void modelRenderMeshes(bgfx::ViewId view, bgfx::ProgramHandle program, ui
 		if (!mat) {
 			const float diffuse[] = { 0.75f, 0.75f, 0.75f, 1.0f };
 			const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			bgfx::setUniform(s_flatShader.u_diffuse, diffuse);
-			bgfx::setUniform(s_flatShader.u_emission, emission);
+			bgfx::setUniform(s_model.u_diffuse, diffuse);
+			bgfx::setUniform(s_model.u_emission, emission);
 		} else {
 			const float diffuse[] = { mat->diffuse[0], mat->diffuse[1], mat->diffuse[2], 1.0f };
 			const float emission[] = { mat->emission[0], mat->emission[1], mat->emission[2], 1.0f };
-			bgfx::setUniform(s_flatShader.u_diffuse, diffuse);
-			bgfx::setUniform(s_flatShader.u_emission, emission);
+			bgfx::setUniform(s_model.u_diffuse, diffuse);
+			bgfx::setUniform(s_model.u_emission, emission);
 		}
 		bgfx::submit(view, program, 0u, i != s_model.data->numMeshes - 1);
 	}
@@ -883,7 +865,7 @@ static void modelRender(const float *view, const float *projection)
 	bgfx::setViewTransform(kModelView, view, projection);
 	if (s_options.shadeMode == ShadeMode::Flat) {
 		const float lightDir[] = { view[2], view[6], view[10], 0 };
-		modelRenderMeshes(kModelView, s_flatShader.program, BGFX_STATE_DEFAULT, lightDir, modelMatrix);
+		modelRenderMeshes(kModelView, s_model.flatProgram, BGFX_STATE_DEFAULT, lightDir, modelMatrix);
 	} else if (s_options.shadeMode == ShadeMode::Charts && s_atlas.status.get() == AtlasStatus::Ready) {
 		srand(s_atlas.chartColorSeed);
 		uint32_t firstIndex = 0;
@@ -898,25 +880,25 @@ static void modelRender(const float *view, const float *projection)
 				color[1] = bcolor[1] / 255.0f;
 				color[2] = bcolor[2] / 255.0f;
 				color[3] = 1.0f;
-				bgfx::setUniform(s_checkerboardShader.u_color, color);
+				bgfx::setUniform(s_model.u_color, color);
 				float textureSize_cellSize[4];
 				textureSize_cellSize[0] = (float)s_atlas.data->width;
 				textureSize_cellSize[1] = (float)s_atlas.data->height;
 				textureSize_cellSize[2] = (float)s_atlas.chartCellSize;
 				textureSize_cellSize[3] = (float)s_atlas.chartCellSize;
-				bgfx::setUniform(s_checkerboardShader.u_textureSize_cellSize, textureSize_cellSize);
+				bgfx::setUniform(s_model.u_textureSize_cellSize, textureSize_cellSize);
 				bgfx::setState(BGFX_STATE_DEFAULT);
 				bgfx::setTransform(modelMatrix);
 				bgfx::setIndexBuffer(s_atlas.chartIb, firstIndex, chart.indexCount);
 				bgfx::setVertexBuffer(0, s_atlas.chartVb);
-				bgfx::submit(kModelView, s_checkerboardShader.program);
+				bgfx::submit(kModelView, s_model.checkerboardProgram);
 				firstIndex += chart.indexCount;
 			}
 		}
 	}
 	if (s_options.wireframe) {
 		const float color[] = { 1.0f, 1.0f, 1.0f, 0.5f };
-		bgfx::setUniform(s_colorShader.u_color, color);
+		bgfx::setUniform(s_model.u_color, color);
 		bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
 		bgfx::setTransform(modelMatrix);
 		if (s_options.wireframeMode == WireframeMode::Triangles) {
@@ -925,7 +907,7 @@ static void modelRender(const float *view, const float *projection)
 		} else if (s_atlas.status.get() == AtlasStatus::Ready && s_options.wireframeMode == WireframeMode::Charts) {
 			bgfx::setVertexBuffer(0, s_atlas.chartBoundaryVb);
 		}
-		bgfx::submit(kModelView, s_colorShader.program);
+		bgfx::submit(kModelView, s_model.colorProgram);
 	}
 }
 
@@ -1550,7 +1532,6 @@ int main(int /*argc*/, char ** /*argv*/)
 	init.resolution.height = (uint32_t)height;
 	init.resolution.reset = BGFX_RESET_VSYNC;
 	bgfx::init(init);
-	shadersInit();
 	guiInit();
 	modelInit();
 	atlasInit();
@@ -1845,8 +1826,7 @@ int main(int /*argc*/, char ** /*argv*/)
 	guiShutdown();
 	bakeShutdown();
 	atlasDestroy();
-	modelDestroy();
-	shadersShutdown();
+	modelShutdown();
 	bgfx::shutdown();
 	glfwTerminate();
 	return 0;
