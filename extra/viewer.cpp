@@ -831,18 +831,28 @@ static void modelDestroy()
 	s_model.status.set(ModelStatus::NotLoaded);
 }
 
-// Preserves draw state (except for the last mesh).
-static void modelRenderMeshes(bgfx::ViewId view, bgfx::ProgramHandle program, uint64_t state, const float *lightDir, const float *modelMatrix)
+struct ModelRenderMeshData
 {
-	bgfx::setState(state);
-	if (modelMatrix)
-		bgfx::setTransform(modelMatrix);
-	bgfx::setUniform(s_model.u_lightDir, lightDir);
-	bgfx::setVertexBuffer(0, s_model.vb);
+	const float *lightDir;
+	const float *modelMatrix;
+};
+
+static void modelRenderMesh(void *userData)
+{
+	auto data = (const ModelRenderMeshData *)userData;
+	bgfx::setState(BGFX_STATE_DEFAULT);
+	bgfx::setTransform(data->modelMatrix);
+	bgfx::setUniform(s_model.u_lightDir, data->lightDir);
+	bgfx::submit(kModelView, s_model.flatProgram);
+}
+
+static void modelRenderMeshes(void (*meshCallback)(void *userData), void *userData)
+{
 	for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
 		const objzMesh &mesh = s_model.data->meshes[i];
 		const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
 		bgfx::setIndexBuffer(s_model.ib, mesh.firstIndex, mesh.numIndices);
+		bgfx::setVertexBuffer(0, s_model.vb);
 		if (!mat) {
 			const float diffuse[] = { 0.75f, 0.75f, 0.75f, 1.0f };
 			const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -854,7 +864,7 @@ static void modelRenderMeshes(bgfx::ViewId view, bgfx::ProgramHandle program, ui
 			bgfx::setUniform(s_model.u_diffuse, diffuse);
 			bgfx::setUniform(s_model.u_emission, emission);
 		}
-		bgfx::submit(view, program, 0u, i != s_model.data->numMeshes - 1);
+		meshCallback(userData);
 	}
 }
 
@@ -867,7 +877,10 @@ static void modelRender(const float *view, const float *projection)
 	bgfx::setViewTransform(kModelView, view, projection);
 	if (s_options.shadeMode == ShadeMode::Flat) {
 		const float lightDir[] = { view[2], view[6], view[10], 0 };
-		modelRenderMeshes(kModelView, s_model.flatProgram, BGFX_STATE_DEFAULT, lightDir, modelMatrix);
+		ModelRenderMeshData data;
+		data.lightDir = lightDir;
+		data.modelMatrix = modelMatrix;
+		modelRenderMeshes(modelRenderMesh, &data);
 	} else if (s_options.shadeMode == ShadeMode::Charts && s_atlas.status.get() == AtlasStatus::Ready) {
 		srand(s_atlas.chartColorSeed);
 		uint32_t firstIndex = 0;
@@ -1475,6 +1488,24 @@ static void bakeExecute()
 	s_bake.executed = true;
 }
 
+struct BakeRenderModelMeshData
+{
+	const float *lightDir;
+};
+
+static void bakeRenderModelMesh(void *userData)
+{
+	auto data = (const BakeRenderModelMeshData *)userData;
+	bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
+	bgfx::setTexture(2, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
+	bgfx::setTexture(3, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
+	const float dataResolution[] = { (float)s_bake.rayBundleDataResolution, 0.0f, 0.0f, 0.0f };
+	bgfx::setUniform(s_bake.u_rayBundleDataResolution, dataResolution);
+	bgfx::setUniform(s_model.u_lightDir, data->lightDir);
+	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_CULL_CW);
+	bgfx::submit(kRayBundleWriteView, s_bake.rayBundleWriteProgram);
+}
+
 static void setScreenSpaceQuadVertexBuffer()
 {
 	const uint32_t nVerts = 3;
@@ -1532,18 +1563,18 @@ static void bakeFrame()
 	bx::mtxOrtho(projection, aabb.min.x, aabb.max.x, aabb.min.y, aabb.max.y, -aabb.max.z, -aabb.min.z, 0.0f, bgfx::getCaps()->homogeneousDepth, bx::Handness::Right);
 	bgfx::setViewRect(kRayBundleWriteView, 0, 0, s_bake.rayBundleResolution, s_bake.rayBundleResolution);
 	bgfx::setViewTransform(kRayBundleWriteView, view, projection);
-	bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
-	bgfx::setTexture(2, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
-	bgfx::setTexture(3, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
-	const float dataResolution[] = { (float)s_bake.rayBundleDataResolution, 0.0f, 0.0f, 0.0f };
-	bgfx::setUniform(s_bake.u_rayBundleDataResolution, dataResolution);
-	const float lightDir[] = { view[2], view[6], view[10], 0.0f };
-	modelRenderMeshes(kRayBundleWriteView, s_bake.rayBundleWriteProgram, BGFX_STATE_WRITE_RGB | BGFX_STATE_CULL_CW, lightDir, nullptr);
+	{
+		const float lightDir[] = { view[2], view[6], view[10], 0.0f };
+		BakeRenderModelMeshData data;
+		data.lightDir = lightDir;
+		modelRenderMeshes(bakeRenderModelMesh, &data);
+	}
 	// Ray bundle resolve.
 	bgfx::setViewRect(kRayBundleResolveView, 0, 0, s_bake.rayBundleResolution, s_bake.rayBundleResolution);
 	bgfx::setViewTransform(kRayBundleResolveView, nullptr, fsOrtho);
 	bgfx::setTexture(0, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
 	bgfx::setTexture(1, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
+	const float dataResolution[] = { (float)s_bake.rayBundleDataResolution, 0.0f, 0.0f, 0.0f };
 	bgfx::setUniform(s_bake.u_rayBundleDataResolution, dataResolution);
 	setScreenSpaceQuadVertexBuffer();
 	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
