@@ -1437,7 +1437,6 @@ static void bakeShutdown()
 	bgfx::destroy(s_bake.u_rayBundleHeaderSampler);
 	bgfx::destroy(s_bake.u_rayBundleDataSampler);
 	// framebuffers
-	bgfx::destroy(s_bake.atomicCounterTexture);
 	bgfx::destroy(s_bake.atomicCounterFb);
 	bgfx::destroy(s_bake.rayBundleTarget);
 	bgfx::destroy(s_bake.rayBundleHeader);
@@ -1464,10 +1463,12 @@ static void bakeExecute()
 		s_bake.rayBundleWriteProgram = LOAD_PROGRAM(RayBundleWrite);
 		// framebuffers
 		{
+			bgfx::TextureHandle target = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
 			s_bake.atomicCounterTexture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
-			bgfx::Attachment attachment;
-			attachment.init(s_bake.atomicCounterTexture, bgfx::Access::Write);
-			s_bake.atomicCounterFb = bgfx::createFrameBuffer(1, &attachment);
+			bgfx::Attachment attachments[2];
+			attachments[0].init(target);
+			attachments[1].init(s_bake.atomicCounterTexture, bgfx::Access::Write);
+			s_bake.atomicCounterFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments, true);
 		}
 		{
 			s_bake.rayBundleTarget = bgfx::createTexture2D(s_bake.rayBundleResolution, s_bake.rayBundleResolution, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
