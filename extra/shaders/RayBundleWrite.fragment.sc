@@ -1,4 +1,4 @@
-$input v_normal
+$input v_normal, v_texcoord0
 
 #include <bgfx_compute.sh>
 
@@ -14,7 +14,7 @@ uniform vec4 u_rayBundleDataResolution;
 
 ivec2 dataUv(uint offset, uint pixel)
 {
-	return ivec2((offset * 2u + pixel) % u_dataResolution, (offset * 2u + pixel) / u_dataResolution);
+	return ivec2((offset * 3u + pixel) % u_dataResolution, (offset * 3u + pixel) / u_dataResolution);
 }
 
 void main()
@@ -23,7 +23,7 @@ void main()
 	vec3 color = u_diffuse.rgb * (dot(v_normal, u_lightDir.xyz) * 0.5 + 0.5) + u_emission.rgb; // half lambert
 #if BGFX_SHADER_LANGUAGE_GLSL
 	uint newOffset = imageAtomicAdd(u_atomicCounterSampler, ivec2(0, 0), 1u);
-	if (newOffset >= u_dataResolution * u_dataResolution * 2u) {
+	if (newOffset >= u_dataResolution * u_dataResolution * 3u) {
 		discard;
 		return;
 	}
@@ -38,7 +38,13 @@ void main()
 	normal_depth.y = floatBitsToUint(v_normal.g);
 	normal_depth.z = floatBitsToUint(v_normal.b);
 	normal_depth.w = floatBitsToUint(gl_FragCoord.z);
+	uvec4 texcoord;
+	texcoord.x = floatBitsToUint(v_texcoord0.z);
+	texcoord.y = floatBitsToUint(v_texcoord0.w);
+	texcoord.z = 0u;
+	texcoord.w = 0u;
 	imageStore(u_rayBundleDataSampler, dataUv(newOffset, 0u), color_offset);
 	imageStore(u_rayBundleDataSampler, dataUv(newOffset, 1u), normal_depth);
+	imageStore(u_rayBundleDataSampler, dataUv(newOffset, 2u), texcoord);
 #endif
 }

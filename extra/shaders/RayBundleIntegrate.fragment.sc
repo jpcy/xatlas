@@ -8,13 +8,14 @@ uniform vec4 u_rayBundleDataResolution;
 
 ivec2 dataUv(uint offset, uint pixel)
 {
-	return ivec2((offset * 2u + pixel) % u_dataResolution, (offset * 2u + pixel) / u_dataResolution);
+	return ivec2((offset * 3u + pixel) % u_dataResolution, (offset * 3u + pixel) / u_dataResolution);
 }
 
 struct Node
 {
 	vec3 color;
 	float depth;
+	vec2 texcoord;
 };
 
 #define MAX_NODES 16
@@ -29,10 +30,12 @@ void main()
 		while (offset != 0xffffffff && numNodes < MAX_NODES) {
 			uvec4 color_offset = texelFetch(u_rayBundleDataSampler, dataUv(offset, 0u), 0);
 			uvec4 normal_depth = texelFetch(u_rayBundleDataSampler, dataUv(offset, 1u), 0);
+			uvec4 texcoord = texelFetch(u_rayBundleDataSampler, dataUv(offset, 2u), 0);
 			nodes[numNodes].color.r = uintBitsToFloat(color_offset.r);
 			nodes[numNodes].color.g = uintBitsToFloat(color_offset.g);
 			nodes[numNodes].color.b = uintBitsToFloat(color_offset.b);
 			nodes[numNodes].depth = uintBitsToFloat(normal_depth.w);
+			nodes[numNodes].texcoord = vec2(uintBitsToFloat(texcoord.x), uintBitsToFloat(texcoord.y));
 			offset = color_offset.w;
 			numNodes++;
 		}

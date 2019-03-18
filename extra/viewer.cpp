@@ -1463,21 +1463,27 @@ static void bakeExecute()
 		s_bake.rayBundleIntegrateProgram = LOAD_PROGRAM(RayBundleIntegrate);
 		s_bake.rayBundleWriteProgram = LOAD_PROGRAM(RayBundleWrite);
 		// framebuffers
-		s_bake.atomicCounterTexture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
-		bgfx::Attachment attachment;
-		attachment.init(s_bake.atomicCounterTexture, bgfx::Access::Write);
-		s_bake.atomicCounterFb = bgfx::createFrameBuffer(1, &attachment);
-		s_bake.rayBundleTarget = bgfx::createTexture2D(s_bake.rayBundleResolution, s_bake.rayBundleResolution, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
-		s_bake.rayBundleHeader = bgfx::createTexture2D(s_bake.rayBundleResolution, s_bake.rayBundleResolution, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
-		s_bake.rayBundleData = bgfx::createTexture2D(8192, 8192, false, 1, bgfx::TextureFormat::RGBA32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
-		bgfx::Attachment attachments[4];
-		attachments[0].init(s_bake.rayBundleTarget);
-		attachments[1].init(s_bake.atomicCounterTexture, bgfx::Access::ReadWrite);
-		attachments[2].init(s_bake.rayBundleHeader, bgfx::Access::ReadWrite);
-		attachments[3].init(s_bake.rayBundleData, bgfx::Access::ReadWrite); // should be Write, but doesn't work
-		s_bake.rayBundleFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
-		s_bake.lightmap = bgfx::createTexture2D(s_bake.rayBundleResolution, s_bake.rayBundleResolution, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_RT);
-		s_bake.rayBundleIntegrateFb = bgfx::createFrameBuffer(1, &s_bake.lightmap);
+		{
+			s_bake.atomicCounterTexture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+			bgfx::Attachment attachment;
+			attachment.init(s_bake.atomicCounterTexture, bgfx::Access::Write);
+			s_bake.atomicCounterFb = bgfx::createFrameBuffer(1, &attachment);
+		}
+		{
+			s_bake.rayBundleTarget = bgfx::createTexture2D(s_bake.rayBundleResolution, s_bake.rayBundleResolution, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+			s_bake.rayBundleHeader = bgfx::createTexture2D(s_bake.rayBundleResolution, s_bake.rayBundleResolution, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+			s_bake.rayBundleData = bgfx::createTexture2D(8192, 8192, false, 1, bgfx::TextureFormat::RGBA32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+			bgfx::Attachment attachments[4];
+			attachments[0].init(s_bake.rayBundleTarget);
+			attachments[1].init(s_bake.atomicCounterTexture, bgfx::Access::ReadWrite);
+			attachments[2].init(s_bake.rayBundleHeader, bgfx::Access::ReadWrite);
+			attachments[3].init(s_bake.rayBundleData, bgfx::Access::ReadWrite); // should be Write, but doesn't work
+			s_bake.rayBundleFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
+		}
+		{
+			s_bake.lightmap = bgfx::createTexture2D(s_bake.rayBundleResolution, s_bake.rayBundleResolution, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_RT);
+			s_bake.rayBundleIntegrateFb = bgfx::createFrameBuffer(1, &s_bake.lightmap);
+		}
 		// views
 		bgfx::setViewFrameBuffer(kAtomicCounterClearView, s_bake.atomicCounterFb);
 		bgfx::setViewRect(kAtomicCounterClearView, 0, 0, 1, 1);
