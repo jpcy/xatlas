@@ -104,6 +104,8 @@ static const bgfx::ViewId kRayBundleClearView = 3;
 static const bgfx::ViewId kRayBundleWriteView = 4;
 static const bgfx::ViewId kRayBundleResolveView = 5;
 
+static const bgfx::ViewId kNumBakeViews = 4;
+
 static const uint8_t kPaletteBlack = 0;
 
 static GLFWwindow *s_window;
@@ -260,14 +262,16 @@ struct
 	int currentTexture;
 	std::vector<bgfx::TextureHandle> chartsTextures;
 	std::vector<std::vector<uint8_t>> chartsImages;
-	bgfx::VertexBufferHandle chartVb = BGFX_INVALID_HANDLE;
+	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
+	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle chartIb = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle chartBoundaryVb = BGFX_INVALID_HANDLE;
 	xatlas::ChartOptions chartOptions;
 	xatlas::PackOptions packOptions;
 	ParamMethod paramMethod = ParamMethod::LSCM;
 	bool paramMethodChanged = false;
-	std::vector<ModelVertex> chartVertices;
+	std::vector<ModelVertex> vertices;
+	std::vector<uint32_t> indices;
 	std::vector<uint32_t> chartIndices;
 	std::vector<bx::Vec3> chartBoundaryVertices;
 	bgfx::VertexDecl wireVertexDecl;
@@ -831,40 +835,18 @@ static void modelDestroy()
 	s_model.status.set(ModelStatus::NotLoaded);
 }
 
-struct ModelRenderMeshData
+static void modelSetMaterialUniforms(const objzMaterial *mat)
 {
-	const float *lightDir;
-	const float *modelMatrix;
-};
-
-static void modelRenderMesh(void *userData)
-{
-	auto data = (const ModelRenderMeshData *)userData;
-	bgfx::setState(BGFX_STATE_DEFAULT);
-	bgfx::setTransform(data->modelMatrix);
-	bgfx::setUniform(s_model.u_lightDir, data->lightDir);
-	bgfx::submit(kModelView, s_model.flatProgram);
-}
-
-static void modelRenderMeshes(void (*meshCallback)(void *userData), void *userData)
-{
-	for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
-		const objzMesh &mesh = s_model.data->meshes[i];
-		const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
-		bgfx::setIndexBuffer(s_model.ib, mesh.firstIndex, mesh.numIndices);
-		bgfx::setVertexBuffer(0, s_model.vb);
-		if (!mat) {
-			const float diffuse[] = { 0.75f, 0.75f, 0.75f, 1.0f };
-			const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-			bgfx::setUniform(s_model.u_diffuse, diffuse);
-			bgfx::setUniform(s_model.u_emission, emission);
-		} else {
-			const float diffuse[] = { mat->diffuse[0], mat->diffuse[1], mat->diffuse[2], 1.0f };
-			const float emission[] = { mat->emission[0], mat->emission[1], mat->emission[2], 1.0f };
-			bgfx::setUniform(s_model.u_diffuse, diffuse);
-			bgfx::setUniform(s_model.u_emission, emission);
-		}
-		meshCallback(userData);
+	if (!mat) {
+		const float diffuse[] = { 0.75f, 0.75f, 0.75f, 1.0f };
+		const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		bgfx::setUniform(s_model.u_diffuse, diffuse);
+		bgfx::setUniform(s_model.u_emission, emission);
+	} else {
+		const float diffuse[] = { mat->diffuse[0], mat->diffuse[1], mat->diffuse[2], 1.0f };
+		const float emission[] = { mat->emission[0], mat->emission[1], mat->emission[2], 1.0f };
+		bgfx::setUniform(s_model.u_diffuse, diffuse);
+		bgfx::setUniform(s_model.u_emission, emission);
 	}
 }
 
@@ -877,10 +859,22 @@ static void modelRender(const float *view, const float *projection)
 	bgfx::setViewTransform(kModelView, view, projection);
 	if (s_options.shadeMode == ShadeMode::Flat) {
 		const float lightDir[] = { view[2], view[6], view[10], 0 };
-		ModelRenderMeshData data;
-		data.lightDir = lightDir;
-		data.modelMatrix = modelMatrix;
-		modelRenderMeshes(modelRenderMesh, &data);
+		for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
+			const objzMesh &mesh = s_model.data->meshes[i];
+			const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
+			if (s_atlas.status.get() == AtlasStatus::Ready) {
+				bgfx::setIndexBuffer(s_atlas.ib, mesh.firstIndex, mesh.numIndices);
+				bgfx::setVertexBuffer(0, s_atlas.vb);
+			} else {
+				bgfx::setIndexBuffer(s_model.ib, mesh.firstIndex, mesh.numIndices);
+				bgfx::setVertexBuffer(0, s_model.vb);
+			}
+			bgfx::setState(BGFX_STATE_DEFAULT);
+			bgfx::setTransform(modelMatrix);
+			bgfx::setUniform(s_model.u_lightDir, lightDir);
+			modelSetMaterialUniforms(mat);
+			bgfx::submit(kModelView, s_model.flatProgram);
+		}
 	} else if (s_options.shadeMode == ShadeMode::Charts && s_atlas.status.get() == AtlasStatus::Ready) {
 		srand(s_atlas.chartColorSeed);
 		uint32_t firstIndex = 0;
@@ -905,7 +899,7 @@ static void modelRender(const float *view, const float *projection)
 				bgfx::setState(BGFX_STATE_DEFAULT);
 				bgfx::setTransform(modelMatrix);
 				bgfx::setIndexBuffer(s_atlas.chartIb, firstIndex, chart.indexCount);
-				bgfx::setVertexBuffer(0, s_atlas.chartVb);
+				bgfx::setVertexBuffer(0, s_atlas.vb);
 				bgfx::submit(kModelView, s_model.checkerboardProgram);
 				firstIndex += chart.indexCount;
 			}
@@ -956,10 +950,12 @@ static void atlasDestroy()
 			s_atlas.chartsTextures[i] = BGFX_INVALID_HANDLE;
 		}
 	}
-	if (bgfx::isValid(s_atlas.chartVb)) {
-		bgfx::destroy(s_atlas.chartVb);
+	if (bgfx::isValid(s_atlas.vb)) {
+		bgfx::destroy(s_atlas.vb);
+		bgfx::destroy(s_atlas.ib);
 		bgfx::destroy(s_atlas.chartIb);
-		s_atlas.chartVb = BGFX_INVALID_HANDLE;
+		s_atlas.vb = BGFX_INVALID_HANDLE;
+		s_atlas.ib = BGFX_INVALID_HANDLE;
 		s_atlas.chartIb = BGFX_INVALID_HANDLE;
 	}
 	if (bgfx::isValid(s_atlas.chartBoundaryVb)) {
@@ -1238,8 +1234,9 @@ static void atlasGenerateThread()
 		}
 	}
 	// Copy charts for rendering.
+	s_atlas.vertices.clear();
+	s_atlas.indices.clear();
 	s_atlas.chartIndices.clear();
-	s_atlas.chartVertices.clear();
 	s_atlas.chartBoundaryVertices.clear();
 	uint32_t numIndices = 0, numVertices = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -1247,20 +1244,25 @@ static void atlasGenerateThread()
 		numIndices += outputMesh.indexCount;
 		numVertices += outputMesh.vertexCount;
 	}
+	s_atlas.vertices.resize(numVertices);
+	s_atlas.indices.resize(numIndices);
 	s_atlas.chartIndices.resize(numIndices);
-	s_atlas.chartVertices.resize(numVertices);
 	uint32_t firstIndex = 0;
+	uint32_t firstChartIndex = 0;
 	uint32_t firstVertex = 0;
 	numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		const objzObject &object = s_model.data->objects[i];
 		const ModelVertex *oldVertices = &((const ModelVertex *)s_model.data->vertices)[object.firstVertex];
+		for (uint32_t j = 0; j < mesh.indexCount; j++)
+			s_atlas.indices[firstIndex + j] = firstVertex + mesh.indexArray[j];
+		firstIndex += mesh.indexCount;
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
 			for (uint32_t k = 0; k < chart.indexCount; k++)
-				s_atlas.chartIndices[firstIndex + k] = firstVertex + chart.indexArray[k];
-			firstIndex += chart.indexCount;
+				s_atlas.chartIndices[firstChartIndex + k] = firstVertex + chart.indexArray[k];
+			firstChartIndex += chart.indexCount;
 			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
 				for (int l = 0; l < 3; l++) {
 					if (boundaryEdges[numEdges]) {
@@ -1276,7 +1278,7 @@ static void atlasGenerateThread()
 		for (uint32_t j = 0; j < mesh.vertexCount; j++) {
 			const xatlas::Vertex &outputVertex = mesh.vertexArray[j];
 			const ModelVertex &oldVertex = oldVertices[outputVertex.xref];
-			ModelVertex &v = s_atlas.chartVertices[firstVertex + j];
+			ModelVertex &v = s_atlas.vertices[firstVertex + j];
 			v.pos = oldVertex.pos;
 			v.normal = oldVertex.normal;
 			v.texcoord[0] = oldVertex.texcoord[0];
@@ -1286,6 +1288,26 @@ static void atlasGenerateThread()
 		}
 		firstVertex += mesh.vertexCount;
 	}
+	/*for (int i = 0; i < (int)s_atlas.atlas->meshCount; i++)
+	{
+		const xatlas::Mesh &outputMesh = s_atlas.atlas->meshes[i];
+		const objzObject &object = s_model.data->objects[i];
+		const int firstIndex = (int)indices.size();
+		indices.resize(indices.size() + outputMesh.indexCount);
+		for (int j = 0; j < (int)outputMesh.indexCount; j++)
+			indices[firstIndex + j] = (uint32_t)vertices.size() + outputMesh.indexArray[j];
+		const int firstVertex = (int)vertices.size();
+		vertices.resize(vertices.size() + outputMesh.vertexCount);
+		for (int j = 0; j < (int)outputMesh.vertexCount; j++)
+		{
+			const xatlas::Vertex &outputVertex = outputMesh.vertexArray[j];
+			const ModelVertex &oldVertex = ((const ModelVertex *)s_model.data->vertices)[object.firstVertex + outputVertex.xref];
+			ModelVertex &v = vertices[firstVertex + j];
+			v.pos = oldVertex.pos;
+			v.normal = oldVertex.normal;
+			v.texcoord = vec4(oldVertex.texcoord.x, oldVertex.texcoord.y, outputVertex.uv[0] / (float)width, outputVertex.uv[1] / (float)height);
+		}
+	}*/
 	// Rasterize charts to texture(s) for previewing UVs.
 	s_atlas.chartsImages.resize(s_atlas.data->atlasCount);
 	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsImages.size(); i++) {
@@ -1340,7 +1362,8 @@ static void atlasFinalize()
 		s_atlas.thread = nullptr;
 	}
 	// Charts geometry.
-	s_atlas.chartVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartVertices.data(), uint32_t(s_atlas.chartVertices.size() * sizeof(ModelVertex))), ModelVertex::decl);
+	s_atlas.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.vertices.data(), uint32_t(s_atlas.vertices.size() * sizeof(ModelVertex))), ModelVertex::decl);
+	s_atlas.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.indices.data(), uint32_t(s_atlas.indices.size() * sizeof(uint32_t))), BGFX_BUFFER_INDEX32);
 	s_atlas.chartIb = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.chartIndices.data(), uint32_t(s_atlas.chartIndices.size() * sizeof(uint32_t))), BGFX_BUFFER_INDEX32);
 	// Chart boundaries.
 	s_atlas.chartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartBoundaryVertices.data(), uint32_t(s_atlas.chartBoundaryVertices.size() * sizeof(bx::Vec3))), s_atlas.wireVertexDecl);
@@ -1391,14 +1414,19 @@ struct
 	bool enabled;
 	bool initialized = false;
 	bool executed = false;
+	bool finished = false;
+	int numDirections = 1000;
+	int directionCount;
 	uint32_t lightmapWidth, lightmapHeight;
 	// programs
 	bgfx::ProgramHandle atomicCounterClearProgram;
 	bgfx::ProgramHandle rayBundleClearProgram;
 	bgfx::ProgramHandle rayBundleWriteProgram;
 	bgfx::ProgramHandle rayBundleIntegrateProgram;
+	bgfx::ProgramHandle lightmapClearProgram;
 	// uniforms
 	bgfx::UniformHandle u_lightmapSize_dataSize;
+	bgfx::UniformHandle u_rayNormal;
 	bgfx::UniformHandle u_atomicCounterSampler;
 	bgfx::UniformHandle u_rayBundleHeaderSampler;
 	bgfx::UniformHandle u_rayBundleDataSampler;
@@ -1411,6 +1439,9 @@ struct
 	bgfx::TextureHandle rayBundleTarget;
 	bgfx::TextureHandle rayBundleHeader;
 	bgfx::TextureHandle rayBundleData;
+	// lightmap clear
+	bgfx::FrameBufferHandle lightmapClearFb;
+	bgfx::TextureHandle lightmapClearTarget;
 	// ray bundle resolve
 	bgfx::FrameBufferHandle rayBundleIntegrateFb;
 	bgfx::TextureHandle rayBundleIntegrateTarget;
@@ -1435,20 +1466,24 @@ static void bakeShutdown()
 	bgfx::destroy(s_bake.rayBundleClearProgram);
 	bgfx::destroy(s_bake.rayBundleWriteProgram);
 	bgfx::destroy(s_bake.rayBundleIntegrateProgram);
+	bgfx::destroy(s_bake.lightmapClearProgram);
 	bgfx::destroy(s_bake.u_lightmapSize_dataSize);
+	bgfx::destroy(s_bake.u_rayNormal);
 	bgfx::destroy(s_bake.u_atomicCounterSampler);
 	bgfx::destroy(s_bake.u_rayBundleHeaderSampler);
 	bgfx::destroy(s_bake.u_rayBundleDataSampler);
 	bgfx::destroy(s_bake.u_lightmapSampler);
 	// framebuffers
 	bgfx::destroy(s_bake.atomicCounterFb);
+	bgfx::destroy(s_bake.rayBundleFb);
 	bgfx::destroy(s_bake.rayBundleTarget);
 	bgfx::destroy(s_bake.rayBundleHeader);
 	bgfx::destroy(s_bake.rayBundleData);
-	bgfx::destroy(s_bake.rayBundleFb);
+	bgfx::destroy(s_bake.lightmapClearFb);
+	bgfx::destroy(s_bake.lightmapClearTarget);
+	bgfx::destroy(s_bake.rayBundleIntegrateFb);
 	bgfx::destroy(s_bake.rayBundleIntegrateTarget);
 	bgfx::destroy(s_bake.lightmap);
-	bgfx::destroy(s_bake.rayBundleIntegrateFb);
 }
 
 static void bakeExecute()
@@ -1458,14 +1493,16 @@ static void bakeExecute()
 	if (!s_bake.initialized) {
 		// shaders
 		s_bake.u_lightmapSize_dataSize = bgfx::createUniform("u_lightmapSize_dataSize", bgfx::UniformType::Vec4);
+		s_bake.u_rayNormal = bgfx::createUniform("u_rayNormal", bgfx::UniformType::Vec4);
 		s_bake.u_atomicCounterSampler = bgfx::createUniform("u_atomicCounterSampler", bgfx::UniformType::Sampler);
 		s_bake.u_rayBundleHeaderSampler = bgfx::createUniform("u_rayBundleHeaderSampler", bgfx::UniformType::Sampler);
 		s_bake.u_rayBundleDataSampler = bgfx::createUniform("u_rayBundleDataSampler", bgfx::UniformType::Sampler);
 		s_bake.u_lightmapSampler = bgfx::createUniform("u_lightmapSampler", bgfx::UniformType::Sampler);
 		s_bake.atomicCounterClearProgram = LOAD_PROGRAM(AtomicCounterClear);
 		s_bake.rayBundleClearProgram = LOAD_PROGRAM(RayBundleClear);
-		s_bake.rayBundleIntegrateProgram = LOAD_PROGRAM(RayBundleIntegrate);
 		s_bake.rayBundleWriteProgram = LOAD_PROGRAM(RayBundleWrite);
+		s_bake.rayBundleIntegrateProgram = LOAD_PROGRAM(RayBundleIntegrate);
+		s_bake.lightmapClearProgram = LOAD_PROGRAM(LightmapClear);
 		// framebuffers
 		{
 			bgfx::TextureHandle target = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
@@ -1486,51 +1523,52 @@ static void bakeExecute()
 			attachments[3].init(s_bake.rayBundleData, bgfx::Access::ReadWrite); // should be Write, but doesn't work
 			s_bake.rayBundleFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
 		}
-		// views
-		bgfx::setViewFrameBuffer(kAtomicCounterClearView, s_bake.atomicCounterFb);
-		bgfx::setViewRect(kAtomicCounterClearView, 0, 0, 1, 1);
-		bgfx::setViewFrameBuffer(kRayBundleClearView, s_bake.rayBundleFb);
-		bgfx::setViewFrameBuffer(kRayBundleWriteView, s_bake.rayBundleFb);
 	}
 	// Re-create lightmap if atlas resolution has changed.
 	if (!s_bake.initialized || s_bake.lightmapWidth != s_atlas.data->width || s_bake.lightmapHeight != s_atlas.data->height) {
 		if (s_bake.initialized) {
+			bgfx::destroy(s_bake.lightmapClearFb);
+			bgfx::destroy(s_bake.lightmapClearTarget);
 			bgfx::destroy(s_bake.rayBundleIntegrateFb);
 			bgfx::destroy(s_bake.rayBundleIntegrateTarget);
 			bgfx::destroy(s_bake.lightmap);
 		}
 		s_bake.lightmapWidth = s_atlas.data->width;
 		s_bake.lightmapHeight = s_atlas.data->height;
-		s_bake.rayBundleIntegrateTarget = bgfx::createTexture2D(s_bake.rbTextureSize, s_bake.rbTextureSize, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
-		s_bake.lightmap = bgfx::createTexture2D(s_bake.rbTextureSize, s_bake.rbTextureSize, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_COMPUTE_WRITE);
-		bgfx::Attachment attachments[4];
-		attachments[0].init(s_bake.rayBundleIntegrateTarget);
-		attachments[1].init(s_bake.rayBundleHeader, bgfx::Access::Read);
-		attachments[2].init(s_bake.rayBundleData, bgfx::Access::Read);
-		attachments[3].init(s_bake.lightmap, bgfx::Access::ReadWrite);
-		s_bake.rayBundleIntegrateFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
-		bgfx::setViewFrameBuffer(kRayBundleResolveView, s_bake.rayBundleIntegrateFb);
+		{
+			s_bake.rayBundleIntegrateTarget = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
+			s_bake.lightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_COMPUTE_WRITE);
+			bgfx::Attachment attachments[4];
+			attachments[0].init(s_bake.rayBundleIntegrateTarget);
+			attachments[1].init(s_bake.rayBundleHeader, bgfx::Access::Read);
+			attachments[2].init(s_bake.rayBundleData, bgfx::Access::Read);
+			attachments[3].init(s_bake.lightmap, bgfx::Access::ReadWrite);
+			s_bake.rayBundleIntegrateFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
+		}
+		{
+			s_bake.lightmapClearTarget = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
+			bgfx::Attachment attachments[2];
+			attachments[0].init(s_bake.lightmapClearTarget);
+			attachments[1].init(s_bake.lightmap, bgfx::Access::ReadWrite);
+			s_bake.lightmapClearFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
+		}
 	}
 	s_bake.initialized = true;
 	s_bake.executed = true;
+	s_bake.directionCount = 0;
 }
 
-struct BakeRenderModelMeshData
+// https://en.wikipedia.org/wiki/Halton_sequence
+static float haltonSequence(int index, int base)
 {
-	const float *lightDir;
-};
-
-static void bakeRenderModelMesh(void *userData)
-{
-	auto data = (const BakeRenderModelMeshData *)userData;
-	bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
-	bgfx::setTexture(2, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
-	bgfx::setTexture(3, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
-	const float sizes[] = { (float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight, (float)s_bake.rbDataTextureSize, 0.0f };
-	bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
-	bgfx::setUniform(s_model.u_lightDir, data->lightDir);
-	bgfx::setState(BGFX_STATE_WRITE_RGB);
-	bgfx::submit(kRayBundleWriteView, s_bake.rayBundleWriteProgram);
+	float result = 0;
+	float f = 1;
+	while (index > 0) {
+		f /= base;
+		result += f * (index % base);
+		index = (int)bx::floor(index / (float)base);
+	}
+	return result;
 }
 
 static void setScreenSpaceQuadVertexBuffer()
@@ -1554,64 +1592,92 @@ static void bakeFrame()
 {
 	if (!s_bake.executed)
 		return;
-	float fsOrtho[16];
-	bx::mtxOrtho(fsOrtho, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
-	// Atomic counter clear.
-	bgfx::setViewTransform(kAtomicCounterClearView, nullptr, fsOrtho);
-	bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
-	setScreenSpaceQuadVertexBuffer();
-	bgfx::setState(BGFX_STATE_WRITE_RGB);
-	bgfx::submit(kAtomicCounterClearView, s_bake.atomicCounterClearProgram);
-	// Ray bundle clear.
-	bgfx::setViewRect(kRayBundleClearView, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
-	bgfx::setViewTransform(kRayBundleClearView, nullptr, fsOrtho);
-	bgfx::setTexture(2, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
-	setScreenSpaceQuadVertexBuffer();
-	bgfx::setState(BGFX_STATE_WRITE_RGB);
-	bgfx::submit(kRayBundleClearView, s_bake.rayBundleClearProgram);
-	// Ray bundle write.
-	float rx = bx::toRad(s_camera.orbit.yaw);
-	float ry = bx::toRad(s_camera.orbit.pitch);
-	float rz = bx::toRad(s_camera.orbit.distance * 10.0f);
-	float rotation[16];
-	bx::mtxRotateXYZ(rotation, rx, ry, rz);
-	float view[16];
-	bx::mtxTranspose(view, rotation);
-	bx::Vec3 corners[8];
-	s_model.aabb.getCorners(corners);
-	AABB aabb;
-	for (uint32_t i = 0; i < 8; i++) {
-		const float in[4] = { corners[i].x, corners[i].y, corners[i].z, 1.0f };
-		float out[4];
-		bx::vec4MulMtx(out, in, view);
-		aabb.addPoint(bx::Vec3(out[0], out[1], out[2]));
+	bgfx::ViewId viewOffset = 0;
+	for (uint32_t i = 0; i < 10; i++) {
+		float fsOrtho[16];
+		bx::mtxOrtho(fsOrtho, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
+		// Atomic counter clear.
+		bgfx::setViewFrameBuffer(viewOffset + kAtomicCounterClearView, s_bake.atomicCounterFb);
+		bgfx::setViewRect(viewOffset + kAtomicCounterClearView, 0, 0, 1, 1);
+		bgfx::setViewTransform(viewOffset + kAtomicCounterClearView, nullptr, fsOrtho);
+		bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
+		setScreenSpaceQuadVertexBuffer();
+		bgfx::setState(0);
+		bgfx::submit(viewOffset + kAtomicCounterClearView, s_bake.atomicCounterClearProgram);
+		// Ray bundle clear.
+		bgfx::setViewFrameBuffer(viewOffset + kRayBundleClearView, s_bake.rayBundleFb);
+		bgfx::setViewRect(viewOffset + kRayBundleClearView, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
+		bgfx::setViewTransform(viewOffset + kRayBundleClearView, nullptr, fsOrtho);
+		bgfx::setTexture(2, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
+		setScreenSpaceQuadVertexBuffer();
+		bgfx::setState(0);
+		bgfx::submit(viewOffset + kRayBundleClearView, s_bake.rayBundleClearProgram);
+		// Ray bundle write.
+		const float rx = -90.0f + haltonSequence(s_bake.directionCount, 2) * 180.0f;
+		const float ry = -90.0f + haltonSequence(s_bake.directionCount, 3) * 180.0f;
+		const float rz = -90.0f + haltonSequence(s_bake.directionCount, 5) * 180.0f;
+		float rotation[16];
+		bx::mtxRotateXYZ(rotation, rx, ry, rz);
+		float view[16];
+		bx::mtxTranspose(view, rotation);
+		bx::Vec3 corners[8];
+		s_model.aabb.getCorners(corners);
+		AABB aabb;
+		for (uint32_t j = 0; j < 8; j++) {
+			const float in[4] = { corners[j].x, corners[j].y, corners[j].z, 1.0f };
+			float out[4];
+			bx::vec4MulMtx(out, in, view);
+			aabb.addPoint(bx::Vec3(out[0], out[1], out[2]));
+		}
+		float projection[16];
+		bx::mtxOrtho(projection, aabb.min.x, aabb.max.x, aabb.min.y, aabb.max.y, -aabb.max.z, -aabb.min.z, 0.0f, bgfx::getCaps()->homogeneousDepth, bx::Handness::Right);
+		bgfx::setViewFrameBuffer(viewOffset + kRayBundleWriteView, s_bake.rayBundleFb);
+		bgfx::setViewRect(viewOffset + kRayBundleWriteView, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
+		bgfx::setViewTransform(viewOffset + kRayBundleWriteView, view, projection);
+		{
+			const float sizes[] = { (float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight, (float)s_bake.rbDataTextureSize, 0.0f };
+			for (uint32_t j = 0; j < s_model.data->numMeshes; j++) {
+				const objzMesh &mesh = s_model.data->meshes[j];
+				const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
+				bgfx::setIndexBuffer(s_atlas.ib, mesh.firstIndex, mesh.numIndices);
+				bgfx::setVertexBuffer(0, s_atlas.vb);
+				bgfx::setState(0);
+				bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
+				bgfx::setTexture(2, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
+				bgfx::setTexture(3, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
+				bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
+				modelSetMaterialUniforms(mat);
+				bgfx::submit(viewOffset + kRayBundleWriteView, s_bake.rayBundleWriteProgram);
+			}
+		}
+		// Ray bundle resolve.
+		bgfx::setViewFrameBuffer(viewOffset + kRayBundleResolveView, s_bake.rayBundleIntegrateFb);
+		bgfx::setViewRect(viewOffset + kRayBundleResolveView, 0, 0, (uint16_t)s_bake.lightmapHeight, (uint16_t)s_bake.lightmapHeight);
+		bgfx::setViewTransform(viewOffset + kRayBundleResolveView, nullptr, fsOrtho);
+		bgfx::setTexture(1, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
+		bgfx::setTexture(2, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
+		bgfx::setTexture(3, s_bake.u_lightmapSampler, s_bake.lightmap);
+		const float sizes[] = { (float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight, (float)s_bake.rbDataTextureSize, 0.0f };
+		bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
+		const float rayNormal[] = { view[2], view[6], view[10], 0 };
+		bgfx::setUniform(s_bake.u_rayNormal, rayNormal);
+		setScreenSpaceQuadVertexBuffer();
+		bgfx::setState(0);
+		bgfx::submit(viewOffset + kRayBundleResolveView, s_bake.rayBundleIntegrateProgram);
+		s_bake.directionCount++;
+		if (s_bake.directionCount >= s_bake.numDirections) {
+			s_bake.executed = false;
+			s_bake.finished = true;
+			break;
+		}
+		viewOffset += kNumBakeViews;
 	}
-	float projection[16];
-	bx::mtxOrtho(projection, aabb.min.x, aabb.max.x, aabb.min.y, aabb.max.y, -aabb.max.z, -aabb.min.z, 0.0f, bgfx::getCaps()->homogeneousDepth, bx::Handness::Right);
-	bgfx::setViewRect(kRayBundleWriteView, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
-	bgfx::setViewTransform(kRayBundleWriteView, view, projection);
-	{
-		const float lightDir[] = { view[2], view[6], view[10], 0.0f };
-		BakeRenderModelMeshData data;
-		data.lightDir = lightDir;
-		modelRenderMeshes(bakeRenderModelMesh, &data);
-	}
-	// Ray bundle resolve.
-	bgfx::setViewRect(kRayBundleResolveView, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
-	bgfx::setViewTransform(kRayBundleResolveView, nullptr, fsOrtho);
-	bgfx::setTexture(1, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
-	bgfx::setTexture(2, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
-	bgfx::setTexture(3, s_bake.u_lightmapSampler, s_bake.lightmap);
-	const float sizes[] = { (float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight, (float)s_bake.rbDataTextureSize, 0.0f };
-	bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
-	setScreenSpaceQuadVertexBuffer();
-	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-	bgfx::submit(kRayBundleResolveView, s_bake.rayBundleIntegrateProgram);
 }
 
 static void bakeClear()
 {
 	s_bake.executed = false;
+	s_bake.finished = false;
 }
 
 int main(int argc, char **argv)
@@ -1833,6 +1899,7 @@ int main(int argc, char **argv)
 							ImGui::Separator();
 							ImGui::Spacing();
 							ImGui::Text("Bake");
+							ImGui::SliderInt("Num. directions", &s_bake.numDirections, 300, 10000);
 							if (ImGui::Button("Bake", ImVec2(-1.0f, 0.0f)))
 								bakeExecute();
 						}
@@ -1908,7 +1975,7 @@ int main(int argc, char **argv)
 					}
 					ImGui::End();
 				}
-				if (s_bake.executed) {
+				if (s_bake.executed || s_bake.finished) {
 					ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
 					ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 					if (ImGui::Begin("Bake", &s_atlas.showTexture)) {

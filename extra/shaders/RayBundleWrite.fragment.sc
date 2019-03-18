@@ -8,7 +8,6 @@ FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleDataSampler, rgba32ui, 2);
 
 uniform vec4 u_diffuse;
 uniform vec4 u_emission;
-uniform vec4 u_lightDir;
 uniform vec4 u_lightmapSize_dataSize;
 #define u_dataSize uint(u_lightmapSize_dataSize.z)
 
@@ -20,7 +19,11 @@ ivec2 dataUv(uint offset, uint pixel)
 void main()
 {
 	ivec2 uv = ivec2(gl_FragCoord.xy);
-	vec3 color = u_diffuse.rgb * (dot(v_normal, u_lightDir.xyz) * 0.5 + 0.5) + u_emission.rgb; // half lambert
+	vec3 color = u_emission.rgb;
+	if (color.r <= 0.0 && color.g <= 0.0 && color.b <= 0.0) {
+		discard;
+		return;
+	}
 #if BGFX_SHADER_LANGUAGE_GLSL
 	uint newOffset = imageAtomicAdd(u_atomicCounterSampler, ivec2(0, 0), 1u);
 	if (newOffset >= u_dataSize * u_dataSize * 3u) {

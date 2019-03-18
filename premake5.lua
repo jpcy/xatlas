@@ -21,6 +21,7 @@ newaction
 			"Color",
 			"Flat",
 			"Gui",
+			"LightmapClear",
 			"RayBundleClear",
 			"RayBundleIntegrate",
 			"RayBundleWrite"
