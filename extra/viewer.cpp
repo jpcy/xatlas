@@ -99,10 +99,11 @@ struct AABB
 
 static const bgfx::ViewId kModelView = 0;
 static const bgfx::ViewId kGuiView = 1;
-static const bgfx::ViewId kAtomicCounterClearView = 2;
-static const bgfx::ViewId kRayBundleClearView = 3;
-static const bgfx::ViewId kRayBundleWriteView = 4;
-static const bgfx::ViewId kRayBundleResolveView = 5;
+static const bgfx::ViewId kLightmapClear = 2;
+static const bgfx::ViewId kAtomicCounterClearView = 3;
+static const bgfx::ViewId kRayBundleClearView = 4;
+static const bgfx::ViewId kRayBundleWriteView = 5;
+static const bgfx::ViewId kRayBundleResolveView = 6;
 
 static const bgfx::ViewId kNumBakeViews = 4;
 
@@ -1411,6 +1412,7 @@ struct
 {
 	const uint16_t rbTextureSize = 512;
 	const uint16_t rbDataTextureSize = 8192;
+	float fsOrtho[16];
 	bool enabled;
 	bool initialized = false;
 	bool executed = false;
@@ -1451,10 +1453,13 @@ s_bake;
 
 static void bakeInit()
 {
-	ScreenSpaceVertex::init();
 	s_bake.enabled = (bgfx::getCaps()->supported & BGFX_CAPS_FRAMEBUFFER_RW) != 0;
-	if (!s_bake.enabled)
+	if (!s_bake.enabled) {
 		printf("Read/Write frame buffer attachments are not supported. Baking is disabled.\n");
+		return;
+	}
+	ScreenSpaceVertex::init();
+	bx::mtxOrtho(s_bake.fsOrtho, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
 }
 
 static void bakeShutdown()
@@ -1484,6 +1489,23 @@ static void bakeShutdown()
 	bgfx::destroy(s_bake.rayBundleIntegrateFb);
 	bgfx::destroy(s_bake.rayBundleIntegrateTarget);
 	bgfx::destroy(s_bake.lightmap);
+}
+
+static void setScreenSpaceQuadVertexBuffer()
+{
+	const uint32_t nVerts = 3;
+	if (bgfx::getAvailTransientVertexBuffer(nVerts, ScreenSpaceVertex::decl) < nVerts)
+		return;
+	bgfx::TransientVertexBuffer vb;
+	bgfx::allocTransientVertexBuffer(&vb, nVerts, ScreenSpaceVertex::decl);
+	auto vertices = (ScreenSpaceVertex *)vb.data;
+	vertices[0].pos[0] = -1.0f;
+	vertices[0].pos[1] = 0.0f;
+	vertices[1].pos[0] = 1.0f;
+	vertices[1].pos[1] = 0.0f;
+	vertices[2].pos[0] = 1.0f;
+	vertices[2].pos[1] = 2.0f;
+	bgfx::setVertexBuffer(0, &vb);
 }
 
 static void bakeExecute()
@@ -1556,6 +1578,14 @@ static void bakeExecute()
 	s_bake.initialized = true;
 	s_bake.executed = true;
 	s_bake.directionCount = 0;
+	// Clear lightmap.
+	bgfx::setViewFrameBuffer(kLightmapClear, s_bake.lightmapClearFb);
+	bgfx::setViewRect(kLightmapClear, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
+	bgfx::setViewTransform(kLightmapClear, nullptr, s_bake.fsOrtho);
+	bgfx::setTexture(1, s_bake.u_lightmapSampler, s_bake.lightmap);
+	setScreenSpaceQuadVertexBuffer();
+	bgfx::setState(0);
+	bgfx::submit(kLightmapClear, s_bake.lightmapClearProgram);
 }
 
 // https://en.wikipedia.org/wiki/Halton_sequence
@@ -1571,35 +1601,16 @@ static float haltonSequence(int index, int base)
 	return result;
 }
 
-static void setScreenSpaceQuadVertexBuffer()
-{
-	const uint32_t nVerts = 3;
-	if (bgfx::getAvailTransientVertexBuffer(nVerts, ScreenSpaceVertex::decl) < nVerts)
-		return;
-	bgfx::TransientVertexBuffer vb;
-	bgfx::allocTransientVertexBuffer(&vb, nVerts, ScreenSpaceVertex::decl);
-	auto vertices = (ScreenSpaceVertex *)vb.data;
-	vertices[0].pos[0] = -1.0f;
-	vertices[0].pos[1] = 0.0f;
-	vertices[1].pos[0] = 1.0f;
-	vertices[1].pos[1] = 0.0f;
-	vertices[2].pos[0] = 1.0f;
-	vertices[2].pos[1] = 2.0f;
-	bgfx::setVertexBuffer(0, &vb);
-}
-
 static void bakeFrame()
 {
 	if (!s_bake.executed)
 		return;
 	bgfx::ViewId viewOffset = 0;
 	for (uint32_t i = 0; i < 10; i++) {
-		float fsOrtho[16];
-		bx::mtxOrtho(fsOrtho, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
 		// Atomic counter clear.
 		bgfx::setViewFrameBuffer(viewOffset + kAtomicCounterClearView, s_bake.atomicCounterFb);
 		bgfx::setViewRect(viewOffset + kAtomicCounterClearView, 0, 0, 1, 1);
-		bgfx::setViewTransform(viewOffset + kAtomicCounterClearView, nullptr, fsOrtho);
+		bgfx::setViewTransform(viewOffset + kAtomicCounterClearView, nullptr, s_bake.fsOrtho);
 		bgfx::setTexture(1, s_bake.u_atomicCounterSampler, s_bake.atomicCounterTexture);
 		setScreenSpaceQuadVertexBuffer();
 		bgfx::setState(0);
@@ -1607,7 +1618,7 @@ static void bakeFrame()
 		// Ray bundle clear.
 		bgfx::setViewFrameBuffer(viewOffset + kRayBundleClearView, s_bake.rayBundleFb);
 		bgfx::setViewRect(viewOffset + kRayBundleClearView, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
-		bgfx::setViewTransform(viewOffset + kRayBundleClearView, nullptr, fsOrtho);
+		bgfx::setViewTransform(viewOffset + kRayBundleClearView, nullptr, s_bake.fsOrtho);
 		bgfx::setTexture(2, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
 		setScreenSpaceQuadVertexBuffer();
 		bgfx::setState(0);
@@ -1653,7 +1664,7 @@ static void bakeFrame()
 		// Ray bundle resolve.
 		bgfx::setViewFrameBuffer(viewOffset + kRayBundleResolveView, s_bake.rayBundleIntegrateFb);
 		bgfx::setViewRect(viewOffset + kRayBundleResolveView, 0, 0, (uint16_t)s_bake.lightmapHeight, (uint16_t)s_bake.lightmapHeight);
-		bgfx::setViewTransform(viewOffset + kRayBundleResolveView, nullptr, fsOrtho);
+		bgfx::setViewTransform(viewOffset + kRayBundleResolveView, nullptr, s_bake.fsOrtho);
 		bgfx::setTexture(1, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
 		bgfx::setTexture(2, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
 		bgfx::setTexture(3, s_bake.u_lightmapSampler, s_bake.lightmap);
