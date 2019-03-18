@@ -1,7 +1,8 @@
 #include <bgfx_compute.sh>
 
-USAMPLER2D(u_rayBundleHeaderSampler, 0);
-USAMPLER2D(u_rayBundleDataSampler, 1);
+FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 0);
+FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleDataSampler, rgba32ui, 1);
+FRAMEBUFFER_IMAGE2D_RW(u_lightmapSampler, rgba32f, 2);
 
 uniform vec4 u_rayBundleDataResolution;
 #define u_dataResolution uint(u_rayBundleDataResolution.x)
@@ -22,15 +23,16 @@ struct Node
 
 void main()
 {
+#if BGFX_SHADER_LANGUAGE_GLSL
 	ivec2 uv = ivec2(gl_FragCoord.xy);
-	uint offset = texelFetch(u_rayBundleHeaderSampler, uv, 0).x;
+	uint offset = imageLoad(u_rayBundleHeaderSampler, uv).x;
 	if (offset != 0xffffffff) {
 		Node nodes[MAX_NODES];
 		uint numNodes = 0u;
 		while (offset != 0xffffffff && numNodes < MAX_NODES) {
-			uvec4 color_offset = texelFetch(u_rayBundleDataSampler, dataUv(offset, 0u), 0);
-			uvec4 normal_depth = texelFetch(u_rayBundleDataSampler, dataUv(offset, 1u), 0);
-			uvec4 texcoord = texelFetch(u_rayBundleDataSampler, dataUv(offset, 2u), 0);
+			uvec4 color_offset = imageLoad(u_rayBundleDataSampler, dataUv(offset, 0u));
+			uvec4 normal_depth = imageLoad(u_rayBundleDataSampler, dataUv(offset, 1u));
+			uvec4 texcoord = imageLoad(u_rayBundleDataSampler, dataUv(offset, 2u));
 			nodes[numNodes].color.r = uintBitsToFloat(color_offset.r);
 			nodes[numNodes].color.g = uintBitsToFloat(color_offset.g);
 			nodes[numNodes].color.b = uintBitsToFloat(color_offset.b);
@@ -52,8 +54,9 @@ void main()
 		for (uint j = 0u; j < numNodes; j++) {
 			color = mix(color, nodes[j].color, 0.5);
 		}
-		gl_FragColor = vec4(color, 1.0);
+		imageStore(u_lightmapSampler, uv, vec4(color, 1.0));
 	} else {
-		gl_FragColor = vec4_splat(0.0);
+		imageStore(u_lightmapSampler, uv, vec4_splat(0.0));
 	}
+#endif
 }
