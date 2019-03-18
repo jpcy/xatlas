@@ -4,12 +4,12 @@ FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 0);
 FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleDataSampler, rgba32ui, 1);
 FRAMEBUFFER_IMAGE2D_RW(u_lightmapSampler, rgba32f, 2);
 
-uniform vec4 u_rayBundleDataResolution;
-#define u_dataResolution uint(u_rayBundleDataResolution.x)
+uniform vec4 u_lightmapSize_dataSize;
+#define u_dataSize uint(u_lightmapSize_dataSize.z)
 
 ivec2 dataUv(uint offset, uint pixel)
 {
-	return ivec2((offset * 3u + pixel) % u_dataResolution, (offset * 3u + pixel) / u_dataResolution);
+	return ivec2((offset * 3u + pixel) % u_dataSize, (offset * 3u + pixel) / u_dataSize);
 }
 
 struct Node
