@@ -20,10 +20,6 @@ void main()
 {
 	ivec2 uv = ivec2(gl_FragCoord.xy);
 	vec3 color = u_emission.rgb;
-	if (color.r <= 0.0 && color.g <= 0.0 && color.b <= 0.0) {
-		discard;
-		return;
-	}
 #if BGFX_SHADER_LANGUAGE_GLSL
 	uint newOffset = imageAtomicAdd(u_atomicCounterSampler, ivec2(0, 0), 1u);
 	if (newOffset >= u_dataSize * u_dataSize * 3u) {

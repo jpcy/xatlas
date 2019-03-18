@@ -184,11 +184,12 @@ struct
 	bgfx::IndexBufferHandle wireframeIb = BGFX_INVALID_HANDLE;
 	float scale = 1.0f;
 	bgfx::ProgramHandle colorProgram;
-	bgfx::ProgramHandle flatProgram;
 	bgfx::ProgramHandle checkerboardProgram;
+	bgfx::ProgramHandle materialProgram;
 	bgfx::UniformHandle u_diffuse;
 	bgfx::UniformHandle u_emission;
-	bgfx::UniformHandle u_lightDir;
+	bgfx::UniformHandle u_lightDir_shadeType;
+	bgfx::UniformHandle u_lightmapSampler;
 	bgfx::UniformHandle u_color;
 	bgfx::UniformHandle u_textureSize_cellSize;
 }
@@ -279,10 +280,55 @@ struct
 }
 s_atlas;
 
+struct
+{
+	const uint16_t rbTextureSize = 512;
+	const uint16_t rbDataTextureSize = 8192;
+	float fsOrtho[16];
+	bool enabled;
+	bool initialized = false;
+	bool executed = false;
+	bool finished = false;
+	int numDirections = 1000;
+	int directionCount;
+	uint32_t lightmapWidth, lightmapHeight;
+	// programs
+	bgfx::ProgramHandle atomicCounterClearProgram;
+	bgfx::ProgramHandle rayBundleClearProgram;
+	bgfx::ProgramHandle rayBundleWriteProgram;
+	bgfx::ProgramHandle rayBundleIntegrateProgram;
+	bgfx::ProgramHandle lightmapAverageProgram;
+	bgfx::ProgramHandle lightmapClearProgram;
+	// uniforms
+	bgfx::UniformHandle u_lightmapSize_dataSize;
+	bgfx::UniformHandle u_rayNormal;
+	bgfx::UniformHandle u_atomicCounterSampler;
+	bgfx::UniformHandle u_rayBundleHeaderSampler;
+	bgfx::UniformHandle u_rayBundleDataSampler;
+	bgfx::UniformHandle u_lightmapSampler;
+	// atomic counter
+	bgfx::FrameBufferHandle atomicCounterFb;
+	bgfx::TextureHandle atomicCounterTexture;
+	// ray bundle write
+	bgfx::FrameBufferHandle rayBundleFb;
+	bgfx::TextureHandle rayBundleTarget;
+	bgfx::TextureHandle rayBundleHeader;
+	bgfx::TextureHandle rayBundleData;
+	// lightmap clear
+	bgfx::FrameBufferHandle lightmapClearFb;
+	bgfx::TextureHandle lightmapClearTarget;
+	// ray bundle resolve
+	bgfx::FrameBufferHandle rayBundleIntegrateFb;
+	bgfx::TextureHandle rayBundleIntegrateTarget;
+	bgfx::TextureHandle lightmap;
+}
+s_bake;
+
 enum class ShadeMode
 {
 	Flat,
-	Charts
+	Charts,
+	Lightmap
 };
 
 enum class WireframeMode
@@ -710,10 +756,11 @@ static void modelInit()
 	s_model.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize", bgfx::UniformType::Vec4);
 	s_model.u_diffuse = bgfx::createUniform("u_diffuse", bgfx::UniformType::Vec4);
 	s_model.u_emission = bgfx::createUniform("u_emission", bgfx::UniformType::Vec4);
-	s_model.u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
+	s_model.u_lightDir_shadeType = bgfx::createUniform("u_lightDir_shadeType", bgfx::UniformType::Vec4);
+	s_model.u_lightmapSampler = bgfx::createUniform("u_lightmapSampler", bgfx::UniformType::Sampler);
 	s_model.colorProgram = LOAD_PROGRAM(Color);
 	s_model.checkerboardProgram = LOAD_PROGRAM(Checkerboard);
-	s_model.flatProgram = LOAD_PROGRAM(Flat);
+	s_model.materialProgram = LOAD_PROGRAM(Material);
 	ModelVertex::init();
 	bgfx::setViewClear(kModelView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x444444ff);
 	bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);
@@ -728,10 +775,11 @@ static void modelShutdown()
 	bgfx::destroy(s_model.u_textureSize_cellSize);
 	bgfx::destroy(s_model.u_diffuse);
 	bgfx::destroy(s_model.u_emission);
-	bgfx::destroy(s_model.u_lightDir);
+	bgfx::destroy(s_model.u_lightDir_shadeType);
+	bgfx::destroy(s_model.u_lightmapSampler);
 	bgfx::destroy(s_model.colorProgram);
 	bgfx::destroy(s_model.checkerboardProgram);
-	bgfx::destroy(s_model.flatProgram);
+	bgfx::destroy(s_model.materialProgram);
 }
 
 struct ModelLoadThreadArgs
@@ -858,8 +906,8 @@ static void modelRender(const float *view, const float *projection)
 	float modelMatrix[16];
 	bx::mtxScale(modelMatrix, s_model.scale);
 	bgfx::setViewTransform(kModelView, view, projection);
-	if (s_options.shadeMode == ShadeMode::Flat) {
-		const float lightDir[] = { view[2], view[6], view[10], 0 };
+	if (s_options.shadeMode == ShadeMode::Flat || s_options.shadeMode == ShadeMode::Lightmap) {
+		const float lightDir[] = { view[2], view[6], view[10], s_options.shadeMode == ShadeMode::Lightmap ? 1.0f : 0.0f };
 		for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
 			const objzMesh &mesh = s_model.data->meshes[i];
 			const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
@@ -872,9 +920,11 @@ static void modelRender(const float *view, const float *projection)
 			}
 			bgfx::setState(BGFX_STATE_DEFAULT);
 			bgfx::setTransform(modelMatrix);
-			bgfx::setUniform(s_model.u_lightDir, lightDir);
+			bgfx::setUniform(s_model.u_lightDir_shadeType, lightDir);
 			modelSetMaterialUniforms(mat);
-			bgfx::submit(kModelView, s_model.flatProgram);
+			if (s_options.shadeMode == ShadeMode::Lightmap)
+				bgfx::setTexture(0, s_model.u_lightmapSampler, s_bake.lightmap);
+			bgfx::submit(kModelView, s_model.materialProgram);
 		}
 	} else if (s_options.shadeMode == ShadeMode::Charts && s_atlas.status.get() == AtlasStatus::Ready) {
 		srand(s_atlas.chartColorSeed);
@@ -1408,49 +1458,6 @@ struct ScreenSpaceVertex
 
 bgfx::VertexDecl ScreenSpaceVertex::decl;
 
-struct
-{
-	const uint16_t rbTextureSize = 512;
-	const uint16_t rbDataTextureSize = 8192;
-	float fsOrtho[16];
-	bool enabled;
-	bool initialized = false;
-	bool executed = false;
-	bool finished = false;
-	int numDirections = 1000;
-	int directionCount;
-	uint32_t lightmapWidth, lightmapHeight;
-	// programs
-	bgfx::ProgramHandle atomicCounterClearProgram;
-	bgfx::ProgramHandle rayBundleClearProgram;
-	bgfx::ProgramHandle rayBundleWriteProgram;
-	bgfx::ProgramHandle rayBundleIntegrateProgram;
-	bgfx::ProgramHandle lightmapClearProgram;
-	// uniforms
-	bgfx::UniformHandle u_lightmapSize_dataSize;
-	bgfx::UniformHandle u_rayNormal;
-	bgfx::UniformHandle u_atomicCounterSampler;
-	bgfx::UniformHandle u_rayBundleHeaderSampler;
-	bgfx::UniformHandle u_rayBundleDataSampler;
-	bgfx::UniformHandle u_lightmapSampler;
-	// atomic counter
-	bgfx::FrameBufferHandle atomicCounterFb;
-	bgfx::TextureHandle atomicCounterTexture;
-	// ray bundle write
-	bgfx::FrameBufferHandle rayBundleFb;
-	bgfx::TextureHandle rayBundleTarget;
-	bgfx::TextureHandle rayBundleHeader;
-	bgfx::TextureHandle rayBundleData;
-	// lightmap clear
-	bgfx::FrameBufferHandle lightmapClearFb;
-	bgfx::TextureHandle lightmapClearTarget;
-	// ray bundle resolve
-	bgfx::FrameBufferHandle rayBundleIntegrateFb;
-	bgfx::TextureHandle rayBundleIntegrateTarget;
-	bgfx::TextureHandle lightmap;
-}
-s_bake;
-
 static void bakeInit()
 {
 	s_bake.enabled = (bgfx::getCaps()->supported & BGFX_CAPS_FRAMEBUFFER_RW) != 0;
@@ -1471,6 +1478,7 @@ static void bakeShutdown()
 	bgfx::destroy(s_bake.rayBundleClearProgram);
 	bgfx::destroy(s_bake.rayBundleWriteProgram);
 	bgfx::destroy(s_bake.rayBundleIntegrateProgram);
+	bgfx::destroy(s_bake.lightmapAverageProgram);
 	bgfx::destroy(s_bake.lightmapClearProgram);
 	bgfx::destroy(s_bake.u_lightmapSize_dataSize);
 	bgfx::destroy(s_bake.u_rayNormal);
@@ -1512,6 +1520,7 @@ static void bakeExecute()
 {
 	if (s_bake.executed)
 		return;
+	bakeClear();
 	if (!s_bake.initialized) {
 		// shaders
 		s_bake.u_lightmapSize_dataSize = bgfx::createUniform("u_lightmapSize_dataSize", bgfx::UniformType::Vec4);
@@ -1524,6 +1533,7 @@ static void bakeExecute()
 		s_bake.rayBundleClearProgram = LOAD_PROGRAM(RayBundleClear);
 		s_bake.rayBundleWriteProgram = LOAD_PROGRAM(RayBundleWrite);
 		s_bake.rayBundleIntegrateProgram = LOAD_PROGRAM(RayBundleIntegrate);
+		s_bake.lightmapAverageProgram = LOAD_PROGRAM(LightmapAverage);
 		s_bake.lightmapClearProgram = LOAD_PROGRAM(LightmapClear);
 		// framebuffers
 		{
@@ -1578,7 +1588,7 @@ static void bakeExecute()
 	s_bake.initialized = true;
 	s_bake.executed = true;
 	s_bake.directionCount = 0;
-	// Clear lightmap.
+	// Lightmap clear.
 	bgfx::setViewFrameBuffer(kLightmapClear, s_bake.lightmapClearFb);
 	bgfx::setViewRect(kLightmapClear, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
 	bgfx::setViewTransform(kLightmapClear, nullptr, s_bake.fsOrtho);
@@ -1675,13 +1685,25 @@ static void bakeFrame()
 		setScreenSpaceQuadVertexBuffer();
 		bgfx::setState(0);
 		bgfx::submit(viewOffset + kRayBundleResolveView, s_bake.rayBundleIntegrateProgram);
+		viewOffset += kNumBakeViews;
 		s_bake.directionCount++;
 		if (s_bake.directionCount >= s_bake.numDirections) {
 			s_bake.executed = false;
 			s_bake.finished = true;
+			s_options.shadeMode = ShadeMode::Lightmap;
 			break;
 		}
-		viewOffset += kNumBakeViews;
+	}
+	if (s_bake.finished) {
+		// Lightmap average.
+		bgfx::ViewId kLightmapAverageView = viewOffset + kAtomicCounterClearView;
+		bgfx::setViewFrameBuffer(kLightmapAverageView, s_bake.lightmapClearFb);
+		bgfx::setViewRect(kLightmapAverageView, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
+		bgfx::setViewTransform(kLightmapAverageView, nullptr, s_bake.fsOrtho);
+		bgfx::setTexture(1, s_bake.u_lightmapSampler, s_bake.lightmap);
+		setScreenSpaceQuadVertexBuffer();
+		bgfx::setState(0);
+		bgfx::submit(kLightmapAverageView, s_bake.lightmapAverageProgram);
 	}
 }
 
@@ -1689,6 +1711,7 @@ static void bakeClear()
 {
 	s_bake.executed = false;
 	s_bake.finished = false;
+	s_options.shadeMode = ShadeMode::Charts;
 }
 
 int main(int argc, char **argv)
@@ -1808,14 +1831,20 @@ int main(int argc, char **argv)
 				ImGui::Text("View");
 				ImGui::Spacing();
 				if (s_atlas.status.get() == AtlasStatus::Ready) {
-					ImGui::RadioButton("Flat shading", (int *)&s_options.shadeMode, (int)ShadeMode::Flat);
+					ImGui::Text("Shading:");
 					ImGui::SameLine();
-					ImGui::RadioButton("Charts shading", (int *)&s_options.shadeMode, (int)ShadeMode::Charts);
+					ImGui::RadioButton("Flat", (int *)&s_options.shadeMode, (int)ShadeMode::Flat);
+					ImGui::SameLine();
+					ImGui::RadioButton("Charts##shading", (int *)&s_options.shadeMode, (int)ShadeMode::Charts);
+					if (s_bake.finished) {
+						ImGui::SameLine();
+						ImGui::RadioButton("Lightmap", (int *)&s_options.shadeMode, (int)ShadeMode::Lightmap);
+					}
 				}
 				ImGui::Checkbox("Wireframe overlay", &s_options.wireframe);
 				if (s_options.wireframe && s_atlas.status.get() == AtlasStatus::Ready) {
 					ImGui::SameLine();
-					ImGui::RadioButton("Charts", (int *)&s_options.wireframeMode, (int)WireframeMode::Charts);
+					ImGui::RadioButton("Charts##wireframe", (int *)&s_options.wireframeMode, (int)WireframeMode::Charts);
 					ImGui::SameLine();
 					ImGui::RadioButton("Triangles", (int *)&s_options.wireframeMode, (int)WireframeMode::Triangles);
 				}

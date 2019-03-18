@@ -19,9 +19,10 @@ newaction
 			"AtomicCounterClear",
 			"Checkerboard",
 			"Color",
-			"Flat",
 			"Gui",
+			"LightmapAverage",
 			"LightmapClear",
+			"Material",
 			"RayBundleClear",
 			"RayBundleIntegrate",
 			"RayBundleWrite"
