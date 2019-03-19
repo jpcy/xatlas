@@ -294,6 +294,7 @@ struct
 	bool initialized = false;
 	bool executed = false;
 	bool finished = false;
+	bool showLightmap = true;
 	bool sky = false;
 	bx::Vec3 skyColor = bx::Vec3(1.0f, 1.0f, 1.0f);
 	int directionsPerFrame = 10;
@@ -1836,115 +1837,109 @@ int main(int argc, char **argv)
 			ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_FirstUseEver);
 			ImGui::SetNextWindowSize(ImVec2(400.0f, io.DisplaySize.y - margin * 2.0f), ImGuiCond_FirstUseEver);
 			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
+				const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);
 				ImGui::Separator();
 				ImGui::Spacing();
 				ImGui::Text("Model");
 				ImGui::Spacing();
-				if (ImGui::Button("Open model...", ImVec2(-1.0f, 0.0f)))
+				if (ImGui::Button("Open...", buttonSize))
 					modelOpenDialog();
 				if (s_model.status.get() == ModelStatus::Ready) {
-				ImGui::Text("%u objects", s_model.data->numObjects);
-				ImGui::Text("%u vertices", s_model.data->numVertices);
-				ImGui::Text("%u triangles", s_model.data->numIndices / 3);
-				ImGui::InputFloat("Model scale", &s_model.scale, 0.01f, 0.1f);
-				s_model.scale = bx::max(0.001f, s_model.scale);
-				ImGui::Spacing();
-				ImGui::Separator();
-				ImGui::Spacing();
-				ImGui::Text("View");
-				ImGui::Spacing();
-				if (s_atlas.status.get() == AtlasStatus::Ready) {
-					ImGui::Text("Shading:");
-					ImGui::SameLine();
-					ImGui::RadioButton("Flat", (int *)&s_options.shadeMode, (int)ShadeMode::Flat);
-					ImGui::SameLine();
-					ImGui::RadioButton("Charts##shading", (int *)&s_options.shadeMode, (int)ShadeMode::Charts);
-					if (s_bake.executed || s_bake.finished) {
+					ImGui::Text("%u objects", s_model.data->numObjects);
+					ImGui::Text("%u vertices", s_model.data->numVertices);
+					ImGui::Text("%u triangles", s_model.data->numIndices / 3);
+					ImGui::InputFloat("Model scale", &s_model.scale, 0.01f, 0.1f);
+					s_model.scale = bx::max(0.001f, s_model.scale);
+					ImGui::Spacing();
+					ImGui::Separator();
+					ImGui::Spacing();
+					ImGui::Text("View");
+					ImGui::Spacing();
+					if (s_atlas.status.get() == AtlasStatus::Ready) {
+						ImGui::AlignTextToFramePadding();
+						ImGui::Text("Shading: ");
 						ImGui::SameLine();
-						ImGui::RadioButton("Lightmap", (int *)&s_options.shadeMode, (int)ShadeMode::Lightmap);
+						ImGui::RadioButton("Flat", (int *)&s_options.shadeMode, (int)ShadeMode::Flat);
+						ImGui::SameLine();
+						ImGui::RadioButton("Charts##shading", (int *)&s_options.shadeMode, (int)ShadeMode::Charts);
+						if (s_bake.executed || s_bake.finished) {
+							ImGui::SameLine();
+							ImGui::RadioButton("Lightmap", (int *)&s_options.shadeMode, (int)ShadeMode::Lightmap);
+						}
 					}
-				}
-				ImGui::Checkbox("Wireframe overlay", &s_options.wireframe);
-				if (s_options.wireframe && s_atlas.status.get() == AtlasStatus::Ready) {
+					ImGui::Checkbox("Wireframe overlay", &s_options.wireframe);
+					if (s_options.wireframe && s_atlas.status.get() == AtlasStatus::Ready) {
+						ImGui::SameLine();
+						ImGui::RadioButton("Charts##wireframe", (int *)&s_options.wireframeMode, (int)WireframeMode::Charts);
+						ImGui::SameLine();
+						ImGui::RadioButton("Triangles", (int *)&s_options.wireframeMode, (int)WireframeMode::Triangles);
+					}
+					ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
 					ImGui::SameLine();
-					ImGui::RadioButton("Charts##wireframe", (int *)&s_options.wireframeMode, (int)WireframeMode::Charts);
+					ImGui::TextDisabled("(?)");
+					if (ImGui::IsItemHovered()) {
+						ImGui::BeginTooltip();
+						ImGui::Text("Hold left mouse button on 3D view to enable camera\nW,A,S,D and Q,E to move\nHold SHIFT for faster movement");
+						ImGui::EndTooltip();
+					}
 					ImGui::SameLine();
-					ImGui::RadioButton("Triangles", (int *)&s_options.wireframeMode, (int)WireframeMode::Triangles);
-				}
-				ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
-				ImGui::SameLine();
-				ImGui::TextDisabled("(?)");
-				if (ImGui::IsItemHovered()) {
-					ImGui::BeginTooltip();
-					ImGui::Text("Hold left mouse button on 3D view to enable camera\nW,A,S,D and Q,E to move\nHold SHIFT for faster movement");
-					ImGui::EndTooltip();
-				}
-				ImGui::SameLine();
-				ImGui::RadioButton("Orbit camera", (int *)&s_camera.mode, (int)CameraMode::Orbit);
-				ImGui::SameLine();
-				ImGui::TextDisabled("(?)");
-				if (ImGui::IsItemHovered()) {
-					ImGui::BeginTooltip();
-					ImGui::Text("Hold left mouse button on 3D view to enable camera");
-					ImGui::EndTooltip();
-				}
-				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.25f);
-				ImGui::DragFloat("FOV", &s_camera.fov, 1.0f, 45.0f, 150.0f, "%.0f");
-				ImGui::SameLine();
-				ImGui::Text(" ");
-				ImGui::SameLine();
-				ImGui::DragFloat("Sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
-				ImGui::PopItemWidth();
-					ImGui::Spacing();
-					ImGui::Separator();
-					ImGui::Spacing();
-					ImGui::Text("Chart options");
-					ImGui::Spacing();
-					ImGui::InputFloat("Proxy fit metric weight", &s_atlas.chartOptions.proxyFitMetricWeight);
-					ImGui::InputFloat("Roundness metric weight", &s_atlas.chartOptions.roundnessMetricWeight);
-					ImGui::InputFloat("Straightness metric weight", &s_atlas.chartOptions.straightnessMetricWeight);
-					ImGui::InputFloat("NormalSeam metric weight", &s_atlas.chartOptions.normalSeamMetricWeight);
-					ImGui::InputFloat("Texture seam metric weight", &s_atlas.chartOptions.textureSeamMetricWeight);
-					ImGui::InputFloat("Max chart area", &s_atlas.chartOptions.maxChartArea);
-					ImGui::InputFloat("Max boundary length", &s_atlas.chartOptions.maxBoundaryLength);
-					ImGui::InputFloat("Max threshold", &s_atlas.chartOptions.maxThreshold);
-					ImGui::InputInt("Grow face count", (int *)&s_atlas.chartOptions.growFaceCount);
-					ImGui::InputInt("Max iterations", (int *)&s_atlas.chartOptions.maxIterations);
-					ImGui::Spacing();
-					ImGui::Separator();
-					ImGui::Spacing();
-#if USE_LIBIGL
-					ImGui::Text("Parameterization options");
-					ImGui::Spacing();
-					const ParamMethod oldParamMethod = s_atlas.paramMethod;
-					ImGui::RadioButton("LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::LSCM);
-					ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_Harmonic);
-					ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_LSCM);
-					ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_ARAP);
-					if (s_atlas.paramMethod != oldParamMethod)
-						s_atlas.paramMethodChanged = true;
-					ImGui::Spacing();
-					ImGui::Separator();
-					ImGui::Spacing();
-#endif
-					ImGui::Text("Pack options");
-					ImGui::Spacing();
-					ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
-					ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
-					ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
-					ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
-					ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
+					ImGui::RadioButton("Orbit camera", (int *)&s_camera.mode, (int)CameraMode::Orbit);
 					ImGui::SameLine();
-					ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
-					ImGui::SliderInt("Padding", &s_atlas.packOptions.padding, 0, 8);
+					ImGui::TextDisabled("(?)");
+					if (ImGui::IsItemHovered()) {
+						ImGui::BeginTooltip();
+						ImGui::Text("Hold left mouse button on 3D view to enable camera");
+						ImGui::EndTooltip();
+					}
+					ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.25f);
+					ImGui::DragFloat("FOV", &s_camera.fov, 1.0f, 45.0f, 150.0f, "%.0f");
+					ImGui::SameLine();
+					ImGui::Text(" ");
+					ImGui::SameLine();
+					ImGui::DragFloat("Sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
+					ImGui::PopItemWidth();
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
 					ImGui::Text("Atlas");
-					ImGui::Checkbox("Verbose output", &s_atlas.verbose);
-					if (ImGui::Button("Generate atlas", ImVec2(-1.0f, 0.0f)))
+					if (ImGui::TreeNodeEx("Chart options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
+						ImGui::InputFloat("Proxy fit metric weight", &s_atlas.chartOptions.proxyFitMetricWeight);
+						ImGui::InputFloat("Roundness metric weight", &s_atlas.chartOptions.roundnessMetricWeight);
+						ImGui::InputFloat("Straightness metric weight", &s_atlas.chartOptions.straightnessMetricWeight);
+						ImGui::InputFloat("NormalSeam metric weight", &s_atlas.chartOptions.normalSeamMetricWeight);
+						ImGui::InputFloat("Texture seam metric weight", &s_atlas.chartOptions.textureSeamMetricWeight);
+						ImGui::InputFloat("Max chart area", &s_atlas.chartOptions.maxChartArea);
+						ImGui::InputFloat("Max boundary length", &s_atlas.chartOptions.maxBoundaryLength);
+						ImGui::InputFloat("Max threshold", &s_atlas.chartOptions.maxThreshold);
+						ImGui::InputInt("Grow face count", (int *)&s_atlas.chartOptions.growFaceCount);
+						ImGui::InputInt("Max iterations", (int *)&s_atlas.chartOptions.maxIterations);
+					}
+#if USE_LIBIGL
+					if (ImGui::TreeNodeEx("Parameterization options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
+						const ParamMethod oldParamMethod = s_atlas.paramMethod;
+						ImGui::RadioButton("LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::LSCM);
+						ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_Harmonic);
+						ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_LSCM);
+						ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_ARAP);
+						if (s_atlas.paramMethod != oldParamMethod)
+							s_atlas.paramMethodChanged = true;
+					}
+#endif
+					if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
+						ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
+						ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
+						ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
+						ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
+						ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
+						ImGui::SameLine();
+						ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
+						ImGui::SliderInt("Padding", &s_atlas.packOptions.padding, 0, 8);
+					}
+					if (ImGui::Button("Generate", buttonSize))
 						atlasGenerate();
+					ImGui::SameLine();
+					ImGui::Checkbox("Verbose", &s_atlas.verbose);
 					if (s_atlas.status.get() == AtlasStatus::Ready) {
 						uint32_t numIndices = 0, numVertices = 0;
 						for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -1962,14 +1957,16 @@ int main(int argc, char **argv)
 							ImGui::Spacing();
 							ImGui::Separator();
 							ImGui::Spacing();
-							ImGui::Text("Bake");
+							ImGui::Text("Lightmap");
 							ImGui::Checkbox("Sky", &s_bake.sky);
 							ImGui::SameLine();
 							ImGui::ColorEdit3("Sky color", &s_bake.skyColor.x, ImGuiColorEditFlags_NoInputs);
 							ImGui::SliderInt("Ray bundle directions", &s_bake.numDirections, 300, 10000);
 							ImGui::SliderInt("Directions per frame", &s_bake.directionsPerFrame, 1, 100);
-							if (ImGui::Button("Bake", ImVec2(-1.0f, 0.0f)))
+							if (ImGui::Button("Bake", buttonSize))
 								bakeExecute();
+							if (s_bake.executed || s_bake.finished)
+								ImGui::Checkbox("Show lightmap", &s_bake.showLightmap);
 						}
 					}
 				}
@@ -2043,14 +2040,15 @@ int main(int argc, char **argv)
 					}
 					ImGui::End();
 				}
-				if (s_bake.executed || s_bake.finished) {
-					ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
-					ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
-					if (ImGui::Begin("Bake", &s_atlas.showTexture)) {
-						ImTextureID texture = (ImTextureID)(intptr_t)s_bake.lightmap.idx;
-						ImGui::Image(texture, ImGui::GetContentRegionAvail(), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
-						ImGui::End();
-					}
+			}
+			if ((s_bake.executed || s_bake.finished) && s_bake.showLightmap) {
+				const float size = 500;
+				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
+				ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
+				if (ImGui::Begin("Lightmap", &s_bake.showLightmap)) {
+					ImTextureID texture = (ImTextureID)(intptr_t)s_bake.lightmap.idx;
+					ImGui::Image(texture, ImGui::GetContentRegionAvail(), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+					ImGui::End();
 				}
 			}
 		}
