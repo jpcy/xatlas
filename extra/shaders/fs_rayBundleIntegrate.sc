@@ -8,6 +8,9 @@ uniform vec4 u_lightmapSize_dataSize;
 #define u_lightmapSize u_lightmapSize_dataSize.xy
 #define u_dataSize uint(u_lightmapSize_dataSize.z)
 uniform vec4 u_rayNormal;
+uniform vec4 u_skyColor_enabled;
+#define u_skyColor u_skyColor_enabled.rgb
+#define u_skyEnabled uint(u_skyColor_enabled.w)
 
 ivec2 dataUv(uint offset, uint pixel)
 {
@@ -59,9 +62,6 @@ void main()
 			offset = color_offset.w;
 			numNodes++;
 		}
-		// need at least 2 nodes to transfer radiance
-		if (numNodes <= 1)
-			return;
 		for (uint i = 0u; i < numNodes; i++) {
 			for (uint j = i + 1u; j < numNodes; j++) {
 				if (nodes[i].depth > nodes[j].depth || (nodes[i].depth == nodes[j].depth && dot(nodes[i].normal, u_rayNormal.xyz) < 0.0)) {
@@ -71,6 +71,14 @@ void main()
 				}
 			}
 		}
+		if (u_skyEnabled != 0u && numNodes > 0u) {
+			float d = dot(nodes[0].normal, u_rayNormal.xyz);
+			if (d > 0.0)
+				setLuxel(nodes[0].texcoord, u_skyColor * d);
+		}
+		// need at least 2 nodes to transfer radiance
+		if (numNodes <= 1)
+			return;
 		float brdf = 1.0;
 		for (uint j = 0; j < numNodes - 1; j += 2) {
 			// n1 to n2

@@ -294,6 +294,8 @@ struct
 	bool initialized = false;
 	bool executed = false;
 	bool finished = false;
+	bool sky = false;
+	bx::Vec3 skyColor = bx::Vec3(1.0f, 1.0f, 1.0f);
 	int directionsPerFrame = 10;
 	int numDirections = 1000;
 	int directionCount;
@@ -313,6 +315,7 @@ struct
 	// uniforms
 	bgfx::UniformHandle u_lightmapSize_dataSize;
 	bgfx::UniformHandle u_rayNormal;
+	bgfx::UniformHandle u_skyColor_enabled;
 	bgfx::UniformHandle u_atomicCounterSampler;
 	bgfx::UniformHandle u_rayBundleHeaderSampler;
 	bgfx::UniformHandle u_rayBundleDataSampler;
@@ -1496,6 +1499,7 @@ static void bakeShutdown()
 	// uniforms
 	bgfx::destroy(s_bake.u_lightmapSize_dataSize);
 	bgfx::destroy(s_bake.u_rayNormal);
+	bgfx::destroy(s_bake.u_skyColor_enabled);
 	bgfx::destroy(s_bake.u_atomicCounterSampler);
 	bgfx::destroy(s_bake.u_rayBundleHeaderSampler);
 	bgfx::destroy(s_bake.u_rayBundleDataSampler);
@@ -1539,6 +1543,7 @@ static void bakeExecute()
 		// shaders
 		s_bake.u_lightmapSize_dataSize = bgfx::createUniform("u_lightmapSize_dataSize", bgfx::UniformType::Vec4);
 		s_bake.u_rayNormal = bgfx::createUniform("u_rayNormal", bgfx::UniformType::Vec4);
+		s_bake.u_skyColor_enabled = bgfx::createUniform("u_skyColor_enabled", bgfx::UniformType::Vec4);
 		s_bake.u_atomicCounterSampler = bgfx::createUniform("u_atomicCounterSampler", bgfx::UniformType::Sampler);
 		s_bake.u_rayBundleHeaderSampler = bgfx::createUniform("u_rayBundleHeaderSampler", bgfx::UniformType::Sampler);
 		s_bake.u_rayBundleDataSampler = bgfx::createUniform("u_rayBundleDataSampler", bgfx::UniformType::Sampler);
@@ -1711,6 +1716,8 @@ static void bakeFrame()
 		bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
 		const float rayNormal[] = { view[2], view[6], view[10], 0 };
 		bgfx::setUniform(s_bake.u_rayNormal, rayNormal);
+		const float sky[] = { s_bake.skyColor.x, s_bake.skyColor.y, s_bake.skyColor.z, s_bake.sky ? 1.0f : 0.0f };
+		bgfx::setUniform(s_bake.u_skyColor_enabled, sky);
 		setScreenSpaceQuadVertexBuffer();
 		bgfx::setState(0);
 		bgfx::submit(viewOffset + kRayBundleResolveView, s_bake.rayBundleIntegrateProgram);
@@ -1956,6 +1963,9 @@ int main(int argc, char **argv)
 							ImGui::Separator();
 							ImGui::Spacing();
 							ImGui::Text("Bake");
+							ImGui::Checkbox("Sky", &s_bake.sky);
+							ImGui::SameLine();
+							ImGui::ColorEdit3("Sky color", &s_bake.skyColor.x, ImGuiColorEditFlags_NoInputs);
 							ImGui::SliderInt("Ray bundle directions", &s_bake.numDirections, 300, 10000);
 							ImGui::SliderInt("Directions per frame", &s_bake.directionsPerFrame, 1, 100);
 							if (ImGui::Button("Bake", ImVec2(-1.0f, 0.0f)))
