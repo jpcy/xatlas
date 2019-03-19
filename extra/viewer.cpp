@@ -292,7 +292,7 @@ struct
 	float fsOrtho[16];
 	bool enabled;
 	bool initialized = false;
-	bool executed = false;
+	bool executing = false;
 	bool finished = false;
 	bool showLightmap = true;
 	bool sky = false;
@@ -1569,7 +1569,7 @@ static void setScreenSpaceQuadVertexBuffer()
 
 static void bakeExecute()
 {
-	if (s_bake.executed)
+	if (s_bake.executing)
 		return;
 	bakeClear();
 	if (!s_bake.initialized) {
@@ -1642,7 +1642,7 @@ static void bakeExecute()
 		}
 	}
 	s_bake.initialized = true;
-	s_bake.executed = true;
+	s_bake.executing = true;
 	s_bake.directionCount = 0;
 	s_options.shadeMode = ShadeMode::Lightmap;
 	// Lightmap clear.
@@ -1670,7 +1670,7 @@ static float haltonSequence(int index, int base)
 
 static void bakeFrame()
 {
-	if (!s_bake.executed)
+	if (!s_bake.executing)
 		return;
 	bgfx::ViewId viewOffset = 0;
 	for (uint32_t i = 0; i < 10; i++) {
@@ -1757,7 +1757,7 @@ static void bakeFrame()
 		viewOffset += kNumBakeViews;
 		s_bake.directionCount++;
 		if (s_bake.directionCount >= s_bake.numDirections) {
-			s_bake.executed = false;
+			s_bake.executing = false;
 			s_bake.finished = true;
 			break;
 		}
@@ -1766,7 +1766,7 @@ static void bakeFrame()
 
 static void bakeClear()
 {
-	s_bake.executed = false;
+	s_bake.executing = false;
 	s_bake.finished = false;
 	s_options.shadeMode = s_atlas.status.get() == AtlasStatus::Ready ? ShadeMode::Charts : ShadeMode::Flat;
 }
@@ -1895,7 +1895,7 @@ int main(int argc, char **argv)
 						ImGui::RadioButton("Flat", (int *)&s_options.shadeMode, (int)ShadeMode::Flat);
 						ImGui::SameLine();
 						ImGui::RadioButton("Charts##shading", (int *)&s_options.shadeMode, (int)ShadeMode::Charts);
-						if (s_bake.executed || s_bake.finished) {
+						if (s_bake.executing || s_bake.finished) {
 							ImGui::SameLine();
 							ImGui::RadioButton("Lightmap", (int *)&s_options.shadeMode, (int)ShadeMode::Lightmap);
 						}
@@ -1968,10 +1968,12 @@ int main(int argc, char **argv)
 						ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
 						ImGui::SliderInt("Padding", &s_atlas.packOptions.padding, 0, 8);
 					}
-					if (ImGui::Button("Generate", buttonSize))
-						atlasGenerate();
-					ImGui::SameLine();
-					ImGui::Checkbox("Verbose", &s_atlas.verbose);
+					if (s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready) {
+						if (ImGui::Button("Generate", buttonSize))
+							atlasGenerate();
+						ImGui::SameLine();
+						ImGui::Checkbox("Verbose", &s_atlas.verbose);
+					}
 					if (s_atlas.status.get() == AtlasStatus::Ready) {
 						uint32_t numIndices = 0, numVertices = 0;
 						for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -1995,12 +1997,14 @@ int main(int argc, char **argv)
 							ImGui::ColorEdit3("Sky color", &s_bake.skyColor.x, ImGuiColorEditFlags_NoInputs);
 							ImGui::SliderInt("Ray bundle directions", &s_bake.numDirections, 300, 10000);
 							ImGui::SliderInt("Directions per frame", &s_bake.directionsPerFrame, 1, 100);
-							if (ImGui::Button("Bake", buttonSize))
-								bakeExecute();
-							if (s_bake.executed || s_bake.finished)
-								ImGui::Checkbox("Show lightmap", &s_bake.showLightmap);
-							if (s_bake.executed)
+							if (!s_bake.executing) {
+								if (ImGui::Button("Bake", buttonSize))
+									bakeExecute();
+							}
+							else
 								ImGui::ProgressBar(s_bake.directionCount / (float)s_bake.numDirections);
+							if (s_bake.executing || s_bake.finished)
+								ImGui::Checkbox("Show lightmap", &s_bake.showLightmap);
 						}
 					}
 				}
@@ -2066,7 +2070,7 @@ int main(int argc, char **argv)
 					ImGui::End();
 				}
 			}
-			if ((s_bake.executed || s_bake.finished) && s_bake.showLightmap) {
+			if ((s_bake.executing || s_bake.finished) && s_bake.showLightmap) {
 				const float size = 500;
 				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
 				ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
