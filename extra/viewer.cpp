@@ -753,6 +753,19 @@ static void guiRender()
 	}
 }
 
+static void guiImageMagnifierTooltip(ImTextureID texture, ImVec2 cursorPos, ImVec2 textureSize)
+{
+	ImGuiIO &io = ImGui::GetIO();
+	const ImVec2 imageSize(ImGui::GetItemRectSize());
+	const ImVec2 imageToTex(textureSize.x / imageSize.x, textureSize.y / imageSize.y);
+	const float magnifiedSize = 200.0f;
+	const ImVec2 uv0 = ImVec2((io.MousePos.x - cursorPos.x) * imageToTex.x - magnifiedSize * 0.5f, (io.MousePos.y - cursorPos.y) * imageToTex.y - magnifiedSize * 0.5f);
+	const ImVec2 uv1 = ImVec2(uv0.x + magnifiedSize, uv0.y + magnifiedSize);
+	ImGui::BeginTooltip();
+	ImGui::Image(texture, ImVec2(magnifiedSize, magnifiedSize), ImVec2(uv0.x / textureSize.x, uv0.y / textureSize.y), ImVec2(uv1.x / textureSize.x, uv1.y / textureSize.y));
+	ImGui::EndTooltip();
+}
+
 static void modelInit()
 {
 	s_model.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
@@ -2045,20 +2058,11 @@ int main(int argc, char **argv)
 								s_atlas.currentTexture = 0;
 						}
 					}
-					const ImVec2 pos = ImGui::GetCursorScreenPos();
+					const ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 					ImTextureID texture = (ImTextureID)(intptr_t)s_atlas.chartsTextures[s_atlas.currentTexture].idx;
 					ImGui::Image(texture, ImGui::GetContentRegionAvail());
-					if (ImGui::IsItemHovered()) {
-						const ImVec2 textureSize((float)s_atlas.data->width, (float)s_atlas.data->height);
-						const ImVec2 imageSize(ImGui::GetItemRectSize());
-						const ImVec2 imageToTex(textureSize.x / imageSize.x, textureSize.y / imageSize.y);
-						const float magnifiedSize = 200.0f;
-						const ImVec2 uv0 = ImVec2((io.MousePos.x - pos.x) * imageToTex.x - magnifiedSize * 0.5f, (io.MousePos.y - pos.y) * imageToTex.y - magnifiedSize * 0.5f);
-						const ImVec2 uv1 = ImVec2(uv0.x + magnifiedSize, uv0.y + magnifiedSize);
-						ImGui::BeginTooltip();
-						ImGui::Image(texture, ImVec2(magnifiedSize, magnifiedSize), ImVec2(uv0.x / textureSize.x, uv0.y / textureSize.y), ImVec2(uv1.x / textureSize.x, uv1.y / textureSize.y));
-						ImGui::EndTooltip();
-					}
+					if (ImGui::IsItemHovered())
+						guiImageMagnifierTooltip(texture, cursorPos, ImVec2((float)s_atlas.data->width, (float)s_atlas.data->height));
 					ImGui::End();
 				}
 			}
@@ -2067,8 +2071,11 @@ int main(int argc, char **argv)
 				ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
 				ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 				if (ImGui::Begin("Lightmap", &s_bake.showLightmap)) {
+					const ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 					ImTextureID texture = (ImTextureID)(intptr_t)s_bake.lightmap.idx;
-					ImGui::Image(texture, ImGui::GetContentRegionAvail(), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+					ImGui::Image(texture, ImGui::GetContentRegionAvail());
+					if (ImGui::IsItemHovered())
+						guiImageMagnifierTooltip(texture, cursorPos, ImVec2((float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight));
 					ImGui::End();
 				}
 			}
