@@ -639,6 +639,7 @@ static void guiInit()
 		w = WINDOW_DEFAULT_WIDTH;
 		h = WINDOW_DEFAULT_HEIGHT;
 	}
+	ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.75f;
 	ImGuiIO &io = ImGui::GetIO();
 	io.DisplaySize.x = (float)w;
 	io.DisplaySize.y = (float)h;
@@ -1967,6 +1968,8 @@ int main(int argc, char **argv)
 								bakeExecute();
 							if (s_bake.executed || s_bake.finished)
 								ImGui::Checkbox("Show lightmap", &s_bake.showLightmap);
+							if (s_bake.executed)
+								ImGui::ProgressBar(s_bake.directionCount / (float)s_bake.numDirections);
 						}
 					}
 				}
