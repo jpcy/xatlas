@@ -1660,15 +1660,25 @@ static void bakeFrame()
 		bx::mtxRotateXYZ(rotation, rx, ry, rz);
 		float view[16];
 		bx::mtxTranspose(view, rotation);
+		AABB aabb;
+#if 1
 		bx::Vec3 corners[8];
 		s_model.aabb.getCorners(corners);
-		AABB aabb;
 		for (uint32_t j = 0; j < 8; j++) {
 			const float in[4] = { corners[j].x, corners[j].y, corners[j].z, 1.0f };
 			float out[4];
 			bx::vec4MulMtx(out, in, view);
 			aabb.addPoint(bx::Vec3(out[0], out[1], out[2]));
 		}
+#else
+		for (uint32_t j = 0; j < s_model.data->numVertices; j++) {
+			const auto &v = ((ModelVertex *)s_model.data->vertices)[j];
+			const float in[4] = { v.pos.x, v.pos.y, v.pos.z, 1.0f };
+			float out[4];
+			bx::vec4MulMtx(out, in, view);
+			aabb.addPoint(bx::Vec3(out[0], out[1], out[2]));
+		}
+#endif
 		float projection[16];
 		bx::mtxOrtho(projection, aabb.min.x, aabb.max.x, aabb.min.y, aabb.max.y, -aabb.max.z, -aabb.min.z, 0.0f, bgfx::getCaps()->homogeneousDepth, bx::Handness::Right);
 		bgfx::setViewFrameBuffer(viewOffset + kRayBundleWriteView, s_bake.rayBundleFb);
