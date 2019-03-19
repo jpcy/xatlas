@@ -17,6 +17,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "bx/bx.h"
 #include "bx/commandline.h"
 #include "bx/math.h"
+#include "bx/os.h"
 #include "bgfx/bgfx.h"
 #include "bgfx/platform.h"
 #include "GLFW/glfw3.h"
@@ -30,6 +31,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "imgui/imgui.h"
 #include "nativefiledialog/nfd.h"
 #include "objzero/objzero.h"
+#include "OpenImageDenoise/oidn.h"
 #include "../xatlas.h"
 
 #define USE_LIBIGL 0
@@ -342,8 +344,10 @@ struct
 	int directionCount;
 	uint32_t lightmapWidth, lightmapHeight;
 	std::vector<float> lightmapData;
+	std::vector<float> denoisedLightmapData;
 	uint32_t lightmapDataReadyFrameNo;
 	std::thread *denoiseThread = nullptr;
+	void *oidnLibrary = nullptr;
 	// shaders
 	bgfx::ShaderHandle fs_atomicCounterClear;
 	bgfx::ShaderHandle fs_lightmapClear;
@@ -1527,6 +1531,30 @@ static void atlasFinalize()
 	s_atlas.status.set(AtlasStatus::Ready);
 }
 
+namespace oidn
+{
+	typedef OIDNDevice (*NewDeviceFunc)(OIDNDeviceType type);
+	typedef void (*CommitDeviceFunc)(OIDNDevice device);
+	typedef void (*ReleaseDeviceFunc)(OIDNDevice device);
+	typedef OIDNError (*GetDeviceErrorFunc)(OIDNDevice device, const char** outMessage);
+	typedef OIDNFilter (*NewFilterFunc)(OIDNDevice device, const char* type);
+	typedef void (*SetSharedFilterImageFunc)(OIDNFilter filter, const char* name, void* ptr, OIDNFormat format, size_t width, size_t height, size_t byteOffset, size_t bytePixelStride, size_t byteRowStride);
+	typedef void (*SetFilter1bFunc)(OIDNFilter filter, const char* name, bool value);
+	typedef void (*CommitFilterFunc)(OIDNFilter filter);
+	typedef void (*ExecuteFilterFunc)(OIDNFilter filter);
+	typedef void (*ReleaseFilterFunc)(OIDNFilter filter);
+	NewDeviceFunc NewDevice;
+	CommitDeviceFunc CommitDevice;
+	ReleaseDeviceFunc ReleaseDevice;
+	GetDeviceErrorFunc GetDeviceError;
+	NewFilterFunc NewFilter;
+	SetSharedFilterImageFunc SetSharedFilterImage;
+	SetFilter1bFunc SetFilter1b;
+	CommitFilterFunc CommitFilter;
+	ExecuteFilterFunc ExecuteFilter;
+	ReleaseFilterFunc ReleaseFilter;
+};
+
 struct ScreenSpaceVertex
 {
 	float pos[2];
@@ -1560,6 +1588,8 @@ static void bakeShutdown()
 {
 	if (!s_bake.initialized)
 		return;
+	if (s_bake.oidnLibrary)
+		bx::dlclose(s_bake.oidnLibrary);
 	// shaders
 	bgfx::destroy(s_bake.fs_atomicCounterClear);
 	bgfx::destroy(s_bake.fs_lightmapClear);
@@ -1616,6 +1646,20 @@ static void bakeExecute()
 		return;
 	bakeClear();
 	if (!s_bake.initialized) {
+		s_bake.oidnLibrary = bx::dlopen("OpenImageDenoise.dll");
+		if (s_bake.oidnLibrary) {
+			//#define OIDN_SYM(name) oidn::##name = (oidn::##name##Func)bx::dlsym(s_bake.oidnLibrary, "oidn" # name);
+			oidn::NewDevice = (oidn::NewDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnNewDevice");
+			oidn::CommitDevice = (oidn::CommitDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnCommitDevice");
+			oidn::ReleaseDevice = (oidn::ReleaseDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnReleaseDevice");
+			oidn::GetDeviceError = (oidn::GetDeviceErrorFunc)bx::dlsym(s_bake.oidnLibrary, "oidnGetDeviceError");
+			oidn::NewFilter = (oidn::NewFilterFunc)bx::dlsym(s_bake.oidnLibrary, "oidnNewFilter");
+			oidn::SetSharedFilterImage = (oidn::SetSharedFilterImageFunc)bx::dlsym(s_bake.oidnLibrary, "oidnSetSharedFilterImage");
+			oidn::SetFilter1b = (oidn::SetFilter1bFunc)bx::dlsym(s_bake.oidnLibrary, "oidnSetFilter1b");
+			oidn::CommitFilter = (oidn::CommitFilterFunc)bx::dlsym(s_bake.oidnLibrary, "oidnCommitFilter");
+			oidn::ExecuteFilter = (oidn::ExecuteFilterFunc)bx::dlsym(s_bake.oidnLibrary, "oidnExecuteFilter");
+			oidn::ReleaseFilter = (oidn::ReleaseFilterFunc)bx::dlsym(s_bake.oidnLibrary, "oidnReleaseFilter");
+		}
 		// shaders
 		s_bake.u_lightmapSize_dataSize = bgfx::createUniform("u_lightmapSize_dataSize", bgfx::UniformType::Vec4);
 		s_bake.u_rayNormal = bgfx::createUniform("u_rayNormal", bgfx::UniformType::Vec4);
@@ -1713,7 +1757,43 @@ static float haltonSequence(int index, int base)
 
 static void bakeDenoise()
 {
+	// OIDN_FORMAT_FLOAT4 not supported.
+	std::vector<float> input, output;
+	input.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 3);
+	for (uint32_t i = 0; i < s_bake.lightmapWidth * s_bake.lightmapHeight; i++) {
+		const float *rgbaIn = &s_bake.lightmapData[i * 4];
+		float *rgbOut = &input[i * 3];
+		rgbOut[0] = rgbaIn[0];
+		rgbOut[1] = rgbaIn[1];
+		rgbOut[2] = rgbaIn[2];
+	}
+	output.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 3);
+	OIDNDevice device = oidn::NewDevice(OIDN_DEVICE_TYPE_DEFAULT);
+	if (!device) {
+		fprintf(stderr, "Error creating OIDN device\n");
+		exit(EXIT_FAILURE);
+	}
+	oidn::CommitDevice(device);
 	s_bake.status = BakeStatus::WritingLightmap;
+	OIDNFilter filter = oidn::NewFilter(device, "RT");
+	oidn::SetSharedFilterImage(filter, "color", input.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, 0, 0);
+	oidn::SetSharedFilterImage(filter, "output", output.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, 0, 0);
+	oidn::CommitFilter(filter);
+	oidn::ExecuteFilter(filter);
+	const char *errorMessage;
+	if (oidn::GetDeviceError(device, &errorMessage) != OIDN_ERROR_NONE)
+		fprintf(stderr, "Denoiser error: %s\n", errorMessage);
+	oidn::ReleaseFilter(filter);
+	oidn::ReleaseDevice(device);
+	s_bake.denoisedLightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
+	for (uint32_t i = 0; i < s_bake.lightmapWidth * s_bake.lightmapHeight; i++) {
+		const float *rgbIn = &output[i * 3];
+		float *rgbaOut = &s_bake.denoisedLightmapData[i * 4];
+		rgbaOut[0] = rgbIn[0];
+		rgbaOut[1] = rgbIn[1];
+		rgbaOut[2] = rgbIn[2];
+		rgbaOut[3] = 1.0f;
+	}
 }
 
 static void bakeFrame(uint32_t bgfxFrame)
@@ -1819,7 +1899,7 @@ static void bakeFrame(uint32_t bgfxFrame)
 		s_bake.denoiseThread->join();
 		delete s_bake.denoiseThread;
 		s_bake.denoiseThread = nullptr;
-		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.lightmapData.data(), (uint32_t)s_bake.lightmapData.size() * sizeof(float)));
+		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.denoisedLightmapData.data(), (uint32_t)s_bake.denoisedLightmapData.size() * sizeof(float)));
 		s_bake.status = BakeStatus::Finished;
 	}
 }

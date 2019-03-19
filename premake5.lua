@@ -7,6 +7,7 @@ local BX_DIR = path.join(THIRDPARTY_DIR, "bx")
 local EIGEN_DIR = path.join(THIRDPARTY_DIR, "eigen")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
 local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
+local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
 
 newaction
 {
@@ -145,12 +146,13 @@ project "viewer"
 	files { "extra/viewer.cpp", "extra/shaders/*.*" }
 	includedirs
 	{
+		THIRDPARTY_DIR,
 		path.join(BGFX_DIR, "include"),
 		path.join(BX_DIR, "include"),
 		EIGEN_DIR,
-		THIRDPARTY_DIR,
 		path.join(GLFW_DIR, "include"),
-		path.join(IGL_DIR, "include")
+		path.join(IGL_DIR, "include"),
+		path.join(OIDN_DIR, "include")
 	}
 	links { "bgfx", "bimg", "bx", "glfw", "imgui", "nativefiledialog", "objzero", "xatlas" }
 	filter "system:windows"
