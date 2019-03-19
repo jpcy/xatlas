@@ -183,6 +183,11 @@ struct
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle wireframeIb = BGFX_INVALID_HANDLE;
 	float scale = 1.0f;
+	bgfx::ShaderHandle vs_model;
+	bgfx::ShaderHandle vs_position;
+	bgfx::ShaderHandle fs_color;
+	bgfx::ShaderHandle fs_checkerboard;
+	bgfx::ShaderHandle fs_material;
 	bgfx::ProgramHandle colorProgram;
 	bgfx::ProgramHandle checkerboardProgram;
 	bgfx::ProgramHandle materialProgram;
@@ -292,13 +297,20 @@ struct
 	int numDirections = 1000;
 	int directionCount;
 	uint32_t lightmapWidth, lightmapHeight;
+	// shaders
+	bgfx::ShaderHandle fs_atomicCounterClear;
+	bgfx::ShaderHandle fs_lightmapAverage;
+	bgfx::ShaderHandle fs_lightmapClear;
+	bgfx::ShaderHandle fs_rayBundleClear;
+	bgfx::ShaderHandle fs_rayBundleIntegrate;
+	bgfx::ShaderHandle fs_rayBundleWrite;
 	// programs
 	bgfx::ProgramHandle atomicCounterClearProgram;
-	bgfx::ProgramHandle rayBundleClearProgram;
-	bgfx::ProgramHandle rayBundleWriteProgram;
-	bgfx::ProgramHandle rayBundleIntegrateProgram;
 	bgfx::ProgramHandle lightmapAverageProgram;
 	bgfx::ProgramHandle lightmapClearProgram;
+	bgfx::ProgramHandle rayBundleClearProgram;
+	bgfx::ProgramHandle rayBundleIntegrateProgram;
+	bgfx::ProgramHandle rayBundleWriteProgram;
 	// uniforms
 	bgfx::UniformHandle u_lightmapSize_dataSize;
 	bgfx::UniformHandle u_rayNormal;
@@ -567,36 +579,31 @@ static void glfw_scrollCallback(GLFWwindow * /*window*/, double /*xoffset*/, dou
 		s_camera.orbit.zoom((float)-yoffset);
 }
 
-struct ProgramSource
+struct ShaderSource
 {
-	const uint8_t *vertexData;
-	uint32_t vertexSize;
-	const uint8_t *fragmentData;
-	uint32_t fragmentSize;
+	const uint8_t *data;
+	uint32_t size;
 };
 
-struct ProgramSourceBundle
+struct ShaderSourceBundle
 {
 #if BX_PLATFORM_WINDOWS
-	ProgramSource d3d11;
+	ShaderSource d3d11;
 #endif
-	ProgramSource gl;
+	ShaderSource gl;
 };
 
 #if BX_PLATFORM_WINDOWS
-#define PROGRAM_SOURCE_BUNDLE(vname, fname) { \
-	{ vname##_vertex_d3d11, sizeof(vname##_vertex_d3d11), fname##_fragment_d3d11, sizeof(fname##_fragment_d3d11) }, \
-	{ vname##_vertex_gl, sizeof(vname##_vertex_gl), fname##_fragment_gl, sizeof(fname##_fragment_gl) }}
+#define SHADER_SOURCE_BUNDLE(name) {{ name##_d3d11, sizeof(name##_d3d11) }, { name##_gl, sizeof(name##_gl) }}
 #else
-#define PROGRAM_SOURCE_BUNDLE(vname, fname) { \
-	{ vname##_vertex_gl, sizeof(vname##_vertex_gl), fname##_fragment_gl, sizeof(fname##_fragment_gl) }}
+#define SHADER_SOURCE_BUNDLE(name) {{ name##_gl, sizeof(name##_gl) }}
 #endif
 
-#define LOAD_PROGRAM(name) loadProgram(BX_STRINGIZE(name), PROGRAM_SOURCE_BUNDLE(name, name))
+#define LOAD_SHADER(name) loadShader(BX_STRINGIZE(name), SHADER_SOURCE_BUNDLE(name))
 
-static bgfx::ProgramHandle loadProgram(const char *name, ProgramSourceBundle sourceBundle)
+static bgfx::ShaderHandle loadShader(const char *name, ShaderSourceBundle sourceBundle)
 {
-	ProgramSource source;
+	ShaderSource source;
 	if (bgfx::getRendererType() == bgfx::RendererType::OpenGL)
 		source = sourceBundle.gl;
 #if BX_PLATFORM_WINDOWS
@@ -605,27 +612,17 @@ static bgfx::ProgramHandle loadProgram(const char *name, ProgramSourceBundle sou
 #endif
 	else {
 		fprintf(stderr, "Unsupported renderer type.");
-		return BGFX_INVALID_HANDLE;
+		exit(EXIT_FAILURE);
 	}
-	bgfx::ShaderHandle vs = bgfx::createShader(bgfx::makeRef(source.vertexData, source.vertexSize));
-	if (!bgfx::isValid(vs)) {
-		fprintf(stderr, "Creating vertex shader '%s' failed.", name);
-		return BGFX_INVALID_HANDLE;
+	bgfx::ShaderHandle shader = bgfx::createShader(bgfx::makeRef(source.data, source.size));
+	if (!bgfx::isValid(shader)) {
+		fprintf(stderr, "Creating shader '%s' failed.", name);
+		exit(EXIT_FAILURE);
 	}
-	bgfx::ShaderHandle fs = bgfx::createShader(bgfx::makeRef(source.fragmentData, source.fragmentSize));
-	if (!bgfx::isValid(fs)) {
-		fprintf(stderr, "Creating fragment shader '%s' failed.", name);
-		bgfx::destroy(vs);
-		return BGFX_INVALID_HANDLE;
-	}
-	bgfx::ProgramHandle program = bgfx::createProgram(vs, fs, true);
-	if (!bgfx::isValid(program)) {
-		bgfx::destroy(vs);
-		bgfx::destroy(fs);
-		fprintf(stderr, "Creating shader program '%s' failed.", name);
-		return BGFX_INVALID_HANDLE;
-	}
-	return program;
+#if _DEBUG
+	bgfx::setName(shader, name);
+#endif
+	return shader;
 }
 
 static void guiInit()
@@ -677,7 +674,9 @@ static void guiInit()
 	.end();
 	// shader program
 	s_gui.u_texture = bgfx::createUniform("u_texture", bgfx::UniformType::Sampler);
-	s_gui.program = LOAD_PROGRAM(Gui);
+	bgfx::ShaderHandle vertex = LOAD_SHADER(vs_gui);
+	bgfx::ShaderHandle fragment = LOAD_SHADER(fs_gui);
+	s_gui.program = bgfx::createProgram(vertex, fragment, true);
 }
 
 static void guiShutdown()
@@ -758,9 +757,14 @@ static void modelInit()
 	s_model.u_emission = bgfx::createUniform("u_emission", bgfx::UniformType::Vec4);
 	s_model.u_lightDir_shadeType = bgfx::createUniform("u_lightDir_shadeType", bgfx::UniformType::Vec4);
 	s_model.u_lightmapSampler = bgfx::createUniform("u_lightmapSampler", bgfx::UniformType::Sampler);
-	s_model.colorProgram = LOAD_PROGRAM(Color);
-	s_model.checkerboardProgram = LOAD_PROGRAM(Checkerboard);
-	s_model.materialProgram = LOAD_PROGRAM(Material);
+	s_model.vs_model = LOAD_SHADER(vs_model);
+	s_model.vs_position = LOAD_SHADER(vs_position);
+	s_model.fs_color = LOAD_SHADER(fs_color);
+	s_model.fs_checkerboard = LOAD_SHADER(fs_checkerboard);
+	s_model.fs_material = LOAD_SHADER(fs_material);
+	s_model.colorProgram = bgfx::createProgram(s_model.fs_color, s_model.vs_position);
+	s_model.checkerboardProgram = bgfx::createProgram(s_model.fs_checkerboard, s_model.vs_model);
+	s_model.materialProgram = bgfx::createProgram(s_model.fs_material, s_model.vs_model);
 	ModelVertex::init();
 	bgfx::setViewClear(kModelView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x444444ff);
 	bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);
@@ -777,6 +781,11 @@ static void modelShutdown()
 	bgfx::destroy(s_model.u_emission);
 	bgfx::destroy(s_model.u_lightDir_shadeType);
 	bgfx::destroy(s_model.u_lightmapSampler);
+	bgfx::destroy(s_model.vs_model);
+	bgfx::destroy(s_model.vs_position);
+	bgfx::destroy(s_model.fs_color);
+	bgfx::destroy(s_model.fs_checkerboard);
+	bgfx::destroy(s_model.fs_material);
 	bgfx::destroy(s_model.colorProgram);
 	bgfx::destroy(s_model.checkerboardProgram);
 	bgfx::destroy(s_model.materialProgram);
@@ -1474,12 +1483,20 @@ static void bakeShutdown()
 	if (!s_bake.initialized)
 		return;
 	// shaders
+	bgfx::destroy(s_bake.fs_atomicCounterClear);
+	bgfx::destroy(s_bake.fs_lightmapAverage);
+	bgfx::destroy(s_bake.fs_lightmapClear);
+	bgfx::destroy(s_bake.fs_rayBundleClear);
+	bgfx::destroy(s_bake.fs_rayBundleIntegrate);
+	bgfx::destroy(s_bake.fs_rayBundleWrite);
+	// programs
 	bgfx::destroy(s_bake.atomicCounterClearProgram);
 	bgfx::destroy(s_bake.rayBundleClearProgram);
 	bgfx::destroy(s_bake.rayBundleWriteProgram);
 	bgfx::destroy(s_bake.rayBundleIntegrateProgram);
 	bgfx::destroy(s_bake.lightmapAverageProgram);
 	bgfx::destroy(s_bake.lightmapClearProgram);
+	// uniforms
 	bgfx::destroy(s_bake.u_lightmapSize_dataSize);
 	bgfx::destroy(s_bake.u_rayNormal);
 	bgfx::destroy(s_bake.u_atomicCounterSampler);
@@ -1529,12 +1546,18 @@ static void bakeExecute()
 		s_bake.u_rayBundleHeaderSampler = bgfx::createUniform("u_rayBundleHeaderSampler", bgfx::UniformType::Sampler);
 		s_bake.u_rayBundleDataSampler = bgfx::createUniform("u_rayBundleDataSampler", bgfx::UniformType::Sampler);
 		s_bake.u_lightmapSampler = bgfx::createUniform("u_lightmapSampler", bgfx::UniformType::Sampler);
-		s_bake.atomicCounterClearProgram = LOAD_PROGRAM(AtomicCounterClear);
-		s_bake.rayBundleClearProgram = LOAD_PROGRAM(RayBundleClear);
-		s_bake.rayBundleWriteProgram = LOAD_PROGRAM(RayBundleWrite);
-		s_bake.rayBundleIntegrateProgram = LOAD_PROGRAM(RayBundleIntegrate);
-		s_bake.lightmapAverageProgram = LOAD_PROGRAM(LightmapAverage);
-		s_bake.lightmapClearProgram = LOAD_PROGRAM(LightmapClear);
+		s_bake.fs_atomicCounterClear = LOAD_SHADER(fs_atomicCounterClear);
+		s_bake.fs_lightmapAverage = LOAD_SHADER(fs_lightmapAverage);
+		s_bake.fs_lightmapClear = LOAD_SHADER(fs_lightmapClear);
+		s_bake.fs_rayBundleClear = LOAD_SHADER(fs_rayBundleClear);
+		s_bake.fs_rayBundleIntegrate = LOAD_SHADER(fs_rayBundleIntegrate);
+		s_bake.fs_rayBundleWrite = LOAD_SHADER(fs_rayBundleWrite);
+		s_bake.atomicCounterClearProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_atomicCounterClear);
+		s_bake.lightmapAverageProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_lightmapAverage);
+		s_bake.lightmapClearProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_lightmapClear);
+		s_bake.rayBundleClearProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_rayBundleClear);
+		s_bake.rayBundleIntegrateProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_rayBundleIntegrate);
+		s_bake.rayBundleWriteProgram = bgfx::createProgram(s_model.vs_model, s_bake.fs_rayBundleWrite);
 		// framebuffers
 		{
 			bgfx::TextureHandle target = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
@@ -1711,7 +1734,7 @@ static void bakeClear()
 {
 	s_bake.executed = false;
 	s_bake.finished = false;
-	s_options.shadeMode = ShadeMode::Charts;
+	s_options.shadeMode = s_atlas.status.get() == AtlasStatus::Ready ? ShadeMode::Charts : ShadeMode::Flat;
 }
 
 int main(int argc, char **argv)

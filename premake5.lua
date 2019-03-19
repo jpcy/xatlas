@@ -16,18 +16,20 @@ newaction
 		dofile("extra/shaderc.lua")
 		local shaders =
 		{
-			"AtomicCounterClear",
-			"Checkerboard",
-			"Color",
-			"Gui",
-			"LightmapAverage",
-			"LightmapClear",
-			"Material",
-			"RayBundleClear",
-			"RayBundleIntegrate",
-			"RayBundleWrite"
+			"fs_atomicCounterClear",
+			"fs_checkerboard",
+			"fs_color",
+			"fs_gui",
+			"fs_lightmapAverage",
+			"fs_lightmapClear",
+			"fs_material",
+			"fs_rayBundleClear",
+			"fs_rayBundleIntegrate",
+			"fs_rayBundleWrite",
+			"vs_gui",
+			"vs_model",
+			"vs_position"
 		}
-		local shaderTypes = { "vertex", "fragment" }
 		local renderers = nil
 		if os.ishost("windows") then
 			renderers = { "d3d11", "gl" }
@@ -39,22 +41,22 @@ newaction
 		end
 		pcall(function()
 			for _,shader in pairs(shaders) do
-				for _,shaderType in pairs(shaderTypes) do
-					for _,renderer in pairs(renderers) do
-						io.write("Compiling " .. shader .. " " .. shaderType .. " " .. renderer .. "\n")
-						io.flush()
-						compileShader(
-						{
-							type = shaderType,
-							renderer = renderer,
-							inputFilename = path.join(SHADERS_DIR, shader) .. "." .. shaderType .. ".sc",
-							includeDirs = path.join(BGFX_DIR, "src"),
-							varyingFilename = path.join(SHADERS_DIR, "varying.def.sc"),
-							outputFilename = path.join(SHADERS_BIN_DIR, renderer, shader) .. "." .. shaderType .. ".h",
-							bin2c = true,
-							variableName = shader .. "_" .. shaderType .. "_" .. renderer
-						})
-					end
+				for _,renderer in pairs(renderers) do
+					io.write("Compiling " .. shader .. " " .. renderer .. "\n")
+					io.flush()
+					local shaderType = "vertex"
+					if shader:sub(0, 2) == "fs" then shaderType = "fragment" end
+					compileShader(
+					{
+						type = shaderType,
+						renderer = renderer,
+						inputFilename = path.join(SHADERS_DIR, shader) .. ".sc",
+						includeDirs = path.join(BGFX_DIR, "src"),
+						varyingFilename = path.join(SHADERS_DIR, "varying.def.sc"),
+						outputFilename = path.join(SHADERS_BIN_DIR, renderer, shader) .. ".h",
+						bin2c = true,
+						variableName = shader .. "_" .. renderer
+					})
 				end
 			end
 			-- Write a header file that includes all the shader headers.
@@ -64,9 +66,7 @@ newaction
 			local file = assert(io.open(filename, "w"))
 			for _,renderer in pairs(renderers) do
 				for _,shader in pairs(shaders) do
-					for _,shaderType in pairs(shaderTypes) do
-						file:write(string.format("#include \"%s.%s.h\"\n", path.join(renderer, shader), shaderType))
-					end
+					file:write(string.format("#include \"%s.h\"\n", path.join(renderer, shader)))
 				end
 			end
 			file:close()
