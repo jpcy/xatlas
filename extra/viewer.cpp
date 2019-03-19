@@ -294,19 +294,18 @@ struct
 	bool initialized = false;
 	bool executed = false;
 	bool finished = false;
+	int directionsPerFrame = 10;
 	int numDirections = 1000;
 	int directionCount;
 	uint32_t lightmapWidth, lightmapHeight;
 	// shaders
 	bgfx::ShaderHandle fs_atomicCounterClear;
-	bgfx::ShaderHandle fs_lightmapAverage;
 	bgfx::ShaderHandle fs_lightmapClear;
 	bgfx::ShaderHandle fs_rayBundleClear;
 	bgfx::ShaderHandle fs_rayBundleIntegrate;
 	bgfx::ShaderHandle fs_rayBundleWrite;
 	// programs
 	bgfx::ProgramHandle atomicCounterClearProgram;
-	bgfx::ProgramHandle lightmapAverageProgram;
 	bgfx::ProgramHandle lightmapClearProgram;
 	bgfx::ProgramHandle rayBundleClearProgram;
 	bgfx::ProgramHandle rayBundleIntegrateProgram;
@@ -1484,7 +1483,6 @@ static void bakeShutdown()
 		return;
 	// shaders
 	bgfx::destroy(s_bake.fs_atomicCounterClear);
-	bgfx::destroy(s_bake.fs_lightmapAverage);
 	bgfx::destroy(s_bake.fs_lightmapClear);
 	bgfx::destroy(s_bake.fs_rayBundleClear);
 	bgfx::destroy(s_bake.fs_rayBundleIntegrate);
@@ -1494,7 +1492,6 @@ static void bakeShutdown()
 	bgfx::destroy(s_bake.rayBundleClearProgram);
 	bgfx::destroy(s_bake.rayBundleWriteProgram);
 	bgfx::destroy(s_bake.rayBundleIntegrateProgram);
-	bgfx::destroy(s_bake.lightmapAverageProgram);
 	bgfx::destroy(s_bake.lightmapClearProgram);
 	// uniforms
 	bgfx::destroy(s_bake.u_lightmapSize_dataSize);
@@ -1547,13 +1544,11 @@ static void bakeExecute()
 		s_bake.u_rayBundleDataSampler = bgfx::createUniform("u_rayBundleDataSampler", bgfx::UniformType::Sampler);
 		s_bake.u_lightmapSampler = bgfx::createUniform("u_lightmapSampler", bgfx::UniformType::Sampler);
 		s_bake.fs_atomicCounterClear = LOAD_SHADER(fs_atomicCounterClear);
-		s_bake.fs_lightmapAverage = LOAD_SHADER(fs_lightmapAverage);
 		s_bake.fs_lightmapClear = LOAD_SHADER(fs_lightmapClear);
 		s_bake.fs_rayBundleClear = LOAD_SHADER(fs_rayBundleClear);
 		s_bake.fs_rayBundleIntegrate = LOAD_SHADER(fs_rayBundleIntegrate);
 		s_bake.fs_rayBundleWrite = LOAD_SHADER(fs_rayBundleWrite);
 		s_bake.atomicCounterClearProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_atomicCounterClear);
-		s_bake.lightmapAverageProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_lightmapAverage);
 		s_bake.lightmapClearProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_lightmapClear);
 		s_bake.rayBundleClearProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_rayBundleClear);
 		s_bake.rayBundleIntegrateProgram = bgfx::createProgram(s_model.vs_position, s_bake.fs_rayBundleIntegrate);
@@ -1611,6 +1606,7 @@ static void bakeExecute()
 	s_bake.initialized = true;
 	s_bake.executed = true;
 	s_bake.directionCount = 0;
+	s_options.shadeMode = ShadeMode::Lightmap;
 	// Lightmap clear.
 	bgfx::setViewFrameBuffer(kLightmapClear, s_bake.lightmapClearFb);
 	bgfx::setViewRect(kLightmapClear, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
@@ -1713,20 +1709,8 @@ static void bakeFrame()
 		if (s_bake.directionCount >= s_bake.numDirections) {
 			s_bake.executed = false;
 			s_bake.finished = true;
-			s_options.shadeMode = ShadeMode::Lightmap;
 			break;
 		}
-	}
-	if (s_bake.finished) {
-		// Lightmap average.
-		bgfx::ViewId kLightmapAverageView = viewOffset + kAtomicCounterClearView;
-		bgfx::setViewFrameBuffer(kLightmapAverageView, s_bake.lightmapClearFb);
-		bgfx::setViewRect(kLightmapAverageView, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
-		bgfx::setViewTransform(kLightmapAverageView, nullptr, s_bake.fsOrtho);
-		bgfx::setTexture(1, s_bake.u_lightmapSampler, s_bake.lightmap);
-		setScreenSpaceQuadVertexBuffer();
-		bgfx::setState(0);
-		bgfx::submit(kLightmapAverageView, s_bake.lightmapAverageProgram);
 	}
 }
 
@@ -1859,7 +1843,7 @@ int main(int argc, char **argv)
 					ImGui::RadioButton("Flat", (int *)&s_options.shadeMode, (int)ShadeMode::Flat);
 					ImGui::SameLine();
 					ImGui::RadioButton("Charts##shading", (int *)&s_options.shadeMode, (int)ShadeMode::Charts);
-					if (s_bake.finished) {
+					if (s_bake.executed || s_bake.finished) {
 						ImGui::SameLine();
 						ImGui::RadioButton("Lightmap", (int *)&s_options.shadeMode, (int)ShadeMode::Lightmap);
 					}
@@ -1962,7 +1946,8 @@ int main(int argc, char **argv)
 							ImGui::Separator();
 							ImGui::Spacing();
 							ImGui::Text("Bake");
-							ImGui::SliderInt("Num. directions", &s_bake.numDirections, 300, 10000);
+							ImGui::SliderInt("Ray bundle directions", &s_bake.numDirections, 300, 10000);
+							ImGui::SliderInt("Directions per frame", &s_bake.directionsPerFrame, 1, 100);
 							if (ImGui::Button("Bake", ImVec2(-1.0f, 0.0f)))
 								bakeExecute();
 						}

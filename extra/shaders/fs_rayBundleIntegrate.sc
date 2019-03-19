@@ -20,7 +20,8 @@ void setLuxel(vec2 texCoord, vec3 color) {
 	if (uv.x > 0 && uv.y > 0) {
 		// Should be imageAtomicAdd, but that only works with ints.
 		vec4 current = imageLoad(u_lightmapSampler, uv);
-		imageStore(u_lightmapSampler, uv, current + vec4(color, 1.0));
+		// https://blog.demofox.org/2016/08/23/incremental-averaging/
+		imageStore(u_lightmapSampler, uv, vec4(mix(current.rgb, color.rgb, 1.0 / (current.a + 1.0)), current.a + 1.0));
 	}
 }
 #endif

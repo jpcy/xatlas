@@ -20,7 +20,6 @@ newaction
 			"fs_checkerboard",
 			"fs_color",
 			"fs_gui",
-			"fs_lightmapAverage",
 			"fs_lightmapClear",
 			"fs_material",
 			"fs_rayBundleClear",
