@@ -919,11 +919,15 @@ static void modelRender(const float *view, const float *projection)
 	float modelMatrix[16];
 	bx::mtxScale(modelMatrix, s_model.scale);
 	bgfx::setViewTransform(kModelView, view, projection);
-	if (s_options.shadeMode == ShadeMode::Flat || s_options.shadeMode == ShadeMode::Lightmap) {
+	const bool renderCharts = s_options.shadeMode == ShadeMode::Charts && s_atlas.status.get() == AtlasStatus::Ready;
+	if (s_options.shadeMode == ShadeMode::Flat || s_options.shadeMode == ShadeMode::Lightmap || renderCharts) {
 		const float lightDir[] = { view[2], view[6], view[10], s_options.shadeMode == ShadeMode::Lightmap ? 1.0f : 0.0f };
 		for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
 			const objzMesh &mesh = s_model.data->meshes[i];
 			const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
+			// When rendering charts, emissive meshes won't be rendered, so do that here.
+			if (renderCharts && (!mat || (mat->emission[0] <= 0.0f && mat->emission[1] <= 0.0f && mat->emission[2] <= 0.0f)))
+				continue;
 			if (s_atlas.status.get() == AtlasStatus::Ready) {
 				bgfx::setIndexBuffer(s_atlas.ib, mesh.firstIndex, mesh.numIndices);
 				bgfx::setVertexBuffer(0, s_atlas.vb);
@@ -939,7 +943,8 @@ static void modelRender(const float *view, const float *projection)
 				bgfx::setTexture(0, s_model.u_lightmapSampler, s_bake.lightmap);
 			bgfx::submit(kModelView, s_model.materialProgram);
 		}
-	} else if (s_options.shadeMode == ShadeMode::Charts && s_atlas.status.get() == AtlasStatus::Ready) {
+	}
+	if (renderCharts) {
 		srand(s_atlas.chartColorSeed);
 		uint32_t firstIndex = 0;
 		for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -1216,9 +1221,21 @@ static void atlasGenerateThread()
 	if (firstRun) {
 		// Create xatlas context and compute charts on first run only.
 		s_atlas.data = xatlas::Create();
+		std::vector<uint8_t> ignoreFaces; // Should be bool, workaround stupid C++ specialization.
 		for (uint32_t i = 0; i < s_model.data->numObjects; i++) {
 			const objzObject &object = s_model.data->objects[i];
 			auto v = &((const ModelVertex *)s_model.data->vertices)[object.firstVertex];
+			// Ignore faces with an emissive material.
+			ignoreFaces.resize(object.numIndices / 3);
+			memset(ignoreFaces.data(), 0, ignoreFaces.size() * sizeof(uint8_t));
+			for (uint32_t j = 0; j < object.numMeshes; j++) {
+				const objzMesh &mesh = s_model.data->meshes[object.firstMesh + j];
+				const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
+				if (mat && (mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f)) {
+					for (uint32_t k = 0; k < mesh.numIndices / 3; k++)
+						ignoreFaces[mesh.firstIndex / 3 + k] = true;
+				}
+			}
 			xatlas::MeshDecl meshDecl;
 			meshDecl.vertexCount = object.numVertices;
 			meshDecl.vertexPositionData = &v->pos;
@@ -1231,6 +1248,7 @@ static void atlasGenerateThread()
 			meshDecl.indexData = &((uint32_t *)s_model.data->indices)[object.firstIndex];
 			meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
 			meshDecl.indexOffset = -(int32_t)object.firstVertex;
+			meshDecl.faceIgnoreData = (const bool *)ignoreFaces.data();
 			xatlas::AddMeshError::Enum error = xatlas::AddMesh(s_atlas.data, meshDecl);
 			if (error != xatlas::AddMeshError::Success) {
 				fprintf(stderr, "Error adding mesh: %s\n", xatlas::StringForEnum(error));
