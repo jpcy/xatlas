@@ -1060,6 +1060,8 @@ objzModel *objz_load(const char *_filename) {
 	}
 	for (uint32_t i = 0; i < tempObjects.length; i++) {
 		const TempObject *tempObject = OBJZ_ARRAY_ELEMENT(tempObjects, i);
+		if (!tempObject->numFaces)
+			continue;
 		objzObject object;
 		OBJZ_STRNCPY(object.name, sizeof(object.name), tempObject->name);
 		if (generateNormals)
