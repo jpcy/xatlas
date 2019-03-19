@@ -639,7 +639,7 @@ static void guiInit()
 		w = WINDOW_DEFAULT_WIDTH;
 		h = WINDOW_DEFAULT_HEIGHT;
 	}
-	ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.75f;
+	ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.9f;
 	ImGuiIO &io = ImGui::GetIO();
 	io.DisplaySize.x = (float)w;
 	io.DisplaySize.y = (float)h;
@@ -1660,9 +1660,9 @@ static void bakeFrame()
 		bgfx::setState(0);
 		bgfx::submit(viewOffset + kRayBundleClearView, s_bake.rayBundleClearProgram);
 		// Ray bundle write.
-		const float rx = -90.0f + haltonSequence(s_bake.directionCount, 2) * 180.0f;
-		const float ry = -90.0f + haltonSequence(s_bake.directionCount, 3) * 180.0f;
-		const float rz = -90.0f + haltonSequence(s_bake.directionCount, 5) * 180.0f;
+		const float rx = haltonSequence(s_bake.directionCount, 2) * bx::kPi2;
+		const float ry = haltonSequence(s_bake.directionCount, 3) * bx::kPi2;
+		const float rz = haltonSequence(s_bake.directionCount, 5) * bx::kPi2;
 		float rotation[16];
 		bx::mtxRotateXYZ(rotation, rx, ry, rz);
 		float view[16];

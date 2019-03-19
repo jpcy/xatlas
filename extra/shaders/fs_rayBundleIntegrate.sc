@@ -37,7 +37,7 @@ struct Node
 	vec2 texcoord;
 };
 
-#define MAX_NODES 16
+#define MAX_NODES 64
 
 void main()
 {
@@ -72,29 +72,26 @@ void main()
 			}
 		}
 		if (u_skyEnabled != 0u && numNodes > 0u) {
-			float d = dot(nodes[0].normal, u_rayNormal.xyz);
+			float d = dot(nodes[0u].normal, u_rayNormal.xyz);
 			if (d > 0.0)
-				setLuxel(nodes[0].texcoord, u_skyColor * d);
+				setLuxel(nodes[0u].texcoord, u_skyColor * d);
 		}
 		// need at least 2 nodes to transfer radiance
-		if (numNodes <= 1)
+		if (numNodes < 2u)
 			return;
 		float brdf = 1.0;
-		for (uint j = 0; j < numNodes - 1; j += 2) {
+		for (uint j = 0u; j < numNodes - 1u; j += 2u) {
 			// n1 to n2
-			bool n2Forward = dot(nodes[j + 1].normal, u_rayNormal.xyz) > 0;
-			float d = dot(nodes[j + 1].normal, n2Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
-			if (d > 0)
-				setLuxel(nodes[j + 1].texcoord, brdf * nodes[j + 0].color * d);
+			bool n2Forward = dot(nodes[j + 1u].normal, u_rayNormal.xyz) > 0.0;
+			float d = dot(nodes[j + 1u].normal, n2Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
+			if (d > 0.0)
+				setLuxel(nodes[j + 1u].texcoord, brdf * nodes[j + 0u].color * d);
 			// n2 to n1
-			bool n1Forward = dot(nodes[j + 0].normal, u_rayNormal.xyz) > 0;
-			d = dot(nodes[j + 0].normal, n1Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
-			if (d > 0)
-				setLuxel(nodes[j + 0].texcoord, brdf * nodes[j + 1].color * d);
+			bool n1Forward = dot(nodes[j + 0u].normal, u_rayNormal.xyz) > 0.0;
+			d = dot(nodes[j + 0u].normal, n1Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
+			if (d > 0.0)
+				setLuxel(nodes[j + 0u].texcoord, brdf * nodes[j + 1u].color * d);
 		}
-		/*for (uint j = 0u; j < numNodes; j++) {
-			imageStore(u_lightmapSampler, ivec2(nodes[j].texcoord * u_lightmapSize), vec4(nodes[j].color, 1.0));
-		}*/
 	}
 #endif
 }
