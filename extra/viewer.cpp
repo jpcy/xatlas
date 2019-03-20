@@ -18,6 +18,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "bx/commandline.h"
 #include "bx/math.h"
 #include "bx/os.h"
+#include "bx/rng.h"
 #include "bgfx/bgfx.h"
 #include "bgfx/platform.h"
 #include "GLFW/glfw3.h"
@@ -348,6 +349,7 @@ struct
 	uint32_t lightmapDataReadyFrameNo;
 	std::thread *denoiseThread = nullptr;
 	void *oidnLibrary = nullptr;
+	bx::RngMwc rng;
 	// shaders
 	bgfx::ShaderHandle fs_atomicCounterClear;
 	bgfx::ShaderHandle fs_lightmapClear;
@@ -1734,6 +1736,7 @@ static void bakeExecute()
 	s_bake.initialized = true;
 	s_bake.status = BakeStatus::Executing;
 	s_bake.directionCount = 0;
+	s_bake.rng.reset();
 	s_options.shadeMode = ShadeMode::Lightmap;
 	// Lightmap clear.
 	bgfx::setViewFrameBuffer(kLightmapClear, s_bake.lightmapClearFb);
@@ -1822,9 +1825,15 @@ static void bakeFrame(uint32_t bgfxFrame)
 			bgfx::setState(0);
 			bgfx::submit(viewOffset + kRayBundleClearView, s_bake.rayBundleClearProgram);
 			// Ray bundle write.
+#if 1
 			const float rx = haltonSequence(s_bake.directionCount, 2) * bx::kPi2;
 			const float ry = haltonSequence(s_bake.directionCount, 3) * bx::kPi2;
 			const float rz = haltonSequence(s_bake.directionCount, 5) * bx::kPi2;
+#else
+			const float rx = bx::frnd(&s_bake.rng) * bx::kPi2;
+			const float ry = bx::frnd(&s_bake.rng) * bx::kPi2;
+			const float rz = bx::frnd(&s_bake.rng) * bx::kPi2;
+#endif
 			float rotation[16];
 			bx::mtxRotateXYZ(rotation, rx, ry, rz);
 			float view[16];
