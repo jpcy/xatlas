@@ -336,7 +336,7 @@ struct LightmapId
 
 struct
 {
-	const uint16_t rbTextureSize = 256;
+	const uint16_t rbTextureSize = 512;
 	const uint16_t rbDataTextureSize = 8192;
 	float fsOrtho[16];
 	bool enabled;
@@ -1451,26 +1451,6 @@ static void atlasGenerateThread()
 		}
 		firstVertex += mesh.vertexCount;
 	}
-	/*for (int i = 0; i < (int)s_atlas.atlas->meshCount; i++)
-	{
-		const xatlas::Mesh &outputMesh = s_atlas.atlas->meshes[i];
-		const objzObject &object = s_model.data->objects[i];
-		const int firstIndex = (int)indices.size();
-		indices.resize(indices.size() + outputMesh.indexCount);
-		for (int j = 0; j < (int)outputMesh.indexCount; j++)
-			indices[firstIndex + j] = (uint32_t)vertices.size() + outputMesh.indexArray[j];
-		const int firstVertex = (int)vertices.size();
-		vertices.resize(vertices.size() + outputMesh.vertexCount);
-		for (int j = 0; j < (int)outputMesh.vertexCount; j++)
-		{
-			const xatlas::Vertex &outputVertex = outputMesh.vertexArray[j];
-			const ModelVertex &oldVertex = ((const ModelVertex *)s_model.data->vertices)[object.firstVertex + outputVertex.xref];
-			ModelVertex &v = vertices[firstVertex + j];
-			v.pos = oldVertex.pos;
-			v.normal = oldVertex.normal;
-			v.texcoord = vec4(oldVertex.texcoord.x, oldVertex.texcoord.y, outputVertex.uv[0] / (float)width, outputVertex.uv[1] / (float)height);
-		}
-	}*/
 	// Rasterize charts to texture(s) for previewing UVs.
 	s_atlas.chartsImages.resize(s_atlas.data->atlasCount);
 	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsImages.size(); i++) {
@@ -1974,7 +1954,7 @@ static void bakeFrame(uint32_t bgfxFrame)
 			bgfx::setTexture(3, s_bake.u_lightmap0Sampler, s_bake.lightmaps[LightmapId::Integrate]);
 			const float sizes[] = { (float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight, (float)s_bake.rbDataTextureSize, 0.0f };
 			bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
-			const float rayNormal[] = { view[2], view[6], view[10], 0 };
+			const float rayNormal[] = { -view[2], -view[6], -view[10], 0 };
 			bgfx::setUniform(s_bake.u_rayNormal, rayNormal);
 			const float sky[] = { s_bake.skyColor.x, s_bake.skyColor.y, s_bake.skyColor.z, s_bake.sky ? 1.0f : 0.0f };
 			bgfx::setUniform(s_bake.u_skyColor_enabled, sky);

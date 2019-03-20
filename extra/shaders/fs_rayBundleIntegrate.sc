@@ -60,7 +60,7 @@ void main()
 		}
 		for (uint i = 0u; i < numNodes; i++) {
 			for (uint j = i + 1u; j < numNodes; j++) {
-				if (nodes[i].depth > nodes[j].depth || (nodes[i].depth == nodes[j].depth && dot(nodes[i].normal, u_rayNormal.xyz) < 0.0)) {
+				if (nodes[i].depth > nodes[j].depth || (nodes[i].depth == nodes[j].depth && dot(nodes[i].normal, u_rayNormal.xyz) > 0.0)) {
 					Node temp = nodes[i];
 					nodes[i] = nodes[j];
 					nodes[j] = temp;
@@ -68,11 +68,11 @@ void main()
 			}
 		}
 		if (u_skyEnabled != 0u && numNodes > 0u) {
-			float d = dot(nodes[0u].normal, u_rayNormal.xyz);
+			float d = dot(nodes[0u].normal, -u_rayNormal.xyz);
 			if (d > 0.0)
 				setLuxel(nodes[0u].texcoord, u_skyColor * d);
 			if (numNodes > 1u) {
-				float d = dot(nodes[numNodes - 1u].normal, -u_rayNormal.xyz);
+				float d = dot(nodes[numNodes - 1u].normal, u_rayNormal.xyz);
 				if (d > 0.0)
 					setLuxel(nodes[numNodes - 1u].texcoord, u_skyColor * d);
 			}
@@ -80,17 +80,13 @@ void main()
 		// need at least 2 nodes to transfer radiance
 		else if (numNodes >= 2u) {
 			float brdf = 1.0;
-			for (uint j = 0u; j < numNodes - 1u; j += 2u) {
-				// n1 to n2
-				bool n2Forward = dot(nodes[j + 1u].normal, u_rayNormal.xyz) > 0.0;
-				float d = dot(nodes[j + 1u].normal, n2Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
-				if (d > 0.0)
-					setLuxel(nodes[j + 1u].texcoord, brdf * nodes[j + 0u].color * d);
-				// n2 to n1
-				bool n1Forward = dot(nodes[j + 0u].normal, u_rayNormal.xyz) > 0.0;
-				d = dot(nodes[j + 0u].normal, n1Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
-				if (d > 0.0)
-					setLuxel(nodes[j + 0u].texcoord, brdf * nodes[j + 1u].color * d);
+			for (uint i = 0u; i < numNodes - 1u; i++) {
+				float d1 = dot(nodes[i + 0u].normal, u_rayNormal.xyz);
+				float d2 = dot(nodes[i + 1u].normal, -u_rayNormal.xyz);
+				if (d1 > 0.0 && d2 > 0.0) {
+					setLuxel(nodes[i + 1u].texcoord, brdf * nodes[i + 0u].color * d2);
+					setLuxel(nodes[i + 0u].texcoord, brdf * nodes[i + 1u].color * d1);
+				}
 			}
 		}
 	}
