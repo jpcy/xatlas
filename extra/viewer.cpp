@@ -1314,7 +1314,7 @@ static void atlasGenerateThread()
 				const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
 				if (mat && (mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f)) {
 					for (uint32_t k = 0; k < mesh.numIndices / 3; k++)
-						ignoreFaces[mesh.firstIndex / 3 + k] = true;
+						ignoreFaces[(mesh.firstIndex - object.firstIndex) / 3 + k] = true;
 				}
 			}
 			xatlas::MeshDecl meshDecl;
