@@ -2,7 +2,7 @@
 
 FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 0);
 FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleDataSampler, rgba32ui, 1);
-FRAMEBUFFER_IMAGE2D_RW(u_lightmapSampler, rgba32f, 2);
+FRAMEBUFFER_IMAGE2D_RW(u_lightmap0Sampler, rgba32f, 2);
 
 uniform vec4 u_lightmapSize_dataSize;
 #define u_lightmapSize u_lightmapSize_dataSize.xy
@@ -20,12 +20,8 @@ ivec2 dataUv(uint offset, uint pixel)
 #if BGFX_SHADER_LANGUAGE_GLSL
 void setLuxel(vec2 texCoord, vec3 color) {
 	ivec2 uv = ivec2(texCoord * u_lightmapSize);
-	if (uv.x > 0 && uv.y > 0) {
-		// Should be imageAtomicAdd, but that only works with ints.
-		vec4 current = imageLoad(u_lightmapSampler, uv);
-		// https://blog.demofox.org/2016/08/23/incremental-averaging/
-		imageStore(u_lightmapSampler, uv, vec4(mix(current.rgb, color.rgb, 1.0 / (current.a + 1.0)), current.a + 1.0));
-	}
+	if (uv.x > 0 && uv.y > 0)
+		imageStore(u_lightmap0Sampler, uv, vec4(color.rgb, 1.0));
 }
 #endif
 
@@ -75,22 +71,27 @@ void main()
 			float d = dot(nodes[0u].normal, u_rayNormal.xyz);
 			if (d > 0.0)
 				setLuxel(nodes[0u].texcoord, u_skyColor * d);
+			if (numNodes > 1u) {
+				float d = dot(nodes[numNodes - 1u].normal, -u_rayNormal.xyz);
+				if (d > 0.0)
+					setLuxel(nodes[numNodes - 1u].texcoord, u_skyColor * d);
+			}
 		}
 		// need at least 2 nodes to transfer radiance
-		if (numNodes < 2u)
-			return;
-		float brdf = 1.0;
-		for (uint j = 0u; j < numNodes - 1u; j += 2u) {
-			// n1 to n2
-			bool n2Forward = dot(nodes[j + 1u].normal, u_rayNormal.xyz) > 0.0;
-			float d = dot(nodes[j + 1u].normal, n2Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
-			if (d > 0.0)
-				setLuxel(nodes[j + 1u].texcoord, brdf * nodes[j + 0u].color * d);
-			// n2 to n1
-			bool n1Forward = dot(nodes[j + 0u].normal, u_rayNormal.xyz) > 0.0;
-			d = dot(nodes[j + 0u].normal, n1Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
-			if (d > 0.0)
-				setLuxel(nodes[j + 0u].texcoord, brdf * nodes[j + 1u].color * d);
+		else if (numNodes >= 2u) {
+			float brdf = 1.0;
+			for (uint j = 0u; j < numNodes - 1u; j += 2u) {
+				// n1 to n2
+				bool n2Forward = dot(nodes[j + 1u].normal, u_rayNormal.xyz) > 0.0;
+				float d = dot(nodes[j + 1u].normal, n2Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
+				if (d > 0.0)
+					setLuxel(nodes[j + 1u].texcoord, brdf * nodes[j + 0u].color * d);
+				// n2 to n1
+				bool n1Forward = dot(nodes[j + 0u].normal, u_rayNormal.xyz) > 0.0;
+				d = dot(nodes[j + 0u].normal, n1Forward ? u_rayNormal.xyz : -u_rayNormal.xyz);
+				if (d > 0.0)
+					setLuxel(nodes[j + 0u].texcoord, brdf * nodes[j + 1u].color * d);
+			}
 		}
 	}
 #endif
