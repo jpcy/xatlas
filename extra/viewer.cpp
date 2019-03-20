@@ -1536,6 +1536,7 @@ namespace oidn
 	typedef OIDNDevice (*NewDeviceFunc)(OIDNDeviceType type);
 	typedef void (*CommitDeviceFunc)(OIDNDevice device);
 	typedef void (*ReleaseDeviceFunc)(OIDNDevice device);
+	typedef void (*SetDevice1bFunc)(OIDNDevice device, const char* name, bool value);
 	typedef OIDNError (*GetDeviceErrorFunc)(OIDNDevice device, const char** outMessage);
 	typedef OIDNFilter (*NewFilterFunc)(OIDNDevice device, const char* type);
 	typedef void (*SetSharedFilterImageFunc)(OIDNFilter filter, const char* name, void* ptr, OIDNFormat format, size_t width, size_t height, size_t byteOffset, size_t bytePixelStride, size_t byteRowStride);
@@ -1546,6 +1547,7 @@ namespace oidn
 	NewDeviceFunc NewDevice;
 	CommitDeviceFunc CommitDevice;
 	ReleaseDeviceFunc ReleaseDevice;
+	SetDevice1bFunc SetDevice1b;
 	GetDeviceErrorFunc GetDeviceError;
 	NewFilterFunc NewFilter;
 	SetSharedFilterImageFunc SetSharedFilterImage;
@@ -1652,6 +1654,7 @@ static void bakeExecute()
 			oidn::NewDevice = (oidn::NewDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnNewDevice");
 			oidn::CommitDevice = (oidn::CommitDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnCommitDevice");
 			oidn::ReleaseDevice = (oidn::ReleaseDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnReleaseDevice");
+			oidn::SetDevice1b = (oidn::SetDevice1bFunc)bx::dlsym(s_bake.oidnLibrary, "oidnSetDevice1b");
 			oidn::GetDeviceError = (oidn::GetDeviceErrorFunc)bx::dlsym(s_bake.oidnLibrary, "oidnGetDeviceError");
 			oidn::NewFilter = (oidn::NewFilterFunc)bx::dlsym(s_bake.oidnLibrary, "oidnNewFilter");
 			oidn::SetSharedFilterImage = (oidn::SetSharedFilterImageFunc)bx::dlsym(s_bake.oidnLibrary, "oidnSetSharedFilterImage");
@@ -1773,6 +1776,7 @@ static void bakeDenoise()
 		fprintf(stderr, "Error creating OIDN device\n");
 		exit(EXIT_FAILURE);
 	}
+	oidn::SetDevice1b(device, "setAffinity", false);
 	oidn::CommitDevice(device);
 	s_bake.status = BakeStatus::WritingLightmap;
 	OIDNFilter filter = oidn::NewFilter(device, "RT");
@@ -2141,8 +2145,14 @@ int main(int argc, char **argv)
 								if (ImGui::Button("Bake", buttonSize))
 									bakeExecute();
 							}
-							else
-								ImGui::ProgressBar(s_bake.directionCount / (float)s_bake.numDirections);
+							else {
+								if (s_bake.directionCount < s_bake.numDirections)
+									ImGui::ProgressBar(s_bake.directionCount / (float)s_bake.numDirections);
+								else {
+									ImGui::AlignTextToFramePadding();
+									ImGui::Text("Denoising...");
+								}
+							}
 							if (s_bake.status != BakeStatus::Idle)
 								ImGui::Checkbox("Show lightmap", &s_bake.showLightmap);
 						}
