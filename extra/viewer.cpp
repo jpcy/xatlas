@@ -1718,7 +1718,7 @@ static void bakeExecute()
 		for (uint32_t i = 0; i < LightmapId::Num; i++)
 			s_bake.lightmaps[i] = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_COMPUTE_WRITE);
 		{
-			s_bake.rayBundleIntegrateTarget = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
+			s_bake.rayBundleIntegrateTarget = bgfx::createTexture2D(s_bake.rbTextureSize, s_bake.rbTextureSize, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
 			bgfx::Attachment attachments[4];
 			attachments[0].init(s_bake.rayBundleIntegrateTarget);
 			attachments[1].init(s_bake.rayBundleHeader, bgfx::Access::Read);
@@ -1939,7 +1939,7 @@ static void bakeFrame(uint32_t bgfxFrame)
 			viewId++;
 			// Ray bundle integrate.
 			bgfx::setViewFrameBuffer(viewId, s_bake.rayBundleIntegrateFb);
-			bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
+			bgfx::setViewRect(viewId, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
 			bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
 			bgfx::setTexture(1, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
 			bgfx::setTexture(2, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
