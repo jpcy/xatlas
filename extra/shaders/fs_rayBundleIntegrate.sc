@@ -78,7 +78,7 @@ void main()
 			}
 		}
 		// need at least 2 nodes to transfer radiance
-		else if (numNodes >= 2u) {
+		if (numNodes >= 2u) {
 			float brdf = 1.0;
 			for (uint i = 0u; i < numNodes - 1u; i++) {
 				float d1 = dot(nodes[i + 0u].normal, u_rayNormal.xyz);
