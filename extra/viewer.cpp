@@ -1511,20 +1511,12 @@ static void atlasFinalize()
 	// Chart boundaries.
 	s_atlas.chartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartBoundaryVertices.data(), uint32_t(s_atlas.chartBoundaryVertices.size() * sizeof(bx::Vec3))), s_atlas.wireVertexDecl);
 	// Charts texture.
-	if (s_atlas.chartsTextures.size() != s_atlas.data->atlasCount) {
-		for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++)
-			bgfx::destroy(s_atlas.chartsTextures[i]);
-		s_atlas.chartsTextures.resize(s_atlas.data->atlasCount);
-		for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++)
-			s_atlas.chartsTextures[i] = BGFX_INVALID_HANDLE;
-	}
+	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++)
+		bgfx::destroy(s_atlas.chartsTextures[i]);
+	s_atlas.chartsTextures.resize(s_atlas.data->atlasCount);
 	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsTextures.size(); i++) {
-		bgfx::TextureHandle &tex = s_atlas.chartsTextures[i];
 		const bgfx::Memory *mem = bgfx::makeRef(s_atlas.chartsImages[i].data(), (uint32_t)s_atlas.chartsImages[i].size());
-		if (!bgfx::isValid(tex))
-			tex = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::RGB8, BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack), mem);
-		else
-			bgfx::updateTexture2D(tex, 0, 0, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, mem);
+		s_atlas.chartsTextures[i] = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::RGB8, BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack), mem);
 	}
 	s_atlas.currentTexture = 0;
 	s_options.shadeMode = ShadeMode::Charts;
