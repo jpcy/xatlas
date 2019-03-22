@@ -1,8 +1,8 @@
 #include <bgfx_compute.sh>
 
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 0);
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleDataSampler, rgba32ui, 1);
-FRAMEBUFFER_IMAGE2D_RW(u_lightmap0Sampler, rgba32f, 2);
+FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 1);
+FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleDataSampler, rgba32ui, 2);
+FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleLightmapSampler, r32ui, 3);
 
 uniform vec4 u_lightmapSize_dataSize;
 #define u_lightmapSize u_lightmapSize_dataSize.xy
@@ -12,16 +12,24 @@ uniform vec4 u_skyColor_enabled;
 #define u_skyColor u_skyColor_enabled.rgb
 #define u_skyEnabled uint(u_skyColor_enabled.w)
 
-ivec2 dataUv(uint offset, uint pixel)
+ivec2 rayBundleDataUv(uint offset, uint pixel)
 {
 	return ivec2((offset * 3u + pixel) % u_dataSize, (offset * 3u + pixel) / u_dataSize);
 }
 
+ivec2 rayBundleLightmapDataUv(vec2 uv, uint pixel)
+{
+	return ivec2(uint(uv.x * u_lightmapSize.x) * 4u + pixel, uint(uv.y * u_lightmapSize.y));
+}
+
 #if BGFX_SHADER_LANGUAGE_GLSL
 void setLuxel(vec2 texCoord, vec3 color) {
-	ivec2 uv = ivec2(texCoord * u_lightmapSize);
-	if (uv.x > 0 && uv.y > 0)
-		imageStore(u_lightmap0Sampler, uv, vec4(color.rgb, 1.0));
+	if (texCoord.x > 0.0 && texCoord.y > 0.0) {
+		imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(texCoord, 0u), uint(color.r * 255.0));
+		imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(texCoord, 1u), uint(color.g * 255.0));
+		imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(texCoord, 2u), uint(color.b * 255.0));
+		imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(texCoord, 3u), 1u);
+	}
 }
 #endif
 
@@ -44,9 +52,9 @@ void main()
 		Node nodes[MAX_NODES];
 		uint numNodes = 0u;
 		while (offset != 0xffffffff && numNodes < MAX_NODES) {
-			uvec4 color_offset = imageLoad(u_rayBundleDataSampler, dataUv(offset, 0u));
-			uvec4 normal_depth = imageLoad(u_rayBundleDataSampler, dataUv(offset, 1u));
-			uvec4 texcoord = imageLoad(u_rayBundleDataSampler, dataUv(offset, 2u));
+			uvec4 color_offset = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 0u));
+			uvec4 normal_depth = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 1u));
+			uvec4 texcoord = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 2u));
 			nodes[numNodes].color.r = uintBitsToFloat(color_offset.r);
 			nodes[numNodes].color.g = uintBitsToFloat(color_offset.g);
 			nodes[numNodes].color.b = uintBitsToFloat(color_offset.b);

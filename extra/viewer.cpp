@@ -281,7 +281,6 @@ static ShaderSourceBundle s_shaders[] =
 	SHADER_SOURCE_BUNDLE(fs_checkerboard),
 	SHADER_SOURCE_BUNDLE(fs_color),
 	SHADER_SOURCE_BUNDLE(fs_gui),
-	SHADER_SOURCE_BUNDLE(fs_lightmapAccumulate),
 	SHADER_SOURCE_BUNDLE(fs_lightmapAverage),
 	SHADER_SOURCE_BUNDLE(fs_lightmapClear),
 	SHADER_SOURCE_BUNDLE(fs_material),

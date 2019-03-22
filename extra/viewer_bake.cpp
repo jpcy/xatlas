@@ -70,17 +70,6 @@ struct BakeOptions
 	int numDirections = 300;
 };
 
-struct LightmapId
-{
-	enum
-	{
-		Integrate, // Ray bundle is integrated into this. Cleared every ray bundle.
-		Accumulate, // Integrate lightmap is accumulated into this for every ray bundle (add rgb, add 1 to a). Cleared at start of bake.
-		Average, // Accumulate lightmap is averaged (rgb / a). Only needs to be done at end of bake, but for visualization it's done every frame, erasing the previous frame result.
-		Num
-	};
-};
-
 struct
 {
 	const uint16_t rbTextureSize = 512;
@@ -101,7 +90,6 @@ struct
 	// shaders
 	bgfx::ShaderHandle fs_atomicCounterClear;
 	bgfx::ShaderHandle fs_lightmapClear;
-	bgfx::ShaderHandle fs_lightmapAccumulate;
 	bgfx::ShaderHandle fs_lightmapAverage;
 	bgfx::ShaderHandle fs_rayBundleClear;
 	bgfx::ShaderHandle fs_rayBundleIntegrate;
@@ -109,7 +97,6 @@ struct
 	// programs
 	bgfx::ProgramHandle atomicCounterClearProgram;
 	bgfx::ProgramHandle lightmapClearProgram;
-	bgfx::ProgramHandle lightmapAccumulateProgram;
 	bgfx::ProgramHandle lightmapAverageProgram;
 	bgfx::ProgramHandle rayBundleClearProgram;
 	bgfx::ProgramHandle rayBundleIntegrateProgram;
@@ -122,9 +109,8 @@ struct
 	bgfx::UniformHandle u_atomicCounterSampler;
 	bgfx::UniformHandle u_rayBundleHeaderSampler;
 	bgfx::UniformHandle u_rayBundleDataSampler;
-	bgfx::UniformHandle u_lightmap0Sampler;
-	bgfx::UniformHandle u_lightmap1Sampler;
-	bgfx::UniformHandle u_lightmap2Sampler;
+	bgfx::UniformHandle u_rayBundleLightmapSampler;
+	bgfx::UniformHandle u_lightmapSampler;
 	// atomic counter
 	bgfx::FrameBufferHandle atomicCounterFb;
 	bgfx::TextureHandle atomicCounterTexture;
@@ -133,19 +119,17 @@ struct
 	bgfx::TextureHandle rayBundleTarget;
 	bgfx::TextureHandle rayBundleHeader;
 	bgfx::TextureHandle rayBundleData;
-	// ray bundle resolve
+	// ray bundle integrate
 	bgfx::FrameBufferHandle rayBundleIntegrateFb;
 	bgfx::TextureHandle rayBundleIntegrateTarget;
-	bgfx::TextureHandle lightmaps[LightmapId::Num];
+	bgfx::TextureHandle rayBundleLightmap; // Ray bundle is integrated into this. Cleared every ray bundle.
 	// lightmap clear
 	bgfx::FrameBufferHandle lightmapClearFb;
 	bgfx::TextureHandle lightmapClearTarget;
-	// lightmap accumulate
-	bgfx::FrameBufferHandle lightmapAccumulateFb;
-	bgfx::TextureHandle lightmapAccumulateTarget;
 	// lightmap average
 	bgfx::FrameBufferHandle lightmapAverageFb;
 	bgfx::TextureHandle lightmapAverageTarget;
+	bgfx::TextureHandle lightmap; // Ray bundle lightmap is averaged (rgb / a). Only needs to be done at end of bake, but for visualization it's done every frame, erasing the previous frame result.
 }
 s_bake;
 
@@ -213,7 +197,6 @@ void bakeShutdown()
 	// shaders
 	bgfx::destroy(s_bake.fs_atomicCounterClear);
 	bgfx::destroy(s_bake.fs_lightmapClear);
-	bgfx::destroy(s_bake.fs_lightmapAccumulate);
 	bgfx::destroy(s_bake.fs_lightmapAverage);
 	bgfx::destroy(s_bake.fs_rayBundleClear);
 	bgfx::destroy(s_bake.fs_rayBundleIntegrate);
@@ -224,7 +207,6 @@ void bakeShutdown()
 	bgfx::destroy(s_bake.rayBundleWriteProgram);
 	bgfx::destroy(s_bake.rayBundleIntegrateProgram);
 	bgfx::destroy(s_bake.lightmapClearProgram);
-	bgfx::destroy(s_bake.lightmapAccumulateProgram);
 	bgfx::destroy(s_bake.lightmapAverageProgram);
 	// uniforms
 	bgfx::destroy(s_bake.u_clearLightmaps);
@@ -234,25 +216,22 @@ void bakeShutdown()
 	bgfx::destroy(s_bake.u_atomicCounterSampler);
 	bgfx::destroy(s_bake.u_rayBundleHeaderSampler);
 	bgfx::destroy(s_bake.u_rayBundleDataSampler);
-	bgfx::destroy(s_bake.u_lightmap0Sampler);
-	bgfx::destroy(s_bake.u_lightmap1Sampler);
-	bgfx::destroy(s_bake.u_lightmap2Sampler);
+	bgfx::destroy(s_bake.u_rayBundleLightmapSampler);
+	bgfx::destroy(s_bake.u_lightmapSampler);
 	// framebuffers
 	bgfx::destroy(s_bake.atomicCounterFb);
 	bgfx::destroy(s_bake.rayBundleFb);
 	bgfx::destroy(s_bake.rayBundleTarget);
 	bgfx::destroy(s_bake.rayBundleHeader);
 	bgfx::destroy(s_bake.rayBundleData);
+	bgfx::destroy(s_bake.rayBundleLightmap);
 	bgfx::destroy(s_bake.rayBundleIntegrateFb);
 	bgfx::destroy(s_bake.rayBundleIntegrateTarget);
 	bgfx::destroy(s_bake.lightmapClearFb);
 	bgfx::destroy(s_bake.lightmapClearTarget);
-	bgfx::destroy(s_bake.lightmapAccumulateFb);
-	bgfx::destroy(s_bake.lightmapAccumulateTarget);
 	bgfx::destroy(s_bake.lightmapAverageFb);
 	bgfx::destroy(s_bake.lightmapAverageTarget);
-	for (uint32_t i = 0; i < LightmapId::Num; i++)
-		bgfx::destroy(s_bake.lightmaps[i]);
+	bgfx::destroy(s_bake.lightmap);
 }
 
 static void setScreenSpaceQuadVertexBuffer()
@@ -286,19 +265,16 @@ void bakeExecute()
 		s_bake.u_atomicCounterSampler = bgfx::createUniform("u_atomicCounterSampler", bgfx::UniformType::Sampler);
 		s_bake.u_rayBundleHeaderSampler = bgfx::createUniform("u_rayBundleHeaderSampler", bgfx::UniformType::Sampler);
 		s_bake.u_rayBundleDataSampler = bgfx::createUniform("u_rayBundleDataSampler", bgfx::UniformType::Sampler);
-		s_bake.u_lightmap0Sampler = bgfx::createUniform("u_lightmap0Sampler", bgfx::UniformType::Sampler);
-		s_bake.u_lightmap1Sampler = bgfx::createUniform("u_lightmap1Sampler", bgfx::UniformType::Sampler);
-		s_bake.u_lightmap2Sampler = bgfx::createUniform("u_lightmap2Sampler", bgfx::UniformType::Sampler);
+		s_bake.u_rayBundleLightmapSampler = bgfx::createUniform("u_rayBundleLightmapSampler", bgfx::UniformType::Sampler);
+		s_bake.u_lightmapSampler = bgfx::createUniform("u_lightmapSampler", bgfx::UniformType::Sampler);
 		s_bake.fs_atomicCounterClear = loadShader(ShaderId::fs_atomicCounterClear);
 		s_bake.fs_lightmapClear = loadShader(ShaderId::fs_lightmapClear);
-		s_bake.fs_lightmapAccumulate = loadShader(ShaderId::fs_lightmapAccumulate);
 		s_bake.fs_lightmapAverage = loadShader(ShaderId::fs_lightmapAverage);
 		s_bake.fs_rayBundleClear = loadShader(ShaderId::fs_rayBundleClear);
 		s_bake.fs_rayBundleIntegrate = loadShader(ShaderId::fs_rayBundleIntegrate);
 		s_bake.fs_rayBundleWrite = loadShader(ShaderId::fs_rayBundleWrite);
 		s_bake.atomicCounterClearProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_atomicCounterClear);
 		s_bake.lightmapClearProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_lightmapClear);
-		s_bake.lightmapAccumulateProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_lightmapAccumulate);
 		s_bake.lightmapAverageProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_lightmapAverage);
 		s_bake.rayBundleClearProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_rayBundleClear);
 		s_bake.rayBundleIntegrateProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_rayBundleIntegrate);
@@ -331,49 +307,38 @@ void bakeExecute()
 			bgfx::destroy(s_bake.lightmapClearTarget);
 			bgfx::destroy(s_bake.rayBundleIntegrateFb);
 			bgfx::destroy(s_bake.rayBundleIntegrateTarget);
-			bgfx::destroy(s_bake.lightmapAccumulateFb);
-			bgfx::destroy(s_bake.lightmapAccumulateTarget);
+			bgfx::destroy(s_bake.rayBundleLightmap);
 			bgfx::destroy(s_bake.lightmapAverageFb);
 			bgfx::destroy(s_bake.lightmapAverageTarget);
-			for (uint32_t i = 0; i < LightmapId::Num; i++)
-				bgfx::destroy(s_bake.lightmaps[i]);
+			bgfx::destroy(s_bake.lightmap);
 		}
 		s_bake.lightmapWidth = atlasGetWidth();
 		s_bake.lightmapHeight = atlasGetHeight();
-		for (uint32_t i = 0; i < LightmapId::Num; i++)
-			s_bake.lightmaps[i] = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_COMPUTE_WRITE);
+		s_bake.rayBundleLightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth * 4, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE);
+		s_bake.lightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_COMPUTE_WRITE);
 		{
 			s_bake.rayBundleIntegrateTarget = bgfx::createTexture2D(s_bake.rbTextureSize, s_bake.rbTextureSize, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
 			bgfx::Attachment attachments[4];
 			attachments[0].init(s_bake.rayBundleIntegrateTarget);
 			attachments[1].init(s_bake.rayBundleHeader, bgfx::Access::Read);
 			attachments[2].init(s_bake.rayBundleData, bgfx::Access::Read);
-			attachments[3].init(s_bake.lightmaps[LightmapId::Integrate], bgfx::Access::ReadWrite);
+			attachments[3].init(s_bake.rayBundleLightmap, bgfx::Access::ReadWrite);
 			s_bake.rayBundleIntegrateFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
 		}
 		{
 			s_bake.lightmapClearTarget = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
-			bgfx::Attachment attachments[4];
-			attachments[0].init(s_bake.lightmapClearTarget);
-			attachments[1].init(s_bake.lightmaps[LightmapId::Integrate], bgfx::Access::ReadWrite);
-			attachments[2].init(s_bake.lightmaps[LightmapId::Accumulate], bgfx::Access::ReadWrite);
-			attachments[3].init(s_bake.lightmaps[LightmapId::Average], bgfx::Access::ReadWrite);
-			s_bake.lightmapClearFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
-		}
-		{
-			s_bake.lightmapAccumulateTarget = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
 			bgfx::Attachment attachments[3];
-			attachments[0].init(s_bake.lightmapAccumulateTarget);
-			attachments[1].init(s_bake.lightmaps[LightmapId::Integrate], bgfx::Access::ReadWrite);
-			attachments[2].init(s_bake.lightmaps[LightmapId::Accumulate], bgfx::Access::ReadWrite);
-			s_bake.lightmapAccumulateFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
+			attachments[0].init(s_bake.lightmapClearTarget);
+			attachments[1].init(s_bake.rayBundleLightmap, bgfx::Access::ReadWrite);
+			attachments[2].init(s_bake.lightmap, bgfx::Access::ReadWrite);
+			s_bake.lightmapClearFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
 		}
 		{
 			s_bake.lightmapAverageTarget = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
 			bgfx::Attachment attachments[3];
 			attachments[0].init(s_bake.lightmapAverageTarget);
-			attachments[1].init(s_bake.lightmaps[LightmapId::Accumulate], bgfx::Access::ReadWrite);
-			attachments[2].init(s_bake.lightmaps[LightmapId::Average], bgfx::Access::ReadWrite);
+			attachments[1].init(s_bake.rayBundleLightmap, bgfx::Access::ReadWrite);
+			attachments[2].init(s_bake.lightmap, bgfx::Access::ReadWrite);
 			s_bake.lightmapAverageFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
 		}
 	}
@@ -457,35 +422,25 @@ static void bakeDenoise()
 	}
 }
 
-static void bakeSubmitClearLightmap(bgfx::ViewId viewId, uint32_t idFlags)
-{
-	bgfx::setViewFrameBuffer(viewId, s_bake.lightmapClearFb);
-	bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
-	bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
-	bgfx::setTexture(1, s_bake.u_lightmap0Sampler, s_bake.lightmaps[0]);
-	bgfx::setTexture(2, s_bake.u_lightmap1Sampler, s_bake.lightmaps[1]);
-	bgfx::setTexture(3, s_bake.u_lightmap2Sampler, s_bake.lightmaps[2]);
-	float clear[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	for (uint32_t i = 0; i < LightmapId::Num; i++) {
-		if (idFlags & (1 << i))
-			clear[i] = 1.0f;
-	}
-	bgfx::setUniform(s_bake.u_clearLightmaps, clear);
-	setScreenSpaceQuadVertexBuffer();
-	bgfx::setState(0);
-	bgfx::submit(viewId, s_bake.lightmapClearProgram);
-}
-
 void bakeFrame(uint32_t bgfxFrame)
 {
 	bgfx::ViewId viewId = kFirstFreeView;
 	if (s_bake.status == BakeStatus::Executing) {
-		if (s_bake.directionCount == 0) {
-			// Lightmap clear accumulate.
-			bakeSubmitClearLightmap(viewId, 1 << LightmapId::Accumulate);
-			viewId++;
-		}
 		for (uint32_t i = 0; i < (uint32_t)s_bake.options.directionsPerFrame; i++) {
+			if (s_bake.directionCount == 0) {
+				// Lightmap clear integrate.
+				bgfx::setViewFrameBuffer(viewId, s_bake.lightmapClearFb);
+				bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth * 4, (uint16_t)s_bake.lightmapHeight);
+				bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
+				bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
+				bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmap);
+				const float clear[] = { 1.0f, 0.0f, 0.0f, 0.0f };
+				bgfx::setUniform(s_bake.u_clearLightmaps, clear);
+				setScreenSpaceQuadVertexBuffer();
+				bgfx::setState(0);
+				bgfx::submit(viewId, s_bake.lightmapClearProgram);
+				viewId++;
+			}
 			// Atomic counter clear.
 			bgfx::setViewFrameBuffer(viewId, s_bake.atomicCounterFb);
 			bgfx::setViewRect(viewId, 0, 0, 1, 1);
@@ -560,16 +515,13 @@ void bakeFrame(uint32_t bgfxFrame)
 				}
 			}
 			viewId++;
-			// Lightmap clear integrate.
-			bakeSubmitClearLightmap(viewId, 1 << LightmapId::Integrate);
-			viewId++;
 			// Ray bundle integrate.
 			bgfx::setViewFrameBuffer(viewId, s_bake.rayBundleIntegrateFb);
 			bgfx::setViewRect(viewId, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
 			bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
 			bgfx::setTexture(1, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
 			bgfx::setTexture(2, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
-			bgfx::setTexture(3, s_bake.u_lightmap0Sampler, s_bake.lightmaps[LightmapId::Integrate]);
+			bgfx::setTexture(3, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
 			const float sizes[] = { (float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight, (float)s_bake.rbDataTextureSize, 0.0f };
 			bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
 			const float rayNormal[] = { -view[2], -view[6], -view[10], 0 };
@@ -580,25 +532,24 @@ void bakeFrame(uint32_t bgfxFrame)
 			bgfx::setState(0);
 			bgfx::submit(viewId, s_bake.rayBundleIntegrateProgram);
 			viewId++;
-			// Lightmap accumulate.
-			bgfx::setViewFrameBuffer(viewId, s_bake.lightmapAccumulateFb);
+			// Lightmap clear average.
+			bgfx::setViewFrameBuffer(viewId, s_bake.lightmapClearFb);
 			bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
 			bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
-			bgfx::setTexture(1, s_bake.u_lightmap0Sampler, s_bake.lightmaps[LightmapId::Integrate]);
-			bgfx::setTexture(2, s_bake.u_lightmap1Sampler, s_bake.lightmaps[LightmapId::Accumulate]);
+			bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
+			bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmap);
+			const float clear[] = { 0.0f, 1.0f, 0.0f, 0.0f };
+			bgfx::setUniform(s_bake.u_clearLightmaps, clear);
 			setScreenSpaceQuadVertexBuffer();
 			bgfx::setState(0);
-			bgfx::submit(viewId, s_bake.lightmapAccumulateProgram);
-			viewId++;
-			// Lightmap clear average.
-			bakeSubmitClearLightmap(viewId, 1 << LightmapId::Average);
+			bgfx::submit(viewId, s_bake.lightmapClearProgram);
 			viewId++;
 			// Lightmap average.
 			bgfx::setViewFrameBuffer(viewId, s_bake.lightmapAverageFb);
 			bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
 			bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
-			bgfx::setTexture(1, s_bake.u_lightmap0Sampler, s_bake.lightmaps[LightmapId::Accumulate]);
-			bgfx::setTexture(2, s_bake.u_lightmap1Sampler, s_bake.lightmaps[LightmapId::Average]);
+			bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
+			bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmap);
 			setScreenSpaceQuadVertexBuffer();
 			bgfx::setState(0);
 			bgfx::submit(viewId, s_bake.lightmapAverageProgram);
@@ -610,7 +561,7 @@ void bakeFrame(uint32_t bgfxFrame)
 				if (s_bake.options.denoise) {
 					s_bake.status = BakeStatus::ReadingLightmap;
 					s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4 * sizeof(float));
-					s_bake.lightmapDataReadyFrameNo = bgfx::readTexture(s_bake.lightmaps[LightmapId::Average], s_bake.lightmapData.data());
+					s_bake.lightmapDataReadyFrameNo = bgfx::readTexture(s_bake.lightmap, s_bake.lightmapData.data());
 				} else {
 					s_bake.status = BakeStatus::Finished;
 				}
@@ -626,7 +577,7 @@ void bakeFrame(uint32_t bgfxFrame)
 		s_bake.denoiseThread->join();
 		delete s_bake.denoiseThread;
 		s_bake.denoiseThread = nullptr;
-		bgfx::updateTexture2D(s_bake.lightmaps[LightmapId::Average], 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.denoisedLightmapData.data(), (uint32_t)s_bake.denoisedLightmapData.size() * sizeof(float)));
+		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.denoisedLightmapData.data(), (uint32_t)s_bake.denoisedLightmapData.size() * sizeof(float)));
 		s_bake.status = BakeStatus::Finished;
 	}
 }
@@ -686,7 +637,7 @@ void bakeShowGuiWindow()
 
 bgfx::TextureHandle bakeGetLightmap()
 {
-	return s_bake.lightmaps[LightmapId::Average];
+	return s_bake.lightmap;
 }
 
 bool bakeIsIdle()
