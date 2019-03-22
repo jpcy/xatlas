@@ -145,7 +145,7 @@ project "viewer"
 	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
-	files { "extra/viewer.cpp", "extra/shaders/*.*" }
+	files { "extra/viewer*", "extra/shaders/*.*" }
 	includedirs
 	{
 		THIRDPARTY_DIR,
