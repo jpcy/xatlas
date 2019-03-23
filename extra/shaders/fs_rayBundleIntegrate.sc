@@ -92,8 +92,9 @@ void main()
 				float d1 = dot(nodes[i + 0u].normal, u_rayNormal.xyz);
 				float d2 = dot(nodes[i + 1u].normal, -u_rayNormal.xyz);
 				if (d1 > 0.0 && d2 > 0.0) {
-					setLuxel(nodes[i + 1u].texcoord, brdf * nodes[i + 0u].color * d2);
-					setLuxel(nodes[i + 0u].texcoord, brdf * nodes[i + 1u].color * d1);
+					float d = d1 * d2;
+					setLuxel(nodes[i + 1u].texcoord, brdf * nodes[i + 0u].color * d);
+					setLuxel(nodes[i + 0u].texcoord, brdf * nodes[i + 1u].color * d);
 				}
 			}
 		}

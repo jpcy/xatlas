@@ -3,6 +3,11 @@
 FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleLightmapSampler, r32ui, 1);
 FRAMEBUFFER_IMAGE2D_RW(u_lightmapSampler, rgba32f, 2);
 
+vec4 toGamma(vec4 v)
+{
+	return vec4(pow(abs(v.rgb), vec3_splat(1.0 / 2.2)), v.a);
+}
+
 void main()
 {
 #if BGFX_SHADER_LANGUAGE_GLSL
@@ -12,8 +17,9 @@ void main()
 	uint b = imageLoad(u_rayBundleLightmapSampler, ivec2(uv.x * 4u + 2u, uv.y)).r;
 	uint a = imageLoad(u_rayBundleLightmapSampler, ivec2(uv.x * 4u + 3u, uv.y)).r;
 	if (a > 0u) {
-		vec4 color = vec4(float(r) / 255.0 / float(a), float(g) / 255.0 / float(a), float(b) / 255.0 / float(a), 1.0);
-		imageStore(u_lightmapSampler, uv, color);
+		float sum = float(a);
+		vec4 color = vec4(float(r) / 255.0 / sum, float(g) / 255.0 / sum, float(b) / 255.0 / sum, 1.0);
+		imageStore(u_lightmapSampler, uv, toGamma(color));
 	}
 #endif
 }

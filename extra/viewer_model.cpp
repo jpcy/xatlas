@@ -211,7 +211,7 @@ void modelDestroy()
 void modelSetMaterialUniforms(const objzMaterial *mat)
 {
 	if (!mat) {
-		const float diffuse[] = { 0.75f, 0.75f, 0.75f, 1.0f };
+		const float diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		bgfx::setUniform(s_model.u_diffuse, diffuse);
 		bgfx::setUniform(s_model.u_emission, emission);
@@ -258,7 +258,7 @@ void modelRender(const float *view, const float *projection)
 	if (renderCharts)
 		atlasRenderCharts(modelMatrix);
 	if (g_options.wireframe) {
-		const float color[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+		const float color[] = { 0.5f, 0.5f, 0.5f, 0.5f };
 		bgfx::setUniform(s_model.u_color, color);
 		bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
 		bgfx::setTransform(modelMatrix);
