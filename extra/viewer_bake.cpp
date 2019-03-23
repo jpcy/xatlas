@@ -349,19 +349,6 @@ void bakeExecute()
 	g_options.shadeMode = ShadeMode::Lightmap;
 }
 
-// https://en.wikipedia.org/wiki/Halton_sequence
-static float haltonSequence(int index, int base)
-{
-	float result = 0;
-	float f = 1;
-	while (index > 0) {
-		f /= base;
-		result += f * (index % base);
-		index = (int)bx::floor(index / (float)base);
-	}
-	return result;
-}
-
 static void bakeDenoise()
 {
 	if (!s_bake.oidnLibrary) {
@@ -460,19 +447,11 @@ void bakeFrame(uint32_t bgfxFrame)
 			bgfx::submit(viewId, s_bake.rayBundleClearProgram);
 			viewId++;
 			// Ray bundle write.
-#if 1
-			const float rx = haltonSequence(s_bake.directionCount, 2) * bx::kPi2;
-			const float ry = haltonSequence(s_bake.directionCount, 3) * bx::kPi2;
-			const float rz = haltonSequence(s_bake.directionCount, 5) * bx::kPi2;
-#else
-			const float rx = bx::frnd(&s_bake.rng) * bx::kPi2;
-			const float ry = bx::frnd(&s_bake.rng) * bx::kPi2;
-			const float rz = bx::frnd(&s_bake.rng) * bx::kPi2;
-#endif
-			float rotation[16];
-			bx::mtxRotateXYZ(rotation, rx, ry, rz);
+			const bx::Vec3 forward = bx::randUnitHemisphere(&s_bake.rng, bx::Vec3(0.0f, 0.0f, 1.0f));
+			const bx::Vec3 right = bx::randUnitHemisphere(&s_bake.rng, bx::Vec3(1.0f, 0.0f, 0.0f));
+			const bx::Vec3 up = bx::cross(forward, right);
 			float view[16];
-			bx::mtxTranspose(view, rotation);
+			bx::mtxLookAt(view, bx::Vec3(0.0f), forward, up, bx::Handness::Right);
 			AABB aabb;
 #if 1
 			bx::Vec3 corners[8];
