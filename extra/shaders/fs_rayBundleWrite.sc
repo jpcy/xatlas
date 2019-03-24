@@ -20,7 +20,6 @@ void main()
 {
 	ivec2 uv = ivec2(gl_FragCoord.xy);
 	vec3 color = u_emission.rgb;
-#if BGFX_SHADER_LANGUAGE_GLSL
 	uint newOffset = imageAtomicAdd(u_atomicCounterSampler, ivec2(0, 0), 1u);
 	if (newOffset >= u_dataSize * u_dataSize * 3u) {
 		discard;
@@ -45,5 +44,4 @@ void main()
 	imageStore(u_rayBundleDataSampler, rayBundleDataUv(newOffset, 0u), color_offset);
 	imageStore(u_rayBundleDataSampler, rayBundleDataUv(newOffset, 1u), normal_depth);
 	imageStore(u_rayBundleDataSampler, rayBundleDataUv(newOffset, 2u), texcoord);
-#endif
 }

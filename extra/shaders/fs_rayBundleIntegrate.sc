@@ -1,7 +1,13 @@
 #include <bgfx_compute.sh>
 
 FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 1);
+
+#if BGFX_SHADER_LANGUAGE_GLSL
 FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleDataSampler, rgba32ui, 2);
+#else
+USAMPLER2D(u_rayBundleDataSampler, 2);
+#endif
+
 FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleLightmapSampler, r32ui, 3);
 
 uniform vec4 u_lightmapSize_dataSize;
@@ -34,16 +40,21 @@ struct Node
 
 void main()
 {
-#if BGFX_SHADER_LANGUAGE_GLSL
 	ivec2 uv = ivec2(gl_FragCoord.xy);
 	uint offset = imageLoad(u_rayBundleHeaderSampler, uv).x;
 	if (offset != 0xffffffff) {
 		Node nodes[MAX_NODES];
 		uint numNodes = 0u;
 		while (offset != 0xffffffff && numNodes < MAX_NODES) {
+#if BGFX_SHADER_LANGUAGE_GLSL
 			uvec4 color_offset = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 0u));
 			uvec4 normal_depth = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 1u));
 			uvec4 texcoord = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 2u));
+#else
+			uvec4 color_offset = texelFetch(u_rayBundleDataSampler, rayBundleDataUv(offset, 0u), 0);
+			uvec4 normal_depth = texelFetch(u_rayBundleDataSampler, rayBundleDataUv(offset, 1u), 0);
+			uvec4 texcoord = texelFetch(u_rayBundleDataSampler, rayBundleDataUv(offset, 2u), 0);
+#endif
 			nodes[numNodes].color.r = uintBitsToFloat(color_offset.r);
 			nodes[numNodes].color.g = uintBitsToFloat(color_offset.g);
 			nodes[numNodes].color.b = uintBitsToFloat(color_offset.b);
@@ -85,18 +96,15 @@ void main()
 			if (numNodes > 1u && dot(nodes[numNodes - 1u].normal, u_rayNormal.xyz) > 0.0)
 				nodeRadiance[numNodes - 1u] = u_skyColor;
 		}
-		for (uint i = 0u; i < numNodes; i++) {
-			vec3 color = nodeRadiance[i];
-			vec2 uv = nodes[i].texcoord;
-#if BGFX_SHADER_LANGUAGE_GLSL
+		for (uint j = 0u; j < numNodes; j++) {
+			vec3 color = nodeRadiance[j];
+			vec2 uv = nodes[j].texcoord;
 			if (uv.x > 0.0 && uv.y > 0.0) {
 				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 0u), uint(color.r * 255.0));
 				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 1u), uint(color.g * 255.0));
 				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 2u), uint(color.b * 255.0));
 				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 3u), 1u);
 			}
-#endif
 		}
 	}
-#endif
 }
