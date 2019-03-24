@@ -22,17 +22,6 @@ ivec2 rayBundleLightmapDataUv(vec2 uv, uint pixel)
 	return ivec2(uint(uv.x * u_lightmapSize.x) * 4u + pixel, uint(uv.y * u_lightmapSize.y));
 }
 
-#if BGFX_SHADER_LANGUAGE_GLSL
-void setLuxel(vec2 texCoord, vec3 color) {
-	if (texCoord.x > 0.0 && texCoord.y > 0.0) {
-		imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(texCoord, 0u), uint(color.r * 255.0));
-		imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(texCoord, 1u), uint(color.g * 255.0));
-		imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(texCoord, 2u), uint(color.b * 255.0));
-		imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(texCoord, 3u), 1u);
-	}
-}
-#endif
-
 struct Node
 {
 	vec3 color;
@@ -66,6 +55,7 @@ void main()
 			offset = color_offset.w;
 			numNodes++;
 		}
+		vec3 nodeRadiance[MAX_NODES];
 		for (uint i = 0u; i < numNodes; i++) {
 			for (uint j = i + 1u; j < numNodes; j++) {
 				if (nodes[i].depth > nodes[j].depth || (nodes[i].depth == nodes[j].depth && dot(nodes[i].normal, u_rayNormal.xyz) > 0.0)) {
@@ -74,29 +64,38 @@ void main()
 					nodes[j] = temp;
 				}
 			}
-		}
-		if (u_skyEnabled != 0u && numNodes > 0u) {
-			float d = dot(nodes[0u].normal, -u_rayNormal.xyz);
-			if (d > 0.0)
-				setLuxel(nodes[0u].texcoord, u_skyColor * d);
-			if (numNodes > 1u) {
-				float d = dot(nodes[numNodes - 1u].normal, u_rayNormal.xyz);
-				if (d > 0.0)
-					setLuxel(nodes[numNodes - 1u].texcoord, u_skyColor * d);
-			}
+			nodeRadiance[i] = vec3_splat(0.0);
 		}
 		// need at least 2 nodes to transfer radiance
 		if (numNodes >= 2u) {
 			float brdf = 1.0;
 			for (uint i = 0u; i < numNodes - 1u; i++) {
-				float d1 = dot(nodes[i + 0u].normal, u_rayNormal.xyz);
-				float d2 = dot(nodes[i + 1u].normal, -u_rayNormal.xyz);
-				if (d1 > 0.0 && d2 > 0.0) {
-					float d = d1 * d2;
-					setLuxel(nodes[i + 1u].texcoord, brdf * nodes[i + 0u].color * d);
-					setLuxel(nodes[i + 0u].texcoord, brdf * nodes[i + 1u].color * d);
+				float n1cosTheta = dot(nodes[i + 0u].normal, u_rayNormal.xyz);
+				float n2cosTheta = dot(nodes[i + 1u].normal, -u_rayNormal.xyz);
+				if (n1cosTheta > 0.0 && n2cosTheta > 0.0) {
+					float cosTheta = n1cosTheta * n2cosTheta;
+					nodeRadiance[i + 0u] = brdf * nodes[i + 1u].color * cosTheta;
+					nodeRadiance[i + 1u] = brdf * nodes[i + 0u].color * cosTheta;
 				}
 			}
+		}
+		if (u_skyEnabled != 0u) {
+			if (numNodes > 0u && dot(nodes[0u].normal, -u_rayNormal.xyz) > 0.0)
+				nodeRadiance[0u] = u_skyColor;
+			if (numNodes > 1u && dot(nodes[numNodes - 1u].normal, u_rayNormal.xyz) > 0.0)
+				nodeRadiance[numNodes - 1u] = u_skyColor;
+		}
+		for (uint i = 0u; i < numNodes; i++) {
+			vec3 color = nodeRadiance[i];
+			vec2 uv = nodes[i].texcoord;
+#if BGFX_SHADER_LANGUAGE_GLSL
+			if (uv.x > 0.0 && uv.y > 0.0) {
+				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 0u), uint(color.r * 255.0));
+				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 1u), uint(color.g * 255.0));
+				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 2u), uint(color.b * 255.0));
+				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 3u), 1u);
+			}
+#endif
 		}
 	}
 #endif
