@@ -24,7 +24,7 @@ struct BakeStatus
 	enum Enum
 	{
 		Idle,
-		Executing,
+		Rendering,
 		ReadingLightmap,
 		Denoising,
 		WritingLightmap,
@@ -355,7 +355,7 @@ void bakeExecute()
 		s_bake.rayBundleIntegrateFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
 	}
 	s_bake.initialized = true;
-	s_bake.status = BakeStatus::Executing;
+	s_bake.status = BakeStatus::Rendering;
 	s_bake.directionCount = 0;
 	s_bake.rng.reset();
 	g_options.shadeMode = ShadeMode::Lightmap;
@@ -424,7 +424,8 @@ static void bakeDenoise()
 void bakeFrame(uint32_t bgfxFrame)
 {
 	bgfx::ViewId viewId = kFirstFreeView;
-	if (s_bake.status == BakeStatus::Executing) {
+	if (s_bake.status == BakeStatus::Rendering) {
+		bool finishedRendering = false;
 		for (uint32_t i = 0; i < (uint32_t)s_bake.options.directionsPerFrame; i++) {
 			if (s_bake.directionCount == 0) {
 				// Lightmap clear integrate.
@@ -535,29 +536,31 @@ void bakeFrame(uint32_t bgfxFrame)
 			bgfx::setState(0);
 			bgfx::submit(viewId, s_bake.lightmapClearProgram);
 			viewId++;
-			// Lightmap average.
-			bgfx::setViewFrameBuffer(viewId, s_bake.lightmapAverageFb);
-			bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
-			bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
-			bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
-			bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmap);
-			setScreenSpaceQuadVertexBuffer();
-			bgfx::setState(0);
-			bgfx::submit(viewId, s_bake.lightmapAverageProgram);
-			viewId++;
 			// Finished with this direction.
 			s_bake.directionCount++;
-			if (s_bake.directionCount >= s_bake.options.numDirections) {
-				// Finished rendering.
-				if (s_bake.options.denoise) {
-					s_bake.status = BakeStatus::ReadingLightmap;
-					s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4 * sizeof(float));
-					s_bake.lightmapDataReadyFrameNo = bgfx::readTexture(s_bake.lightmap, s_bake.lightmapData.data());
-				} else {
-					s_bake.status = BakeStatus::Finished;
-				}
-				return;
+			finishedRendering = s_bake.directionCount >= s_bake.options.numDirections;
+			if (finishedRendering)
+				break;
+		}
+		// Lightmap average.
+		bgfx::setViewFrameBuffer(viewId, s_bake.lightmapAverageFb);
+		bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
+		bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
+		bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
+		bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmap);
+		setScreenSpaceQuadVertexBuffer();
+		bgfx::setState(0);
+		bgfx::submit(viewId, s_bake.lightmapAverageProgram);
+		viewId++;
+		if (finishedRendering) {
+			if (s_bake.options.denoise) {
+				s_bake.status = BakeStatus::ReadingLightmap;
+				s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4 * sizeof(float));
+				s_bake.lightmapDataReadyFrameNo = bgfx::readTexture(s_bake.lightmap, s_bake.lightmapData.data());
+			} else {
+				s_bake.status = BakeStatus::Finished;
 			}
+			return;
 		}
 	} else if (s_bake.status == BakeStatus::ReadingLightmap) {
 		if (bgfxFrame >= s_bake.lightmapDataReadyFrameNo) {
