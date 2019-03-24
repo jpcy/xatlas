@@ -18,14 +18,13 @@ ivec2 rayBundleDataUv(uint offset, uint pixel)
 
 void main()
 {
-	ivec2 uv = ivec2(gl_FragCoord.xy);
 	vec3 color = u_emission.rgb;
 	uint newOffset = imageAtomicAdd(u_atomicCounterSampler, ivec2(0, 0), 1u);
 	if (newOffset >= u_dataSize * u_dataSize * 3u) {
 		discard;
 		return;
 	}
-	uint oldOffset = imageAtomicExchange(u_rayBundleHeaderSampler, uv, newOffset);
+	uint oldOffset = imageAtomicExchange(u_rayBundleHeaderSampler, ivec2(gl_FragCoord.xy), newOffset);
 	uvec4 color_offset;
 	color_offset.x = floatBitsToUint(color.r);
 	color_offset.y = floatBitsToUint(color.g);

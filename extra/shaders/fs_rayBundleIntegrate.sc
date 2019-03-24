@@ -40,8 +40,7 @@ struct Node
 
 void main()
 {
-	ivec2 uv = ivec2(gl_FragCoord.xy);
-	uint offset = imageLoad(u_rayBundleHeaderSampler, uv).x;
+	uint offset = imageLoad(u_rayBundleHeaderSampler, ivec2(gl_FragCoord.xy)).x;
 	if (offset != 0xffffffff) {
 		Node nodes[MAX_NODES];
 		uint numNodes = 0u;

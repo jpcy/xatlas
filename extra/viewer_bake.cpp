@@ -163,14 +163,12 @@ namespace oidn
 struct ScreenSpaceVertex
 {
 	float pos[2];
-	float texcoord[2];
 	static bgfx::VertexDecl decl;
 
 	static void init()
 	{
 		decl.begin()
 			.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
-			.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
 			.end();
 		assert(decl.getStride() == sizeof(ScreenSpaceVertex));
 	}
@@ -430,7 +428,7 @@ void bakeFrame(uint32_t bgfxFrame)
 			if (s_bake.directionCount == 0) {
 				// Lightmap clear integrate.
 				bgfx::setViewFrameBuffer(viewId, s_bake.lightmapClearFb);
-				bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth * 4, (uint16_t)s_bake.lightmapHeight);
+				bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
 				bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
 				bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
 				bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmap);
@@ -524,24 +522,24 @@ void bakeFrame(uint32_t bgfxFrame)
 			bgfx::setState(0);
 			bgfx::submit(viewId, s_bake.rayBundleIntegrateProgram);
 			viewId++;
-			// Lightmap clear average.
-			bgfx::setViewFrameBuffer(viewId, s_bake.lightmapClearFb);
-			bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
-			bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
-			bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
-			bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmap);
-			const float clear[] = { 0.0f, 1.0f, 0.0f, 0.0f };
-			bgfx::setUniform(s_bake.u_clearLightmaps, clear);
-			setScreenSpaceQuadVertexBuffer();
-			bgfx::setState(0);
-			bgfx::submit(viewId, s_bake.lightmapClearProgram);
-			viewId++;
 			// Finished with this direction.
 			s_bake.directionCount++;
 			finishedRendering = s_bake.directionCount >= s_bake.options.numDirections;
 			if (finishedRendering)
 				break;
 		}
+		// Lightmap clear average.
+		bgfx::setViewFrameBuffer(viewId, s_bake.lightmapClearFb);
+		bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
+		bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
+		bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
+		bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmap);
+		const float clear[] = { 0.0f, 1.0f, 0.0f, 0.0f };
+		bgfx::setUniform(s_bake.u_clearLightmaps, clear);
+		setScreenSpaceQuadVertexBuffer();
+		bgfx::setState(0);
+		bgfx::submit(viewId, s_bake.lightmapClearProgram);
+		viewId++;
 		// Lightmap average.
 		bgfx::setViewFrameBuffer(viewId, s_bake.lightmapAverageFb);
 		bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
