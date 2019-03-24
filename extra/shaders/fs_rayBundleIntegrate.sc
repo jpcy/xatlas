@@ -90,10 +90,10 @@ void main()
 				}
 			}
 		}
-		if (u_skyEnabled != 0u) {
-			if (numNodes > 0u && dot(nodes[0u].normal, -u_rayNormal.xyz) > 0.0)
+		if (u_skyEnabled != 0u && numNodes > 0u) {
+			if (dot(nodes[0u].normal, -u_rayNormal.xyz) > 0.0)
 				nodeRadiance[0u] = u_skyColor;
-			if (numNodes > 1u && dot(nodes[numNodes - 1u].normal, u_rayNormal.xyz) > 0.0)
+			if (dot(nodes[numNodes - 1u].normal, u_rayNormal.xyz) > 0.0)
 				nodeRadiance[numNodes - 1u] = u_skyColor;
 		}
 		for (uint j = 0u; j < numNodes; j++) {
