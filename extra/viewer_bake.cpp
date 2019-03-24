@@ -66,13 +66,13 @@ struct BakeOptions
 	bool denoise = false;
 	bool sky = true;
 	bx::Vec3 skyColor = bx::Vec3(1.0f, 1.0f, 1.0f);
+	int resolution = 512;
 	int directionsPerFrame = 10;
 	int numDirections = 300;
 };
 
 struct
 {
-	const uint16_t rbTextureSize = 512;
 	const uint16_t rbDataTextureSize = 8192;
 	float fsOrtho[16];
 	bool enabled;
@@ -80,6 +80,7 @@ struct
 	BakeStatus status;
 	BakeOptions options;
 	int directionCount;
+	int resolution;
 	uint32_t lightmapWidth, lightmapHeight;
 	std::vector<float> lightmapData;
 	std::vector<float> denoisedLightmapData;
@@ -279,34 +280,40 @@ void bakeExecute()
 		s_bake.rayBundleClearProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_rayBundleClear);
 		s_bake.rayBundleIntegrateProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_rayBundleIntegrate);
 		s_bake.rayBundleWriteProgram = bgfx::createProgram(modelGet_vs_model(), s_bake.fs_rayBundleWrite);
-		// framebuffers
-		{
-			bgfx::TextureHandle target = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
-			s_bake.atomicCounterTexture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
-			bgfx::Attachment attachments[2];
-			attachments[0].init(target);
-			attachments[1].init(s_bake.atomicCounterTexture, bgfx::Access::ReadWrite);
-			s_bake.atomicCounterFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments, true);
+		// Atomic counter
+		bgfx::TextureHandle target = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
+		s_bake.atomicCounterTexture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+		bgfx::Attachment attachments[2];
+		attachments[0].init(target);
+		attachments[1].init(s_bake.atomicCounterTexture, bgfx::Access::ReadWrite);
+		s_bake.atomicCounterFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments, true);
+	}
+	// Re-create ray bundle data if ray bundle resolution has changed.
+	const bool rayBundleResolutionChanged = s_bake.resolution != s_bake.options.resolution;
+	if (!s_bake.initialized || rayBundleResolutionChanged) {
+		s_bake.resolution = s_bake.options.resolution;
+		if (s_bake.initialized) {
+			bgfx::destroy(s_bake.rayBundleFb);
+			bgfx::destroy(s_bake.rayBundleTarget);
+			bgfx::destroy(s_bake.rayBundleHeader);
+			bgfx::destroy(s_bake.rayBundleData);
 		}
-		{
-			s_bake.rayBundleTarget = bgfx::createTexture2D(s_bake.rbTextureSize, s_bake.rbTextureSize, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
-			s_bake.rayBundleHeader = bgfx::createTexture2D(s_bake.rbTextureSize, s_bake.rbTextureSize, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
-			s_bake.rayBundleData = bgfx::createTexture2D(s_bake.rbDataTextureSize, s_bake.rbDataTextureSize, false, 1, bgfx::TextureFormat::RGBA32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
-			bgfx::Attachment attachments[4];
-			attachments[0].init(s_bake.rayBundleTarget);
-			attachments[1].init(s_bake.atomicCounterTexture, bgfx::Access::ReadWrite);
-			attachments[2].init(s_bake.rayBundleHeader, bgfx::Access::ReadWrite);
-			attachments[3].init(s_bake.rayBundleData, bgfx::Access::ReadWrite); // should be Write, but doesn't work
-			s_bake.rayBundleFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
-		}
+		s_bake.rayBundleTarget = bgfx::createTexture2D((uint16_t)s_bake.resolution, (uint16_t)s_bake.resolution, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
+		s_bake.rayBundleHeader = bgfx::createTexture2D((uint16_t)s_bake.resolution, (uint16_t)s_bake.resolution, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+		s_bake.rayBundleData = bgfx::createTexture2D(s_bake.rbDataTextureSize, s_bake.rbDataTextureSize, false, 1, bgfx::TextureFormat::RGBA32U, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+		bgfx::Attachment attachments[4];
+		attachments[0].init(s_bake.rayBundleTarget);
+		attachments[1].init(s_bake.atomicCounterTexture, bgfx::Access::ReadWrite);
+		attachments[2].init(s_bake.rayBundleHeader, bgfx::Access::ReadWrite);
+		attachments[3].init(s_bake.rayBundleData, bgfx::Access::ReadWrite);
+		s_bake.rayBundleFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
 	}
 	// Re-create lightmap if atlas resolution has changed.
-	if (!s_bake.initialized || s_bake.lightmapWidth != atlasGetWidth() || s_bake.lightmapHeight != atlasGetHeight()) {
+	const bool lightmapResolutionChanged = s_bake.lightmapWidth != atlasGetWidth() || s_bake.lightmapHeight != atlasGetHeight();
+	if (!s_bake.initialized || lightmapResolutionChanged) {
 		if (s_bake.initialized) {
 			bgfx::destroy(s_bake.lightmapClearFb);
 			bgfx::destroy(s_bake.lightmapClearTarget);
-			bgfx::destroy(s_bake.rayBundleIntegrateFb);
-			bgfx::destroy(s_bake.rayBundleIntegrateTarget);
 			bgfx::destroy(s_bake.rayBundleLightmap);
 			bgfx::destroy(s_bake.lightmapAverageFb);
 			bgfx::destroy(s_bake.lightmapAverageTarget);
@@ -316,15 +323,6 @@ void bakeExecute()
 		s_bake.lightmapHeight = atlasGetHeight();
 		s_bake.rayBundleLightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth * 4, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::R32U, BGFX_TEXTURE_COMPUTE_WRITE);
 		s_bake.lightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_COMPUTE_WRITE);
-		{
-			s_bake.rayBundleIntegrateTarget = bgfx::createTexture2D(s_bake.rbTextureSize, s_bake.rbTextureSize, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
-			bgfx::Attachment attachments[4];
-			attachments[0].init(s_bake.rayBundleIntegrateTarget);
-			attachments[1].init(s_bake.rayBundleHeader, bgfx::Access::Read);
-			attachments[2].init(s_bake.rayBundleData, bgfx::Access::Read);
-			attachments[3].init(s_bake.rayBundleLightmap, bgfx::Access::ReadWrite);
-			s_bake.rayBundleIntegrateFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
-		}
 		{
 			s_bake.lightmapClearTarget = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
 			bgfx::Attachment attachments[3];
@@ -341,6 +339,20 @@ void bakeExecute()
 			attachments[2].init(s_bake.lightmap, bgfx::Access::ReadWrite);
 			s_bake.lightmapAverageFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
 		}
+	}
+	// Re-create ray bundle integrate fb if ray bundle or atlas resolution has changed.
+	if (!s_bake.initialized || rayBundleResolutionChanged || lightmapResolutionChanged) {
+		if (s_bake.initialized) {
+			bgfx::destroy(s_bake.rayBundleIntegrateFb);
+			bgfx::destroy(s_bake.rayBundleIntegrateTarget);
+		}
+		s_bake.rayBundleIntegrateTarget = bgfx::createTexture2D((uint16_t)s_bake.resolution, (uint16_t)s_bake.resolution, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
+		bgfx::Attachment attachments[4];
+		attachments[0].init(s_bake.rayBundleIntegrateTarget);
+		attachments[1].init(s_bake.rayBundleHeader, bgfx::Access::Read);
+		attachments[2].init(s_bake.rayBundleData, bgfx::Access::Read);
+		attachments[3].init(s_bake.rayBundleLightmap, bgfx::Access::ReadWrite);
+		s_bake.rayBundleIntegrateFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
 	}
 	s_bake.initialized = true;
 	s_bake.status = BakeStatus::Executing;
@@ -439,7 +451,7 @@ void bakeFrame(uint32_t bgfxFrame)
 			viewId++;
 			// Ray bundle clear.
 			bgfx::setViewFrameBuffer(viewId, s_bake.rayBundleFb);
-			bgfx::setViewRect(viewId, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
+			bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.resolution, (uint16_t)s_bake.resolution);
 			bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
 			bgfx::setTexture(2, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
 			setScreenSpaceQuadVertexBuffer();
@@ -474,7 +486,7 @@ void bakeFrame(uint32_t bgfxFrame)
 			float projection[16];
 			bx::mtxOrtho(projection, aabb.min.x, aabb.max.x, aabb.min.y, aabb.max.y, -aabb.max.z, -aabb.min.z, 0.0f, bgfx::getCaps()->homogeneousDepth, bx::Handness::Right);
 			bgfx::setViewFrameBuffer(viewId, s_bake.rayBundleFb);
-			bgfx::setViewRect(viewId, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
+			bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.resolution, (uint16_t)s_bake.resolution);
 			bgfx::setViewTransform(viewId, view, projection);
 			{
 				const float sizes[] = { (float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight, (float)s_bake.rbDataTextureSize, 0.0f };
@@ -496,7 +508,7 @@ void bakeFrame(uint32_t bgfxFrame)
 			viewId++;
 			// Ray bundle integrate.
 			bgfx::setViewFrameBuffer(viewId, s_bake.rayBundleIntegrateFb);
-			bgfx::setViewRect(viewId, 0, 0, s_bake.rbTextureSize, s_bake.rbTextureSize);
+			bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.resolution, (uint16_t)s_bake.resolution);
 			bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
 			bgfx::setTexture(1, s_bake.u_rayBundleHeaderSampler, s_bake.rayBundleHeader);
 			bgfx::setTexture(2, s_bake.u_rayBundleDataSampler, s_bake.rayBundleData);
@@ -577,6 +589,17 @@ void bakeShowGuiOptions()
 	ImGui::Checkbox("Sky", &s_bake.options.sky);
 	ImGui::SameLine();
 	ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
+	static const char * const resolutionLabels[] = { "256x256", "512x512", "1024x1024" };
+	static const int resolutions[] = { 256, 512, 1024 };
+	int resolutionIndex = 0;
+	for (int i = 0; i < (int)BX_COUNTOF(resolutions); i++) {
+		if (resolutions[i] == s_bake.options.resolution) {
+			resolutionIndex = i;
+			break;
+		}
+	}
+	ImGui::ListBox("Ray bundle resolution", &resolutionIndex, resolutionLabels, (int)BX_COUNTOF(resolutionLabels));
+	s_bake.options.resolution = resolutions[resolutionIndex];
 	ImGui::SliderInt("Ray bundle directions", &s_bake.options.numDirections, 300, 10000);
 	ImGui::SliderInt("Directions per frame", &s_bake.options.directionsPerFrame, 1, 100);
 	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished) {
