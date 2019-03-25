@@ -1,6 +1,6 @@
 #include <bgfx_compute.sh>
 
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleLightmapSampler, r32ui, 1);
+FRAMEBUFFER_UIMAGE2D_RO(u_rayBundleLightmapSampler, r32ui, 1);
 FRAMEBUFFER_IMAGE2D_RW(u_lightmapSampler, rgba32f, 2);
 
 vec4 toGamma(vec4 v)

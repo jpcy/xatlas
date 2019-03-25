@@ -333,7 +333,7 @@ void bakeExecute()
 			s_bake.lightmapAverageTarget = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
 			bgfx::Attachment attachments[3];
 			attachments[0].init(s_bake.lightmapAverageTarget);
-			attachments[1].init(s_bake.rayBundleLightmap, bgfx::Access::ReadWrite);
+			attachments[1].init(s_bake.rayBundleLightmap, bgfx::Access::Read);
 			attachments[2].init(s_bake.lightmap, bgfx::Access::ReadWrite);
 			s_bake.lightmapAverageFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
 		}

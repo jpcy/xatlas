@@ -1,9 +1,9 @@
 #include <bgfx_compute.sh>
 
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 1);
+FRAMEBUFFER_UIMAGE2D_RO(u_rayBundleHeaderSampler, r32ui, 1);
 
 #if BGFX_SHADER_LANGUAGE_GLSL
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleDataSampler, rgba32ui, 2);
+FRAMEBUFFER_UIMAGE2D_RO(u_rayBundleDataSampler, rgba32ui, 2);
 #else
 USAMPLER2D(u_rayBundleDataSampler, 2);
 #endif
