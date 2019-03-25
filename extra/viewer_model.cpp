@@ -84,8 +84,8 @@ void modelInit()
 	s_model.vs_position = loadShader(ShaderId::vs_position);
 	s_model.fs_color = loadShader(ShaderId::fs_color);
 	s_model.fs_material = loadShader(ShaderId::fs_material);
-	s_model.colorProgram = bgfx::createProgram(s_model.fs_color, s_model.vs_position);
-	s_model.materialProgram = bgfx::createProgram(s_model.fs_material, s_model.vs_model);
+	s_model.colorProgram = bgfx::createProgram(s_model.vs_position, s_model.fs_color);
+	s_model.materialProgram = bgfx::createProgram(s_model.vs_model, s_model.fs_material);
 	ModelVertex::init();
 	bgfx::setViewClear(kModelView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x444444ff);
 	bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);

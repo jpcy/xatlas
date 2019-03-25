@@ -146,7 +146,7 @@ void atlasInit()
 	s_atlas.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
 	s_atlas.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize", bgfx::UniformType::Vec4);
 	s_atlas.fs_checkerboard = loadShader(ShaderId::fs_checkerboard);
-	s_atlas.checkerboardProgram = bgfx::createProgram(s_atlas.fs_checkerboard, modelGet_vs_model());
+	s_atlas.checkerboardProgram = bgfx::createProgram(modelGet_vs_model(), s_atlas.fs_checkerboard);
 }
 
 void atlasShutdown()
