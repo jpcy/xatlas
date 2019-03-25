@@ -360,7 +360,7 @@ namespace bgfx
 		return rci->getInternal(_handle);
 	}
 
-	uintptr_t overrideInternal(TextureHandle _handle, uint16_t _width, uint16_t _height, uint8_t _numMips, TextureFormat::Enum _format, uint32_t _flags)
+	uintptr_t overrideInternal(TextureHandle _handle, uint16_t _width, uint16_t _height, uint8_t _numMips, TextureFormat::Enum _format, uint64_t _flags)
 	{
 		BGFX_CHECK_RENDER_THREAD();
 		RendererContextI* rci = s_ctx->m_renderCtx;
@@ -2436,6 +2436,7 @@ namespace bgfx
 	BGFX_RENDERER_CONTEXT(d3d12);
 	BGFX_RENDERER_CONTEXT(gnm);
 	BGFX_RENDERER_CONTEXT(mtl);
+	BGFX_RENDERER_CONTEXT(nvn);
 	BGFX_RENDERER_CONTEXT(gl);
 	BGFX_RENDERER_CONTEXT(vk);
 
@@ -2461,6 +2462,7 @@ namespace bgfx
 #else
 		{ noop::rendererCreate,  noop::rendererDestroy,  BGFX_RENDERER_NOOP_NAME,       false                             }, // Noop
 #endif // BX_PLATFORM_OSX || BX_PLATFORM_IOS
+		{ nvn::rendererCreate,   nvn::rendererDestroy,   BGFX_RENDERER_NVN_NAME,        !!BGFX_CONFIG_RENDERER_NVN        }, // NVN
 		{ gl::rendererCreate,    gl::rendererDestroy,    BGFX_RENDERER_OPENGL_NAME,     !!BGFX_CONFIG_RENDERER_OPENGLES   }, // OpenGLES
 		{ gl::rendererCreate,    gl::rendererDestroy,    BGFX_RENDERER_OPENGL_NAME,     !!BGFX_CONFIG_RENDERER_OPENGL     }, // OpenGL
 		{ vk::rendererCreate,    vk::rendererDestroy,    BGFX_RENDERER_VULKAN_NAME,     !!BGFX_CONFIG_RENDERER_VULKAN     }, // Vulkan
@@ -3455,7 +3457,6 @@ namespace bgfx
 			s_allocatorStub = NULL;
 		}
 
-		s_renderFrameCalled = false;
 		s_threadIndex = 0;
 		g_callback    = NULL;
 		g_allocator   = NULL;
@@ -4062,7 +4063,19 @@ namespace bgfx
 
 	uint16_t getShaderUniforms(ShaderHandle _handle, UniformHandle* _uniforms, uint16_t _max)
 	{
-		return s_ctx->getShaderUniforms(_handle, _uniforms, _max);
+		BX_WARN(NULL == _uniforms || 0 != _max
+			, "Passing uniforms array pointer, but array maximum capacity is set to 0."
+			);
+
+		uint16_t num = s_ctx->getShaderUniforms(_handle, _uniforms, _max);
+
+		BX_WARN(0 == _max || num <= _max
+			, "Shader has more uniforms that capacity of output array. Output is truncated (num %d, max %d)."
+			, num
+			, _max
+			);
+
+		return num;
 	}
 
 	void setName(ShaderHandle _handle, const char* _name, int32_t _len)
@@ -4151,6 +4164,7 @@ namespace bgfx
 				| BGFX_CAPS_FORMAT_TEXTURE_2D_SRGB
 				) );
 		}
+
 		uint16_t srgbCaps = BGFX_CAPS_FORMAT_TEXTURE_2D_SRGB;
 
 		if (_cubeMap)
@@ -4199,7 +4213,7 @@ namespace bgfx
 		}
 
 		if (0 != (_flags & BGFX_TEXTURE_SRGB)
-		&&  0 == (g_caps.supported & srgbCaps & (0
+		&&  0 == (g_caps.formats[_format] & srgbCaps & (0
 				| BGFX_CAPS_FORMAT_TEXTURE_2D_SRGB
 				| BGFX_CAPS_FORMAT_TEXTURE_3D_SRGB
 				| BGFX_CAPS_FORMAT_TEXTURE_CUBE_SRGB

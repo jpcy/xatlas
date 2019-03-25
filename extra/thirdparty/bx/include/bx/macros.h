@@ -115,7 +115,7 @@
 
 /// The return value of the function is solely a function of the arguments.
 ///
-#if BX_COMPILER_MSVC && (BX_COMPILER_MSVC <= 1900)
+#if (BX_COMPILER_MSVC && (BX_COMPILER_MSVC <= 1900)) || (BX_COMPILER_GCC && (__cplusplus < 201402L))
 #	define BX_CONSTEXPR_FUNC BX_CONST_FUNC
 #else
 #	define BX_CONSTEXPR_FUNC constexpr BX_CONST_FUNC
