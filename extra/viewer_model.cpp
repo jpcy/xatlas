@@ -60,16 +60,14 @@ struct
 	bgfx::IndexBufferHandle wireframeIb = BGFX_INVALID_HANDLE;
 	float scale = 1.0f;
 	bgfx::ShaderHandle vs_model;
-	bgfx::ShaderHandle vs_position;
-	bgfx::ShaderHandle fs_color;
 	bgfx::ShaderHandle fs_material;
-	bgfx::ProgramHandle colorProgram;
 	bgfx::ProgramHandle materialProgram;
 	bgfx::UniformHandle u_diffuse;
 	bgfx::UniformHandle u_emission;
 	bgfx::UniformHandle u_lightDir_shadeType;
 	bgfx::UniformHandle u_lightmapSampler;
 	bgfx::UniformHandle u_color;
+	bgfx::TextureHandle u_dummyTexture;
 }
 s_model;
 
@@ -81,11 +79,9 @@ void modelInit()
 	s_model.u_lightDir_shadeType = bgfx::createUniform("u_lightDir_shadeType", bgfx::UniformType::Vec4);
 	s_model.u_lightmapSampler = bgfx::createUniform("u_lightmapSampler", bgfx::UniformType::Sampler);
 	s_model.vs_model = loadShader(ShaderId::vs_model);
-	s_model.vs_position = loadShader(ShaderId::vs_position);
-	s_model.fs_color = loadShader(ShaderId::fs_color);
 	s_model.fs_material = loadShader(ShaderId::fs_material);
-	s_model.colorProgram = bgfx::createProgram(s_model.vs_position, s_model.fs_color);
 	s_model.materialProgram = bgfx::createProgram(s_model.vs_model, s_model.fs_material);
+	s_model.u_dummyTexture = bgfx::createTexture2D(16, 16, false, 1, bgfx::TextureFormat::BGRA8);
 	ModelVertex::init();
 	bgfx::setViewClear(kModelView, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x444444ff);
 	bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);
@@ -100,11 +96,9 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_lightDir_shadeType);
 	bgfx::destroy(s_model.u_lightmapSampler);
 	bgfx::destroy(s_model.vs_model);
-	bgfx::destroy(s_model.vs_position);
-	bgfx::destroy(s_model.fs_color);
 	bgfx::destroy(s_model.fs_material);
-	bgfx::destroy(s_model.colorProgram);
 	bgfx::destroy(s_model.materialProgram);
+	bgfx::destroy(s_model.u_dummyTexture);
 }
 
 struct ModelLoadThreadArgs
@@ -252,23 +246,25 @@ void modelRender(const float *view, const float *projection)
 			modelSetMaterialUniforms(mat);
 			if (g_options.shadeMode == ShadeMode::Lightmap)
 				bgfx::setTexture(0, s_model.u_lightmapSampler, bakeGetLightmap());
+			else
+				bgfx::setTexture(0, s_model.u_lightmapSampler, s_model.u_dummyTexture);
 			bgfx::submit(kModelView, s_model.materialProgram);
 		}
 	}
 	if (renderCharts)
 		atlasRenderCharts(modelMatrix);
 	if (g_options.wireframe) {
-		const float color[] = { 0.5f, 0.5f, 0.5f, 0.5f };
-		bgfx::setUniform(s_model.u_color, color);
-		bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
-		bgfx::setTransform(modelMatrix);
 		if (g_options.wireframeMode == WireframeMode::Triangles) {
+			const float color[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+			bgfx::setUniform(s_model.u_color, color);
+			bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
+			bgfx::setTransform(modelMatrix);
 			bgfx::setIndexBuffer(s_model.wireframeIb);
 			bgfx::setVertexBuffer(0, s_model.vb);
-		} else if (atlasIsReady() && g_options.wireframeMode == WireframeMode::Charts) {
-			bgfx::setVertexBuffer(0, atlasGetChartBoundaryVb());
+			bgfx::submit(kModelView, getColorProgram());
+		} else {
+			atlasRenderChartsWireframe(modelMatrix);
 		}
-		bgfx::submit(kModelView, s_model.colorProgram);
 	}
 }
 
@@ -311,11 +307,6 @@ const objzModel *modelGetData()
 bx::Vec3 modelGetCentroid()
 {
 	return bx::mul(s_model.centroid, s_model.scale);
-}
-
-bgfx::ShaderHandle modelGet_vs_position()
-{
-	return s_model.vs_position;
 }
 
 bgfx::ShaderHandle modelGet_vs_model()

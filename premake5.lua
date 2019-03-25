@@ -18,7 +18,7 @@ newaction
 		local shaders =
 		{
 			"fs_atomicCounterClear",
-			"fs_checkerboard",
+			"fs_chart",
 			"fs_color",
 			"fs_gui",
 			"fs_lightmapAverage",
@@ -27,6 +27,8 @@ newaction
 			"fs_rayBundleClear",
 			"fs_rayBundleIntegrate",
 			"fs_rayBundleWrite",
+			"vs_chart",
+			"vs_chartTexcoordSpace",
 			"vs_gui",
 			"vs_model",
 			"vs_position"

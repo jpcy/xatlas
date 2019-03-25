@@ -160,22 +160,6 @@ namespace oidn
 	ReleaseFilterFunc ReleaseFilter;
 };
 
-struct ScreenSpaceVertex
-{
-	float pos[2];
-	static bgfx::VertexDecl decl;
-
-	static void init()
-	{
-		decl.begin()
-			.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
-			.end();
-		assert(decl.getStride() == sizeof(ScreenSpaceVertex));
-	}
-};
-
-bgfx::VertexDecl ScreenSpaceVertex::decl;
-
 void bakeInit()
 {
 	s_bake.enabled = (bgfx::getCaps()->supported & BGFX_CAPS_FRAMEBUFFER_RW) != 0;
@@ -183,7 +167,6 @@ void bakeInit()
 		printf("Read/Write frame buffer attachments are not supported. Baking is disabled.\n");
 		return;
 	}
-	ScreenSpaceVertex::init();
 	bx::mtxOrtho(s_bake.fsOrtho, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
 }
 
@@ -236,11 +219,11 @@ void bakeShutdown()
 static void setScreenSpaceQuadVertexBuffer()
 {
 	const uint32_t nVerts = 3;
-	if (bgfx::getAvailTransientVertexBuffer(nVerts, ScreenSpaceVertex::decl) < nVerts)
+	if (bgfx::getAvailTransientVertexBuffer(nVerts, PosVertex::decl) < nVerts)
 		return;
 	bgfx::TransientVertexBuffer vb;
-	bgfx::allocTransientVertexBuffer(&vb, nVerts, ScreenSpaceVertex::decl);
-	auto vertices = (ScreenSpaceVertex *)vb.data;
+	bgfx::allocTransientVertexBuffer(&vb, nVerts, PosVertex::decl);
+	auto vertices = (PosVertex *)vb.data;
 	vertices[0].pos[0] = -1.0f;
 	vertices[0].pos[1] = 0.0f;
 	vertices[1].pos[0] = 1.0f;
@@ -272,11 +255,11 @@ void bakeExecute()
 		s_bake.fs_rayBundleClear = loadShader(ShaderId::fs_rayBundleClear);
 		s_bake.fs_rayBundleIntegrate = loadShader(ShaderId::fs_rayBundleIntegrate);
 		s_bake.fs_rayBundleWrite = loadShader(ShaderId::fs_rayBundleWrite);
-		s_bake.atomicCounterClearProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_atomicCounterClear);
-		s_bake.lightmapClearProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_lightmapClear);
-		s_bake.lightmapAverageProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_lightmapAverage);
-		s_bake.rayBundleClearProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_rayBundleClear);
-		s_bake.rayBundleIntegrateProgram = bgfx::createProgram(modelGet_vs_position(), s_bake.fs_rayBundleIntegrate);
+		s_bake.atomicCounterClearProgram = bgfx::createProgram(get_vs_position(), s_bake.fs_atomicCounterClear);
+		s_bake.lightmapClearProgram = bgfx::createProgram(get_vs_position(), s_bake.fs_lightmapClear);
+		s_bake.lightmapAverageProgram = bgfx::createProgram(get_vs_position(), s_bake.fs_lightmapAverage);
+		s_bake.rayBundleClearProgram = bgfx::createProgram(get_vs_position(), s_bake.fs_rayBundleClear);
+		s_bake.rayBundleIntegrateProgram = bgfx::createProgram(get_vs_position(), s_bake.fs_rayBundleIntegrate);
 		s_bake.rayBundleWriteProgram = bgfx::createProgram(modelGet_vs_model(), s_bake.fs_rayBundleWrite);
 		// Atomic counter
 		bgfx::TextureHandle target = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);

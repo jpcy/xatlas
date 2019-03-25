@@ -29,6 +29,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define WINDOW_DEFAULT_WIDTH 1920
 #define WINDOW_DEFAULT_HEIGHT 1080
 
+bgfx::VertexDecl PosVertex::decl;
 Options g_options;
 GLFWwindow *g_window;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
@@ -278,7 +279,7 @@ struct ShaderSourceBundle
 static ShaderSourceBundle s_shaders[] = 
 {
 	SHADER_SOURCE_BUNDLE(fs_atomicCounterClear),
-	SHADER_SOURCE_BUNDLE(fs_checkerboard),
+	SHADER_SOURCE_BUNDLE(fs_chart),
 	SHADER_SOURCE_BUNDLE(fs_color),
 	SHADER_SOURCE_BUNDLE(fs_gui),
 	SHADER_SOURCE_BUNDLE(fs_lightmapAverage),
@@ -287,6 +288,8 @@ static ShaderSourceBundle s_shaders[] =
 	SHADER_SOURCE_BUNDLE(fs_rayBundleClear),
 	SHADER_SOURCE_BUNDLE(fs_rayBundleIntegrate),
 	SHADER_SOURCE_BUNDLE(fs_rayBundleWrite),
+	SHADER_SOURCE_BUNDLE(vs_chart),
+	SHADER_SOURCE_BUNDLE(vs_chartTexcoordSpace),
 	SHADER_SOURCE_BUNDLE(vs_gui),
 	SHADER_SOURCE_BUNDLE(vs_model),
 	SHADER_SOURCE_BUNDLE(vs_position)
@@ -315,6 +318,43 @@ bgfx::ShaderHandle loadShader(ShaderId id)
 	bgfx::setName(shader, sourceBundle.name);
 #endif
 	return shader;
+}
+
+struct
+{
+	bgfx::ShaderHandle vs_position;
+	bgfx::ShaderHandle fs_color;
+	bgfx::ProgramHandle colorProgram;
+}
+s_commonShaders;
+
+static void commonShadersInit()
+{
+	s_commonShaders.vs_position = loadShader(ShaderId::vs_position);
+	s_commonShaders.fs_color = loadShader(ShaderId::fs_color);
+	s_commonShaders.colorProgram = bgfx::createProgram(s_commonShaders.vs_position, s_commonShaders.fs_color);
+}
+
+static void commonShadersShutdown()
+{
+	bgfx::destroy(s_commonShaders.vs_position);
+	bgfx::destroy(s_commonShaders.fs_color);
+	bgfx::destroy(s_commonShaders.colorProgram);
+}
+
+bgfx::ShaderHandle get_fs_color()
+{
+	return s_commonShaders.fs_color;
+}
+
+bgfx::ShaderHandle get_vs_position()
+{
+	return s_commonShaders.vs_position;
+}
+
+bgfx::ProgramHandle getColorProgram()
+{
+	return s_commonShaders.colorProgram;
 }
 
 struct BgfxCallback : public bgfx::CallbackI
@@ -375,6 +415,8 @@ int main(int argc, char **argv)
 	init.resolution.height = (uint32_t)height;
 	init.resolution.reset = BGFX_RESET_VSYNC;
 	bgfx::init(init);
+	PosVertex::init();
+	commonShadersInit();
 	guiInit();
 	modelInit();
 	atlasInit();
@@ -536,6 +578,7 @@ int main(int argc, char **argv)
 		modelFinalize();
 		atlasFinalize();
 	}
+	commonShadersShutdown();
 	guiShutdown();
 	bakeShutdown();
 	atlasDestroy();

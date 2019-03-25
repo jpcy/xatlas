@@ -53,11 +53,11 @@ void atlasDestroy();
 void atlasGenerate();
 void atlasFinalize();
 void atlasRenderCharts(const float *modelMatrix);
+void atlasRenderChartsWireframe(const float *modelMatrix);
 void atlasShowGuiOptions();
 void atlasShowGuiWindow(int progressDots);
 uint32_t atlasGetWidth();
 uint32_t atlasGetHeight();
-bgfx::VertexBufferHandle atlasGetChartBoundaryVb();
 bgfx::VertexBufferHandle atlasGetVb();
 bgfx::IndexBufferHandle atlasGetIb();
 bool atlasIsNotGenerated();
@@ -110,7 +110,6 @@ void modelShowGuiWindow(int progressDots);
 AABB modelGetAABB();
 const objzModel *modelGetData();
 bx::Vec3 modelGetCentroid();
-bgfx::ShaderHandle modelGet_vs_position();
 bgfx::ShaderHandle modelGet_vs_model();
 bool modelIsLoaded();
 
@@ -146,7 +145,7 @@ void resetCamera();
 enum class ShaderId
 {
 	fs_atomicCounterClear,
-	fs_checkerboard,
+	fs_chart,
 	fs_color,
 	fs_gui,
 	fs_lightmapAverage,
@@ -155,12 +154,31 @@ enum class ShaderId
 	fs_rayBundleClear,
 	fs_rayBundleIntegrate,
 	fs_rayBundleWrite,
+	vs_chart,
+	vs_chartTexcoordSpace,
 	vs_gui,
 	vs_model,
 	vs_position
 };
 
 bgfx::ShaderHandle loadShader(ShaderId id);
+bgfx::ShaderHandle get_fs_color();
+bgfx::ShaderHandle get_vs_position();
+bgfx::ProgramHandle getColorProgram();
+
+struct PosVertex
+{
+	float pos[2];
+	static bgfx::VertexDecl decl;
+
+	static void init()
+	{
+		decl.begin()
+			.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
+			.end();
+		assert(decl.getStride() == sizeof(PosVertex));
+	}
+};
 
 #ifdef _MSC_VER
 #define STRNCPY(_dest, _destSize, _src) strncpy_s(_dest, _destSize, _src, (_destSize) - 1)
