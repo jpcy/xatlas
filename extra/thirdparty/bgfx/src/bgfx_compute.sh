@@ -22,7 +22,12 @@
 #	define __UAV_REG_3 19
 #endif // BGFX_SHADER_LANGUAGE_GLSL
 
+#define FRAMEBUFFER_IMAGE2D_RO(_name, _format, _reg) IMAGE2D_RO(_name, _format, __UAV_REG_ ## _reg)
+#define FRAMEBUFFER_UIMAGE2D_RO(_name, _format, _reg) UIMAGE2D_RO(_name, _format, __UAV_REG_ ## _reg)
+#define FRAMEBUFFER_IMAGE2D_WR(_name, _format, _reg) IMAGE2D_WR(_name, _format, __UAV_REG_ ## _reg)
+#define FRAMEBUFFER_UIMAGE2D_WR(_name, _format, _reg) UIMAGE2D_WR(_name, _format, __UAV_REG_ ## _reg)
 #define FRAMEBUFFER_IMAGE2D_RW(_name, _format, _reg) IMAGE2D_RW(_name, _format, __UAV_REG_ ## _reg)
+#define FRAMEBUFFER_UIMAGE2D_RW(_name, _format, _reg) UIMAGE2D_RW(_name, _format, __UAV_REG_ ## _reg)
 
 #if BGFX_SHADER_LANGUAGE_GLSL
 
@@ -272,12 +277,21 @@
 		_image.m_texture[_uvw] = _value._storeComponents;                            \
 	}
 
-#define __IMAGE_IMPL_ATOMIC(_format, _storeComponents, _type, _loadComponents)            \
+#define __IMAGE_IMPL_ATOMIC(_format, _type)                                              \
 	\
-	void imageAtomicAdd(BgfxRWImage2D_ ## _format _image, ivec2 _uv,  _type _value)  \
-	{				                                                                 \
-		InterlockedAdd(_image.m_texture[_uv], _value._storeComponents);	             \
-	}                                                                                \
+	_type imageAtomicAdd(BgfxRWImage2D_ ## _format _image, ivec2 _uv, _type _value)      \
+	{				                                                                     \
+		_type result;                                                                    \
+		InterlockedAdd(_image.m_texture[_uv], _value, result);                           \
+		return result;                                                                   \
+	}                                                                                    \
+	\
+	_type imageAtomicExchange(BgfxRWImage2D_ ## _format _image, ivec2 _uv, _type _value) \
+	{                                                                                    \
+		_type result;                                                                    \
+		InterlockedExchange(_image.m_texture[_uv], _value, result);                      \
+		return result;                                                                   \
+	}
 
 
 __IMAGE_IMPL_A(rgba8,       xyzw, vec4,  xyzw)
@@ -297,7 +311,7 @@ __IMAGE_IMPL_A(r32ui,       x,    uvec4, xxxx)
 __IMAGE_IMPL_A(rg32ui,      xy,   uvec4, xyyy)
 __IMAGE_IMPL_A(rgba32ui,    xyzw, uvec4, xyzw)
 
-__IMAGE_IMPL_ATOMIC(r32ui,       x,    uvec4, xxxx)
+__IMAGE_IMPL_ATOMIC(r32ui, uint)
 
 #define atomicAdd(_mem, _data)                                       InterlockedAdd(_mem, _data)
 #define atomicAnd(_mem, _data)                                       InterlockedAnd(_mem, _data)
