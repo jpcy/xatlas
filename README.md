@@ -11,8 +11,7 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 ## Changes from thekla_atlas
 * Smaller code size - from about 18 KLOC to 8 KLOC
 * Easier to integrate and build - a single source/header file pair instead of around 120 files and 10 directories.
-* Atlas resolution option.
-* Can output multiple atlases.
+* Atlas resolution option for outputting multiple atlases.
 * Flexible data description API for input meshes.
 * Better tolerance of bad input geometry. Zero length edges and zero area faces are ignored.
 
@@ -28,9 +27,13 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 
 ## TODO
 
-* Check for overlapping and intersecting geometry
-* Use a better hole filling argorithm for non-planar holes
-* glTF support in the viewer
+* Adding meshes: check for overlapping and intersecting geometry
+* Charting: simplified/faster code path for dealing with co-planar connected faces
+* Parameterization: use a better hole filling argorithm for non-planar holes
+* Packing: bilinear-aware rasterization
+* Packing: faster brute-force packing
+* Viewer: glTF support
+* Viewer: basic lightmap baking
 
 ## Links
 [Ignacio Castaño's blog post on thekla_atlas](http://the-witness.net/news/2010/03/graphics-tech-texture-parameterization/)
