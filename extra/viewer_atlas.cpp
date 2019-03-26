@@ -701,6 +701,7 @@ void atlasShowGuiOptions()
 		ImGui::Text("%u charts", s_atlas.data->chartCount);
 		ImGui::Text("%u vertices", numVertices);
 		ImGui::Text("%u triangles", numIndices / 3);
+		ImGui::Text("Texels per unit: %g", s_atlas.data->texelsPerUnit);
 		ImGui::SliderInt("Chart cell size", &s_atlas.chartCellSize, 1, 32);
 		ImGui::Checkbox("Show atlas", &s_atlas.showTexture);
 	}
