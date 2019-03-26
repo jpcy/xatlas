@@ -761,6 +761,11 @@ void atlasShowGuiWindow(int progressDots)
 	}
 }
 
+uint32_t atlasGetCount()
+{
+	return s_atlas.data->atlasCount;
+}
+
 uint32_t atlasGetWidth()
 {
 	return s_atlas.data->width;

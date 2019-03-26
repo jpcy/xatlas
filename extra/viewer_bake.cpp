@@ -572,8 +572,11 @@ void bakeShowGuiOptions()
 {
 	if (!s_bake.enabled)
 		return;
-	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 	ImGui::Text("Lightmap");
+	if (atlasGetCount() > 1) {
+		ImGui::Text("Baking doesn't support multiple atlases");
+		return;
+	}
 	ImGui::Checkbox("Denoise", &s_bake.options.denoise);
 	ImGui::Checkbox("Sky", &s_bake.options.sky);
 	ImGui::SameLine();
@@ -592,6 +595,7 @@ void bakeShowGuiOptions()
 	ImGui::SliderInt("Ray bundle directions", &s_bake.options.numDirections, 300, 10000);
 	ImGui::SliderInt("Directions per frame", &s_bake.options.directionsPerFrame, 1, 100);
 	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished) {
+		const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 		if (ImGui::Button("Bake", buttonSize))
 			bakeExecute();
 	}

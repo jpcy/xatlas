@@ -56,6 +56,7 @@ void atlasRenderCharts(const float *modelMatrix);
 void atlasRenderChartsWireframe(const float *modelMatrix);
 void atlasShowGuiOptions();
 void atlasShowGuiWindow(int progressDots);
+uint32_t atlasGetCount();
 uint32_t atlasGetWidth();
 uint32_t atlasGetHeight();
 bgfx::VertexBufferHandle atlasGetVb();
