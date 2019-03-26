@@ -31,7 +31,7 @@ struct Chart
 struct Vertex
 {
 	int32_t atlasIndex; // -1 if the vertex doesn't exist in any atlas.
-	float uv[2]; // not normalized
+	float uv[2]; // Not normalized, values are in Atlas width and height range.
 	uint32_t xref; // Index of input vertex from which this output vertex originated.
 };
 
@@ -57,7 +57,7 @@ struct Atlas
 	// Normalized atlas texel utilization. atlasCount in length.
 	float *utilization;
 
-	// PackOptions::texelsPerUnit if >= 0, otherwise an estimated value.
+	// Equal to PackOptions texelsPerUnit if texelsPerUnit > 0, otherwise an estimated value to try and match PackOptions resolution.
 	float texelsPerUnit;
 };
 
@@ -69,8 +69,8 @@ struct AddMeshError
 	enum Enum
 	{
 		Success,
-		IndexOutOfRange, // index0 is the index
-		InvalidIndexCount // not evenly divisible by 3 - expecting triangles
+		IndexOutOfRange,
+		InvalidIndexCount // Not evenly divisible by 3 - expecting triangles.
 	};
 };
 
@@ -98,7 +98,7 @@ struct MeshDecl
 	IndexFormat::Enum indexFormat;
 	
 	// optional. indexCount / 3 in length.
-	// Don't atlas faces set to true. Faces will still exist in the output meshes, Vertex::uv will be (0, 0) and Vertex::atlasIndex will be -1.
+	// Don't atlas faces set to true. Faces will still exist in the output meshes, Vertex uv will be (0, 0) and Vertex atlasIndex will be -1.
 	const bool *faceIgnoreData;
 
 	MeshDecl()
