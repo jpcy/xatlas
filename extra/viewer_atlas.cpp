@@ -488,8 +488,12 @@ void atlasGenerate()
 static void atlasRenderChartsTextures()
 {
 	bgfx::ViewId viewId = kFirstFreeView;
+	float bottom = (float)s_atlas.data->height;
+	float top = 0.0f;
+	if (bgfx::getCaps()->originBottomLeft)
+		bx::swap(bottom, top);
 	float projection[16];
-	bx::mtxOrtho(projection, 0.0f, (float)s_atlas.data->width, (float)s_atlas.data->height, 0.0f, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
+	bx::mtxOrtho(projection, 0.0f, (float)s_atlas.data->width, bottom, top, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
 	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsFrameBuffers.size(); i++) {
 		// Setup view for rendering into atlas texture.
 		bgfx::setViewClear(viewId, BGFX_CLEAR_COLOR);
