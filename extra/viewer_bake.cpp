@@ -162,6 +162,11 @@ namespace oidn
 
 void bakeInit()
 {
+	if (bgfx::getRendererType() != bgfx::RendererType::OpenGL) {
+		s_bake.enabled = false;
+		printf("Baking is disabled for all renderers except OpenGL. Use '--gl' command line argument.\n");
+		return;
+	}
 	s_bake.enabled = (bgfx::getCaps()->supported & BGFX_CAPS_FRAMEBUFFER_RW) != 0;
 	if (!s_bake.enabled) {
 		printf("Read/Write frame buffer attachments are not supported. Baking is disabled.\n");
