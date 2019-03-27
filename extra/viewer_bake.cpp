@@ -63,6 +63,7 @@ private:
 struct BakeOptions
 {
 	bool showLightmap = true;
+	bool fitToWindow = true;
 	bool denoise = false;
 	bool sky = true;
 	bx::Vec3 skyColor = bx::Vec3(1.0f, 1.0f, 1.0f);
@@ -620,12 +621,16 @@ void bakeShowGuiWindow()
 	const float margin = 4.0f;
 	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
-	if (ImGui::Begin("Lightmap", &s_bake.options.showLightmap)) {
+	if (ImGui::Begin("Lightmap", &s_bake.options.showLightmap, ImGuiWindowFlags_HorizontalScrollbar)) {
+		ImGui::Checkbox("Fit to window", &s_bake.options.fitToWindow);
 		const ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-		ImTextureID texture = (ImTextureID)(intptr_t)bakeGetLightmap().idx;
-		ImGui::Image(texture, ImGui::GetContentRegionAvail());
-		if (ImGui::IsItemHovered())
-			guiImageMagnifierTooltip(texture, cursorPos, ImVec2((float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight));
+		GuiTexture texture;
+		texture.bgfx.handle = bakeGetLightmap();
+		texture.bgfx.flags = GuiTextureFlags::PointSampler;
+		if (s_bake.options.fitToWindow)
+			ImGui::Image(texture.imgui, ImGui::GetContentRegionAvail());
+		else
+			ImGui::Image(texture.imgui, ImVec2((float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight));
 		ImGui::End();
 	}
 }

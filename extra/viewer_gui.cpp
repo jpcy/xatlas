@@ -131,9 +131,12 @@ void guiRender()
 			else {
 				bgfx::setScissor((uint16_t)pcmd->ClipRect.x, (uint16_t)pcmd->ClipRect.y, uint16_t(pcmd->ClipRect.z - pcmd->ClipRect.x), uint16_t(pcmd->ClipRect.w - pcmd->ClipRect.y));
 				bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
-				bgfx::TextureHandle texture;
-				texture.idx = (uint16_t)(intptr_t)pcmd->TextureId;
-				bgfx::setTexture(0, s_gui.u_texture, texture);
+				GuiTexture texture;
+				texture.imgui = pcmd->TextureId;
+				uint32_t flags = UINT32_MAX;
+				if (texture.bgfx.flags & GuiTextureFlags::PointSampler)
+					flags = BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP;
+				bgfx::setTexture(0, s_gui.u_texture, texture.bgfx.handle, flags);
 				bgfx::setIndexBuffer(&tib, firstIndex, pcmd->ElemCount);
 				bgfx::setVertexBuffer(0, &tvb);
 				bgfx::submit(kGuiView, s_gui.program);
@@ -141,17 +144,4 @@ void guiRender()
 			firstIndex += pcmd->ElemCount;
 		}
 	}
-}
-
-void guiImageMagnifierTooltip(ImTextureID texture, ImVec2 cursorPos, ImVec2 textureSize)
-{
-	ImGuiIO &io = ImGui::GetIO();
-	const ImVec2 imageSize(ImGui::GetItemRectSize());
-	const ImVec2 imageToTex(textureSize.x / imageSize.x, textureSize.y / imageSize.y);
-	const float magnifiedSize = 200.0f;
-	const ImVec2 uv0 = ImVec2((io.MousePos.x - cursorPos.x) * imageToTex.x - magnifiedSize * 0.5f, (io.MousePos.y - cursorPos.y) * imageToTex.y - magnifiedSize * 0.5f);
-	const ImVec2 uv1 = ImVec2(uv0.x + magnifiedSize, uv0.y + magnifiedSize);
-	ImGui::BeginTooltip();
-	ImGui::Image(texture, ImVec2(magnifiedSize, magnifiedSize), ImVec2(uv0.x / textureSize.x, uv0.y / textureSize.y), ImVec2(uv1.x / textureSize.x, uv1.y / textureSize.y));
-	ImGui::EndTooltip();
 }

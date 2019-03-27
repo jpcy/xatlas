@@ -113,6 +113,7 @@ struct
 	bool verbose = false;
 	bool showTexture = true;
 	int currentTexture;
+	bool fitToWindow = true;
 	std::vector<bgfx::FrameBufferHandle> chartsFrameBuffers;
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
@@ -735,7 +736,7 @@ void atlasShowGuiWindow(int progressDots)
 		const float size = 500;
 		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, margin), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
-		if (ImGui::Begin("Atlas", &s_atlas.showTexture)) {
+		if (ImGui::Begin("Atlas", &s_atlas.showTexture, ImGuiWindowFlags_HorizontalScrollbar)) {
 			if (s_atlas.data->atlasCount > 1) {
 				ImGui::Text("Atlas %d of %u", s_atlas.currentTexture + 1, s_atlas.data->atlasCount);
 				ImGui::SameLine();
@@ -750,12 +751,17 @@ void atlasShowGuiWindow(int progressDots)
 					if (s_atlas.currentTexture > (int)s_atlas.data->atlasCount - 1)
 						s_atlas.currentTexture = 0;
 				}
+				ImGui::SameLine();
 			}
+			ImGui::Checkbox("Fit to window", &s_atlas.fitToWindow);
 			const ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-			ImTextureID texture = (ImTextureID)(intptr_t)bgfx::getTexture(s_atlas.chartsFrameBuffers[s_atlas.currentTexture]).idx;
-			ImGui::Image(texture, ImGui::GetContentRegionAvail());
-			if (ImGui::IsItemHovered())
-				guiImageMagnifierTooltip(texture, cursorPos, ImVec2((float)s_atlas.data->width, (float)s_atlas.data->height));
+			GuiTexture texture;
+			texture.bgfx.handle = bgfx::getTexture(s_atlas.chartsFrameBuffers[s_atlas.currentTexture]);
+			texture.bgfx.flags = GuiTextureFlags::PointSampler;
+			if (s_atlas.fitToWindow)
+				ImGui::Image(texture.imgui, ImGui::GetContentRegionAvail());
+			else 
+				ImGui::Image(texture.imgui, ImVec2((float)s_atlas.data->width, (float)s_atlas.data->height));
 			ImGui::End();
 		}
 	}

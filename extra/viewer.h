@@ -74,12 +74,30 @@ void bakeShowGuiWindow();
 bgfx::TextureHandle bakeGetLightmap();
 bool bakeIsIdle();
 
+struct GuiTextureFlags
+{
+	enum
+	{
+		PointSampler = 1 << 0,
+	};
+};
+
+union GuiTexture
+{
+	ImTextureID imgui;
+	struct
+	{
+		bgfx::TextureHandle handle;
+		uint16_t flags;
+	}
+	bgfx;
+};
+
 void guiInit();
 void guiShutdown();
 void guiResize(int width, int height);
 void guiRunFrame(float deltaTime);
 void guiRender();
-void guiImageMagnifierTooltip(ImTextureID texture, ImVec2 cursorPos, ImVec2 textureSize);
 
 struct ModelVertex
 {
