@@ -6868,7 +6868,7 @@ private:
 					if (xx >= 0) {                              \
 						if (chartBitImage->bitAt(x, y)) {       \
 							if (xx < atlas_w && yy < atlas_h) { \
-								##body                          \
+								body                            \
 							}                                   \
 						}                                       \
 					}                                           \
@@ -6885,7 +6885,7 @@ private:
 					if (yy >= 0) {                              \
 						if (chartBitImage->bitAt(x, y)) {       \
 							if (xx < atlas_w && yy < atlas_h) { \
-								##body                          \
+								body                            \
 							}                                   \
 						}                                       \
 					}                                           \
