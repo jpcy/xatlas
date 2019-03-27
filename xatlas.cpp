@@ -6856,6 +6856,44 @@ private:
 	Array<Array<Vector2> > m_originalChartTexcoords;
 };
 
+#define XA_OVERLAP_CHARTS(body)                                 \
+	const int w = chartBitImage->width();                       \
+	const int h = chartBitImage->height();                      \
+	if (r == 0) {                                               \
+		for (int y = 0; y < h; y++) {                           \
+			int yy = y + offset_y;                              \
+			if (yy >= 0) {                                      \
+				for (int x = 0; x < w; x++) {                   \
+					int xx = x + offset_x;                      \
+					if (xx >= 0) {                              \
+						if (chartBitImage->bitAt(x, y)) {       \
+							if (xx < atlas_w && yy < atlas_h) { \
+								##body                          \
+							}                                   \
+						}                                       \
+					}                                           \
+				}                                               \
+			}                                                   \
+		}                                                       \
+	}                                                           \
+	else if (r == 1) {                                          \
+		for (int y = 0; y < h; y++) {                           \
+			int xx = y + offset_x;                              \
+			if (xx >= 0) {                                      \
+				for (int x = 0; x < w; x++) {                   \
+					int yy = x + offset_y;                      \
+					if (yy >= 0) {                              \
+						if (chartBitImage->bitAt(x, y)) {       \
+							if (xx < atlas_w && yy < atlas_h) { \
+								##body                          \
+							}                                   \
+						}                                       \
+					}                                           \
+				}                                               \
+			}                                                   \
+		}                                                       \
+	}
+
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 const uint8_t TGA_TYPE_RGB = 2;
 const uint8_t TGA_ORIGIN_UPPER = 0x20;
@@ -6907,46 +6945,7 @@ public:
 		color[0] = uint8_t((rand() % 255 + mix) * 0.5f);
 		color[1] = uint8_t((rand() % 255 + mix) * 0.5f);
 		color[2] = uint8_t((rand() % 255 + mix) * 0.5f);
-		const int w = chartBitImage->width();
-		const int h = chartBitImage->height();
-		if (r == 0) {
-			for (int y = 0; y < h; y++) {
-				int yy = y + offset_y;
-				if (yy >= 0) {
-					for (int x = 0; x < w; x++) {
-						int xx = x + offset_x;
-						if (xx >= 0) {
-							if (chartBitImage->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									uint8_t *pixel = &m_data[(xx + yy * m_width) * 3];
-									for (int i = 0; i < 3; i++)
-										pixel[i] = color[i];
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-		else if (r == 1) {
-			for (int y = 0; y < h; y++) {
-				int xx = y + offset_x;
-				if (xx >= 0) {
-					for (int x = 0; x < w; x++) {
-						int yy = x + offset_y;
-						if (yy >= 0) {
-							if (chartBitImage->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									uint8_t *pixel = &m_data[(xx + yy * m_width) * 3];
-									for (int i = 0; i < 3; i++)
-										pixel[i] = color[i];
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+		XA_OVERLAP_CHARTS(uint8_t *pixel = &m_data[(xx + yy * m_width) * 3]; for (int i = 0; i < 3; i++) pixel[i] = color[i];);
 	}
 
 	void writeTga(const char *filename, uint32_t width, uint32_t height) const
@@ -7517,88 +7516,14 @@ private:
 	bool canAddChart(const BitImage *atlasBitImage, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
-		// Check whether the two bitImages overlap.
-		const int w = chartBitImage->width();
-		const int h = chartBitImage->height();
-		if (r == 0) {
-			for (int y = 0; y < h; y++) {
-				int yy = y + offset_y;
-				if (yy >= 0) {
-					for (int x = 0; x < w; x++) {
-						int xx = x + offset_x;
-						if (xx >= 0) {
-							if (chartBitImage->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									if (atlasBitImage->bitAt(xx, yy))
-										return false;
-								}
-							}
-						}
-					}
-				}
-			}
-		} else if (r == 1) {
-			for (int y = 0; y < h; y++) {
-				int xx = y + offset_x;
-				if (xx >= 0) {
-					for (int x = 0; x < w; x++) {
-						int yy = x + offset_y;
-						if (yy >= 0) {
-							if (chartBitImage->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									if (atlasBitImage->bitAt(xx, yy))
-										return false;
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+		XA_OVERLAP_CHARTS(if (atlasBitImage->bitAt(xx, yy)) return false;);
 		return true;
 	}
 
 	void addChart(BitImage *atlasBitImage, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
-		// Check whether the two bitImages overlap.
-		const int w = chartBitImage->width();
-		const int h = chartBitImage->height();
-		if (r == 0) {
-			for (int y = 0; y < h; y++) {
-				int yy = y + offset_y;
-				if (yy >= 0) {
-					for (int x = 0; x < w; x++) {
-						int xx = x + offset_x;
-						if (xx >= 0) {
-							if (chartBitImage->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									XA_DEBUG_ASSERT(atlasBitImage->bitAt(xx, yy) == false);
-									atlasBitImage->setBitAt(xx, yy);
-								}
-							}
-						}
-					}
-				}
-			}
-		} else if (r == 1) {
-			for (int y = 0; y < h; y++) {
-				int xx = y + offset_x;
-				if (xx >= 0) {
-					for (int x = 0; x < w; x++) {
-						int yy = x + offset_y;
-						if (yy >= 0) {
-							if (chartBitImage->bitAt(x, y)) {
-								if (xx < atlas_w && yy < atlas_h) {
-									XA_DEBUG_ASSERT(atlasBitImage->bitAt(xx, yy) == false);
-									atlasBitImage->setBitAt(xx, yy);
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+		XA_OVERLAP_CHARTS(XA_DEBUG_ASSERT(atlasBitImage->bitAt(xx, yy) == false); atlasBitImage->setBitAt(xx, yy););
 	}
 
 	static bool setBitsCallback(void *param, int x, int y, const Vector3 &, const Vector3 &, const Vector3 &, float area)
