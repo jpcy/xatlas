@@ -83,6 +83,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define XA_CHECK_FACE_OVERLAP 1
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
+
+#ifndef XA_DEBUG_EXPORT_ATLAS_IMAGES
+#define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
+#endif
+
 #define XA_DEBUG_EXPORT_OBJ 0
 #define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
@@ -6851,6 +6856,133 @@ private:
 	Array<Array<Vector2> > m_originalChartTexcoords;
 };
 
+#if XA_DEBUG_EXPORT_ATLAS_IMAGES
+const uint8_t TGA_TYPE_RGB = 2;
+const uint8_t TGA_ORIGIN_UPPER = 0x20;
+
+#pragma pack(push, 1)
+struct TgaHeader
+{
+	uint8_t id_length;
+	uint8_t colormap_type;
+	uint8_t image_type;
+	uint16_t colormap_index;
+	uint16_t colormap_length;
+	uint8_t colormap_size;
+	uint16_t x_origin;
+	uint16_t y_origin;
+	uint16_t width;
+	uint16_t height;
+	uint8_t pixel_size;
+	uint8_t flags;
+	enum { Size = 18 };
+};
+#pragma pack(pop)
+
+class DebugAtlasImage
+{
+public:
+	DebugAtlasImage(uint32_t width, uint32_t height) : m_width(width), m_height(height)
+	{
+		m_data.resize(m_width * m_height * 3);
+		memset(m_data.data(), 0, m_data.size());
+	}
+
+	void resize(uint32_t width, uint32_t height)
+	{
+		Array<uint8_t> data;
+		data.resize(width * height * 3);
+		memset(data.data(), 0, data.size());
+		for (uint32_t y = 0; y < min(m_height, height); y++)
+			memcpy(&data[y * width * 3], &m_data[y * m_width * 3], min(m_width, width) * 3);
+		m_width = width;
+		m_height = height;
+		swap(m_data, data);
+	}
+
+	void addChart(const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	{
+		uint8_t color[3];
+		const int mix = 192;
+		color[0] = uint8_t((rand() % 255 + mix) * 0.5f);
+		color[1] = uint8_t((rand() % 255 + mix) * 0.5f);
+		color[2] = uint8_t((rand() % 255 + mix) * 0.5f);
+		const int w = chartBitImage->width();
+		const int h = chartBitImage->height();
+		if (r == 0) {
+			for (int y = 0; y < h; y++) {
+				int yy = y + offset_y;
+				if (yy >= 0) {
+					for (int x = 0; x < w; x++) {
+						int xx = x + offset_x;
+						if (xx >= 0) {
+							if (chartBitImage->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									uint8_t *pixel = &m_data[(xx + yy * m_width) * 3];
+									for (int i = 0; i < 3; i++)
+										pixel[i] = color[i];
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		else if (r == 1) {
+			for (int y = 0; y < h; y++) {
+				int xx = y + offset_x;
+				if (xx >= 0) {
+					for (int x = 0; x < w; x++) {
+						int yy = x + offset_y;
+						if (yy >= 0) {
+							if (chartBitImage->bitAt(x, y)) {
+								if (xx < atlas_w && yy < atlas_h) {
+									uint8_t *pixel = &m_data[(xx + yy * m_width) * 3];
+									for (int i = 0; i < 3; i++)
+										pixel[i] = color[i];
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	void writeTga(const char *filename, uint32_t width, uint32_t height) const
+	{
+		XA_DEBUG_ASSERT(sizeof(TgaHeader) == TgaHeader::Size);
+		FILE *f = fopen(filename, "wb");
+		if (!f)
+			return;
+		TgaHeader tga;
+		tga.id_length = 0;
+		tga.colormap_type = 0;
+		tga.image_type = TGA_TYPE_RGB;
+		tga.colormap_index = 0;
+		tga.colormap_length = 0;
+		tga.colormap_size = 0;
+		tga.x_origin = 0;
+		tga.y_origin = 0;
+		tga.width = (uint16_t)width;
+		tga.height = (uint16_t)height;
+		tga.pixel_size = 24;
+		tga.flags = TGA_ORIGIN_UPPER;
+		fwrite(&tga, sizeof(TgaHeader), 1, f);
+		for (uint32_t y = 0; y < height; y++) {
+			for (uint32_t x = 0; x < width; x++) {
+				fwrite(&m_data[(x + y * m_width) * 3], 3, 1, f);
+			}
+		}
+		fclose(f);
+	}
+
+private:
+	uint32_t m_width, m_height;
+	Array<uint8_t> m_data;
+};
+#endif
+
 struct AtlasPacker
 {
 	AtlasPacker(Atlas *atlas) : m_atlas(atlas), m_width(0), m_height(0), m_texelsPerUnit(0)	{}
@@ -7007,6 +7139,9 @@ struct AtlasPacker
 		m_radix = RadixSort();
 		m_radix.sort(chartOrderArray);
 		const uint32_t *ranks = m_radix.ranks();
+#if XA_DEBUG_EXPORT_ATLAS_IMAGES
+		Array<DebugAtlasImage *> debugAtlasImages;
+#endif
 		// Add sorted charts to bitImage.
 		int w = 0, h = 0;
 		int progress = 0;
@@ -7051,6 +7186,10 @@ struct AtlasPacker
 					bi->resize(resolution, resolution, false);
 					m_bitImages.push_back(bi);
 					firstChartInBitImage = true;
+#if XA_DEBUG_EXPORT_ATLAS_IMAGES
+					DebugAtlasImage *di = XA_NEW(DebugAtlasImage, resolution, resolution);
+					debugAtlasImages.push_back(di);
+#endif
 				}
 				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, options.resolution <= 0);
 				if (firstChartInBitImage && !foundLocation) {
@@ -7072,13 +7211,20 @@ struct AtlasPacker
 			h = max(h, best_y + best_ch);
 			if (options.resolution <= 0) {
 				// Resize bitImage if necessary.
-				if (uint32_t(w) > m_bitImages[0]->width() || uint32_t(h) > m_bitImages[0]->height())
+				if (uint32_t(w) > m_bitImages[0]->width() || uint32_t(h) > m_bitImages[0]->height()) {
 					m_bitImages[0]->resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
+#if XA_DEBUG_EXPORT_ATLAS_IMAGES
+					debugAtlasImages[0]->resize(m_bitImages[0]->width(), m_bitImages[0]->height());
+#endif
+				}
 			} else {
 				w = min((int)options.resolution, w);
 				h = min((int)options.resolution, h);
 			}
 			addChart(m_bitImages[currentBitImageIndex], &chartBitImage, w, h, best_x, best_y, best_r);
+#if XA_DEBUG_EXPORT_ATLAS_IMAGES
+			debugAtlasImages[currentBitImageIndex]->addChart(&chartBitImage, w, h, best_x, best_y, best_r);
+#endif
 			chart->atlasIndex = (int32_t)currentBitImageIndex;
 			// Translate and rotate chart texture coordinates.
 			Mesh *mesh = chart->mesh();
@@ -7108,6 +7254,15 @@ struct AtlasPacker
 		if (options.resolution > 0)
 			m_width = m_height = options.resolution;
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
+#if XA_DEBUG_EXPORT_ATLAS_IMAGES
+		for (uint32_t i = 0; i < debugAtlasImages.size(); i++) {
+			char filename[256];
+			sprintf(filename, "debug_atlas%0.2u.tga", i);
+			debugAtlasImages[i]->writeTga(filename, m_width, m_height);
+			debugAtlasImages[i]->~DebugAtlasImage();
+			XA_FREE(debugAtlasImages[i]);
+		}
+#endif
 		if (progressFunc && progress != 100)
 			progressFunc(ProgressCategory::PackCharts, 0, progressUserData);
 	}
