@@ -1,14 +1,20 @@
 #include <bgfx_compute.sh>
 
-FRAMEBUFFER_UIMAGE2D_RO(u_rayBundleHeaderSampler, r32ui, 1);
+#define DEBUG_RAY_BUNDLE 0
+
+FRAMEBUFFER_UIMAGE2D_RO(u_rayBundleHeaderSampler, r32ui, 0);
 
 #if BGFX_SHADER_LANGUAGE_GLSL
-FRAMEBUFFER_UIMAGE2D_RO(u_rayBundleDataSampler, rgba32ui, 2);
+FRAMEBUFFER_UIMAGE2D_RO(u_rayBundleDataSampler, rgba32ui, 1);
 #else
-USAMPLER2D(u_rayBundleDataSampler, 2);
+USAMPLER2D(u_rayBundleDataSampler, 1);
 #endif
 
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleLightmapSampler, r32ui, 3);
+FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleLightmapSampler, r32ui, 2);
+
+#if DEBUG_RAY_BUNDLE && BGFX_SHADER_LANGUAGE_GLSL
+FRAMEBUFFER_IMAGE2D_RW(u_rayBundleDebugIntegrateSampler, rgba8, 3);
+#endif
 
 uniform vec4 u_lightmapSize_dataSize;
 #define u_lightmapSize u_lightmapSize_dataSize.xy
@@ -62,6 +68,12 @@ void main()
 			nodes[numNodes].normal.z = uintBitsToFloat(normal_depth.z);
 			nodes[numNodes].depth = uintBitsToFloat(normal_depth.w);
 			nodes[numNodes].texcoord = vec2(uintBitsToFloat(texcoord.x), uintBitsToFloat(texcoord.y));
+#if BGFX_SHADER_LANGUAGE_GLSL
+#if DEBUG_RAY_BUNDLE
+			//imageStore(u_rayBundleDebugIntegrateSampler, ivec2(nodes[numNodes].texcoord.x * u_lightmapSize.x, nodes[numNodes].texcoord.y * u_lightmapSize.y), vec4(1.0, 0.0, 1.0, 1.0));
+			//imageStore(u_rayBundleDebugIntegrateSampler, ivec2(gl_FragCoord.xy), vec4(1.0, 0.0, 1.0, 1.0));
+#endif
+#endif
 			offset = color_offset.w;
 			numNodes++;
 		}
@@ -103,6 +115,11 @@ void main()
 				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 1u), uint(color.g * 255.0));
 				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 2u), uint(color.b * 255.0));
 				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 3u), 1u);
+#if BGFX_SHADER_LANGUAGE_GLSL
+#if DEBUG_RAY_BUNDLE
+				imageStore(u_rayBundleDebugIntegrateSampler, ivec2(uv.x * u_lightmapSize.x, uv.y * u_lightmapSize.y), vec4(1.0, 0.0, 1.0, 1.0));		
+#endif
+#endif
 			}
 		}
 	}

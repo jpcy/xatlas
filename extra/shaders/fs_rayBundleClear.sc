@@ -1,6 +1,6 @@
 #include <bgfx_compute.sh>
 
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 1);
+FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 0);
 
 void main()
 {

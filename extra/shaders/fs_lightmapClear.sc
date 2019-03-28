@@ -1,7 +1,7 @@
 #include <bgfx_compute.sh>
 
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleLightmapSampler, r32ui, 1);
-FRAMEBUFFER_IMAGE2D_RW(u_lightmapSampler, rgba32f, 2);
+FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleLightmapSampler, r32ui, 0);
+FRAMEBUFFER_IMAGE2D_RW(u_lightmapSampler, rgba32f, 1);
 uniform vec4 u_clearLightmaps;
 #define u_clearLightmap0 uint(u_clearLightmaps.x)
 #define u_clearLightmap1 uint(u_clearLightmaps.y)

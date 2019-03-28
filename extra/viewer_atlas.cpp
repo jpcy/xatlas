@@ -754,7 +754,6 @@ void atlasShowGuiWindow(int progressDots)
 				ImGui::SameLine();
 			}
 			ImGui::Checkbox("Fit to window", &s_atlas.fitToWindow);
-			const ImVec2 cursorPos = ImGui::GetCursorScreenPos();
 			GuiTexture texture;
 			texture.bgfx.handle = bgfx::getTexture(s_atlas.chartsFrameBuffers[s_atlas.currentTexture]);
 			texture.bgfx.flags = GuiTextureFlags::PointSampler;
