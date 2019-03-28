@@ -128,6 +128,7 @@ struct
 	// ray bundle integrate
 	bgfx::FrameBufferHandle rayBundleIntegrateFb;
 	bgfx::TextureHandle rayBundleLightmap; // Ray bundle is integrated into this. Cleared every ray bundle.
+	bgfx::TextureHandle rayBundleIntegrateHack;
 	// lightmap clear
 	bgfx::FrameBufferHandle lightmapClearFb;
 	// lightmap average
@@ -222,6 +223,7 @@ void bakeShutdown()
 	bgfx::destroy(s_bake.rayBundleData);
 	bgfx::destroy(s_bake.rayBundleLightmap);
 	bgfx::destroy(s_bake.rayBundleIntegrateFb);
+	bgfx::destroy(s_bake.rayBundleIntegrateHack);
 	bgfx::destroy(s_bake.lightmapClearFb);
 	bgfx::destroy(s_bake.lightmapAverageFb);
 	bgfx::destroy(s_bake.lightmap);
@@ -299,6 +301,7 @@ void bakeExecute()
 			bgfx::destroy(s_bake.rayBundleFb);
 			bgfx::destroy(s_bake.rayBundleHeader);
 			bgfx::destroy(s_bake.rayBundleData);
+			bgfx::destroy(s_bake.rayBundleIntegrateHack);
 #if DEBUG_RAY_BUNDLE
 			bgfx::destroy(s_bake.rayBundleDebugWrite);
 #endif
@@ -318,6 +321,7 @@ void bakeExecute()
 		attachments[2].init(s_bake.rayBundleHeader, bgfx::Access::ReadWrite);
 		attachments[3].init(s_bake.rayBundleData, bgfx::Access::ReadWrite);
 		s_bake.rayBundleFb = bgfx::createFrameBuffer(BX_COUNTOF(attachments), attachments);
+		s_bake.rayBundleIntegrateHack = bgfx::createTexture2D((uint16_t)s_bake.resolution, (uint16_t)s_bake.resolution, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
 	}
 	// Re-create lightmap if atlas resolution has changed.
 	const bool lightmapResolutionChanged = s_bake.lightmapWidth != atlasGetWidth() || s_bake.lightmapHeight != atlasGetHeight();
@@ -363,7 +367,8 @@ void bakeExecute()
 		bgfx::Attachment attachments[5];
 		attachments[4].init(s_bake.rayBundleDebugIntegrate, bgfx::Access::ReadWrite);
 #else
-		bgfx::Attachment attachments[4];
+		bgfx::Attachment attachments[5];
+		attachments[4].init(s_bake.rayBundleIntegrateHack, bgfx::Access::ReadWrite);
 #endif
 		attachments[0].init(s_bake.rayBundleTarget);
 		attachments[1].init(s_bake.rayBundleHeader, bgfx::Access::Read);
@@ -633,7 +638,7 @@ void bakeShowGuiOptions()
 	}
 	ImGui::ListBox("Ray bundle resolution", &resolutionIndex, resolutionLabels, (int)BX_COUNTOF(resolutionLabels));
 	s_bake.options.resolution = resolutions[resolutionIndex];
-	ImGui::SliderInt("Ray bundle directions", &s_bake.options.numDirections, 1, 10000);
+	ImGui::SliderInt("Ray bundle directions", &s_bake.options.numDirections, 1, 5000);
 	ImGui::SliderInt("Directions per frame", &s_bake.options.directionsPerFrame, 1, 100);
 	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished) {
 		const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
