@@ -322,15 +322,6 @@ public:
 	Vector2() {}
 	explicit Vector2(float f) : x(f), y(f) {}
 	Vector2(float x, float y): x(x), y(y) {}
-	Vector2(const Vector2 &v) : x(v.x), y(v.y) {}
-
-	const Vector2 &operator=(const Vector2 &v)
-	{
-		x = v.x;
-		y = v.y;
-		return
-			*this;
-	}
 
 	Vector2 operator-() const
 	{
@@ -361,18 +352,18 @@ public:
 		y *= v.y;
 	}
 
-	friend bool operator==(const Vector2 &a, const Vector2 &b)
-	{
-		return a.x == b.x && a.y == b.y;
-	}
-
-	friend bool operator!=(const Vector2 &a, const Vector2 &b)
-	{
-		return a.x != b.x || a.y != b.y;
-	}
-
 	float x, y;
 };
+
+static bool operator==(const Vector2 &a, const Vector2 &b)
+{
+	return a.x == b.x && a.y == b.y;
+}
+
+static bool operator!=(const Vector2 &a, const Vector2 &b)
+{
+	return a.x != b.x || a.y != b.y;
+}
 
 static Vector2 operator+(const Vector2 &a, const Vector2 &b)
 {
@@ -497,15 +488,6 @@ public:
 	explicit Vector3(float f) : x(f), y(f), z(f) {}
 	Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
 	Vector3(const Vector2 &v, float z) : x(v.x), y(v.y), z(z) {}
-	Vector3(const Vector3 &v) : x(v.x), y(v.y), z(v.z) {}
-
-	const Vector3 &operator=(const Vector3 &v)
-	{
-		x = v.x;
-		y = v.y;
-		z = v.z;
-		return *this;
-	}
 
 	Vector2 xy() const
 	{
@@ -560,18 +542,18 @@ public:
 		z /= v.z;
 	}
 
-	friend bool operator==(const Vector3 &a, const Vector3 &b)
-	{
-		return a.x == b.x && a.y == b.y && a.z == b.z;
-	}
-
-	friend bool operator!=(const Vector3 &a, const Vector3 &b)
-	{
-		return a.x != b.x || a.y != b.y || a.z != b.z;
-	}
-
 	float x, y, z;
 };
+
+static bool operator==(const Vector3 &a, const Vector3 &b)
+{
+	return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+static bool operator!=(const Vector3 &a, const Vector3 &b)
+{
+	return a.x != b.x || a.y != b.y || a.z != b.z;
+}
 
 static Vector3 add(const Vector3 &a, const Vector3 &b)
 {
