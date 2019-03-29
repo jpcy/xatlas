@@ -199,10 +199,4 @@ struct PosVertex
 	}
 };
 
-#ifdef _MSC_VER
-#define STRNCPY(_dest, _destSize, _src) strncpy_s(_dest, _destSize, _src, (_destSize) - 1)
-#else
-#define STRNCPY(_dest, _destSize, _src) strncpy(_dest, _src, (_destSize) - 1)
-#endif
-
 #define WINDOW_TITLE "xatlas viewer"

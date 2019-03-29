@@ -11,6 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #include <mutex>
 #include <thread>
+#include <bx/string.h>
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
 #include <nativefiledialog/nfd.h>
@@ -173,7 +174,7 @@ void modelOpenDialog()
 	glfwSetWindowTitle(g_window, windowTitle);
 	printf("Loading '%s'\n", filename);
 	ModelLoadThreadArgs args;
-	STRNCPY(args.filename, sizeof(args.filename), filename);
+	bx::strCopy(args.filename, sizeof(args.filename), filename);
 	s_model.thread = new std::thread(modelLoadThread, args);
 	free(filename);
 }

@@ -473,7 +473,7 @@ int main(int argc, char **argv)
 			ImGuiIO &io = ImGui::GetIO();
 			char errorMessage[1024];
 			s_errorMessage.mutex.lock();
-			STRNCPY(errorMessage, sizeof(errorMessage), s_errorMessage.text);
+			bx::strCopy(errorMessage, sizeof(errorMessage), s_errorMessage.text);
 			s_errorMessage.mutex.unlock();
 			if (errorMessage[0])
 				ImGui::OpenPopup("Error");
