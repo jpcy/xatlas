@@ -38,15 +38,11 @@ THE SOFTWARE.
 #ifdef _MSC_VER
 #define OBJZ_FOPEN(_file, _filename, _mode) { if (fopen_s(&_file, _filename, _mode) != 0) _file = NULL; }
 #define OBJZ_STRICMP _stricmp
-#define OBJZ_STRNCAT(_dest, _destSize, _src, _count) strncat_s(_dest, _destSize, _src, _count)
-#define OBJZ_STRNCPY(_dest, _destSize, _src) strncpy_s(_dest, _destSize, _src, (_destSize) - 1)
 #define OBJZ_STRTOK(_str, _delim, _context) strtok_s(_str, _delim, _context)
 #else
 #include <strings.h>
 #define OBJZ_FOPEN(_file, _filename, _mode) _file = fopen(_filename, _mode)
 #define OBJZ_STRICMP strcasecmp
-#define OBJZ_STRNCAT(_dest, _destSize, _src, _count) strncat(_dest, _src, _count)
-#define OBJZ_STRNCPY(_dest, _destSize, _src) strncpy(_dest, _src, (_destSize) - 1)
 #define OBJZ_STRTOK(_str, _delim, _context) strtok(_str, _delim)
 #endif
 
@@ -93,6 +89,30 @@ static void *objz_realloc(void *_ptr, size_t _size, char *_file, int _line) {
 #define OBJZ_REALLOC(_ptr, _size) objz_realloc((_ptr), (_size), __FILE__, __LINE__)
 #define OBJZ_FREE(_ptr) objz_realloc((_ptr), 0, __FILE__, __LINE__)
 
+static size_t strLength(const char *_str, size_t _size)
+{
+	const char *c = _str;
+	size_t len = 0;
+	while (*c != 0 && len < _size) {
+		c++;
+		len++;
+	}
+	return len;
+}
+
+static void strCopy(char *_dest, size_t _destSize, const char *_src, size_t _count)
+{
+	const size_t n = OBJZ_SMALLEST(_destSize - 1, strLength(_src, _count));
+	memcpy(_dest, _src, n);
+	_dest[n] = 0;
+}
+
+static void strConcat(char *_dest, size_t _destSize, const char *_src, size_t _count)
+{
+	const size_t start = strLength(_dest, _destSize);
+	strCopy(&_dest[start], _destSize - start, _src, _count);
+}
+
 typedef struct {
 	float x, y, z;
 } vec3;
@@ -121,8 +141,9 @@ static void vec3Normalize(vec3 *_out, const vec3 *_in) {
 	if (len > 0) {
 		len = 1.0f / sqrtf(len);
 		OBJZ_VEC3_MUL(*_out, *_in, len);
-	} else
+	} else {
 		OBJZ_VEC3_COPY(*_out, *_in);
+	}
 }
 
 static void appendError(const char *_format, ...) {
@@ -133,9 +154,9 @@ static void appendError(const char *_format, ...) {
 	va_end(args);
 	if (s_error[0]) {
 		const char *newline = "\n";
-		OBJZ_STRNCAT(s_error, sizeof(s_error), newline, strlen(newline));
+		strConcat(s_error, sizeof(s_error), newline, 1);
 	}
-	OBJZ_STRNCAT(s_error, sizeof(s_error), buffer, strlen(buffer));
+	strConcat(s_error, sizeof(s_error), buffer, strLength(buffer, sizeof(buffer)));
 }
 
 typedef struct {
@@ -270,7 +291,7 @@ static bool parseFloats(Lexer *_lexer, float *_result, uint32_t n) {
 	Token token;
 	for (uint32_t i = 0; i < n; i++) {
 		tokenize(_lexer, &token, false);
-		if (strlen(token.text) == 0) {
+		if (strLength(token.text, sizeof(token.text)) == 0) {
 			appendError("(%u:%u) Error parsing float", token.line, token.column);
 			return false;
 		}
@@ -283,7 +304,7 @@ static bool skipTokens(Lexer *_lexer, int _n) {
 	Token token;
 	for (int i = 0; i < _n; i++) {
 		tokenize(_lexer, &token, false);
-		if (strlen(token.text) == 0) {
+		if (strLength(token.text, sizeof(token.text)) == 0) {
 			appendError("(%u:%u) Error skipping tokens", token.line, token.column);
 			return false;
 		}
@@ -411,9 +432,9 @@ static bool loadMaterialFile(const char *_objFilename, const char *_materialName
 			if (&_objFilename[i] == lastSlash)
 				break;
 		}
-		OBJZ_STRNCAT(filename, sizeof(filename), _materialName, strlen(_materialName));
+		strConcat(filename, sizeof(filename), _materialName, strLength(_materialName, OBJZ_MAX_TOKEN_LENGTH));
 	} else
-		OBJZ_STRNCPY(filename, sizeof(filename), _materialName);
+		strCopy(filename, sizeof(filename), _materialName, strLength(_materialName, OBJZ_MAX_TOKEN_LENGTH));
 	File file;
 	if (!fileOpen(&file, filename)) {
 		// Treat missing material file as a warning, not an error.
@@ -441,7 +462,7 @@ static bool loadMaterialFile(const char *_objFilename, const char *_materialName
 			if (mat.name[0] != 0)
 				arrayAppend(_materials, &mat);
 			materialInit(&mat);
-			OBJZ_STRNCPY(mat.name, sizeof(mat.name), token.text);
+			strCopy(mat.name, sizeof(mat.name), token.text, strLength(token.text, sizeof(token.text)));
 		} else {
 			for (size_t i = 0; i < OBJZ_RAW_ARRAY_LEN(s_materialProperties); i++) {
 				const MaterialProperty *prop = &s_materialProperties[i];
@@ -468,7 +489,7 @@ static bool loadMaterialFile(const char *_objFilename, const char *_materialName
 								}
 							}
 							if (!match)
-								OBJZ_STRNCPY((char *)dest, OBJZ_NAME_MAX, argToken.text);
+								strCopy((char *)dest, OBJZ_NAME_MAX, argToken.text, strLength(argToken.text, sizeof(argToken.text)));
 						}
 					} else if (prop->type == OBJZ_MAT_TOKEN_FLOAT) {
 						if (!parseFloats(&lexer, (float *)dest, prop->n))
@@ -625,7 +646,7 @@ static bool parseVertexAttribIndices(Token *_token, int32_t *_out) {
 	int32_t *vt = &_out[1];
 	int32_t *vn = &_out[2];
 	*v = *vt = *vn = INT_MAX;
-	if (strlen(_token->text) == 0)
+	if (strLength(_token->text, sizeof(_token->text)) == 0)
 		return false; // Empty token.
 	const char *delim = "/";
 	char *start = _token->text;
@@ -633,7 +654,7 @@ static bool parseVertexAttribIndices(Token *_token, int32_t *_out) {
 	// v
 	char *end = strstr(start, delim);
 	if (!end) {
-		end = &_token->text[strlen(_token->text)];
+		end = &_token->text[strLength(_token->text, sizeof(_token->text))];
 		eol = true;
 	} else if (end == start)
 		return false; // Token is just a delimiter.
@@ -650,7 +671,7 @@ static bool parseVertexAttribIndices(Token *_token, int32_t *_out) {
 	if (!end) {
 		// No delimiter, must be no normal, i.e. "v/vt".
 		skipNormal = true;
-		end = &_token->text[strlen(_token->text) - 1];
+		end = &_token->text[strLength(_token->text, sizeof(_token->text)) - 1];
 	}
 	*end = 0;
 	if (start != end)
@@ -936,17 +957,17 @@ objzModel *objz_load(const char *_filename) {
 				goto error;
 			}
 			if (OBJZ_STRICMP(token.text, "g") == 0)
-				OBJZ_STRNCPY(currentGroupName, sizeof(currentGroupName), token.text);
+				strCopy(currentGroupName, sizeof(currentGroupName), token.text, strLength(token.text, sizeof(token.text)));
 			else
-				OBJZ_STRNCPY(currentObjectName, sizeof(currentObjectName), token.text);
+				strCopy(currentObjectName, sizeof(currentObjectName), token.text, strLength(token.text, sizeof(token.text)));
 			TempObject o;
 			o.name[0] = 0;
 			if (currentGroupName[0] != 0)
-				OBJZ_STRNCPY(o.name, sizeof(o.name), currentGroupName);
+				strCopy(o.name, sizeof(o.name), currentGroupName, strLength(currentGroupName, sizeof(currentGroupName)));
 			if (currentObjectName[0] != 0) {
-				if (strlen(o.name) > 0)
-					OBJZ_STRNCAT(o.name, sizeof(o.name), " ", 1);
-				OBJZ_STRNCAT(o.name, sizeof(o.name), currentObjectName, strlen(currentObjectName));
+				if (strLength(o.name, sizeof(o.name)) > 0)
+					strConcat(o.name, sizeof(o.name), " ", 1);
+				strConcat(o.name, sizeof(o.name), currentObjectName, strLength(currentObjectName, sizeof(currentObjectName)));
 			}
 			o.firstFace = faces.length;
 			o.numFaces = 0;
@@ -1063,7 +1084,7 @@ objzModel *objz_load(const char *_filename) {
 		if (!tempObject->numFaces)
 			continue;
 		objzObject object;
-		OBJZ_STRNCPY(object.name, sizeof(object.name), tempObject->name);
+		strCopy(object.name, sizeof(object.name), tempObject->name, strLength(tempObject->name, sizeof(tempObject->name)));
 		if (generateNormals)
 			normalHashMapClear(&normalHashMap);
 		// Create one mesh per material. No material (-1) gets a mesh too.
