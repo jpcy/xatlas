@@ -1,6 +1,7 @@
 $input v_normal, v_texcoord0
 
 #include <bgfx_shader.sh>
+#include "shared.h"
 
 SAMPLER2D(u_lightmap, 0);
 
@@ -12,10 +13,10 @@ uniform vec4 u_lightDir_shadeType;
 
 void main()
 {
-	if (u_shadeType == 0u) {
+	if (u_shadeType == SHADE_FLAT) {
 		vec3 color = u_diffuse.rgb * (dot(v_normal, u_lightDir) * 0.5 + 0.5) + u_emission.rgb; // half lambert
 		gl_FragColor = vec4(color, u_diffuse.a);
-	} else if (u_emission.r > 0.0 || u_emission.g > 0.0 || u_emission.b > 0.0) {
+	} else if (u_shadeType == SHADE_EMISSIVE) {
 		gl_FragColor = vec4(u_emission.rgb, 1.0);
 	} else {
 		vec3 color = u_diffuse.rgb * texture2D(u_lightmap, v_texcoord0.zw).rgb;

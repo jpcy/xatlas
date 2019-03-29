@@ -15,6 +15,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
 #include <nativefiledialog/nfd.h>
+#include "shaders/shared.h"
 #include "viewer.h"
 
 bgfx::VertexDecl ModelVertex::decl;
@@ -227,12 +228,16 @@ void modelRender(const float *view, const float *projection)
 	bgfx::setViewTransform(kModelView, view, projection);
 	const bool renderCharts = g_options.shadeMode == ShadeMode::Charts && atlasIsReady();
 	if (g_options.shadeMode == ShadeMode::Flat || g_options.shadeMode == ShadeMode::Lightmap || renderCharts) {
-		const float lightDir[] = { view[2], view[6], view[10], g_options.shadeMode == ShadeMode::Lightmap ? 1.0f : 0.0f };
+		float lightDir_shadeType[4];
+		lightDir_shadeType[0] = view[2];
+		lightDir_shadeType[1] = view[6];
+		lightDir_shadeType[2] = view[10];
 		for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
 			const objzMesh &mesh = s_model.data->meshes[i];
 			const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
+			const bool emissive = mat ? mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f : false;
 			// When rendering charts, emissive meshes won't be rendered, so do that here.
-			if (renderCharts && (!mat || (mat->emission[0] <= 0.0f && mat->emission[1] <= 0.0f && mat->emission[2] <= 0.0f)))
+			if (renderCharts && !emissive)
 				continue;
 			if (atlasIsReady()) {
 				bgfx::setIndexBuffer(atlasGetIb(), mesh.firstIndex, mesh.numIndices);
@@ -243,7 +248,13 @@ void modelRender(const float *view, const float *projection)
 			}
 			bgfx::setState(BGFX_STATE_DEFAULT);
 			bgfx::setTransform(modelMatrix);
-			bgfx::setUniform(s_model.u_lightDir_shadeType, lightDir);
+			if (emissive)
+				lightDir_shadeType[3] = (float)SHADE_EMISSIVE;
+			else if (g_options.shadeMode == ShadeMode::Lightmap)
+				lightDir_shadeType[3] = (float)SHADE_LIGHTMAP;
+			else
+				lightDir_shadeType[3] = (float)SHADE_FLAT;
+			bgfx::setUniform(s_model.u_lightDir_shadeType, lightDir_shadeType);
 			modelSetMaterialUniforms(mat);
 			if (g_options.shadeMode == ShadeMode::Lightmap)
 				bgfx::setTexture(0, s_model.u_lightmapSampler, bakeGetLightmap());
