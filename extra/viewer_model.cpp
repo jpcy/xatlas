@@ -257,7 +257,7 @@ void modelRender(const float *view, const float *projection)
 			bgfx::setUniform(s_model.u_lightDir_shadeType, lightDir_shadeType);
 			modelSetMaterialUniforms(mat);
 			if (g_options.shadeMode == ShadeMode::Lightmap)
-				bgfx::setTexture(0, s_model.u_lightmapSampler, bakeGetLightmap());
+				bgfx::setTexture(0, s_model.u_lightmapSampler, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
 			else
 				bgfx::setTexture(0, s_model.u_lightmapSampler, s_model.u_dummyTexture);
 			bgfx::submit(kModelView, s_model.materialProgram);

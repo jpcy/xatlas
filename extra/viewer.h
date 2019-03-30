@@ -72,6 +72,7 @@ void bakeClear();
 void bakeShowGuiOptions();
 void bakeShowGuiWindow();
 bgfx::TextureHandle bakeGetLightmap();
+uint32_t bakeGetLightmapSamplerFlags();
 bool bakeIsIdle();
 
 struct GuiTextureFlags
