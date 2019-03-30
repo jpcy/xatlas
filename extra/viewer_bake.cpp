@@ -90,6 +90,8 @@ struct Lightmap
 	};
 };
 
+static constexpr int s_maxDirections = 5000;
+
 struct
 {
 	const uint16_t rbDataTextureSize = 8192;
@@ -110,6 +112,7 @@ struct
 	bx::RngMwc rng;
 	clock_t lastUpdateTime = 0;
 	const double updateIntervalMs = 50;
+	bx::Vec3 sampleDirections[s_maxDirections];
 	// shaders
 	bgfx::ShaderHandle fs_atomicCounterClear;
 	bgfx::ShaderHandle fs_lightmapAverage;
@@ -288,11 +291,46 @@ static void setScreenSpaceQuadVertexBuffer()
 	bgfx::setVertexBuffer(0, &vb);
 }
 
+// From bx::generateSphereHammersley
+static void generateHemisphereHammersley(void* _data, uint32_t _stride, uint32_t _num, float _scale = 1.0f)
+{
+	// Reference(s):
+	// - Sampling with Hammersley and Halton Points
+	//   https://web.archive.org/web/20190207230709/http://www.cse.cuhk.edu.hk/~ttwong/papers/udpoint/udpoints.html
+
+	uint8_t* data = (uint8_t*)_data;
+
+	for (uint32_t ii = 0; ii < _num; ii++)
+	{
+		float tt = 0.0f;
+		float pp = 0.5;
+		for (uint32_t jj = ii; jj; jj >>= 1)
+		{
+			tt += (jj & 1) ? pp : 0.0f;
+			pp *= 0.5f;
+		}
+
+		tt = 2.0f * tt - 1.0f;
+
+		const float phi = (ii + 0.5f) / _num;
+		const float phirad = phi * bx::kPi;
+		const float st = bx::sqrt(1.0f - tt * tt) * _scale;
+
+		float* xyz = (float*)data;
+		data += _stride;
+
+		xyz[0] = st * bx::cos(phirad);
+		xyz[1] = st * bx::sin(phirad);
+		xyz[2] = tt * _scale;
+	}
+}
+
 void bakeExecute()
 {
 	if (!(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished))
 		return;
 	bakeClear();
+	generateHemisphereHammersley(s_bake.sampleDirections, sizeof(bx::Vec3), (uint32_t)s_bake.options.numDirections);
 	if (!s_bake.initialized) {
 		// shaders
 		s_bake.u_pass = bgfx::createUniform("u_pass", bgfx::UniformType::Vec4);
@@ -560,8 +598,8 @@ void bakeFrame(uint32_t bgfxFrame)
 			bgfx::submit(viewId, s_bake.rayBundleClearProgram);
 			viewId++;
 			// Ray bundle write.
-			bx::Vec3 forward = bx::randUnitHemisphere(&s_bake.rng, bx::Vec3(0.0f, 0.0f, 1.0f));
-			bx::Vec3 right = bx::randUnitHemisphere(&s_bake.rng, bx::Vec3(1.0f, 0.0f, 0.0f));
+			bx::Vec3 forward = s_bake.sampleDirections[s_bake.directionCount];
+			bx::Vec3 right = bx::randUnitSphere(&s_bake.rng);
 			bx::Vec3 up = bx::cross(forward, right);
 #if DEBUG_RAY_BUNDLE
 			forward = bx::Vec3(0, 0, -1);
@@ -725,7 +763,7 @@ void bakeShowGuiOptions()
 	}
 	ImGui::ListBox("Ray bundle resolution", &resolutionIndex, resolutionLabels, (int)BX_COUNTOF(resolutionLabels));
 	s_bake.options.resolution = resolutions[resolutionIndex];
-	ImGui::SliderInt("Ray bundle directions", &s_bake.options.numDirections, 1, 5000);
+	ImGui::SliderInt("Ray bundle directions", &s_bake.options.numDirections, 1, s_maxDirections);
 	ImGui::SliderInt("Directions per frame", &s_bake.options.directionsPerFrame, 1, 100);
 	ImGui::SliderInt("Bounces", &s_bake.options.numBounces, 0, 4);
 	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished) {
