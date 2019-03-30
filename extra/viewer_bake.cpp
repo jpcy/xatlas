@@ -748,32 +748,39 @@ void bakeShowGuiOptions()
 		ImGui::Text("Baking doesn't support multiple atlases");
 		return;
 	}
-	ImGui::Checkbox("Denoise", &s_bake.options.denoise);
-	ImGui::Checkbox("Sky", &s_bake.options.sky);
-	ImGui::SameLine();
-	ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
-	static const char * const resolutionLabels[] = { "256x256", "512x512", "1024x1024" };
-	static const int resolutions[] = { 256, 512, 1024 };
-	int resolutionIndex = 0;
-	for (int i = 0; i < (int)BX_COUNTOF(resolutions); i++) {
-		if (resolutions[i] == s_bake.options.resolution) {
-			resolutionIndex = i;
-			break;
-		}
-	}
-	ImGui::ListBox("Ray bundle resolution", &resolutionIndex, resolutionLabels, (int)BX_COUNTOF(resolutionLabels));
-	s_bake.options.resolution = resolutions[resolutionIndex];
-	ImGui::SliderInt("Ray bundle directions", &s_bake.options.numDirections, 1, s_maxDirections);
-	ImGui::SliderInt("Directions per frame", &s_bake.options.directionsPerFrame, 1, 100);
-	ImGui::SliderInt("Bounces", &s_bake.options.numBounces, 0, 4);
 	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished) {
+		ImGui::Checkbox("Denoise", &s_bake.options.denoise);
+		ImGui::Checkbox("Sky", &s_bake.options.sky);
+		ImGui::SameLine();
+		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
+		static const char * const resolutionLabels[] = { "256x256", "512x512", "1024x1024" };
+		static const int resolutions[] = { 256, 512, 1024 };
+		int resolutionIndex = 0;
+		for (int i = 0; i < (int)BX_COUNTOF(resolutions); i++) {
+			if (resolutions[i] == s_bake.options.resolution) {
+				resolutionIndex = i;
+				break;
+			}
+		}
+		ImGui::ListBox("Ray bundle resolution", &resolutionIndex, resolutionLabels, (int)BX_COUNTOF(resolutionLabels));
+		s_bake.options.resolution = resolutions[resolutionIndex];
+		ImGui::SliderInt("Ray bundle directions", &s_bake.options.numDirections, 1, s_maxDirections);
+		ImGui::SliderInt("Directions per frame", &s_bake.options.directionsPerFrame, 1, 100);
+		ImGui::SliderInt("Bounces", &s_bake.options.numBounces, 0, 4);
 		const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 		if (ImGui::Button("Bake", buttonSize))
 			bakeExecute();
 	}
 	else {
-		if (s_bake.directionCount < s_bake.options.numDirections && s_bake.passCount < s_bake.options.numBounces + 1)
+		if (s_bake.directionCount < s_bake.options.numDirections && s_bake.passCount < s_bake.options.numBounces + 1) {
+			if (s_bake.passCount > 0)
+				ImGui::Text("Baking bounce %d of %d...", s_bake.passCount, s_bake.options.numBounces);
+			else
+			ImGui::Text("Baking...");
 			ImGui::ProgressBar(s_bake.directionCount / (float)s_bake.options.numDirections);
+			if (ImGui::Button("Cancel"))
+				s_bake.status = BakeStatus::Finished;
+		}
 		else {
 			ImGui::AlignTextToFramePadding();
 			ImGui::Text("Denoising...");
