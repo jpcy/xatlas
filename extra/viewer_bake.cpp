@@ -71,11 +71,11 @@ struct BakeOptions
 	bool fitToWindow = true;
 	bool denoise = false;
 	bool sky = true;
-	bx::Vec3 skyColor = bx::Vec3(1.0f, 1.0f, 1.0f);
+	bx::Vec3 skyColor = bx::Vec3(0.5f, 0.5f, 0.5f);
 	int resolution = 512;
 	int directionsPerFrame = 10;
 	int numDirections = 300;
-	int numBounces = 0;
+	int numBounces = 1;
 };
 
 struct Lightmap
@@ -128,7 +128,7 @@ struct
 	bgfx::ProgramHandle rayBundleWriteProgram;
 	// uniforms
 	bgfx::UniformHandle u_pass;
-	bgfx::UniformHandle u_lightmapOp;
+	bgfx::UniformHandle u_lightmapOp_bounceWeight;
 	bgfx::UniformHandle u_lightmapSize_dataSize;
 	bgfx::UniformHandle u_rayNormal;
 	bgfx::UniformHandle u_skyColor_enabled;
@@ -236,7 +236,7 @@ void bakeShutdown()
 	bgfx::destroy(s_bake.lightmapOpProgram);
 	// uniforms
 	bgfx::destroy(s_bake.u_pass);
-	bgfx::destroy(s_bake.u_lightmapOp);
+	bgfx::destroy(s_bake.u_lightmapOp_bounceWeight);
 	bgfx::destroy(s_bake.u_lightmapSize_dataSize);
 	bgfx::destroy(s_bake.u_rayNormal);
 	bgfx::destroy(s_bake.u_skyColor_enabled);
@@ -296,7 +296,7 @@ void bakeExecute()
 	if (!s_bake.initialized) {
 		// shaders
 		s_bake.u_pass = bgfx::createUniform("u_pass", bgfx::UniformType::Vec4);
-		s_bake.u_lightmapOp = bgfx::createUniform("u_lightmapOp", bgfx::UniformType::Vec4);
+		s_bake.u_lightmapOp_bounceWeight = bgfx::createUniform("u_lightmapOp_bounceWeight", bgfx::UniformType::Vec4);
 		s_bake.u_lightmapSize_dataSize = bgfx::createUniform("u_lightmapSize_dataSize", bgfx::UniformType::Vec4);
 		s_bake.u_rayNormal = bgfx::createUniform("u_rayNormal", bgfx::UniformType::Vec4);
 		s_bake.u_skyColor_enabled = bgfx::createUniform("u_skyColor_enabled", bgfx::UniformType::Vec4);
@@ -495,6 +495,11 @@ static void bakeDenoise()
 	}
 }
 
+static float bakeCalculateBounceWeight(int bounce, int numBounces)
+{
+	return bx::pow(2.0f, (numBounces - (bounce + 1.0f))) / (bx::pow(2.0f, (float)numBounces) - 1.0f);
+}
+
 static void bakeSubmitLightmapOp(bgfx::ViewId viewId, int op)
 {
 	bgfx::setViewFrameBuffer(viewId, s_bake.lightmapOpFb);
@@ -504,8 +509,11 @@ static void bakeSubmitLightmapOp(bgfx::ViewId viewId, int op)
 	bgfx::setTexture(2, s_bake.u_lightmapPrevPassSampler, s_bake.lightmaps[Lightmap::PrevPass]);
 	bgfx::setTexture(3, s_bake.u_lightmapSumSampler, s_bake.lightmaps[Lightmap::Sum]);
 	bgfx::setTexture(4, s_bake.u_lightmapSampler, s_bake.lightmaps[Lightmap::Final]);
-	const float opData[] = { (float)op, 0.0f, 0.0f, 0.0f };
-	bgfx::setUniform(s_bake.u_lightmapOp, opData);
+	float weight = 1.0f;
+	if (s_bake.passCount > 0)
+		weight = bakeCalculateBounceWeight(s_bake.passCount - 1, s_bake.options.numBounces);
+	const float opData[] = { (float)op, weight, 0.0f, 0.0f };
+	bgfx::setUniform(s_bake.u_lightmapOp_bounceWeight, opData);
 	setScreenSpaceQuadVertexBuffer();
 	bgfx::setState(0);
 	bgfx::submit(viewId, s_bake.lightmapOpProgram);
