@@ -10,6 +10,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #include <assert.h>
+#include <time.h>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -107,6 +108,8 @@ struct
 	std::thread *denoiseThread = nullptr;
 	void *oidnLibrary = nullptr;
 	bx::RngMwc rng;
+	clock_t lastUpdateTime = 0;
+	const double updateIntervalMs = 50;
 	// shaders
 	bgfx::ShaderHandle fs_atomicCounterClear;
 	bgfx::ShaderHandle fs_lightmapAverage;
@@ -632,22 +635,26 @@ void bakeFrame(uint32_t bgfxFrame)
 			if (finishedPass)
 				break;
 		}
-		// Lightmap clear average.
-		bakeSubmitLightmapOp(viewId, LIGHTMAP_OP_CLEAR_CURR);
-		viewId++;
-		// Lightmap average.
-		bgfx::setViewFrameBuffer(viewId, s_bake.lightmapAverageFb);
-		bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
-		bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
-		bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
-		bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmaps[Lightmap::CurrPass]);
-		setScreenSpaceQuadVertexBuffer();
-		bgfx::setState(0);
-		bgfx::submit(viewId, s_bake.lightmapAverageProgram);
-		viewId++;
-		// Lightmap write final.
-		bakeSubmitLightmapOp(viewId, LIGHTMAP_OP_WRITE_FINAL);
-		viewId++;
+		const double elapsedMs = (clock() - s_bake.lastUpdateTime) * 1000.0 / CLOCKS_PER_SEC;
+		if (finishedPass || elapsedMs >= s_bake.updateIntervalMs) {
+			s_bake.lastUpdateTime = clock();
+			// Lightmap clear average.
+			bakeSubmitLightmapOp(viewId, LIGHTMAP_OP_CLEAR_CURR);
+			viewId++;
+			// Lightmap average.
+			bgfx::setViewFrameBuffer(viewId, s_bake.lightmapAverageFb);
+			bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight);
+			bgfx::setViewTransform(viewId, nullptr, s_bake.fsOrtho);
+			bgfx::setTexture(1, s_bake.u_rayBundleLightmapSampler, s_bake.rayBundleLightmap);
+			bgfx::setTexture(2, s_bake.u_lightmapSampler, s_bake.lightmaps[Lightmap::CurrPass]);
+			setScreenSpaceQuadVertexBuffer();
+			bgfx::setState(0);
+			bgfx::submit(viewId, s_bake.lightmapAverageProgram);
+			viewId++;
+			// Lightmap write final.
+			bakeSubmitLightmapOp(viewId, LIGHTMAP_OP_WRITE_FINAL);
+			viewId++;
+		}
 		if (finishedPass) {
 			// Lightmap finish pass.
 			bakeSubmitLightmapOp(viewId, LIGHTMAP_OP_FINISH_PASS);
