@@ -105,8 +105,8 @@ enum class ParamMethod
 struct
 {
 	const int chartColorSeed = 13;
-	int chartCellSize = 16;
-	int chartTextureCellSize = 16;
+	int chartCellSize = 1;
+	int chartTextureCellSize = 0;
 	xatlas::Atlas *data = nullptr;
 	std::thread *thread = nullptr;
 	AtlasStatus status;
