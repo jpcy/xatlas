@@ -631,7 +631,7 @@ void bakeFrame(uint32_t bgfxFrame)
 			bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
 			const float rayNormal[] = { -view[2], -view[6], -view[10], 0 };
 			bgfx::setUniform(s_bake.u_rayNormal, rayNormal);
-			const float sky[] = { s_bake.options.skyColor.x, s_bake.options.skyColor.y, s_bake.options.skyColor.z, s_bake.options.sky ? 1.0f : 0.0f };
+			const float sky[] = { s_bake.options.skyColor.x, s_bake.options.skyColor.y, s_bake.options.skyColor.z, s_bake.passCount == 0 && s_bake.options.sky ? 1.0f : 0.0f };
 			bgfx::setUniform(s_bake.u_skyColor_enabled, sky);
 			setScreenSpaceQuadVertexBuffer();
 			bgfx::setState(0);
