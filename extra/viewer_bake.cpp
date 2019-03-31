@@ -66,8 +66,6 @@ private:
 
 struct BakeOptions
 {
-	bool showLightmap = true;
-	bool pointSampling = false;
 	bool fitToWindow = true;
 	bool denoise = false;
 	bool sky = true;
@@ -786,22 +784,18 @@ void bakeShowGuiOptions()
 			ImGui::Text("Denoising...");
 		}
 	}
-	if (s_bake.status != BakeStatus::Idle) {
-		ImGui::Checkbox("Show lightmap", &s_bake.options.showLightmap);
-		ImGui::Checkbox("Point sampling", &s_bake.options.pointSampling);
-	}
 }
 
 void bakeShowGuiWindow()
 {
-	if (s_bake.status == BakeStatus::Idle || !s_bake.options.showLightmap)
+	if (s_bake.status == BakeStatus::Idle || !g_options.showLightmapWindow)
 		return;
 	ImGuiIO &io = ImGui::GetIO();
 	const float size = 500;
 	const float margin = 4.0f;
 	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
-	if (ImGui::Begin("Lightmap", &s_bake.options.showLightmap, ImGuiWindowFlags_HorizontalScrollbar)) {
+	if (ImGui::Begin("Lightmap", &g_options.showLightmapWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 #if DEBUG_RAY_BUNDLE
 		ImVec2 imageSize(ImGui::GetContentRegionAvail().x * 0.45f, ImGui::GetContentRegionAvail().y * 0.45f);
 		GuiTexture texture;
@@ -835,7 +829,7 @@ bgfx::TextureHandle bakeGetLightmap()
 uint32_t bakeGetLightmapSamplerFlags()
 {
 	uint32_t flags = BGFX_SAMPLER_UVW_CLAMP;
-	if (s_bake.options.pointSampling)
+	if (g_options.lightmapPointSampling)
 		flags |= BGFX_SAMPLER_POINT;
 	return flags;
 }

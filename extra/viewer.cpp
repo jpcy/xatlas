@@ -516,6 +516,10 @@ int main(int argc, char **argv)
 							ImGui::SameLine();
 							ImGui::RadioButton("Lightmap", (int *)&g_options.shadeMode, (int)ShadeMode::Lightmap);
 						}
+						if (g_options.shadeMode == ShadeMode::Charts)
+							ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
+						if (g_options.shadeMode == ShadeMode::Lightmap)
+							ImGui::Checkbox("Lightmap point sampling", &g_options.lightmapPointSampling);
 					}
 					ImGui::Checkbox("Wireframe overlay", &g_options.wireframe);
 					if (g_options.wireframe && atlasIsReady()) {
@@ -541,13 +545,11 @@ int main(int argc, char **argv)
 						ImGui::Text("Hold left mouse button on 3D view to enable camera");
 						ImGui::EndTooltip();
 					}
-					ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.25f);
-					ImGui::DragFloat("FOV", &s_camera.fov, 1.0f, 45.0f, 150.0f, "%.0f");
-					ImGui::SameLine();
-					ImGui::Text(" ");
-					ImGui::SameLine();
-					ImGui::DragFloat("Sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
-					ImGui::PopItemWidth();
+					ImGui::DragFloat("Camera sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
+					if (atlasIsReady())
+						ImGui::Checkbox("Show atlas window", &g_options.showAtlasWindow);
+					if (!bakeIsIdle())
+						ImGui::Checkbox("Show lightmap window", &g_options.showLightmapWindow);
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();

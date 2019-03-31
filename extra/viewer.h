@@ -152,6 +152,10 @@ struct Options
 	bool wireframe = true;
 	ShadeMode shadeMode = ShadeMode::Flat;
 	WireframeMode wireframeMode = WireframeMode::Triangles;
+	int chartCellSize = 1;
+	bool lightmapPointSampling = false;
+	bool showAtlasWindow = true;
+	bool showLightmapWindow = true;
 };
 
 extern Options g_options;

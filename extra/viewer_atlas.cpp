@@ -105,13 +105,11 @@ enum class ParamMethod
 struct
 {
 	const int chartColorSeed = 13;
-	int chartCellSize = 1;
 	int chartTextureCellSize = 0;
 	xatlas::Atlas *data = nullptr;
 	std::thread *thread = nullptr;
 	AtlasStatus status;
 	bool verbose = false;
-	bool showTexture = true;
 	int currentTexture;
 	bool fitToWindow = true;
 	std::vector<bgfx::FrameBufferHandle> chartsFrameBuffers;
@@ -624,8 +622,8 @@ void atlasRenderCharts(const float *modelMatrix)
 			float textureSize_cellSize[4];
 			textureSize_cellSize[0] = (float)s_atlas.data->width;
 			textureSize_cellSize[1] = (float)s_atlas.data->height;
-			textureSize_cellSize[2] = (float)s_atlas.chartCellSize;
-			textureSize_cellSize[3] = (float)s_atlas.chartCellSize;
+			textureSize_cellSize[2] = (float)g_options.chartCellSize;
+			textureSize_cellSize[3] = (float)g_options.chartCellSize;
 			bgfx::setUniform(s_atlas.u_textureSize_cellSize, textureSize_cellSize);
 			bgfx::setState(BGFX_STATE_DEFAULT);
 			bgfx::setTransform(modelMatrix);
@@ -703,8 +701,6 @@ void atlasShowGuiOptions()
 		ImGui::Text("%u vertices", numVertices);
 		ImGui::Text("%u triangles", numIndices / 3);
 		ImGui::Text("Texels per unit: %g", s_atlas.data->texelsPerUnit);
-		ImGui::SliderInt("Chart cell size", &s_atlas.chartCellSize, 1, 32);
-		ImGui::Checkbox("Show atlas", &s_atlas.showTexture);
 	}
 }
 
@@ -732,11 +728,11 @@ void atlasShowGuiWindow(int progressDots)
 			ImGui::ProgressBar(progress / 100.0f);
 			ImGui::End();
 		}
-	} else if (atlasStatus == AtlasStatus::Ready && s_atlas.showTexture) {
+	} else if (atlasStatus == AtlasStatus::Ready && g_options.showAtlasWindow) {
 		const float size = 500;
 		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, margin), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
-		if (ImGui::Begin("Atlas", &s_atlas.showTexture, ImGuiWindowFlags_HorizontalScrollbar)) {
+		if (ImGui::Begin("Atlas", &g_options.showAtlasWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 			if (s_atlas.data->atlasCount > 1) {
 				ImGui::Text("Atlas %d of %u", s_atlas.currentTexture + 1, s_atlas.data->atlasCount);
 				ImGui::SameLine();
