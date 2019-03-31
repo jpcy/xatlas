@@ -772,10 +772,11 @@ void bakeShowGuiOptions()
 	}
 	else {
 		if (s_bake.directionCount < s_bake.options.numDirections && s_bake.passCount < s_bake.options.numBounces + 1) {
+			ImGui::SliderInt("Directions per frame", &s_bake.options.directionsPerFrame, 1, 100);
 			if (s_bake.passCount > 0)
 				ImGui::Text("Baking bounce %d of %d...", s_bake.passCount, s_bake.options.numBounces);
 			else
-			ImGui::Text("Baking...");
+				ImGui::Text("Baking...");
 			ImGui::ProgressBar(s_bake.directionCount / (float)s_bake.options.numDirections);
 			if (ImGui::Button("Cancel"))
 				s_bake.status = BakeStatus::Finished;
