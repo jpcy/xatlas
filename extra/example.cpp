@@ -14,13 +14,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <stdio.h>
 #include <time.h>
 
-#include "thirdparty/stb_image_write.h"
+#include <stb_image_write.h>
 
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4201)
 #endif
-#include "thirdparty/tiny_obj_loader.h"
+#include <tiny_obj_loader.h>
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif

@@ -1,3 +1,9 @@
+#define DIFFUSE_COLOR   0u
+#define DIFFUSE_TEXTURE 1u
+
+#define EMISSION_COLOR   0u
+#define EMISSION_TEXTURE 1u
+
 #define SHADE_FLAT     0u
 #define SHADE_EMISSIVE 1u
 #define SHADE_LIGHTMAP 2u

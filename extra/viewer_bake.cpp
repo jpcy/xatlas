@@ -637,7 +637,6 @@ void bakeFrame(uint32_t bgfxFrame)
 				const objzModel *model = modelGetData();
 				for (uint32_t j = 0; j < model->numMeshes; j++) {
 					const objzMesh &mesh = model->meshes[j];
-					const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &model->materials[mesh.materialIndex];
 					bgfx::setIndexBuffer(atlasGetIb(), mesh.firstIndex, mesh.numIndices);
 					bgfx::setVertexBuffer(0, atlasGetVb());
 					bgfx::setState(0);
@@ -650,7 +649,7 @@ void bakeFrame(uint32_t bgfxFrame)
 #endif
 					bgfx::setUniform(s_bake.u_pass, passData);
 					bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
-					modelSetMaterialUniforms(mat);
+					modelSetMaterialTexturesAndUniforms(mesh.materialIndex);
 					bgfx::submit(viewId, s_bake.rayBundleWriteProgram);
 				}
 			}

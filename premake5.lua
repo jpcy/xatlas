@@ -124,6 +124,7 @@ project "example"
 	rtti "Off"
 	warnings "Extra"
 	files "extra/example.cpp"
+	includedirs(THIRDPARTY_DIR)
 	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
 	filter "system:linux"
 		links { "pthread" }
@@ -135,6 +136,7 @@ project "test"
 	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
+	includedirs(THIRDPARTY_DIR)
 	files "extra/test.cpp"
 	links { "tiny_obj_loader", "xatlas" }
 	filter "system:linux"
@@ -158,7 +160,7 @@ project "viewer"
 		path.join(IGL_DIR, "include"),
 		path.join(OIDN_DIR, "include")
 	}
-	links { "bgfx", "bimg", "bx", "glfw", "imgui", "nativefiledialog", "objzero", "xatlas" }
+	links { "bgfx", "bimg", "bx", "glfw", "imgui", "nativefiledialog", "objzero", "stb_image", "stb_image_resize", "xatlas" }
 	filter "system:windows"
 		links { "gdi32", "ole32", "psapi", "uuid" }
 	filter "system:linux"
@@ -334,6 +336,16 @@ project "objzero"
 	language "C"
 	cdialect "C99"
 	files(path.join(THIRDPARTY_DIR, "objzero/objzero.*"))
+	
+project "stb_image"
+	kind "StaticLib"
+	language "C"
+	files(path.join(THIRDPARTY_DIR, "stb_image.*"))
+	
+project "stb_image_resize"
+	kind "StaticLib"
+	language "C"
+	files(path.join(THIRDPARTY_DIR, "stb_image_resize.*"))
 	
 project "stb_image_write"
 	kind "StaticLib"

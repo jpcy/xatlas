@@ -11,10 +11,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #include <mutex>
 #include <thread>
+#include <vector>
+#include <bx/filepath.h>
 #include <bx/string.h>
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
 #include <nativefiledialog/nfd.h>
+#include <stb_image.h>
+#include <stb_image_resize.h>
 #include "shaders/shared.h"
 #include "viewer.h"
 
@@ -55,6 +59,8 @@ struct
 	ModelStatus status;
 	std::thread *thread = nullptr;
 	objzModel *data;
+	std::vector<uint32_t> diffuseTextures;
+	std::vector<uint32_t> emissionTextures;
 	AABB aabb;
 	bx::Vec3 centroid = bx::Vec3(0.0f, 0.0f, 0.0f);
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
@@ -66,19 +72,150 @@ struct
 	bgfx::ProgramHandle materialProgram;
 	bgfx::UniformHandle u_diffuse;
 	bgfx::UniformHandle u_emission;
-	bgfx::UniformHandle u_lightDir_shadeType;
+	bgfx::UniformHandle u_lightDir;
+	bgfx::UniformHandle u_shade_diffuse_emission;
+	bgfx::UniformHandle u_diffuseSampler;
+	bgfx::UniformHandle u_emissionSampler;
 	bgfx::UniformHandle u_lightmapSampler;
 	bgfx::UniformHandle u_color;
 	bgfx::TextureHandle u_dummyTexture;
 }
 s_model;
 
+struct TextureData
+{
+	uint16_t width;
+	uint16_t height;
+	const bgfx::Memory *mem;
+	int numComponents;
+};
+
+static TextureData textureLoad(const char *basePath, const char *filename)
+{
+	char fullFilename[256] = { 0 };
+	bx::strCopy(fullFilename, sizeof(fullFilename), basePath);
+	bx::strCat(fullFilename, sizeof(fullFilename), filename);
+	TextureData td;
+	td.mem = nullptr;
+#if _MSC_VER
+	FILE *f;
+	if (fopen_s(&f, fullFilename, "rb") != 0)
+		f = nullptr;
+#else
+	FILE *f = fopen(fullFilename, "rb");
+#endif
+	if (!f) {
+		fprintf(stderr, "Error opening '%s'\n", fullFilename);
+		return td;
+	}
+	fseek(f, 0, SEEK_END);
+	const long length = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	std::vector<uint8_t> fileData;
+	fileData.resize(length);
+	fread(fileData.data(), 1, (size_t)length, f);
+	fclose(f);
+	int width, height, numComponents;
+	const uint8_t *imageData = stbi_load_from_memory(fileData.data(), (int)fileData.size(), &width, &height, &numComponents, 0);
+	if (!imageData) {
+		fprintf(stderr, "Error loading '%s': %s\n", fullFilename, stbi_failure_reason());
+		return td;
+	}
+	printf("Texture '%s': %dx%d %d bpp\n", fullFilename, width, height, numComponents * 8);
+	// Generate mipmaps.
+	const int nMips = 1 + (int)bx::floor(bx::log2((float)bx::max(width, height)));
+	int mipWidth = width, mipHeight = height;
+	uint32_t memSize = 0;
+	for (int i = 0; i < nMips; i++) {
+		memSize += uint32_t(mipWidth * mipHeight * numComponents);
+		mipWidth = bx::max(mipWidth >> 1, 1);
+		mipHeight = bx::max(mipHeight >> 1, 1);
+	}
+	const bgfx::Memory *mem = bgfx::alloc(memSize);
+	memcpy(mem->data, imageData, width * height * numComponents);
+	stbi_image_free((void *)imageData);
+	const uint8_t *src = mem->data;
+	int srcWidth = width, srcHeight = height;
+	uint8_t *dest = mem->data;
+	mipWidth = width;
+	mipHeight = height;
+	for (int i = 0; i < nMips - 1; i++) {
+		dest += mipWidth * mipHeight * numComponents;
+		mipWidth = bx::max(mipWidth >> 1, 1);
+		mipHeight = bx::max(mipHeight >> 1, 1);
+		stbir_resize_uint8_srgb(src, srcWidth, srcHeight, srcWidth * numComponents, dest, mipWidth, mipHeight, mipWidth * numComponents, numComponents, numComponents == 4 ? 3 : STBIR_ALPHA_CHANNEL_NONE, 0);
+		src = dest;
+		srcWidth = mipWidth;
+		srcHeight = mipHeight;
+	}
+	td.mem = mem;
+	td.width = (uint16_t)width;
+	td.height = (uint16_t)height;
+	td.numComponents = numComponents;
+	return td;
+}
+
+struct CachedTexture
+{
+	char filename[256];
+	TextureData data;
+	bgfx::TextureHandle handle;
+};
+
+static std::vector<CachedTexture> s_textureCache;
+
+static uint32_t textureLoadCached(const char *basePath, const char *filename)
+{
+	for (uint32_t i = 0; i < (uint32_t)s_textureCache.size(); i++) {
+		if (bx::strCmpI(s_textureCache[i].filename, filename) == 0)
+			return i;
+	}
+	CachedTexture texture;
+	bx::strCopy(texture.filename, sizeof(texture.filename), filename);
+	texture.data = textureLoad(basePath, filename);
+	texture.handle = BGFX_INVALID_HANDLE;
+	s_textureCache.push_back(texture);
+	return (uint32_t)s_textureCache.size() - 1;
+}
+
+static void textureCreateCachedTextures()
+{
+	for (uint32_t i = 0; i < (uint32_t)s_textureCache.size(); i++) {
+		CachedTexture &texture = s_textureCache[i];
+		if (!texture.data.mem)
+			texture.handle = BGFX_INVALID_HANDLE;
+		bgfx::TextureFormat::Enum format = bgfx::TextureFormat::RGBA8;
+		if (texture.data.numComponents == 1)
+			format = bgfx::TextureFormat::R8;
+		else if (texture.data.numComponents == 3)
+			format = bgfx::TextureFormat::RGB8;
+		texture.handle = bgfx::createTexture2D(texture.data.width, texture.data.height, true, 1, format, BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC, texture.data.mem);
+	}
+}
+
+static bgfx::TextureHandle textureGetHandle(uint32_t index)
+{
+	if (index == UINT32_MAX)
+		return BGFX_INVALID_HANDLE;
+	return s_textureCache[index].handle;
+}
+
+static void textureDestroyCache()
+{
+	for (int i = 0; i < (int)s_textureCache.size(); i++)
+		bgfx::destroy(s_textureCache[i].handle);
+	s_textureCache.clear();
+}
+
 void modelInit()
 {
 	s_model.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
 	s_model.u_diffuse = bgfx::createUniform("u_diffuse", bgfx::UniformType::Vec4);
 	s_model.u_emission = bgfx::createUniform("u_emission", bgfx::UniformType::Vec4);
-	s_model.u_lightDir_shadeType = bgfx::createUniform("u_lightDir_shadeType", bgfx::UniformType::Vec4);
+	s_model.u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
+	s_model.u_shade_diffuse_emission = bgfx::createUniform("u_shade_diffuse_emission", bgfx::UniformType::Vec4);
+	s_model.u_diffuseSampler = bgfx::createUniform("u_diffuseSampler", bgfx::UniformType::Sampler);
+	s_model.u_emissionSampler = bgfx::createUniform("u_emissionSampler", bgfx::UniformType::Sampler);
 	s_model.u_lightmapSampler = bgfx::createUniform("u_lightmapSampler", bgfx::UniformType::Sampler);
 	s_model.vs_model = loadShader(ShaderId::vs_model);
 	s_model.fs_material = loadShader(ShaderId::fs_material);
@@ -95,7 +232,10 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_color);
 	bgfx::destroy(s_model.u_diffuse);
 	bgfx::destroy(s_model.u_emission);
-	bgfx::destroy(s_model.u_lightDir_shadeType);
+	bgfx::destroy(s_model.u_lightDir);
+	bgfx::destroy(s_model.u_shade_diffuse_emission);
+	bgfx::destroy(s_model.u_diffuseSampler);
+	bgfx::destroy(s_model.u_emissionSampler);
 	bgfx::destroy(s_model.u_lightmapSampler);
 	bgfx::destroy(s_model.vs_model);
 	bgfx::destroy(s_model.fs_material);
@@ -126,6 +266,25 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		auto v = &((ModelVertex *)model->vertices)[i];
 		v->texcoord[1] = 1.0f - v->texcoord[1];
 	}
+	char basePath[256] = { 0 };
+	const char *lastSlash = strrchr(args.filename, '/');
+	if (!lastSlash)
+		lastSlash = strrchr(args.filename, '\\');
+	if (lastSlash) {
+		for (int i = 0;; i++) {
+			basePath[i] = args.filename[i];
+			if (&args.filename[i] == lastSlash)
+				break;
+		}
+	}
+	printf("Base path is '%s'\n", basePath);
+	s_model.diffuseTextures.resize(s_model.data->numMaterials);
+	s_model.emissionTextures.resize(s_model.data->numMaterials);
+	for (uint32_t i = 0; i < s_model.data->numMaterials; i++) {
+		const objzMaterial &mat = s_model.data->materials[i];
+		s_model.diffuseTextures[i] = mat.diffuseTexture[0] ? textureLoadCached(basePath, mat.diffuseTexture) : UINT32_MAX;
+		s_model.emissionTextures[i] = mat.emissionTexture[0] ? textureLoadCached(basePath, mat.emissionTexture) : UINT32_MAX;
+	}
 	s_model.status.set(ModelStatus::Finalizing);
 }
 
@@ -138,6 +297,7 @@ void modelFinalize()
 		delete s_model.thread;
 		s_model.thread = nullptr;
 	}
+	textureCreateCachedTextures();
 	s_model.aabb = AABB();
 	s_model.centroid = bx::Vec3(0.0f, 0.0f, 0.0f);
 	for (uint32_t i = 0; i < s_model.data->numVertices; i++) {
@@ -182,6 +342,7 @@ void modelOpenDialog()
 
 void modelDestroy()
 {
+	textureDestroyCache();
 	atlasDestroy();
 	if (s_model.thread) {
 		s_model.thread->join();
@@ -204,8 +365,10 @@ void modelDestroy()
 	s_model.status.set(ModelStatus::NotLoaded);
 }
 
-void modelSetMaterialUniforms(const objzMaterial *mat)
+void modelSetMaterialTexturesAndUniforms(int32_t materialIndex)
 {
+	const objzMaterial *mat = materialIndex == -1 ? nullptr : &s_model.data->materials[materialIndex];
+	bool emissive = false;
 	if (!mat) {
 		const float diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -216,7 +379,35 @@ void modelSetMaterialUniforms(const objzMaterial *mat)
 		const float emission[] = { mat->emission[0], mat->emission[1], mat->emission[2], 1.0f };
 		bgfx::setUniform(s_model.u_diffuse, diffuse);
 		bgfx::setUniform(s_model.u_emission, emission);
+		emissive = emission[0] > 0.0f || emission[1] > 0.0f || emission[2] > 0.0f;
 	}
+	float shade_diffuse_emission[4];
+	shade_diffuse_emission[1] = DIFFUSE_COLOR;
+	shade_diffuse_emission[2] = EMISSION_COLOR;
+	if (emissive) {
+		shade_diffuse_emission[0] = (float)SHADE_EMISSIVE;
+		bgfx::setTexture(1, s_model.u_diffuseSampler, s_model.u_dummyTexture);
+		bgfx::setTexture(2, s_model.u_emissionSampler, s_model.u_dummyTexture);
+	}
+	else {
+		if (g_options.shadeMode == ShadeMode::Lightmap)
+			shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP;
+		else
+			shade_diffuse_emission[0] = (float)SHADE_FLAT;
+	}
+	bgfx::TextureHandle diffuseTexture = BGFX_INVALID_HANDLE;
+	bgfx::TextureHandle emissionTexture = BGFX_INVALID_HANDLE;
+	if (mat) {
+		diffuseTexture = textureGetHandle(s_model.diffuseTextures[materialIndex]);
+		emissionTexture = textureGetHandle(s_model.emissionTextures[materialIndex]);
+	}
+	if (bgfx::isValid(diffuseTexture))
+		shade_diffuse_emission[1] = DIFFUSE_TEXTURE;
+	if (bgfx::isValid(emissionTexture))
+		shade_diffuse_emission[2] = EMISSION_TEXTURE;
+	bgfx::setUniform(s_model.u_shade_diffuse_emission, shade_diffuse_emission);
+	bgfx::setTexture(1, s_model.u_diffuseSampler, bgfx::isValid(diffuseTexture) ? diffuseTexture : s_model.u_dummyTexture);
+	bgfx::setTexture(2, s_model.u_emissionSampler, bgfx::isValid(emissionTexture) ? emissionTexture : s_model.u_dummyTexture);
 }
 
 void modelRender(const float *view, const float *projection)
@@ -228,15 +419,12 @@ void modelRender(const float *view, const float *projection)
 	bgfx::setViewTransform(kModelView, view, projection);
 	const bool renderCharts = g_options.shadeMode == ShadeMode::Charts && atlasIsReady();
 	if (g_options.shadeMode == ShadeMode::Flat || g_options.shadeMode == ShadeMode::Lightmap || renderCharts) {
-		float lightDir_shadeType[4];
-		lightDir_shadeType[0] = view[2];
-		lightDir_shadeType[1] = view[6];
-		lightDir_shadeType[2] = view[10];
+		const float lightDir[] = { view[2], view[6], view[10], 0.0f };
 		for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
 			const objzMesh &mesh = s_model.data->meshes[i];
 			const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
-			const bool emissive = mat ? mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f : false;
 			// When rendering charts, emissive meshes won't be rendered, so do that here.
+			const bool emissive = mat ? mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f : false;
 			if (renderCharts && !emissive)
 				continue;
 			if (atlasIsReady()) {
@@ -248,14 +436,8 @@ void modelRender(const float *view, const float *projection)
 			}
 			bgfx::setState(BGFX_STATE_DEFAULT);
 			bgfx::setTransform(modelMatrix);
-			if (emissive)
-				lightDir_shadeType[3] = (float)SHADE_EMISSIVE;
-			else if (g_options.shadeMode == ShadeMode::Lightmap)
-				lightDir_shadeType[3] = (float)SHADE_LIGHTMAP;
-			else
-				lightDir_shadeType[3] = (float)SHADE_FLAT;
-			bgfx::setUniform(s_model.u_lightDir_shadeType, lightDir_shadeType);
-			modelSetMaterialUniforms(mat);
+			bgfx::setUniform(s_model.u_lightDir, lightDir);
+			modelSetMaterialTexturesAndUniforms(mesh.materialIndex);
 			if (g_options.shadeMode == ShadeMode::Lightmap)
 				bgfx::setTexture(0, s_model.u_lightmapSampler, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
 			else

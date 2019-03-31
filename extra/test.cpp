@@ -16,7 +16,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #pragma warning(push)
 #pragma warning(disable : 4201)
 #endif
-#include "thirdparty/tiny_obj_loader.h"
+#include <tiny_obj_loader.h>
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif

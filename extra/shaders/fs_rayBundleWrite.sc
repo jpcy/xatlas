@@ -1,10 +1,13 @@
 $input v_normal, v_texcoord0
 
 #include <bgfx_compute.sh>
+#include "shared.h"
 
 #define DEBUG_RAY_BUNDLE 0
 
 SAMPLER2D(u_lightmapPrevPassSampler, 0);
+SAMPLER2D(u_diffuseSampler, 1);
+SAMPLER2D(u_emissionSampler, 2);
 
 FRAMEBUFFER_UIMAGE2D_RW(u_atomicCounterSampler, r32ui, 0);
 FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 1);
@@ -16,6 +19,9 @@ FRAMEBUFFER_IMAGE2D_RW(u_rayBundleDebugWriteSampler, rgba8, 3);
 
 uniform vec4 u_diffuse;
 uniform vec4 u_emission;
+uniform vec4 u_shade_diffuse_emission;
+#define u_diffuseType uint(u_shade_diffuse_emission.y)
+#define u_emissionType uint(u_shade_diffuse_emission.z)
 uniform vec4 u_pass;
 uniform vec4 u_lightmapSize_dataSize;
 #define u_dataSize uint(u_lightmapSize_dataSize.z)
@@ -28,13 +34,23 @@ ivec2 rayBundleDataUv(uint offset, uint pixel)
 void main()
 {
 	vec3 color;
-	if (uint(u_pass.x) == 0u)
-		color = u_emission.rgb;
+	if (uint(u_pass.x) == 0u) {
+		vec3 emission = u_emission.rgb;
+		if (u_emissionType == EMISSION_TEXTURE)
+			emission *= texture2D(u_emissionSampler, v_texcoord0.xy).rgb;
+		color = emission;
+	}
 	else {
-		if (u_emission.r > 0.0 || u_emission.g > 0.0 || u_emission.b > 0.0)
+		if (u_emission.r > 0.0 || u_emission.g > 0.0 || u_emission.b > 0.0) {
+			// Render emissive surfaces as black in bounce passes.
 			color = vec3_splat(0.0);
-		else
-			color = u_diffuse.rgb * texture2D(u_lightmapPrevPassSampler, v_texcoord0.zw).rgb;
+		}
+		else {
+			vec3 diffuse = u_diffuse.rgb;
+			if (u_diffuseType == DIFFUSE_TEXTURE)
+				diffuse *= texture2D(u_diffuseSampler, v_texcoord0.xy).rgb;
+			color = diffuse.rgb * texture2D(u_lightmapPrevPassSampler, v_texcoord0.zw).rgb;
+		}
 	}
 	uint newOffset = imageAtomicAdd(u_atomicCounterSampler, ivec2(0, 0), 1u);
 	if (newOffset >= u_dataSize * u_dataSize * 3u) {
