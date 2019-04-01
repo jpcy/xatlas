@@ -507,18 +507,18 @@ int main(int argc, char **argv)
 					ImGui::Spacing();
 					if (atlasIsReady()) {
 						ImGui::AlignTextToFramePadding();
-						ImGui::Text("Shading: ");
-						ImGui::SameLine();
 						ImGui::RadioButton("Flat", (int *)&g_options.shadeMode, (int)ShadeMode::Flat);
 						ImGui::SameLine();
 						ImGui::RadioButton("Charts##shading", (int *)&g_options.shadeMode, (int)ShadeMode::Charts);
 						if (!bakeIsIdle()) {
 							ImGui::SameLine();
 							ImGui::RadioButton("Lightmap", (int *)&g_options.shadeMode, (int)ShadeMode::Lightmap);
+							ImGui::SameLine();
+							ImGui::RadioButton("Lightmap only", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapOnly);
 						}
 						if (g_options.shadeMode == ShadeMode::Charts)
 							ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
-						if (g_options.shadeMode == ShadeMode::Lightmap)
+						if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly)
 							ImGui::Checkbox("Lightmap point sampling", &g_options.lightmapPointSampling);
 					}
 					ImGui::Checkbox("Wireframe overlay", &g_options.wireframe);

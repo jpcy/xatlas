@@ -4,9 +4,10 @@
 #define EMISSION_COLOR   0u
 #define EMISSION_TEXTURE 1u
 
-#define SHADE_FLAT     0u
-#define SHADE_EMISSIVE 1u
-#define SHADE_LIGHTMAP 2u
+#define SHADE_FLAT          0u
+#define SHADE_EMISSIVE      1u
+#define SHADE_LIGHTMAP      2u
+#define SHADE_LIGHTMAP_ONLY 3u
 
 #define LIGHTMAP_OP_CLEAR_CURR  0u
 #define LIGHTMAP_OP_CLEAR_SUM   1u

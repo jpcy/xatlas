@@ -392,6 +392,8 @@ void modelSetMaterialTexturesAndUniforms(int32_t materialIndex)
 	else {
 		if (g_options.shadeMode == ShadeMode::Lightmap)
 			shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP;
+		else if (g_options.shadeMode == ShadeMode::LightmapOnly)
+			shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP_ONLY;
 		else
 			shade_diffuse_emission[0] = (float)SHADE_FLAT;
 	}
@@ -418,7 +420,7 @@ void modelRender(const float *view, const float *projection)
 	bx::mtxScale(modelMatrix, s_model.scale);
 	bgfx::setViewTransform(kModelView, view, projection);
 	const bool renderCharts = g_options.shadeMode == ShadeMode::Charts && atlasIsReady();
-	if (g_options.shadeMode == ShadeMode::Flat || g_options.shadeMode == ShadeMode::Lightmap || renderCharts) {
+	if (g_options.shadeMode != ShadeMode::Charts || renderCharts) {
 		const float lightDir[] = { view[2], view[6], view[10], 0.0f };
 		for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
 			const objzMesh &mesh = s_model.data->meshes[i];
@@ -438,7 +440,7 @@ void modelRender(const float *view, const float *projection)
 			bgfx::setTransform(modelMatrix);
 			bgfx::setUniform(s_model.u_lightDir, lightDir);
 			modelSetMaterialTexturesAndUniforms(mesh.materialIndex);
-			if (g_options.shadeMode == ShadeMode::Lightmap)
+			if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly)
 				bgfx::setTexture(0, s_model.u_lightmapSampler, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
 			else
 				bgfx::setTexture(0, s_model.u_lightmapSampler, s_model.u_dummyTexture);

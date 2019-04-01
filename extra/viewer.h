@@ -137,7 +137,8 @@ enum class ShadeMode
 {
 	Flat,
 	Charts,
-	Lightmap
+	Lightmap,
+	LightmapOnly
 };
 
 enum class WireframeMode

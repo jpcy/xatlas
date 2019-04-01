@@ -32,5 +32,7 @@ void main()
 	}
 	else if (u_shadeType == SHADE_LIGHTMAP)
 		color = diffuse * texture2D(u_lightmapSampler, v_texcoord0.zw).rgb;
+	else if (u_shadeType == SHADE_LIGHTMAP_ONLY)
+		color = texture2D(u_lightmapSampler, v_texcoord0.zw).rgb;
 	gl_FragColor = vec4(color, 1.0);
 }
