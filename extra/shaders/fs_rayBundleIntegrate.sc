@@ -1,4 +1,5 @@
 #include <bgfx_compute.sh>
+#include "rayBundleFragment.sh"
 
 #define DEBUG_RAY_BUNDLE 0
 
@@ -26,12 +27,12 @@ uniform vec4 u_skyColor_enabled;
 
 ivec2 rayBundleDataUv(uint offset, uint pixel)
 {
-	return ivec2((offset * 3u + pixel) % u_dataSize, (offset * 3u + pixel) / u_dataSize);
+	return ivec2((offset * 2u + pixel) % u_dataSize, (offset * 2u + pixel) / u_dataSize);
 }
 
 ivec2 rayBundleLightmapDataUv(vec2 uv, uint pixel)
 {
-	return ivec2(uint(uv.x * u_lightmapSize.x) * 4u + pixel, uint(uv.y * u_lightmapSize.y));
+	return ivec2(uint(uv.x) * 4u + pixel, uint(uv.y));
 }
 
 struct Node
@@ -51,30 +52,26 @@ void main()
 		Node nodes[MAX_NODES];
 		uint numNodes = 0u;
 		while (offset != 0xffffffff && numNodes < MAX_NODES) {
+			RayBundleFragmentData fragData;
 #if BGFX_SHADER_LANGUAGE_GLSL
-			uvec4 color_offset = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 0u));
-			uvec4 normal_depth = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 1u));
-			uvec4 texcoord = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 2u));
+			fragData.data0 = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 0u));
+			fragData.data1 = imageLoad(u_rayBundleDataSampler, rayBundleDataUv(offset, 1u));
 #else
-			uvec4 color_offset = texelFetch(u_rayBundleDataSampler, rayBundleDataUv(offset, 0u), 0);
-			uvec4 normal_depth = texelFetch(u_rayBundleDataSampler, rayBundleDataUv(offset, 1u), 0);
-			uvec4 texcoord = texelFetch(u_rayBundleDataSampler, rayBundleDataUv(offset, 2u), 0);
+			fragData.data0 = texelFetch(u_rayBundleDataSampler, rayBundleDataUv(offset, 0u), 0);
+			fragData.data1 = texelFetch(u_rayBundleDataSampler, rayBundleDataUv(offset, 1u), 0);
 #endif
-			nodes[numNodes].color.r = uintBitsToFloat(color_offset.r);
-			nodes[numNodes].color.g = uintBitsToFloat(color_offset.g);
-			nodes[numNodes].color.b = uintBitsToFloat(color_offset.b);
-			nodes[numNodes].normal.x = uintBitsToFloat(normal_depth.x);
-			nodes[numNodes].normal.y = uintBitsToFloat(normal_depth.y);
-			nodes[numNodes].normal.z = uintBitsToFloat(normal_depth.z);
-			nodes[numNodes].depth = uintBitsToFloat(normal_depth.w);
-			nodes[numNodes].texcoord = vec2(uintBitsToFloat(texcoord.x), uintBitsToFloat(texcoord.y));
+			RayBundleFragment frag = decodeRayBundleFragment(fragData);
+			nodes[numNodes].color = frag.color;
+			nodes[numNodes].normal = frag.normal;
+			nodes[numNodes].depth = frag.depth;
+			nodes[numNodes].texcoord = frag.texcoord;
 #if BGFX_SHADER_LANGUAGE_GLSL
 #if DEBUG_RAY_BUNDLE
-			//imageStore(u_rayBundleDebugIntegrateSampler, ivec2(nodes[numNodes].texcoord.x * u_lightmapSize.x, nodes[numNodes].texcoord.y * u_lightmapSize.y), vec4(1.0, 0.0, 1.0, 1.0));
+			//imageStore(u_rayBundleDebugIntegrateSampler, ivec2(nodes[numNodes].texcoord.x, nodes[numNodes].texcoord.y), vec4(1.0, 0.0, 1.0, 1.0));
 			//imageStore(u_rayBundleDebugIntegrateSampler, ivec2(gl_FragCoord.xy), vec4(1.0, 0.0, 1.0, 1.0));
 #endif
 #endif
-			offset = color_offset.w;
+			offset = frag.offset;
 			numNodes++;
 		}
 		vec3 nodeRadiance[MAX_NODES];
@@ -117,7 +114,7 @@ void main()
 				imageAtomicAdd(u_rayBundleLightmapSampler, rayBundleLightmapDataUv(uv, 3u), 1u);
 #if BGFX_SHADER_LANGUAGE_GLSL
 #if DEBUG_RAY_BUNDLE
-				imageStore(u_rayBundleDebugIntegrateSampler, ivec2(uv.x * u_lightmapSize.x, uv.y * u_lightmapSize.y), vec4(1.0, 0.0, 1.0, 1.0));		
+				imageStore(u_rayBundleDebugIntegrateSampler, ivec2(uv.x, uv.y), vec4(1.0, 0.0, 1.0, 1.0));		
 #endif
 #endif
 			}
