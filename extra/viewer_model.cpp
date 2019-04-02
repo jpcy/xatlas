@@ -384,11 +384,8 @@ void modelSetMaterialTexturesAndUniforms(int32_t materialIndex)
 	float shade_diffuse_emission[4];
 	shade_diffuse_emission[1] = DIFFUSE_COLOR;
 	shade_diffuse_emission[2] = EMISSION_COLOR;
-	if (emissive) {
+	if (emissive)
 		shade_diffuse_emission[0] = (float)SHADE_EMISSIVE;
-		bgfx::setTexture(1, s_model.s_diffuse, s_model.u_dummyTexture);
-		bgfx::setTexture(2, s_model.s_emission, s_model.u_dummyTexture);
-	}
 	else {
 		if (g_options.shadeMode == ShadeMode::Lightmap)
 			shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP;
