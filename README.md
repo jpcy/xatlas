@@ -7,6 +7,8 @@ A cleaned up version of [thekla_atlas](https://github.com/Thekla/thekla_atlas).
 Mesh charting, parameterization and atlas packing. Suitable for generating unique texture coordinates for baking lightmaps.
 
 [![](https://user-images.githubusercontent.com/3744372/43034067-5c09c1da-8d18-11e8-8490-25770f05e8e0.png)](https://user-images.githubusercontent.com/3744372/43034066-53a62dee-8d18-11e8-9767-0b38ed3fa2d3.png)
+[![](https://user-images.githubusercontent.com/3744372/55389376-d0df9800-5580-11e9-9bea-f35f63349489.png)](https://user-images.githubusercontent.com/3744372/55389351-c7563000-5580-11e9-8161-fbba8f2f7c2f.png)
+
 
 ## Changes from thekla_atlas
 * Smaller code size - from about 18 KLOC to 8 KLOC
@@ -33,7 +35,6 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 * Packing: bilinear-aware rasterization
 * Packing: faster brute-force packing
 * Viewer: glTF support
-* Viewer: basic lightmap baking
 
 ## Links
 [Ignacio Castaño's blog post on thekla_atlas](http://the-witness.net/news/2010/03/graphics-tech-texture-parameterization/)
