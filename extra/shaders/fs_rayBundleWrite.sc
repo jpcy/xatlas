@@ -6,16 +6,16 @@ $input v_normal, v_texcoord0
 
 #define DEBUG_RAY_BUNDLE 0
 
-SAMPLER2D(u_lightmapPrevPassSampler, 0);
-SAMPLER2D(u_diffuseSampler, 1);
-SAMPLER2D(u_emissionSampler, 2);
+SAMPLER2D(s_lightmapPrevPass, 0);
+SAMPLER2D(s_diffuse, 1);
+SAMPLER2D(s_emission, 2);
 
-FRAMEBUFFER_UIMAGE2D_RW(u_atomicCounterSampler, r32ui, 0);
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleHeaderSampler, r32ui, 1);
-FRAMEBUFFER_UIMAGE2D_RW(u_rayBundleDataSampler, rgba32ui, 2);
+FRAMEBUFFER_UIMAGE2D_RW(s_atomicCounter, r32ui, 0);
+FRAMEBUFFER_UIMAGE2D_RW(s_rayBundleHeader, r32ui, 1);
+FRAMEBUFFER_UIMAGE2D_RW(s_rayBundleData, rgba32ui, 2);
 
 #if DEBUG_RAY_BUNDLE
-FRAMEBUFFER_IMAGE2D_RW(u_rayBundleDebugWriteSampler, rgba8, 3);
+FRAMEBUFFER_IMAGE2D_RW(s_rayBundleDebugWrite, rgba8, 3);
 #endif
 
 uniform vec4 u_diffuse;
@@ -38,7 +38,7 @@ void main()
 	if (uint(u_pass.x) == 0u) {
 		vec3 emission = u_emission.rgb;
 		if (u_emissionType == EMISSION_TEXTURE)
-			emission *= texture2D(u_emissionSampler, v_texcoord0.xy).rgb;
+			emission *= texture2D(s_emission, v_texcoord0.xy).rgb;
 		color = emission;
 	}
 	else {
@@ -49,22 +49,22 @@ void main()
 		else {
 			vec3 diffuse = u_diffuse.rgb;
 			if (u_diffuseType == DIFFUSE_TEXTURE)
-				diffuse *= texture2D(u_diffuseSampler, v_texcoord0.xy).rgb;
-			color = diffuse.rgb * texture2D(u_lightmapPrevPassSampler, v_texcoord0.zw).rgb;
+				diffuse *= texture2D(s_diffuse, v_texcoord0.xy).rgb;
+			color = diffuse.rgb * texture2D(s_lightmapPrevPass, v_texcoord0.zw).rgb;
 		}
 	}
-	uint newOffset = imageAtomicAdd(u_atomicCounterSampler, ivec2(0, 0), 1u);
+	uint newOffset = imageAtomicAdd(s_atomicCounter, ivec2(0, 0), 1u);
 	if (newOffset >= u_dataSize * u_dataSize * 3u) {
 		discard;
 		return;
 	}
-	uint oldOffset = imageAtomicExchange(u_rayBundleHeaderSampler, ivec2(gl_FragCoord.xy), newOffset);
+	uint oldOffset = imageAtomicExchange(s_rayBundleHeader, ivec2(gl_FragCoord.xy), newOffset);
 	RayBundleFragmentData fragmentData = encodeRayBundleFragment(color, oldOffset, v_normal, gl_FragCoord.z, v_texcoord0.zw * u_lightmapSize_dataSize.xy);
-	imageStore(u_rayBundleDataSampler, rayBundleDataUv(newOffset, 0u), fragmentData.data0);
-	imageStore(u_rayBundleDataSampler, rayBundleDataUv(newOffset, 1u), fragmentData.data1);
+	imageStore(s_rayBundleData, rayBundleDataUv(newOffset, 0u), fragmentData.data0);
+	imageStore(s_rayBundleData, rayBundleDataUv(newOffset, 1u), fragmentData.data1);
 #if DEBUG_RAY_BUNDLE
-	//imageStore(u_rayBundleDebugWriteSampler, ivec2(gl_FragCoord.xy), vec4(vec3_splat(float(newOffset) / (1024.0 * 1024.0)), 1.0));
-	imageStore(u_rayBundleDebugWriteSampler, ivec2(gl_FragCoord.xy), vec4(1.0, 0.0, 1.0, 1.0));
-	//imageStore(u_rayBundleDebugWriteSampler, ivec2(v_texcoord0.z * u_lightmapSize_dataSize.x, v_texcoord0.w * u_lightmapSize_dataSize.y), vec4(1.0, 0.0, 1.0, 1.0));
+	//imageStore(s_rayBundleDebugWrite, ivec2(gl_FragCoord.xy), vec4(vec3_splat(float(newOffset) / (1024.0 * 1024.0)), 1.0));
+	imageStore(s_rayBundleDebugWrite, ivec2(gl_FragCoord.xy), vec4(1.0, 0.0, 1.0, 1.0));
+	//imageStore(s_rayBundleDebugWrite, ivec2(v_texcoord0.z * u_lightmapSize_dataSize.x, v_texcoord0.w * u_lightmapSize_dataSize.y), vec4(1.0, 0.0, 1.0, 1.0));
 #endif
 }

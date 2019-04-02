@@ -18,7 +18,7 @@ struct
 	bgfx::VertexDecl vertexDecl;
 	bgfx::TextureHandle font;
 	bgfx::ProgramHandle program;
-	bgfx::UniformHandle u_texture;
+	bgfx::UniformHandle s_texture;
 }
 s_gui;
 
@@ -67,7 +67,7 @@ void guiInit()
 		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
 		.end();
 	// shader program
-	s_gui.u_texture = bgfx::createUniform("u_texture", bgfx::UniformType::Sampler);
+	s_gui.s_texture = bgfx::createUniform("s_texture", bgfx::UniformType::Sampler);
 	bgfx::ShaderHandle vertex = loadShader(ShaderId::vs_gui);
 	bgfx::ShaderHandle fragment = loadShader(ShaderId::fs_gui);
 	s_gui.program = bgfx::createProgram(vertex, fragment, true);
@@ -77,7 +77,7 @@ void guiShutdown()
 {
 	ImGui::DestroyContext();
 	bgfx::destroy(s_gui.font);
-	bgfx::destroy(s_gui.u_texture);
+	bgfx::destroy(s_gui.s_texture);
 	bgfx::destroy(s_gui.program);
 }
 
@@ -136,7 +136,7 @@ void guiRender()
 				uint32_t flags = UINT32_MAX;
 				if (texture.bgfx.flags & GuiTextureFlags::PointSampler)
 					flags = BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP;
-				bgfx::setTexture(0, s_gui.u_texture, texture.bgfx.handle, flags);
+				bgfx::setTexture(0, s_gui.s_texture, texture.bgfx.handle, flags);
 				bgfx::setIndexBuffer(&tib, firstIndex, pcmd->ElemCount);
 				bgfx::setVertexBuffer(0, &tvb);
 				bgfx::submit(kGuiView, s_gui.program);

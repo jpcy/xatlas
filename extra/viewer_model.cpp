@@ -74,9 +74,9 @@ struct
 	bgfx::UniformHandle u_emission;
 	bgfx::UniformHandle u_lightDir;
 	bgfx::UniformHandle u_shade_diffuse_emission;
-	bgfx::UniformHandle u_diffuseSampler;
-	bgfx::UniformHandle u_emissionSampler;
-	bgfx::UniformHandle u_lightmapSampler;
+	bgfx::UniformHandle s_diffuse;
+	bgfx::UniformHandle s_emission;
+	bgfx::UniformHandle s_lightmap;
 	bgfx::UniformHandle u_color;
 	bgfx::TextureHandle u_dummyTexture;
 }
@@ -214,9 +214,9 @@ void modelInit()
 	s_model.u_emission = bgfx::createUniform("u_emission", bgfx::UniformType::Vec4);
 	s_model.u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
 	s_model.u_shade_diffuse_emission = bgfx::createUniform("u_shade_diffuse_emission", bgfx::UniformType::Vec4);
-	s_model.u_diffuseSampler = bgfx::createUniform("u_diffuseSampler", bgfx::UniformType::Sampler);
-	s_model.u_emissionSampler = bgfx::createUniform("u_emissionSampler", bgfx::UniformType::Sampler);
-	s_model.u_lightmapSampler = bgfx::createUniform("u_lightmapSampler", bgfx::UniformType::Sampler);
+	s_model.s_diffuse = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
+	s_model.s_emission = bgfx::createUniform("s_emission", bgfx::UniformType::Sampler);
+	s_model.s_lightmap = bgfx::createUniform("s_lightmap", bgfx::UniformType::Sampler);
 	s_model.vs_model = loadShader(ShaderId::vs_model);
 	s_model.fs_material = loadShader(ShaderId::fs_material);
 	s_model.materialProgram = bgfx::createProgram(s_model.vs_model, s_model.fs_material);
@@ -234,9 +234,9 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_emission);
 	bgfx::destroy(s_model.u_lightDir);
 	bgfx::destroy(s_model.u_shade_diffuse_emission);
-	bgfx::destroy(s_model.u_diffuseSampler);
-	bgfx::destroy(s_model.u_emissionSampler);
-	bgfx::destroy(s_model.u_lightmapSampler);
+	bgfx::destroy(s_model.s_diffuse);
+	bgfx::destroy(s_model.s_emission);
+	bgfx::destroy(s_model.s_lightmap);
 	bgfx::destroy(s_model.vs_model);
 	bgfx::destroy(s_model.fs_material);
 	bgfx::destroy(s_model.materialProgram);
@@ -386,8 +386,8 @@ void modelSetMaterialTexturesAndUniforms(int32_t materialIndex)
 	shade_diffuse_emission[2] = EMISSION_COLOR;
 	if (emissive) {
 		shade_diffuse_emission[0] = (float)SHADE_EMISSIVE;
-		bgfx::setTexture(1, s_model.u_diffuseSampler, s_model.u_dummyTexture);
-		bgfx::setTexture(2, s_model.u_emissionSampler, s_model.u_dummyTexture);
+		bgfx::setTexture(1, s_model.s_diffuse, s_model.u_dummyTexture);
+		bgfx::setTexture(2, s_model.s_emission, s_model.u_dummyTexture);
 	}
 	else {
 		if (g_options.shadeMode == ShadeMode::Lightmap)
@@ -408,8 +408,8 @@ void modelSetMaterialTexturesAndUniforms(int32_t materialIndex)
 	if (bgfx::isValid(emissionTexture))
 		shade_diffuse_emission[2] = EMISSION_TEXTURE;
 	bgfx::setUniform(s_model.u_shade_diffuse_emission, shade_diffuse_emission);
-	bgfx::setTexture(1, s_model.u_diffuseSampler, bgfx::isValid(diffuseTexture) ? diffuseTexture : s_model.u_dummyTexture);
-	bgfx::setTexture(2, s_model.u_emissionSampler, bgfx::isValid(emissionTexture) ? emissionTexture : s_model.u_dummyTexture);
+	bgfx::setTexture(1, s_model.s_diffuse, bgfx::isValid(diffuseTexture) ? diffuseTexture : s_model.u_dummyTexture);
+	bgfx::setTexture(2, s_model.s_emission, bgfx::isValid(emissionTexture) ? emissionTexture : s_model.u_dummyTexture);
 }
 
 void modelRender(const float *view, const float *projection)
@@ -441,9 +441,9 @@ void modelRender(const float *view, const float *projection)
 			bgfx::setUniform(s_model.u_lightDir, lightDir);
 			modelSetMaterialTexturesAndUniforms(mesh.materialIndex);
 			if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly)
-				bgfx::setTexture(0, s_model.u_lightmapSampler, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
+				bgfx::setTexture(0, s_model.s_lightmap, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
 			else
-				bgfx::setTexture(0, s_model.u_lightmapSampler, s_model.u_dummyTexture);
+				bgfx::setTexture(0, s_model.s_lightmap, s_model.u_dummyTexture);
 			bgfx::submit(kModelView, s_model.materialProgram);
 		}
 	}
