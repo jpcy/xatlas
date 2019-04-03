@@ -4339,11 +4339,11 @@ struct Triangle
 	// extents has to be multiple of BK_SIZE!!
 	bool drawAA(const Vector2 &extents, bool enableScissors, SamplingCallback cb, void *param)
 	{
-		const float PX_INSIDE = 1.0f/sqrt(2.0f);
-		const float PX_OUTSIDE = -1.0f/sqrt(2.0f);
+		const float PX_INSIDE = 1.0f/sqrtf(2.0f);
+		const float PX_OUTSIDE = -1.0f/sqrtf(2.0f);
 		const float BK_SIZE = 8;
-		const float BK_INSIDE = sqrt(BK_SIZE*BK_SIZE/2.0f);
-		const float BK_OUTSIDE = -sqrt(BK_SIZE*BK_SIZE/2.0f);
+		const float BK_INSIDE = sqrtf(BK_SIZE*BK_SIZE/2.0f);
+		const float BK_OUTSIDE = -sqrtf(BK_SIZE*BK_SIZE/2.0f);
 
 		float minx, miny, maxx, maxy;
 		if (enableScissors) {
@@ -7008,7 +7008,7 @@ struct AtlasPacker
 			if (m_texelsPerUnit <= 0) {
 				// Estimate a suitable texelsPerUnit to fit the given resolution.
 				const float texelCount = max(1.0f, meshArea / 0.75f); // Assume 75% utilization.
-				m_texelsPerUnit = sqrt((resolution * resolution) / texelCount);
+				m_texelsPerUnit = sqrtf((resolution * resolution) / texelCount);
 				XA_PRINT("   Estimating texelsPerUnit as %g\n", m_texelsPerUnit);
 			}
 		}
