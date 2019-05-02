@@ -160,7 +160,7 @@ project "viewer"
 		path.join(IGL_DIR, "include"),
 		path.join(OIDN_DIR, "include")
 	}
-	links { "bgfx", "bimg", "bx", "glfw", "imgui", "nativefiledialog", "objzero", "stb_image", "stb_image_resize", "xatlas" }
+	links { "bgfx", "bimg", "bx", "cgltf", "glfw", "imgui", "nativefiledialog", "objzero", "stb_image", "stb_image_resize", "xatlas" }
 	filter "system:windows"
 		links { "gdi32", "ole32", "psapi", "uuid" }
 	filter "system:linux"
@@ -267,6 +267,12 @@ project "bx"
 	filter { "system:windows", "action:gmake" }
 		includedirs { path.join(BX_DIR, "include/compat/mingw") }
 
+project "cgltf"
+	kind "StaticLib"
+	language "C"
+	files(path.join(THIRDPARTY_DIR, "cgltf.*"))
+	filter "action:vs*"
+		defines { "_CRT_SECURE_NO_WARNINGS" }
 
 project "glfw"
 	kind "StaticLib"

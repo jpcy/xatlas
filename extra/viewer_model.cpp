@@ -14,6 +14,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <vector>
 #include <bx/filepath.h>
 #include <bx/string.h>
+#include <cgltf.h>
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
 #include <nativefiledialog/nfd.h>
@@ -58,7 +59,8 @@ struct
 {
 	ModelStatus status;
 	std::thread *thread = nullptr;
-	objzModel *data;
+	objzModel *data = nullptr;
+	bool isGltf = false;
 	std::vector<uint32_t> diffuseTextures;
 	std::vector<uint32_t> emissionTextures;
 	AABB aabb;
@@ -243,6 +245,179 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_dummyTexture);
 }
 
+template<typename T>
+static const T *gltfGetBufferData(const cgltf_accessor *accessor)
+{
+	auto buffer = (const uint8_t *)accessor->buffer_view->buffer->data;
+	const cgltf_size offset = accessor->offset + accessor->buffer_view->offset;
+	return (const T *)&buffer[offset];
+}
+
+static objzModel *gltfLoad(const char *filename, const char *basePath) 
+{
+	cgltf_data *gltfData = nullptr;
+	cgltf_options options;
+	bx::memSet(&options, 0, sizeof(options));
+	cgltf_result result = cgltf_parse_file(&options, filename, &gltfData);
+	if (result == cgltf_result_success) {
+		result = cgltf_load_buffers(&options, gltfData, basePath);
+		if (result == cgltf_result_success)
+			result = cgltf_validate(gltfData);
+	}
+	if (result != cgltf_result_success) {
+		if (gltfData)
+			cgltf_free(gltfData);
+		return nullptr;
+	}
+	objzModel *model = new objzModel();
+	model->numIndices = 0;
+	model->numMaterials = (uint32_t)gltfData->materials_count;
+	model->numMeshes = 0;
+	model->numObjects = 0;
+	model->numVertices = 0;
+	// Count array lengths.
+	for (cgltf_size ni = 0; ni < gltfData->nodes_count; ni++) {
+		const cgltf_node &node = gltfData->nodes[ni];
+		if (!node.parent) {
+			for (cgltf_size ci = 0; ci < node.children_count; ci++) {
+				const cgltf_mesh *mesh = node.children[ci]->mesh;
+				if (!mesh)
+					continue;
+				for (cgltf_size pi = 0; pi < mesh->primitives_count; pi++) {
+					const cgltf_primitive &primitive = mesh->primitives[pi];
+					const cgltf_accessor *apositions = nullptr;
+					for (cgltf_size ai = 0; ai < primitive.attributes_count; ai++) {
+						const cgltf_attribute &attrib = primitive.attributes[ai];
+						if (attrib.type == cgltf_attribute_type_position) {
+							apositions = attrib.data;
+							break;
+						}
+					}
+					const cgltf_accessor *aindices = primitive.indices;
+					if (apositions && aindices) {
+						model->numVertices += (uint32_t)apositions->count;
+						model->numIndices += (uint32_t)aindices->count;
+					}
+					model->numMeshes++;
+				}
+			}
+			model->numObjects++;
+		}
+	}
+	// Alloc data.
+	auto indices = new uint32_t[model->numIndices];
+	model->indices = indices;
+	model->meshes = new objzMesh[model->numMeshes];
+	model->objects = new objzObject[model->numObjects];
+	auto vertices = new ModelVertex[model->numVertices];
+	model->vertices = vertices;
+	// Populate data.
+	uint32_t currentObject = 0, currentMesh = 0, firstMeshIndex = 0, firstMeshVertex = 0;
+	for (cgltf_size ni = 0; ni < gltfData->nodes_count; ni++) {
+		const cgltf_node &node = gltfData->nodes[ni];
+		if (!node.parent) {
+			// Create object.
+			objzObject &object = model->objects[currentObject];
+			bx::strCopy(object.name, sizeof(object.name), node.name);
+			object.firstMesh = currentMesh;
+			object.numMeshes = 0;
+			object.firstIndex = firstMeshIndex;
+			object.numIndices = 0;
+			object.firstVertex = firstMeshVertex;
+			object.numVertices = 0;
+			for (cgltf_size ci = 0; ci < node.children_count; ci++) {
+				const cgltf_mesh *sourceMesh = node.children[ci]->mesh;
+				if (!sourceMesh)
+					continue;
+				float transform[16];
+				cgltf_node_transform_world(node.children[ci], transform);
+				for (cgltf_size pi = 0; pi < sourceMesh->primitives_count; pi++) {
+					const cgltf_primitive &primitive = sourceMesh->primitives[pi];
+					const cgltf_accessor *apositions = nullptr, *anormals = nullptr, *atexcoords = nullptr;
+					for (cgltf_size ai = 0; ai < primitive.attributes_count; ai++) {
+						const cgltf_attribute &attrib = primitive.attributes[ai];
+						if (attrib.type == cgltf_attribute_type_position)
+							apositions = attrib.data;
+						else if (attrib.type == cgltf_attribute_type_normal)
+							anormals = attrib.data;
+						else if (attrib.type == cgltf_attribute_type_texcoord)
+							atexcoords = attrib.data;
+					}
+					const cgltf_accessor *aindices = primitive.indices;
+					if (!apositions || !aindices)
+						continue;
+					// Copy vertex data.
+					const float *meshPosition = gltfGetBufferData<float>(apositions);
+					const float *meshNormal = anormals && anormals->count == apositions->count ? gltfGetBufferData<float>(anormals) : nullptr;
+					const float *meshTexcoord = atexcoords && atexcoords->count == apositions->count ? gltfGetBufferData<float>(atexcoords) : nullptr;
+					for (cgltf_size vi = 0; vi < apositions->count; vi++) {
+						ModelVertex &vertex = vertices[vi + firstMeshVertex];
+						vertex.pos = bx::mul(bx::Vec3(meshPosition[0], meshPosition[1], meshPosition[2]), transform);
+						meshPosition += apositions->stride / sizeof(float);
+						if (meshNormal) {
+							vertex.normal = bx::Vec3(meshNormal[0], meshNormal[1], meshNormal[2]);
+							meshNormal += anormals->stride / sizeof(float);
+						}
+						if (meshTexcoord) {
+							vertex.texcoord[0] = meshTexcoord[0];
+							vertex.texcoord[1] = meshTexcoord[1];
+							meshTexcoord += atexcoords->stride / sizeof(float);
+						}
+					}
+					// Copy indices.
+					if (aindices->component_type == cgltf_component_type_r_16u) {
+						const uint16_t *meshIndices = gltfGetBufferData<uint16_t>(aindices);
+						for (uint32_t ii = 0; ii < (uint32_t)aindices->count; ii++)
+							indices[ii + firstMeshIndex] = firstMeshVertex + (uint32_t)meshIndices[ii];
+					} else  if (aindices->component_type == cgltf_component_type_r_32u) {
+						const uint32_t *meshIndices = gltfGetBufferData<uint32_t>(aindices);
+						for (uint32_t ii = 0; ii < (uint32_t)aindices->count; ii++)
+							indices[ii + firstMeshIndex] = firstMeshVertex + meshIndices[ii];
+					}
+					// Create mesh.
+					objzMesh &mesh = model->meshes[currentMesh];
+					mesh.materialIndex = uint32_t(primitive.material - gltfData->materials);
+					mesh.firstIndex = firstMeshIndex;
+					mesh.numIndices = (uint32_t)aindices->count;
+					currentMesh++;
+					object.numMeshes++;
+					object.numIndices += (uint32_t)aindices->count;
+					object.numVertices += (uint32_t)apositions->count;
+					firstMeshVertex += (uint32_t)apositions->count;
+					firstMeshIndex += (uint32_t)aindices->count;
+				}
+			}
+			currentObject++;
+		}
+	}
+	// Materials.
+	model->materials = new objzMaterial[model->numMaterials];
+	for (uint32_t i = 0; i < model->numMaterials; i++) {
+		const cgltf_material &sourceMat = gltfData->materials[i];
+		const cgltf_texture *diffuse = sourceMat.pbr_metallic_roughness.base_color_texture.texture;
+		const cgltf_texture *emission = sourceMat.emissive_texture.texture;
+		objzMaterial &destMat = model->materials[i];
+		memset(&destMat, 0, sizeof(destMat));
+		destMat.diffuse[0] = destMat.diffuse[1] = destMat.diffuse[2] = 1.0f;
+		if (diffuse)
+			bx::strCopy(destMat.diffuseTexture, sizeof(destMat.diffuseTexture), diffuse->image->uri);
+		if (emission)
+			bx::strCopy(destMat.emissionTexture, sizeof(destMat.emissionTexture), emission->image->uri);
+	}
+	cgltf_free(gltfData);
+	return model;
+}
+
+void gltfDestroy(objzModel *model)
+{
+	delete [] (uint32_t *)model->indices;
+	delete [] model->meshes;
+	delete [] model->objects;
+	delete [] (ModelVertex *)model->vertices;
+	delete [] model->materials;
+	delete model;
+}
+
 struct ModelLoadThreadArgs
 {
 	char filename[256];
@@ -250,22 +425,8 @@ struct ModelLoadThreadArgs
 
 static void modelLoadThread(ModelLoadThreadArgs args)
 {
-	objz_setIndexFormat(OBJZ_INDEX_FORMAT_U32);
-	objz_setVertexFormat(sizeof(ModelVertex), offsetof(ModelVertex, pos), offsetof(ModelVertex, texcoord), offsetof(ModelVertex, normal));
-	objzModel *model = objz_load(args.filename);
-	if (!model) {
-		fprintf(stderr, "%s\n", objz_getError());
-		setErrorMessage(objz_getError());
-		s_model.data = nullptr;
-		s_model.status.set(ModelStatus::NotLoaded);
-		return;
-	} else if (objz_getError())
-		printf("%s\n", objz_getError());
-	s_model.data = model;
-	for (uint32_t i = 0; i < model->numVertices; i++) {
-		auto v = &((ModelVertex *)model->vertices)[i];
-		v->texcoord[1] = 1.0f - v->texcoord[1];
-	}
+	s_model.data = nullptr;
+	s_model.isGltf = false;
 	char basePath[256] = { 0 };
 	const char *lastSlash = strrchr(args.filename, '/');
 	if (!lastSlash)
@@ -277,7 +438,35 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 				break;
 		}
 	}
-	printf("Base path is '%s'\n", basePath);
+	const bx::StringView ext = bx::FilePath(args.filename).getExt();
+	if (bx::strCmpI(ext, ".glb") == 0 || bx::strCmpI(ext, ".gltf") == 0) {
+		objzModel *model = gltfLoad(args.filename, basePath);
+		if (!model) {
+			fprintf(stderr, "Error loading %s\n", args.filename);
+			setErrorMessage("Error loading %s\n", args.filename);
+			s_model.status.set(ModelStatus::NotLoaded);
+			return;
+		}
+		s_model.data = model;
+		s_model.isGltf = true;
+	} else {
+		objz_setIndexFormat(OBJZ_INDEX_FORMAT_U32);
+		objz_setVertexFormat(sizeof(ModelVertex), offsetof(ModelVertex, pos), offsetof(ModelVertex, texcoord), offsetof(ModelVertex, normal));
+		objzModel *model = objz_load(args.filename);
+		if (!model) {
+			fprintf(stderr, "%s\n", objz_getError());
+			setErrorMessage(objz_getError());
+			s_model.status.set(ModelStatus::NotLoaded);
+			return;
+		}
+		if (objz_getError()) // Print warnings.
+			printf("%s\n", objz_getError());
+		s_model.data = model;
+		for (uint32_t i = 0; i < model->numVertices; i++) {
+			auto v = &((ModelVertex *)model->vertices)[i];
+			v->texcoord[1] = 1.0f - v->texcoord[1];
+		}
+	}
 	s_model.diffuseTextures.resize(s_model.data->numMaterials);
 	s_model.emissionTextures.resize(s_model.data->numMaterials);
 	for (uint32_t i = 0; i < s_model.data->numMaterials; i++) {
@@ -325,7 +514,7 @@ void modelOpenDialog()
 	if (!(atlasIsNotGenerated() || atlasIsReady()))
 		return;
 	nfdchar_t *filename = nullptr;
-	nfdresult_t result = NFD_OpenDialog("obj", nullptr, &filename);
+	nfdresult_t result = NFD_OpenDialog("glb,gltf,obj", nullptr, &filename);
 	if (result != NFD_OKAY)
 		return;
 	modelDestroy();
@@ -350,7 +539,10 @@ void modelDestroy()
 		s_model.thread = nullptr;
 	}
 	if (s_model.data) {
-		objz_destroy(s_model.data);
+		if (s_model.isGltf)
+			gltfDestroy(s_model.data);
+		else
+			objz_destroy(s_model.data);
 		s_model.data = nullptr;
 	}
 	if (bgfx::isValid(s_model.vb)) {
