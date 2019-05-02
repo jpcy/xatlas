@@ -647,7 +647,7 @@ void bakeFrame(uint32_t bgfxFrame)
 #endif
 					bgfx::setUniform(s_bake.u_pass, passData);
 					bgfx::setUniform(s_bake.u_lightmapSize_dataSize, sizes);
-					modelSetMaterialTexturesAndUniforms(mesh.materialIndex);
+					modelSetMaterialTexturesAndUniforms(mesh.materialIndex, 1);
 					bgfx::submit(viewId, s_bake.rayBundleWriteProgram);
 				}
 			}

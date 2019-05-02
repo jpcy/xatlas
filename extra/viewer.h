@@ -123,7 +123,7 @@ void modelShutdown();
 void modelFinalize();
 void modelOpenDialog();
 void modelDestroy();
-void modelSetMaterialTexturesAndUniforms(int32_t materialIndex);
+void modelSetMaterialTexturesAndUniforms(int32_t materialIndex, uint8_t stageOffset = 0);
 void modelRender(const float *view, const float *projection);
 void modelShowGuiOptions();
 void modelShowGuiWindow(int progressDots);

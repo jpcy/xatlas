@@ -557,7 +557,7 @@ void modelDestroy()
 	s_model.status.set(ModelStatus::NotLoaded);
 }
 
-void modelSetMaterialTexturesAndUniforms(int32_t materialIndex)
+void modelSetMaterialTexturesAndUniforms(int32_t materialIndex, uint8_t stageOffset)
 {
 	const objzMaterial *mat = materialIndex == -1 ? nullptr : &s_model.data->materials[materialIndex];
 	bool emissive = false;
@@ -597,8 +597,8 @@ void modelSetMaterialTexturesAndUniforms(int32_t materialIndex)
 	if (bgfx::isValid(emissionTexture))
 		shade_diffuse_emission[2] = EMISSION_TEXTURE;
 	bgfx::setUniform(s_model.u_shade_diffuse_emission, shade_diffuse_emission);
-	bgfx::setTexture(1, s_model.s_diffuse, bgfx::isValid(diffuseTexture) ? diffuseTexture : s_model.u_dummyTexture);
-	bgfx::setTexture(2, s_model.s_emission, bgfx::isValid(emissionTexture) ? emissionTexture : s_model.u_dummyTexture);
+	bgfx::setTexture(stageOffset + 0, s_model.s_diffuse, bgfx::isValid(diffuseTexture) ? diffuseTexture : s_model.u_dummyTexture);
+	bgfx::setTexture(stageOffset + 1, s_model.s_emission, bgfx::isValid(emissionTexture) ? emissionTexture : s_model.u_dummyTexture);
 }
 
 void modelRender(const float *view, const float *projection)
@@ -630,9 +630,9 @@ void modelRender(const float *view, const float *projection)
 			bgfx::setUniform(s_model.u_lightDir, lightDir);
 			modelSetMaterialTexturesAndUniforms(mesh.materialIndex);
 			if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly)
-				bgfx::setTexture(0, s_model.s_lightmap, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
+				bgfx::setTexture(2, s_model.s_lightmap, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
 			else
-				bgfx::setTexture(0, s_model.s_lightmap, s_model.u_dummyTexture);
+				bgfx::setTexture(2, s_model.s_lightmap, s_model.u_dummyTexture);
 			bgfx::submit(kModelView, s_model.materialProgram);
 		}
 	}
