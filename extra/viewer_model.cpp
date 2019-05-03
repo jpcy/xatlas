@@ -245,6 +245,14 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_dummyTexture);
 }
 
+static void gltfBuildNodeStack(const cgltf_node *node, std::vector<cgltf_node *> *stack)
+{
+	for (cgltf_size ci = 0; ci < node->children_count; ci++) {
+		stack->push_back(node->children[ci]);
+		gltfBuildNodeStack(node->children[ci], stack);
+	}
+}
+
 template<typename T>
 static const T *gltfGetBufferData(const cgltf_accessor *accessor)
 {
@@ -276,11 +284,14 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 	model->numObjects = 0;
 	model->numVertices = 0;
 	// Count array lengths.
+	std::vector<cgltf_node *> nodeStack;
 	for (cgltf_size ni = 0; ni < gltfData->nodes_count; ni++) {
 		const cgltf_node &node = gltfData->nodes[ni];
 		if (!node.parent) {
-			for (cgltf_size ci = 0; ci < node.children_count; ci++) {
-				const cgltf_mesh *mesh = node.children[ci]->mesh;
+			nodeStack.clear();
+			gltfBuildNodeStack(&node, &nodeStack);
+			for (uint32_t ci = 0; ci < (uint32_t)nodeStack.size(); ci++) {
+				const cgltf_mesh *mesh = nodeStack[ci]->mesh;
 				if (!mesh)
 					continue;
 				for (cgltf_size pi = 0; pi < mesh->primitives_count; pi++) {
@@ -325,12 +336,14 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 			object.numIndices = 0;
 			object.firstVertex = firstMeshVertex;
 			object.numVertices = 0;
-			for (cgltf_size ci = 0; ci < node.children_count; ci++) {
-				const cgltf_mesh *sourceMesh = node.children[ci]->mesh;
+			nodeStack.clear();
+			gltfBuildNodeStack(&node, &nodeStack);
+			for (uint32_t ci = 0; ci < (uint32_t)nodeStack.size(); ci++) {
+				const cgltf_mesh *sourceMesh = nodeStack[ci]->mesh;
 				if (!sourceMesh)
 					continue;
 				float transform[16];
-				cgltf_node_transform_world(node.children[ci], transform);
+				cgltf_node_transform_world(nodeStack[ci], transform);
 				for (cgltf_size pi = 0; pi < sourceMesh->primitives_count; pi++) {
 					const cgltf_primitive &primitive = sourceMesh->primitives[pi];
 					const cgltf_accessor *apositions = nullptr, *anormals = nullptr, *atexcoords = nullptr;

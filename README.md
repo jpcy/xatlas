@@ -34,7 +34,6 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 * Parameterization: use a better hole filling argorithm for non-planar holes
 * Packing: bilinear-aware rasterization
 * Packing: faster brute-force packing
-* Viewer: glTF support
 
 ## Links
 [Ignacio Castaño's blog post on thekla_atlas](http://the-witness.net/news/2010/03/graphics-tech-texture-parameterization/)
