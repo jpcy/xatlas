@@ -355,7 +355,7 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 						vertex.pos = bx::mul(bx::Vec3(meshPosition[0], meshPosition[1], meshPosition[2]), transform);
 						meshPosition += apositions->stride / sizeof(float);
 						if (meshNormal) {
-							vertex.normal = bx::Vec3(meshNormal[0], meshNormal[1], meshNormal[2]);
+							vertex.normal = bx::Vec3(-meshNormal[0], meshNormal[1], -meshNormal[2]);
 							meshNormal += anormals->stride / sizeof(float);
 						}
 						if (meshTexcoord) {
