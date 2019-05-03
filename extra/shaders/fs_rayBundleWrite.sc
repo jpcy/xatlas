@@ -38,7 +38,7 @@ void main()
 	if (uint(u_pass.x) == 0u) {
 		vec3 emission = u_emission.rgb;
 		if (u_emissionType == EMISSION_TEXTURE)
-			emission *= texture2D(s_emission, v_texcoord0.xy).rgb;
+			emission = texture2D(s_emission, v_texcoord0.xy).rgb;
 		color = emission;
 	}
 	else {

@@ -560,7 +560,6 @@ void modelDestroy()
 void modelSetMaterialTexturesAndUniforms(int32_t materialIndex, uint8_t stageOffset)
 {
 	const objzMaterial *mat = materialIndex == -1 ? nullptr : &s_model.data->materials[materialIndex];
-	bool emissive = false;
 	if (!mat) {
 		const float diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
 		const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -571,21 +570,16 @@ void modelSetMaterialTexturesAndUniforms(int32_t materialIndex, uint8_t stageOff
 		const float emission[] = { mat->emission[0], mat->emission[1], mat->emission[2], 1.0f };
 		bgfx::setUniform(s_model.u_diffuse, diffuse);
 		bgfx::setUniform(s_model.u_emission, emission);
-		emissive = emission[0] > 0.0f || emission[1] > 0.0f || emission[2] > 0.0f;
 	}
 	float shade_diffuse_emission[4];
 	shade_diffuse_emission[1] = DIFFUSE_COLOR;
 	shade_diffuse_emission[2] = EMISSION_COLOR;
-	if (emissive)
-		shade_diffuse_emission[0] = (float)SHADE_EMISSIVE;
-	else {
-		if (g_options.shadeMode == ShadeMode::Lightmap)
-			shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP;
-		else if (g_options.shadeMode == ShadeMode::LightmapOnly)
-			shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP_ONLY;
-		else
-			shade_diffuse_emission[0] = (float)SHADE_FLAT;
-	}
+	if (g_options.shadeMode == ShadeMode::Lightmap)
+		shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP;
+	else if (g_options.shadeMode == ShadeMode::LightmapOnly)
+		shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP_ONLY;
+	else
+		shade_diffuse_emission[0] = (float)SHADE_FLAT;
 	bgfx::TextureHandle diffuseTexture = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle emissionTexture = BGFX_INVALID_HANDLE;
 	if (mat) {
