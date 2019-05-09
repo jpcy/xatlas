@@ -680,7 +680,7 @@ void atlasShowGuiOptions()
 		ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
 		ImGui::SameLine();
 		ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
-		ImGui::SliderInt("Padding", &s_atlas.packOptions.padding, 0, 8);
+		ImGui::SliderInt("Padding", (int *)&s_atlas.packOptions.padding, 0, 8);
 	}
 	if (s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready) {
 		if (ImGui::Button("Generate", buttonSize))

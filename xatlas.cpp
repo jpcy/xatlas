@@ -7400,10 +7400,10 @@ private:
 		return result;
 	}
 
-	void drawChartBitImageDilate(const Chart *chart, BitImage *bitImage, int padding)
+	void drawChartBitImageDilate(const Chart *chart, BitImage *bitImage, uint32_t padding)
 	{
-		const int w = bitImage->width();
-		const int h = bitImage->height();
+		const uint32_t w = bitImage->width();
+		const uint32_t h = bitImage->height();
 		const Vector2 extents = Vector2(float(w), float(h));
 		// Rasterize chart faces, check that all bits are not set.
 		const Mesh *mesh = chart->mesh();
@@ -7420,18 +7420,18 @@ private:
 					vertices[k] = vertices[k] + Vector2(0.5f) + Vector2(float(padding));
 					XA_ASSERT(ftoi_ceil(vertices[k].x) >= 0);
 					XA_ASSERT(ftoi_ceil(vertices[k].y) >= 0);
-					XA_ASSERT(ftoi_ceil(vertices[k].x) <= w);
-					XA_ASSERT(ftoi_ceil(vertices[k].y) <= h);
+					XA_ASSERT(ftoi_ceil(vertices[k].x) <= (int)w);
+					XA_ASSERT(ftoi_ceil(vertices[k].y) <= (int)h);
 				}
 				raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitImage);
 			}
 		}
 		// Expand chart by padding pixels. (dilation)
 		BitImage tmp(w, h);
-		for (int i = 0; i < padding; i++) {
+		for (uint32_t i = 0; i < padding; i++) {
 			tmp.clearAll();
-			for (int y = 0; y < h; y++) {
-				for (int x = 0; x < w; x++) {
+			for (uint32_t y = 0; y < h; y++) {
+				for (uint32_t x = 0; x < w; x++) {
 					bool b = bitImage->bitAt(x, y);
 					if (!b) {
 						if (x > 0) {
@@ -8005,6 +8005,9 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 	if (!ctx->paramAtlas.chartsParameterized()) {
 		XA_PRINT_WARNING("PackCharts: ParameterizeCharts must be called first.\n");
 		return;
+	}
+	if (packOptions.texelsPerUnit < 0.0f) {
+		XA_PRINT_WARNING("PackCharts: PackOptions::texelsPerUnit is negative.\n");
 	}
 	atlas->atlasCount = 0;
 	atlas->height = 0;

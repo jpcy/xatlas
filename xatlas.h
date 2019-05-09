@@ -202,7 +202,7 @@ struct PackOptions
 	bool conservative;
 
 	// Number of pixels to pad. conservative must be true.
-	int padding;
+	uint32_t padding;
 
 	PackOptions()
 	{
