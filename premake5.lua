@@ -5,6 +5,7 @@ local BGFX_DIR = path.join(THIRDPARTY_DIR, "bgfx")
 local BIMG_DIR = path.join(THIRDPARTY_DIR, "bimg")
 local BX_DIR = path.join(THIRDPARTY_DIR, "bx")
 local EIGEN_DIR = path.join(THIRDPARTY_DIR, "eigen")
+local EMBREE_DIR = path.join(THIRDPARTY_DIR, "embree3")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
 local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
 local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
@@ -156,6 +157,7 @@ project "viewer"
 		path.join(BGFX_DIR, "include"),
 		path.join(BX_DIR, "include"),
 		EIGEN_DIR,
+		EMBREE_DIR,
 		path.join(GLFW_DIR, "include"),
 		path.join(IGL_DIR, "include"),
 		path.join(OIDN_DIR, "include")

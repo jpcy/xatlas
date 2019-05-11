@@ -16,6 +16,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <vector>
 #include <bx/os.h>
 #include <bx/rng.h>
+#include <embree3/rtcore.h>
 #include <imgui/imgui.h>
 #include <OpenImageDenoise/oidn.h>
 #include "shaders/shared.h"
@@ -105,6 +106,10 @@ struct
 	std::vector<float> lightmapData;
 	std::vector<float> denoisedLightmapData;
 	uint32_t lightmapDataReadyFrameNo;
+	void *embreeLibrary = nullptr;
+	RTCDevice embreeDevice = nullptr;
+	RTCScene embreeScene = nullptr;
+	RTCGeometry embreeGeometry = nullptr;
 	std::thread *denoiseThread = nullptr;
 	void *oidnLibrary = nullptr;
 	bx::RngMwc rng;
@@ -172,6 +177,34 @@ struct
 }
 s_bake;
 
+#define EMBREE_LIB "embree3.dll"
+
+namespace embree
+{
+	typedef RTCDevice (*NewDeviceFunc)(const char* config);
+	typedef void (*ReleaseDeviceFunc)(RTCDevice device);
+	typedef void (*SetDeviceErrorFunctionFunc)(RTCDevice device, RTCErrorFunction error, void* userPtr);
+	typedef RTCScene (*NewSceneFunc)(RTCDevice device);
+	typedef void (*ReleaseSceneFunc)(RTCScene scene);
+	typedef unsigned int (*AttachGeometryFunc)(RTCScene scene, RTCGeometry geometry);
+	typedef void (*CommitSceneFunc)(RTCScene scene);
+	typedef RTCGeometry (*NewGeometryFunc)(RTCDevice device, enum RTCGeometryType type);
+	typedef void (*ReleaseGeometryFunc)(RTCGeometry geometry);
+	typedef void (*SetSharedGeometryBufferFunc)(RTCGeometry geometry, enum RTCBufferType type, unsigned int slot, enum RTCFormat format, const void* ptr, size_t byteOffset, size_t byteStride, size_t itemCount);
+	typedef void (*CommitGeometryFunc)(RTCGeometry geometry);
+	NewDeviceFunc NewDevice;
+	ReleaseDeviceFunc ReleaseDevice;
+	SetDeviceErrorFunctionFunc SetDeviceErrorFunction;
+	NewSceneFunc NewScene;
+	ReleaseSceneFunc ReleaseScene;
+	AttachGeometryFunc AttachGeometry;
+	CommitSceneFunc CommitScene;
+	NewGeometryFunc NewGeometry;
+	ReleaseGeometryFunc ReleaseGeometry;
+	SetSharedGeometryBufferFunc SetSharedGeometryBuffer;
+	CommitGeometryFunc CommitGeometry;
+};
+
 namespace oidn
 {
 	typedef OIDNDevice (*NewDeviceFunc)(OIDNDeviceType type);
@@ -198,8 +231,32 @@ namespace oidn
 	ReleaseFilterFunc ReleaseFilter;
 };
 
+static void bakeEmbreeError(void* /*userPtr*/, enum RTCError /*code*/, const char* str)
+{
+	fprintf(stderr, "Embree error: %s\n", str);
+	exit(EXIT_FAILURE);
+}
+
 void bakeInit()
 {
+	if (!s_bake.embreeLibrary) {
+		s_bake.embreeLibrary = bx::dlopen(EMBREE_LIB);
+		if (!s_bake.embreeLibrary) {
+			printf("Embree not installed.\n");
+		} else {
+			embree::NewDevice = (embree::NewDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewDevice");
+			embree::ReleaseDevice = (embree::ReleaseDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseDevice");
+			embree::SetDeviceErrorFunction = (embree::SetDeviceErrorFunctionFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetDeviceErrorFunction");
+			embree::NewScene = (embree::NewSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewScene");
+			embree::ReleaseScene = (embree::ReleaseSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseScene");
+			embree::AttachGeometry = (embree::AttachGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcAttachGeometry");
+			embree::CommitScene = (embree::CommitSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitScene");
+			embree::NewGeometry = (embree::NewGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewGeometry");
+			embree::ReleaseGeometry = (embree::ReleaseGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseGeometry");
+			embree::SetSharedGeometryBuffer = (embree::SetSharedGeometryBufferFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetSharedGeometryBuffer");
+			embree::CommitGeometry = (embree::CommitGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitGeometry");
+		}
+	}
 	if (bgfx::getRendererType() != bgfx::RendererType::OpenGL) {
 		s_bake.enabled = false;
 		printf("Baking is disabled for all renderers except OpenGL. Use '--gl' command line argument.\n");
@@ -217,6 +274,8 @@ void bakeShutdown()
 {
 	if (!s_bake.initialized)
 		return;
+	if (s_bake.embreeLibrary)
+		bx::dlclose(s_bake.embreeLibrary);
 	if (s_bake.oidnLibrary)
 		bx::dlclose(s_bake.oidnLibrary);
 	// shaders
@@ -328,6 +387,22 @@ void bakeExecute()
 	if (!(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished))
 		return;
 	bakeClear();
+	// Init embree.
+	s_bake.embreeDevice = embree::NewDevice(nullptr);
+	if (!s_bake.embreeDevice) {
+		fprintf(stderr, "Error creating Embree device\n");
+		return;
+	}
+	embree::SetDeviceErrorFunction(s_bake.embreeDevice, bakeEmbreeError, nullptr);
+	s_bake.embreeGeometry = embree::NewGeometry(s_bake.embreeDevice, RTC_GEOMETRY_TYPE_TRIANGLE);
+	const objzModel *model = modelGetData();
+	embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, model->vertices, offsetof(ModelVertex, pos), sizeof(ModelVertex), (size_t)model->numVertices);
+	//embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_NORMAL, 0, RTC_FORMAT_FLOAT3, model->vertices, offsetof(ModelVertex, normal), sizeof(ModelVertex), (size_t)model->numVertices);
+	embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, model->indices, 0, sizeof(uint32_t), (size_t)model->numIndices / 3);
+	embree::CommitGeometry(s_bake.embreeGeometry);
+	s_bake.embreeScene = embree::NewScene(s_bake.embreeDevice);
+	embree::AttachGeometry(s_bake.embreeScene, s_bake.embreeGeometry);
+	embree::CommitScene(s_bake.embreeScene);
 	generateHemisphereHammersley(s_bake.sampleDirections, sizeof(bx::Vec3), (uint32_t)s_bake.options.numDirections);
 	if (!s_bake.initialized) {
 		// shaders
@@ -734,6 +809,12 @@ void bakeClear()
 {
 	s_bake.status = BakeStatus::Idle;
 	g_options.shadeMode = atlasIsReady() ? ShadeMode::Charts : ShadeMode::Flat;
+	if (s_bake.embreeDevice) {
+		embree::ReleaseGeometry(s_bake.embreeGeometry);
+		embree::ReleaseScene(s_bake.embreeScene);
+		embree::ReleaseDevice(s_bake.embreeDevice);
+		s_bake.embreeDevice = nullptr;
+	}
 }
 
 void bakeShowGuiOptions()
