@@ -11,7 +11,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #include <mutex>
 #include <thread>
-#include <vector>
 #include <bx/filepath.h>
 #include <bx/string.h>
 #include <cgltf.h>

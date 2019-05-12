@@ -10,6 +10,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #pragma once
+#include <vector>
 #include <bx/bx.h>
 #include <bx/math.h>
 #include <bgfx/bgfx.h>
@@ -59,6 +60,9 @@ void atlasShowGuiWindow(int progressDots);
 uint32_t atlasGetCount();
 uint32_t atlasGetWidth();
 uint32_t atlasGetHeight();
+struct ModelVertex;
+std::vector<ModelVertex> *atlasGetVertices();
+std::vector<uint32_t> *atlasGetIndices();
 bgfx::VertexBufferHandle atlasGetVb();
 bgfx::IndexBufferHandle atlasGetIb();
 bool atlasIsNotGenerated();

@@ -9,10 +9,21 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
+/***********************************************************
+* A single header file OpenGL lightmapping library         *
+* https://github.com/ands/lightmapper                      *
+* no warranty implied | use at your own risk               *
+* author: Andreas Mantler (ands) | last change: 12.06.2016 *
+*                                                          *
+* License:                                                 *
+* This software is in the public domain.                   *
+* Where that dedication is not recognized,                 *
+* you are granted a perpetual, irrevocable license to copy *
+* and modify this file however you want.                   *
+***********************************************************/
 #include <atomic>
 #include <mutex>
 #include <thread>
-#include <vector>
 #include <assert.h>
 #include <time.h>
 #include <bx/os.h>
@@ -74,6 +85,13 @@ struct BakeOptions
 	int numBounces = 1;
 };
 
+struct SampleLocation
+{
+	bx::Vec3 pos;
+	bx::Vec3 normal;
+	uint32_t uv[2];
+};
+
 struct
 {
 	bool enabled;
@@ -92,6 +110,7 @@ struct
 	const double updateIntervalMs = 50;
 	// worker thread
 	std::thread *workerThread = nullptr;
+	std::vector<SampleLocation> sampleLocations;
 	std::vector<float> lightmapData;
 	std::vector<float> denoisedLightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
@@ -153,20 +172,315 @@ namespace oidn
 	ReleaseFilterFunc ReleaseFilter;
 };
 
+typedef int lm_bool;
+#define LM_FALSE 0
+#define LM_TRUE  1
+
+#if defined(_MSC_VER) && !defined(__cplusplus) // TODO: specific versions only?
+#define inline __inline
+#endif
+
+#if defined(_MSC_VER) && (_MSC_VER <= 1700)
+static inline lm_bool lm_finite(float a) { return _finite(a); }
+#else
+static inline lm_bool lm_finite(float a) { return isfinite(a); }
+#endif
+
+static inline int      lm_mini      (int     a, int     b) { return a < b ? a : b; }
+static inline int      lm_maxi      (int     a, int     b) { return a > b ? a : b; }
+static inline int      lm_absi      (int     a           ) { return a < 0 ? -a : a; }
+static inline float    lm_minf      (float   a, float   b) { return a < b ? a : b; }
+static inline float    lm_maxf      (float   a, float   b) { return a > b ? a : b; }
+static inline float    lm_absf      (float   a           ) { return a < 0.0f ? -a : a; }
+
+typedef struct lm_ivec2 { int x, y; } lm_ivec2;
+static inline lm_ivec2 lm_i2        (int     x, int     y) { lm_ivec2 v = { x, y }; return v; }
+
+typedef struct lm_vec2 { float x, y; } lm_vec2;
+static inline lm_vec2  lm_v2i       (int     x, int     y) { lm_vec2 v = { (float)x, (float)y }; return v; }
+static inline lm_vec2  lm_v2        (float   x, float   y) { lm_vec2 v = { x, y }; return v; }
+static inline lm_vec2  lm_negate2   (lm_vec2 a           ) { return lm_v2(-a.x, -a.y); }
+static inline lm_vec2  lm_add2      (lm_vec2 a, lm_vec2 b) { return lm_v2(a.x + b.x, a.y + b.y); }
+static inline lm_vec2  lm_sub2      (lm_vec2 a, lm_vec2 b) { return lm_v2(a.x - b.x, a.y - b.y); }
+static inline lm_vec2  lm_mul2      (lm_vec2 a, lm_vec2 b) { return lm_v2(a.x * b.x, a.y * b.y); }
+static inline lm_vec2  lm_scale2    (lm_vec2 a, float   b) { return lm_v2(a.x * b, a.y * b); }
+static inline lm_vec2  lm_div2      (lm_vec2 a, float   b) { return lm_scale2(a, 1.0f / b); }
+static inline lm_vec2  lm_min2      (lm_vec2 a, lm_vec2 b) { return lm_v2(lm_minf(a.x, b.x), lm_minf(a.y, b.y)); }
+static inline lm_vec2  lm_max2      (lm_vec2 a, lm_vec2 b) { return lm_v2(lm_maxf(a.x, b.x), lm_maxf(a.y, b.y)); }
+static inline lm_vec2  lm_floor2    (lm_vec2 a           ) { return lm_v2(floorf(a.x), floorf(a.y)); }
+static inline lm_vec2  lm_ceil2     (lm_vec2 a           ) { return lm_v2(ceilf (a.x), ceilf (a.y)); }
+static inline float    lm_dot2      (lm_vec2 a, lm_vec2 b) { return a.x * b.x + a.y * b.y; }
+static inline float    lm_cross2    (lm_vec2 a, lm_vec2 b) { return a.x * b.y - a.y * b.x; } // pseudo cross product
+static inline float    lm_length2sq (lm_vec2 a           ) { return a.x * a.x + a.y * a.y; }
+static inline float    lm_length2   (lm_vec2 a           ) { return sqrtf(lm_length2sq(a)); }
+static inline lm_vec2  lm_normalize2(lm_vec2 a           ) { return lm_div2(a, lm_length2(a)); }
+static inline lm_bool  lm_finite2   (lm_vec2 a           ) { return lm_finite(a.x) && lm_finite(a.y); }
+
+typedef struct lm_vec3 { float x, y, z; } lm_vec3;
+static inline lm_vec3  lm_v3        (float   x, float   y, float   z) { lm_vec3 v = { x, y, z }; return v; }
+static inline lm_vec3  lm_negate3   (lm_vec3 a           ) { return lm_v3(-a.x, -a.y, -a.z); }
+static inline lm_vec3  lm_add3      (lm_vec3 a, lm_vec3 b) { return lm_v3(a.x + b.x, a.y + b.y, a.z + b.z); }
+static inline lm_vec3  lm_sub3      (lm_vec3 a, lm_vec3 b) { return lm_v3(a.x - b.x, a.y - b.y, a.z - b.z); }
+static inline lm_vec3  lm_mul3      (lm_vec3 a, lm_vec3 b) { return lm_v3(a.x * b.x, a.y * b.y, a.z * b.z); }
+static inline lm_vec3  lm_scale3    (lm_vec3 a, float   b) { return lm_v3(a.x * b, a.y * b, a.z * b); }
+static inline lm_vec3  lm_div3      (lm_vec3 a, float   b) { return lm_scale3(a, 1.0f / b); }
+static inline lm_vec3  lm_min3      (lm_vec3 a, lm_vec3 b) { return lm_v3(lm_minf(a.x, b.x), lm_minf(a.y, b.y), lm_minf(a.z, b.z)); }
+static inline lm_vec3  lm_max3      (lm_vec3 a, lm_vec3 b) { return lm_v3(lm_maxf(a.x, b.x), lm_maxf(a.y, b.y), lm_maxf(a.z, b.z)); }
+static inline lm_vec3  lm_floor3    (lm_vec3 a           ) { return lm_v3(floorf(a.x), floorf(a.y), floorf(a.z)); }
+static inline lm_vec3  lm_ceil3     (lm_vec3 a           ) { return lm_v3(ceilf (a.x), ceilf (a.y), ceilf (a.z)); }
+static inline float    lm_dot3      (lm_vec3 a, lm_vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+static inline lm_vec3  lm_cross3    (lm_vec3 a, lm_vec3 b) { return lm_v3(a.y * b.z - b.y * a.z, a.z * b.x - b.z * a.x, a.x * b.y - b.x * a.y); }
+static inline float    lm_length3sq (lm_vec3 a           ) { return a.x * a.x + a.y * a.y + a.z * a.z; }
+static inline float    lm_length3   (lm_vec3 a           ) { return sqrtf(lm_length3sq(a)); }
+static inline lm_vec3  lm_normalize3(lm_vec3 a           ) { return lm_div3(a, lm_length3(a)); }
+static inline lm_bool  lm_finite3   (lm_vec3 a           ) { return lm_finite(a.x) && lm_finite(a.y) && lm_finite(a.z); }
+
+static lm_vec2 lm_toBarycentric(lm_vec2 p1, lm_vec2 p2, lm_vec2 p3, lm_vec2 p)
+{
+	// http://www.blackpawn.com/texts/pointinpoly/
+	// Compute vectors
+	lm_vec2 v0 = lm_sub2(p3, p1);
+	lm_vec2 v1 = lm_sub2(p2, p1);
+	lm_vec2 v2 = lm_sub2(p, p1);
+	// Compute dot products
+	float dot00 = lm_dot2(v0, v0);
+	float dot01 = lm_dot2(v0, v1);
+	float dot02 = lm_dot2(v0, v2);
+	float dot11 = lm_dot2(v1, v1);
+	float dot12 = lm_dot2(v1, v2);
+	// Compute barycentric coordinates
+	float invDenom = 1.0f / (dot00 * dot11 - dot01 * dot01);
+	float u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+	float v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+	return lm_v2(u, v);
+}
+
+static inline int lm_leftOf(lm_vec2 a, lm_vec2 b, lm_vec2 c)
+{
+	float x = lm_cross2(lm_sub2(b, a), lm_sub2(c, b));
+	return x < 0 ? -1 : x > 0;
+}
+
+static lm_bool lm_lineIntersection(lm_vec2 x0, lm_vec2 x1, lm_vec2 y0, lm_vec2 y1, lm_vec2* res)
+{
+	lm_vec2 dx = lm_sub2(x1, x0);
+	lm_vec2 dy = lm_sub2(y1, y0);
+	lm_vec2 d = lm_sub2(x0, y0);
+	float dyx = lm_cross2(dy, dx);
+	if (dyx == 0.0f)
+		return LM_FALSE;
+	dyx = lm_cross2(d, dx) / dyx;
+	if (dyx <= 0 || dyx >= 1)
+		return LM_FALSE;
+	res->x = y0.x + dyx * dy.x;
+	res->y = y0.y + dyx * dy.y;
+	return LM_TRUE;
+}
+
+// this modifies the poly array! the poly array must be big enough to hold the result!
+// res must be big enough to hold the result!
+static int lm_convexClip(lm_vec2 *poly, int nPoly, const lm_vec2 *clip, int nClip, lm_vec2 *res)
+{
+	int nRes = nPoly;
+	int dir = lm_leftOf(clip[0], clip[1], clip[2]);
+	for (int i = 0, j = nClip - 1; i < nClip && nRes; j = i++)
+	{
+		if (i != 0)
+			for (nPoly = 0; nPoly < nRes; nPoly++)
+				poly[nPoly] = res[nPoly];
+		nRes = 0;
+		lm_vec2 v0 = poly[nPoly - 1];
+		int side0 = lm_leftOf(clip[j], clip[i], v0);
+		if (side0 != -dir)
+			res[nRes++] = v0;
+		for (int k = 0; k < nPoly; k++)
+		{
+			lm_vec2 v1 = poly[k], x;
+			int side1 = lm_leftOf(clip[j], clip[i], v1);
+			if (side0 + side1 == 0 && side0 && lm_lineIntersection(clip[j], clip[i], v0, v1, &x))
+				res[nRes++] = x;
+			if (k == nPoly - 1)
+				break;
+			if (side1 != -dir)
+				res[nRes++] = v1;
+			v0 = v1;
+			side0 = side1;
+		}
+	}
+
+	return nRes;
+}
+
+struct lm_context
+{
+	struct
+	{
+		lm_vec3 p[3];
+		lm_vec2 uv[3];
+	} triangle;
+
+	struct
+	{
+		int minx, miny;
+		int maxx, maxy;
+		int x, y;
+	} rasterizer;
+
+	struct
+	{
+		lm_vec3 position;
+		lm_vec3 direction;
+	} sample;
+};
+
+static lm_bool lm_hasConservativeTriangleRasterizerFinished(lm_context *ctx)
+{
+	return ctx->rasterizer.y >= ctx->rasterizer.maxy;
+}
+
+static void lm_moveToNextPotentialConservativeTriangleRasterizerPosition(lm_context *ctx)
+{
+	if (++ctx->rasterizer.x >= ctx->rasterizer.maxx)
+	{
+		ctx->rasterizer.x = ctx->rasterizer.minx;
+		++ctx->rasterizer.y;
+	}
+}
+
+static lm_bool lm_trySamplingConservativeTriangleRasterizerPosition(lm_context *ctx)
+{
+	if (lm_hasConservativeTriangleRasterizerFinished(ctx))
+		return LM_FALSE;
+
+	lm_vec2 pixel[16];
+	pixel[0] = lm_v2i(ctx->rasterizer.x, ctx->rasterizer.y);
+	pixel[1] = lm_v2i(ctx->rasterizer.x + 1, ctx->rasterizer.y);
+	pixel[2] = lm_v2i(ctx->rasterizer.x + 1, ctx->rasterizer.y + 1);
+	pixel[3] = lm_v2i(ctx->rasterizer.x, ctx->rasterizer.y + 1);
+
+	lm_vec2 res[16];
+	int nRes = lm_convexClip(pixel, 4, ctx->triangle.uv, 3, res);
+	if (nRes > 0)
+	{
+		// do centroid sampling
+		lm_vec2 centroid = res[0];
+		float area = res[nRes - 1].x * res[0].y - res[nRes - 1].y * res[0].x;
+		for (int i = 1; i < nRes; i++)
+		{
+			centroid = lm_add2(centroid, res[i]);
+			area += res[i - 1].x * res[i].y - res[i - 1].y * res[i].x;
+		}
+		centroid = lm_div2(centroid, (float)nRes);
+		area = lm_absf(area / 2.0f);
+
+		if (area > 0.0f)
+		{
+			// calculate 3D sample position and orientation
+			lm_vec2 uv = lm_toBarycentric(
+				ctx->triangle.uv[0],
+				ctx->triangle.uv[1],
+				ctx->triangle.uv[2],
+				centroid);
+
+			// sample it only if its's not degenerate
+			if (lm_finite2(uv))
+			{
+				lm_vec3 p0 = ctx->triangle.p[0];
+				lm_vec3 p1 = ctx->triangle.p[1];
+				lm_vec3 p2 = ctx->triangle.p[2];
+				lm_vec3 v1 = lm_sub3(p1, p0);
+				lm_vec3 v2 = lm_sub3(p2, p0);
+				ctx->sample.position = lm_add3(p0, lm_add3(lm_scale3(v2, uv.x), lm_scale3(v1, uv.y)));
+				ctx->sample.direction = lm_normalize3(lm_cross3(v1, v2));
+
+				if (lm_finite3(ctx->sample.position) &&
+					lm_finite3(ctx->sample.direction) &&
+					lm_length3sq(ctx->sample.direction) > 0.5f) // don't allow 0.0f. should always be ~1.0f
+				{
+					return LM_TRUE;
+				}
+			}
+		}
+	}
+	return LM_FALSE;
+}
+
+// returns true if a sampling position was found and
+// false if we finished rasterizing the current triangle
+static lm_bool lm_findFirstConservativeTriangleRasterizerPosition(lm_context *ctx)
+{
+	while (!lm_trySamplingConservativeTriangleRasterizerPosition(ctx))
+	{
+		lm_moveToNextPotentialConservativeTriangleRasterizerPosition(ctx);
+		if (lm_hasConservativeTriangleRasterizerFinished(ctx))
+			return LM_FALSE;
+	}
+	return LM_TRUE;
+}
+
+static lm_bool lm_findNextConservativeTriangleRasterizerPosition(lm_context *ctx)
+{
+	lm_moveToNextPotentialConservativeTriangleRasterizerPosition(ctx);
+	return lm_findFirstConservativeTriangleRasterizerPosition(ctx);
+}
+
 static void bakeRasterize()
 {
-	s_bake.status = BakeStatus::Rasterizing;
 	s_bake.numTrianglesRasterized = 0;
-	const objzModel *model = modelGetData();
-	for (uint32_t tri = 0; tri < model->numIndices / 3; tri++) {
+	s_bake.sampleLocations.clear();
+	std::vector<ModelVertex> &modelVertices = *atlasGetVertices();
+	std::vector<uint32_t> &modelIndices = *atlasGetIndices();
+	for (uint32_t tri = 0; tri < uint32_t(modelIndices.size() / 3); tri++) {
+		lm_context ctx;
+		ctx.rasterizer.x = ctx.rasterizer.y = 0;
+		lm_vec2 uvMin = lm_v2(FLT_MAX, FLT_MAX), uvMax = lm_v2(-FLT_MAX, -FLT_MAX);
+		for (int i = 0; i < 3; i++) {
+			const ModelVertex &vertex = modelVertices[modelIndices[tri * 3 + i]];
+			ctx.triangle.p[i].x = vertex.pos.x;
+			ctx.triangle.p[i].y = vertex.pos.y;
+			ctx.triangle.p[i].z = vertex.pos.z;
+			ctx.triangle.uv[i].x = vertex.texcoord[2] * s_bake.lightmapWidth;
+			ctx.triangle.uv[i].y = vertex.texcoord[3] * s_bake.lightmapHeight;
+			// update bounds on lightmap
+			uvMin = lm_min2(uvMin, ctx.triangle.uv[i]);
+			uvMax = lm_max2(uvMax, ctx.triangle.uv[i]);
+		}
+		// Calculate area of interest (on lightmap) for conservative rasterization.
+		lm_vec2 bbMin = lm_floor2(uvMin);
+		lm_vec2 bbMax = lm_ceil2(uvMax);
+		ctx.rasterizer.minx = ctx.rasterizer.x = lm_maxi((int)bbMin.x - 1, 0);
+		ctx.rasterizer.miny = ctx.rasterizer.y = lm_maxi((int)bbMin.y - 1, 0);
+		ctx.rasterizer.maxx = lm_mini((int)bbMax.x + 1, (int)s_bake.lightmapWidth - 1);
+		ctx.rasterizer.maxy = lm_mini((int)bbMax.y + 1, (int)s_bake.lightmapHeight - 1);
+		assert(ctx.rasterizer.minx <= ctx.rasterizer.maxx && ctx.rasterizer.miny <= ctx.rasterizer.maxy);
+		if (lm_findFirstConservativeTriangleRasterizerPosition(&ctx)) {
+			for (;;) {
+				SampleLocation sample;
+				sample.pos = bx::Vec3(ctx.sample.position.x, ctx.sample.position.y, ctx.sample.position.z);
+				sample.normal = bx::Vec3(-ctx.sample.direction.x, -ctx.sample.direction.y, -ctx.sample.direction.z);
+				sample.uv[0] = ctx.rasterizer.x;
+				sample.uv[1] = ctx.rasterizer.y;
+				s_bake.sampleLocations.push_back(sample);
+				if (!lm_findNextConservativeTriangleRasterizerPosition(&ctx))
+					break;
+			}
+		}
 		s_bake.numTrianglesRasterized++;
 	}
 }
 
 static void bakeTraceRays()
 {
-	s_bake.status = BakeStatus::Tracing;
 	s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
+	memset(s_bake.lightmapData.data(), 0, s_bake.lightmapData.size() * sizeof(float));
+	for (uint32_t i = 0; i < (uint32_t)s_bake.sampleLocations.size(); i++) {
+		const SampleLocation &sample = s_bake.sampleLocations[i];
+		float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
+		rgba[0] = 1.0f;
+		rgba[1] = 1.0f;
+		rgba[2] = 1.0f;
+		rgba[3] = 1.0f;
+	}
 }
 
 static void bakeDenoise()
@@ -174,7 +488,6 @@ static void bakeDenoise()
 	s_bake.denoiseSucceeded = false;
 	if (!s_bake.options.denoise)
 		return;
-	s_bake.status = BakeStatus::Denoising;
 	if (!s_bake.oidnLibrary) {
 		s_bake.oidnLibrary = bx::dlopen("OpenImageDenoise.dll");
 		if (!s_bake.oidnLibrary)
@@ -236,7 +549,9 @@ static void bakeDenoise()
 static void bakeWorkerThread()
 {
 	bakeRasterize();
+	s_bake.status = BakeStatus::Tracing;
 	bakeTraceRays();
+	s_bake.status = BakeStatus::Denoising;
 	bakeDenoise();
 	s_bake.status = BakeStatus::ThreadFinished;
 }
@@ -316,10 +631,11 @@ void bakeExecute()
 		s_bake.lightmapHeight = atlasGetHeight();
 		if (s_bake.initialized)
 			bgfx::destroy(s_bake.lightmap);
-		s_bake.lightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_COMPUTE_WRITE | BGFX_SAMPLER_UVW_CLAMP);
+		s_bake.lightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_SAMPLER_UVW_CLAMP);
 	}
 	s_bake.initialized = true;
 	g_options.shadeMode = ShadeMode::Lightmap;
+	s_bake.status = BakeStatus::Rasterizing;
 	s_bake.workerThread = new std::thread(bakeWorkerThread);
 }
 

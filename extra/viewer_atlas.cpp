@@ -11,7 +11,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #include <mutex>
 #include <thread>
-#include <vector>
 #include <unordered_map>
 #include <imgui/imgui.h>
 
@@ -775,6 +774,16 @@ uint32_t atlasGetWidth()
 uint32_t atlasGetHeight()
 {
 	return s_atlas.data->height;
+}
+
+std::vector<ModelVertex> *atlasGetVertices()
+{
+	return &s_atlas.vertices;
+}
+
+std::vector<uint32_t> *atlasGetIndices()
+{
+	return &s_atlas.indices;
 }
 
 bgfx::VertexBufferHandle atlasGetVb()
