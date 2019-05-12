@@ -18,17 +18,10 @@ newaction
 		dofile("extra/shaderc.lua")
 		local shaders =
 		{
-			"fs_atomicCounterClear",
 			"fs_chart",
 			"fs_color",
 			"fs_gui",
-			"fs_lightmapAverage",
-			"fs_lightmapOp",
 			"fs_material",
-			"fs_rayBundleClear",
-			"fs_rayBundleIntegrate",
-			"fs_rayBundleLightmapClear",
-			"fs_rayBundleWrite",
 			"vs_chart",
 			"vs_chartTexcoordSpace",
 			"vs_gui",

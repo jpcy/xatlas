@@ -278,17 +278,10 @@ struct ShaderSourceBundle
 // Sync with ShaderId
 static ShaderSourceBundle s_shaders[] = 
 {
-	SHADER_SOURCE_BUNDLE(fs_atomicCounterClear),
 	SHADER_SOURCE_BUNDLE(fs_chart),
 	SHADER_SOURCE_BUNDLE(fs_color),
 	SHADER_SOURCE_BUNDLE(fs_gui),
-	SHADER_SOURCE_BUNDLE(fs_lightmapAverage),
-	SHADER_SOURCE_BUNDLE(fs_lightmapOp),
 	SHADER_SOURCE_BUNDLE(fs_material),
-	SHADER_SOURCE_BUNDLE(fs_rayBundleClear),
-	SHADER_SOURCE_BUNDLE(fs_rayBundleIntegrate),
-	SHADER_SOURCE_BUNDLE(fs_rayBundleLightmapClear),
-	SHADER_SOURCE_BUNDLE(fs_rayBundleWrite),
 	SHADER_SOURCE_BUNDLE(vs_chart),
 	SHADER_SOURCE_BUNDLE(vs_chartTexcoordSpace),
 	SHADER_SOURCE_BUNDLE(vs_gui),
@@ -429,7 +422,6 @@ int main(int argc, char **argv)
 	glfwSetScrollCallback(g_window, glfw_scrollCallback);
 	int frameCount = 0, progressDots = 0;
 	double lastFrameTime = glfwGetTime();
-	uint32_t bgfxFrame = 0;
 	while (!glfwWindowShouldClose(g_window)) {
 		glfwPollEvents();
 		if (glfwGetKey(g_window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
@@ -569,12 +561,12 @@ int main(int argc, char **argv)
 			bakeShowGuiWindow();
 		}
 		modelRender(view, projection);
-		bakeFrame(bgfxFrame);
+		bakeFrame();
 		if (g_options.gui)
 			guiRender();
 		bgfx::touch(kModelView);
 		bgfx::setDebug(s_showBgfxStats ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
-		bgfxFrame = bgfx::frame();
+		bgfx::frame();
 		frameCount++;
 		if (frameCount % 20 == 0)
 			progressDots = (progressDots + 1) % 4;

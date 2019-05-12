@@ -67,7 +67,7 @@ bool atlasIsReady();
 void bakeInit();
 void bakeShutdown();
 void bakeExecute();
-void bakeFrame(uint32_t bgfxFrame);
+void bakeFrame();
 void bakeClear();
 void bakeShowGuiOptions();
 void bakeShowGuiWindow();
@@ -169,17 +169,10 @@ void resetCamera();
 
 enum class ShaderId
 {
-	fs_atomicCounterClear,
 	fs_chart,
 	fs_color,
 	fs_gui,
-	fs_lightmapAverage,
-	fs_lightmapOp,
 	fs_material,
-	fs_rayBundleClear,
-	fs_rayBundleIntegrate,
-	fs_rayBundleLightmapClear,
-	fs_rayBundleWrite,
 	vs_chart,
 	vs_chartTexcoordSpace,
 	vs_gui,
