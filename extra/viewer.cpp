@@ -422,6 +422,7 @@ int main(int argc, char **argv)
 	glfwSetScrollCallback(g_window, glfw_scrollCallback);
 	int frameCount = 0, progressDots = 0;
 	double lastFrameTime = glfwGetTime();
+	uint32_t bgfxFrameNo = 0;
 	while (!glfwWindowShouldClose(g_window)) {
 		glfwPollEvents();
 		if (glfwGetKey(g_window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
@@ -561,12 +562,12 @@ int main(int argc, char **argv)
 			bakeShowGuiWindow();
 		}
 		modelRender(view, projection);
-		bakeFrame();
+		bakeFrame(bgfxFrameNo);
 		if (g_options.gui)
 			guiRender();
 		bgfx::touch(kModelView);
 		bgfx::setDebug(s_showBgfxStats ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
-		bgfx::frame();
+		bgfxFrameNo = bgfx::frame();
 		frameCount++;
 		if (frameCount % 20 == 0)
 			progressDots = (progressDots + 1) % 4;

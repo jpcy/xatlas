@@ -75,6 +75,44 @@ private:
 	Enum m_value = Idle;
 };
 
+struct UpdateStatus
+{
+	enum Enum
+	{
+		Idle,
+		Pending,
+		Updating
+	};
+
+	bool operator==(Enum value)
+	{
+		m_lock.lock();
+		const bool result = m_value == value;
+		m_lock.unlock();
+		return result;
+	}
+
+	bool operator!=(Enum value)
+	{
+		m_lock.lock();
+		const bool result = m_value != value;
+		m_lock.unlock();
+		return result;
+	}
+
+	UpdateStatus &operator=(Enum value)
+	{
+		m_lock.lock();
+		m_value = value;
+		m_lock.unlock();
+		return *this;
+	}
+
+private:
+	std::mutex m_lock;
+	Enum m_value = Idle;
+};
+
 struct BakeOptions
 {
 	bool fitToWindow = true;
@@ -106,8 +144,6 @@ struct
 	// lightmap
 	bgfx::TextureHandle lightmap;
 	uint32_t lightmapWidth, lightmapHeight;
-	clock_t lastUpdateTime = 0;
-	const double updateIntervalMs = 50;
 	// worker thread
 	std::thread *workerThread = nullptr;
 	std::vector<SampleLocation> sampleLocations;
@@ -117,6 +153,12 @@ struct
 	std::atomic<uint32_t> numSampleLocationsProcessed;
 	bool denoiseSucceeded;
 	bx::RngMwc rng;
+	// lightmap update
+	clock_t lastUpdateTime = 0;
+	const double updateIntervalMs = 50;
+	std::vector<float> updateData;
+	UpdateStatus updateStatus;
+	uint32_t updateFinishedFrameNo;
 }
 s_bake;
 
@@ -544,6 +586,7 @@ static void bakeTraceRays()
 	s_bake.numSampleLocationsProcessed = 0;
 	s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	memset(s_bake.lightmapData.data(), 0, s_bake.lightmapData.size() * sizeof(float));
+	s_bake.updateData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	RTCIntersectContext context;
 	const float near = 0.01f * modelGetScale();
 	for (uint32_t si = 0; si < (uint32_t)s_bake.sampleLocations.size(); si++) {
@@ -579,6 +622,15 @@ static void bakeTraceRays()
 			rgba[3] = 1.0f;
 		}
 		s_bake.numSampleLocationsProcessed++;
+		// Handle lightmap updates.
+		const double elapsedMs = (clock() - s_bake.lastUpdateTime) * 1000.0 / CLOCKS_PER_SEC;
+		if (elapsedMs >= s_bake.updateIntervalMs) {
+			if (s_bake.updateStatus == UpdateStatus::Idle) {
+				memcpy(s_bake.updateData.data(), s_bake.lightmapData.data(), s_bake.lightmapData.size() * sizeof(float));
+				s_bake.updateStatus = UpdateStatus::Pending;
+			}
+			s_bake.lastUpdateTime = clock();
+		}
 	}
 }
 
@@ -738,16 +790,20 @@ void bakeExecute()
 	s_bake.initialized = true;
 	g_options.shadeMode = ShadeMode::Lightmap;
 	s_bake.status = BakeStatus::Rasterizing;
+	s_bake.updateStatus = UpdateStatus::Idle;
 	s_bake.workerThread = new std::thread(bakeWorkerThread);
 }
 
-void bakeFrame()
+void bakeFrame(uint32_t frameNo)
 {
 	if (s_bake.status == BakeStatus::Tracing) {
-		const double elapsedMs = (clock() - s_bake.lastUpdateTime) * 1000.0 / CLOCKS_PER_SEC;
-		if (elapsedMs >= s_bake.updateIntervalMs) {
-			// TODO
-			s_bake.lastUpdateTime = clock();
+		if (s_bake.updateStatus == UpdateStatus::Pending) {
+			bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.updateData.data(), (uint32_t)s_bake.updateData.size() * sizeof(float)));
+			s_bake.updateStatus = UpdateStatus::Updating;
+			s_bake.updateFinishedFrameNo = frameNo + 2;
+		} else if (s_bake.updateStatus == UpdateStatus::Updating) {
+			if (frameNo == s_bake.updateFinishedFrameNo)
+				s_bake.updateStatus = UpdateStatus::Idle;
 		}
 	} else if (s_bake.status == BakeStatus::ThreadFinished) {
 		bakeShutdownWorkerThread();

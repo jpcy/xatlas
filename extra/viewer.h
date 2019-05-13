@@ -71,7 +71,7 @@ bool atlasIsReady();
 void bakeInit();
 void bakeShutdown();
 void bakeExecute();
-void bakeFrame();
+void bakeFrame(uint32_t frameNo);
 void bakeClear();
 void bakeShowGuiOptions();
 void bakeShowGuiWindow();
