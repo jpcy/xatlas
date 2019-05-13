@@ -39,11 +39,13 @@ struct BakeStatus
 	enum Enum
 	{
 		Idle,
+		InitEmbree,
 		Rasterizing,
 		Tracing,
 		Denoising,
 		ThreadFinished,
-		Finished
+		Finished,
+		Error
 	};
 
 	bool operator==(Enum value)
@@ -132,7 +134,7 @@ struct SampleLocation
 
 struct
 {
-	bool enabled;
+	char errorMessage[256];
 	bool initialized = false;
 	BakeStatus status;
 	BakeOptions options;
@@ -223,6 +225,56 @@ namespace oidn
 	ExecuteFilterFunc ExecuteFilter;
 	ReleaseFilterFunc ReleaseFilter;
 };
+
+static void bakeEmbreeError(void* /*userPtr*/, enum RTCError /*code*/, const char* str)
+{
+	fprintf(stderr, "Embree error: %s\n", str);
+	exit(EXIT_FAILURE);
+}
+
+static void bakeInitEmbree()
+{
+	if (!s_bake.embreeLibrary) {
+		s_bake.embreeLibrary = bx::dlopen(EMBREE_LIB);
+		if (!s_bake.embreeLibrary) {
+			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Embree not installed. Cannot open '%s'.", EMBREE_LIB);
+			s_bake.status = BakeStatus::Error;
+			return;
+		}
+		embree::NewDevice = (embree::NewDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewDevice");
+		embree::ReleaseDevice = (embree::ReleaseDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseDevice");
+		embree::SetDeviceErrorFunction = (embree::SetDeviceErrorFunctionFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetDeviceErrorFunction");
+		embree::NewScene = (embree::NewSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewScene");
+		embree::ReleaseScene = (embree::ReleaseSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseScene");
+		embree::AttachGeometry = (embree::AttachGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcAttachGeometry");
+		embree::CommitScene = (embree::CommitSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitScene");
+		embree::NewGeometry = (embree::NewGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewGeometry");
+		embree::ReleaseGeometry = (embree::ReleaseGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseGeometry");
+		embree::SetSharedGeometryBuffer = (embree::SetSharedGeometryBufferFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetSharedGeometryBuffer");
+		embree::CommitGeometry = (embree::CommitGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitGeometry");
+		embree::Occluded1 = (embree::Occluded1Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded1");
+		embree::Occluded4 = (embree::Occluded4Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded4");
+		embree::Occluded8 = (embree::Occluded8Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded8");
+		embree::Occluded16 = (embree::Occluded16Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded16");
+	}
+	if (!s_bake.embreeDevice) {
+		s_bake.embreeDevice = embree::NewDevice(nullptr);
+		if (!s_bake.embreeDevice) {
+			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Error creating Embree device");
+			s_bake.status = BakeStatus::Error;
+			return;
+		}
+		embree::SetDeviceErrorFunction(s_bake.embreeDevice, bakeEmbreeError, nullptr);
+		s_bake.embreeGeometry = embree::NewGeometry(s_bake.embreeDevice, RTC_GEOMETRY_TYPE_TRIANGLE);
+		const objzModel *model = modelGetData();
+		embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, model->vertices, offsetof(ModelVertex, pos), sizeof(ModelVertex), (size_t)model->numVertices);
+		embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, model->indices, 0, sizeof(uint32_t) * 3, (size_t)model->numIndices / 3);
+		embree::CommitGeometry(s_bake.embreeGeometry);
+		s_bake.embreeScene = embree::NewScene(s_bake.embreeDevice);
+		embree::AttachGeometry(s_bake.embreeScene, s_bake.embreeGeometry);
+		embree::CommitScene(s_bake.embreeScene);
+	}
+}
 
 typedef int lm_bool;
 #define LM_FALSE 0
@@ -699,6 +751,10 @@ static void bakeDenoise()
 
 static void bakeWorkerThread()
 {
+	bakeInitEmbree();
+	if (s_bake.status == BakeStatus::Error)
+		return;
+	s_bake.status = BakeStatus::Rasterizing;
 	bakeRasterize();
 	s_bake.status = BakeStatus::Tracing;
 	bakeTraceRays();
@@ -716,40 +772,19 @@ static void bakeShutdownWorkerThread()
 	}
 }
 
-static void bakeEmbreeError(void* /*userPtr*/, enum RTCError /*code*/, const char* str)
-{
-	fprintf(stderr, "Embree error: %s\n", str);
-	exit(EXIT_FAILURE);
-}
-
 void bakeInit()
 {
-	s_bake.embreeLibrary = bx::dlopen(EMBREE_LIB);
-	if (!s_bake.embreeLibrary) {
-		printf("Embree not installed. Baking is disabled.\n");
-		s_bake.enabled = false;
-		return;
-	}
-	embree::NewDevice = (embree::NewDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewDevice");
-	embree::ReleaseDevice = (embree::ReleaseDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseDevice");
-	embree::SetDeviceErrorFunction = (embree::SetDeviceErrorFunctionFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetDeviceErrorFunction");
-	embree::NewScene = (embree::NewSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewScene");
-	embree::ReleaseScene = (embree::ReleaseSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseScene");
-	embree::AttachGeometry = (embree::AttachGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcAttachGeometry");
-	embree::CommitScene = (embree::CommitSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitScene");
-	embree::NewGeometry = (embree::NewGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewGeometry");
-	embree::ReleaseGeometry = (embree::ReleaseGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseGeometry");
-	embree::SetSharedGeometryBuffer = (embree::SetSharedGeometryBufferFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetSharedGeometryBuffer");
-	embree::CommitGeometry = (embree::CommitGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitGeometry");
-	embree::Occluded1 = (embree::Occluded1Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded1");
-	embree::Occluded4 = (embree::Occluded4Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded4");
-	embree::Occluded8 = (embree::Occluded8Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded8");
-	embree::Occluded16 = (embree::Occluded16Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded16");
-	s_bake.enabled = true;
 }
 
 void bakeShutdown()
 {
+	bakeShutdownWorkerThread();
+	if (s_bake.embreeDevice) {
+		embree::ReleaseGeometry(s_bake.embreeGeometry);
+		embree::ReleaseScene(s_bake.embreeScene);
+		embree::ReleaseDevice(s_bake.embreeDevice);
+		s_bake.embreeDevice = nullptr;
+	}
 	if (s_bake.embreeLibrary)
 		bx::dlclose(s_bake.embreeLibrary);
 	if (s_bake.oidnLibrary)
@@ -760,24 +795,8 @@ void bakeShutdown()
 
 void bakeExecute()
 {
-	if (!(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished))
+	if (!(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Error))
 		return;
-	bakeClear();
-	// Init embree.
-	s_bake.embreeDevice = embree::NewDevice(nullptr);
-	if (!s_bake.embreeDevice) {
-		fprintf(stderr, "Error creating Embree device\n");
-		return;
-	}
-	embree::SetDeviceErrorFunction(s_bake.embreeDevice, bakeEmbreeError, nullptr);
-	s_bake.embreeGeometry = embree::NewGeometry(s_bake.embreeDevice, RTC_GEOMETRY_TYPE_TRIANGLE);
-	const objzModel *model = modelGetData();
-	embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, model->vertices, offsetof(ModelVertex, pos), sizeof(ModelVertex), (size_t)model->numVertices);
-	embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, model->indices, 0, sizeof(uint32_t) * 3, (size_t)model->numIndices / 3);
-	embree::CommitGeometry(s_bake.embreeGeometry);
-	s_bake.embreeScene = embree::NewScene(s_bake.embreeDevice);
-	embree::AttachGeometry(s_bake.embreeScene, s_bake.embreeGeometry);
-	embree::CommitScene(s_bake.embreeScene);
 	// Re-create lightmap if atlas resolution has changed.
 	const bool lightmapResolutionChanged = s_bake.lightmapWidth != atlasGetWidth() || s_bake.lightmapHeight != atlasGetHeight();
 	if (!s_bake.initialized || lightmapResolutionChanged) {
@@ -789,7 +808,7 @@ void bakeExecute()
 	}
 	s_bake.initialized = true;
 	g_options.shadeMode = ShadeMode::Lightmap;
-	s_bake.status = BakeStatus::Rasterizing;
+	s_bake.status = BakeStatus::InitEmbree;
 	s_bake.updateStatus = UpdateStatus::Idle;
 	s_bake.workerThread = new std::thread(bakeWorkerThread);
 }
@@ -827,14 +846,12 @@ void bakeClear()
 
 void bakeShowGuiOptions()
 {
-	if (!s_bake.enabled)
-		return;
 	ImGui::Text("Lightmap");
 	if (atlasGetCount() > 1) {
 		ImGui::Text("Baking doesn't support multiple atlases");
 		return;
 	}
-	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished) {
+	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Error) {
 		ImGui::Checkbox("Denoise", &s_bake.options.denoise);
 		ImGui::Checkbox("Sky", &s_bake.options.sky);
 		ImGui::SameLine();
@@ -854,6 +871,13 @@ void bakeShowGuiOptions()
 		const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 		if (ImGui::Button("Bake", buttonSize))
 			bakeExecute();
+		if (s_bake.status == BakeStatus::Error) {
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+			ImGui::Text(s_bake.errorMessage);
+			ImGui::PopStyleColor();
+		}
+	} else if (s_bake.status == BakeStatus::InitEmbree) {
+		ImGui::Text("Initializing Embree...");
 	} else if (s_bake.status == BakeStatus::Rasterizing) {
 		ImGui::Text("Rasterizing...");
 		ImGui::ProgressBar(s_bake.numTrianglesRasterized / float(modelGetData()->numIndices / 3));
@@ -870,7 +894,7 @@ void bakeShowGuiOptions()
 
 void bakeShowGuiWindow()
 {
-	if (s_bake.status == BakeStatus::Idle || !g_options.showLightmapWindow)
+	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Error || !g_options.showLightmapWindow)
 		return;
 	ImGuiIO &io = ImGui::GetIO();
 	const float size = 500;
