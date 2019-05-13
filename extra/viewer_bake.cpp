@@ -148,6 +148,8 @@ struct
 	uint32_t lightmapWidth, lightmapHeight;
 	// worker thread
 	std::thread *workerThread = nullptr;
+	bool cancelWorker = false;
+	std::mutex cancelWorkerMutex;
 	std::vector<SampleLocation> sampleLocations;
 	std::vector<float> lightmapData;
 	std::vector<float> denoisedLightmapData;
@@ -234,14 +236,13 @@ static void bakeEmbreeError(void* /*userPtr*/, enum RTCError /*code*/, const cha
 	exit(EXIT_FAILURE);
 }
 
-static void bakeInitEmbree()
+static bool bakeInitEmbree()
 {
 	if (!s_bake.embreeLibrary) {
 		s_bake.embreeLibrary = bx::dlopen(EMBREE_LIB);
 		if (!s_bake.embreeLibrary) {
 			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Embree not installed. Cannot open '%s'.", EMBREE_LIB);
-			s_bake.status = BakeStatus::Error;
-			return;
+			return false;
 		}
 		embree::NewDevice = (embree::NewDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewDevice");
 		embree::ReleaseDevice = (embree::ReleaseDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseDevice");
@@ -263,8 +264,7 @@ static void bakeInitEmbree()
 		s_bake.embreeDevice = embree::NewDevice(nullptr);
 		if (!s_bake.embreeDevice) {
 			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Error creating Embree device");
-			s_bake.status = BakeStatus::Error;
-			return;
+			return false;
 		}
 		embree::SetDeviceErrorFunction(s_bake.embreeDevice, bakeEmbreeError, nullptr);
 		s_bake.embreeGeometry = embree::NewGeometry(s_bake.embreeDevice, RTC_GEOMETRY_TYPE_TRIANGLE);
@@ -276,6 +276,13 @@ static void bakeInitEmbree()
 		embree::AttachGeometry(s_bake.embreeScene, s_bake.embreeGeometry);
 		embree::CommitScene(s_bake.embreeScene);
 	}
+	return true;
+}
+
+static bool bakeIsWorkerThreadCancelled()
+{
+	std::lock_guard<std::mutex> lock(s_bake.cancelWorkerMutex);
+	return s_bake.cancelWorker;
 }
 
 typedef int lm_bool;
@@ -530,11 +537,11 @@ static lm_bool lm_findNextConservativeTriangleRasterizerPosition(lm_context *ctx
 	return lm_findFirstConservativeTriangleRasterizerPosition(ctx);
 }
 
-static void bakeRasterize()
+static bool bakeRasterize()
 {
 	// Only need to do this once, unless the atlas or models changes - bakeClear will be called.
 	if (!s_bake.sampleLocations.empty())
-		return;
+		return true;
 	s_bake.numTrianglesRasterized = 0;
 	std::vector<ModelVertex> &modelVertices = *atlasGetVertices();
 	std::vector<uint32_t> &modelIndices = *atlasGetIndices();
@@ -574,7 +581,10 @@ static void bakeRasterize()
 			}
 		}
 		s_bake.numTrianglesRasterized++;
+		if (bakeIsWorkerThreadCancelled())
+			return false;
 	}
+	return true;
 }
 
 struct Occluded4Functor
@@ -636,7 +646,7 @@ static float bakeCalculateRayPacketVisibility(RTCIntersectContext *context, cons
 	return visibility;
 }
 
-static void bakeTraceRays()
+static bool bakeTraceRays()
 {
 	s_bake.rng.reset();
 	s_bake.numSampleLocationsProcessed = 0;
@@ -678,6 +688,8 @@ static void bakeTraceRays()
 			rgba[3] = 1.0f;
 		}
 		s_bake.numSampleLocationsProcessed++;
+		if (bakeIsWorkerThreadCancelled())
+			return false;
 		// Handle lightmap updates.
 		const double elapsedMs = (clock() - s_bake.lastUpdateTime) * 1000.0 / CLOCKS_PER_SEC;
 		if (elapsedMs >= s_bake.updateIntervalMs) {
@@ -688,6 +700,7 @@ static void bakeTraceRays()
 			s_bake.lastUpdateTime = clock();
 		}
 	}
+	return true;
 }
 
 static void bakeDenoise()
@@ -757,13 +770,20 @@ static void bakeDenoise()
 
 static void bakeWorkerThread()
 {
-	bakeInitEmbree();
-	if (s_bake.status == BakeStatus::Error)
+	if (!bakeInitEmbree()) {
+		s_bake.status = BakeStatus::Error;
 		return;
+	}
 	s_bake.status = BakeStatus::Rasterizing;
-	bakeRasterize();
+	if (!bakeRasterize()) {
+		s_bake.status = BakeStatus::Finished;
+		return;
+	}
 	s_bake.status = BakeStatus::Tracing;
-	bakeTraceRays();
+	if (!bakeTraceRays()) {
+		s_bake.status = BakeStatus::Finished;
+		return;
+	}
 	s_bake.status = BakeStatus::Denoising;
 	bakeDenoise();
 	s_bake.status = BakeStatus::ThreadFinished;
@@ -771,6 +791,9 @@ static void bakeWorkerThread()
 
 static void bakeShutdownWorkerThread()
 {
+	s_bake.cancelWorkerMutex.lock();
+	s_bake.cancelWorker = true;
+	s_bake.cancelWorkerMutex.unlock();
 	if (s_bake.workerThread) {
 		s_bake.workerThread->join();
 		delete s_bake.workerThread;
@@ -816,6 +839,7 @@ void bakeExecute()
 	g_options.shadeMode = ShadeMode::Lightmap;
 	s_bake.status = BakeStatus::InitEmbree;
 	s_bake.updateStatus = UpdateStatus::Idle;
+	s_bake.cancelWorker = false;
 	s_bake.workerThread = new std::thread(bakeWorkerThread);
 }
 
@@ -891,13 +915,15 @@ void bakeShowGuiOptions()
 	} else if (s_bake.status == BakeStatus::Rasterizing) {
 		ImGui::Text("Rasterizing...");
 		ImGui::ProgressBar(s_bake.numTrianglesRasterized / float(modelGetData()->numIndices / 3));
-		/*if (ImGui::Button("Cancel"))
-			s_bake.status = BakeStatus::Finished;*/
+		if (ImGui::Button("Cancel"))
+			bakeShutdownWorkerThread();
 	} else if (s_bake.status == BakeStatus::Tracing) {
 		ImGui::Text("Tracing rays...");
 		ImGui::ProgressBar(s_bake.numSampleLocationsProcessed / float(s_bake.sampleLocations.size()));
+		if (ImGui::Button("Cancel"))
+			bakeShutdownWorkerThread();
 	} else if (s_bake.status == BakeStatus::Denoising) {
-		ImGui::AlignTextToFramePadding();
+		//ImGui::AlignTextToFramePadding();
 		ImGui::Text("Denoising...");
 	}
 }
