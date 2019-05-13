@@ -530,8 +530,10 @@ static lm_bool lm_findNextConservativeTriangleRasterizerPosition(lm_context *ctx
 
 static void bakeRasterize()
 {
+	// Only need to do this once, unless the atlas or models changes - bakeClear will be called.
+	if (!s_bake.sampleLocations.empty())
+		return;
 	s_bake.numTrianglesRasterized = 0;
-	s_bake.sampleLocations.clear();
 	std::vector<ModelVertex> &modelVertices = *atlasGetVertices();
 	std::vector<uint32_t> &modelIndices = *atlasGetIndices();
 	for (uint32_t tri = 0; tri < uint32_t(modelIndices.size() / 3); tri++) {
@@ -842,6 +844,7 @@ void bakeClear()
 		embree::ReleaseDevice(s_bake.embreeDevice);
 		s_bake.embreeDevice = nullptr;
 	}
+	s_bake.sampleLocations.clear();
 }
 
 void bakeShowGuiOptions()
