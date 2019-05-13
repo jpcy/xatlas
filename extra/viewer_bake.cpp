@@ -615,13 +615,20 @@ static bool bakeTraceRays()
 			return false;
 		// Handle lightmap updates.
 		const double elapsedMs = (clock() - s_bake.lastUpdateTime) * 1000.0 / CLOCKS_PER_SEC;
-		if (elapsedMs >= s_bake.updateIntervalMs || si == uint32_t(s_bake.sampleLocations.size() - 1)) {
+		if (elapsedMs >= s_bake.updateIntervalMs) {
 			if (s_bake.updateStatus == UpdateStatus::Idle) {
 				memcpy(s_bake.updateData.data(), s_bake.lightmapData.data(), s_bake.lightmapData.size() * sizeof(float));
 				s_bake.updateStatus = UpdateStatus::Pending;
 			}
 			s_bake.lastUpdateTime = clock();
 		}
+	}
+	// Make sure there's a lightmap texture update before denoising.
+	// Otherwise you're looking at an unfinished bake while the denoiser is running.
+	if (s_bake.options.denoise) {
+		while (s_bake.updateStatus != UpdateStatus::Idle) {}
+		memcpy(s_bake.updateData.data(), s_bake.lightmapData.data(), s_bake.lightmapData.size() * sizeof(float));
+		s_bake.updateStatus = UpdateStatus::Pending;
 	}
 	return true;
 }
@@ -803,16 +810,15 @@ void bakeExecute()
 
 void bakeFrame(uint32_t frameNo)
 {
-	if (s_bake.status == BakeStatus::Tracing) {
-		if (s_bake.updateStatus == UpdateStatus::Pending) {
-			bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.updateData.data(), (uint32_t)s_bake.updateData.size() * sizeof(float)));
-			s_bake.updateStatus = UpdateStatus::Updating;
-			s_bake.updateFinishedFrameNo = frameNo + 2;
-		} else if (s_bake.updateStatus == UpdateStatus::Updating) {
-			if (frameNo == s_bake.updateFinishedFrameNo)
-				s_bake.updateStatus = UpdateStatus::Idle;
-		}
-	} else if (s_bake.status == BakeStatus::ThreadFinished) {
+	if (s_bake.updateStatus == UpdateStatus::Pending) {
+		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.updateData.data(), (uint32_t)s_bake.updateData.size() * sizeof(float)));
+		s_bake.updateStatus = UpdateStatus::Updating;
+		s_bake.updateFinishedFrameNo = frameNo + 2;
+	} else if (s_bake.updateStatus == UpdateStatus::Updating) {
+		if (frameNo == s_bake.updateFinishedFrameNo)
+			s_bake.updateStatus = UpdateStatus::Idle;
+	}
+	if (s_bake.status == BakeStatus::ThreadFinished) {
 		bakeShutdownWorkerThread();
 		std::vector<float> *data = s_bake.denoiseSucceeded ? &s_bake.denoisedLightmapData : &s_bake.lightmapData;
 		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(data->data(), (uint32_t)data->size() * sizeof(float)));
