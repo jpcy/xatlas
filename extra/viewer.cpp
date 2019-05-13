@@ -503,7 +503,7 @@ int main(int argc, char **argv)
 						ImGui::RadioButton("Flat", (int *)&g_options.shadeMode, (int)ShadeMode::Flat);
 						ImGui::SameLine();
 						ImGui::RadioButton("Charts##shading", (int *)&g_options.shadeMode, (int)ShadeMode::Charts);
-						if (!bakeIsIdle()) {
+						if (bakeIsLightmapReady()) {
 							ImGui::SameLine();
 							ImGui::RadioButton("Lightmap", (int *)&g_options.shadeMode, (int)ShadeMode::Lightmap);
 							ImGui::SameLine();
@@ -541,7 +541,7 @@ int main(int argc, char **argv)
 					ImGui::DragFloat("Camera sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
 					if (atlasIsReady())
 						ImGui::Checkbox("Show atlas window", &g_options.showAtlasWindow);
-					if (!bakeIsIdle())
+					if (bakeIsLightmapReady())
 						ImGui::Checkbox("Show lightmap window", &g_options.showLightmapWindow);
 					ImGui::Spacing();
 					ImGui::Separator();

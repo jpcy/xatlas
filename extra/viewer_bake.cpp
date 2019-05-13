@@ -200,6 +200,8 @@ namespace embree
 	Occluded16Func Occluded16;
 };
 
+#define OIDN_LIB "OpenImageDenoise.dll"
+
 namespace oidn
 {
 	typedef OIDNDevice (*NewDeviceFunc)(OIDNDeviceType type);
@@ -694,9 +696,11 @@ static void bakeDenoise()
 	if (!s_bake.options.denoise)
 		return;
 	if (!s_bake.oidnLibrary) {
-		s_bake.oidnLibrary = bx::dlopen("OpenImageDenoise.dll");
-		if (!s_bake.oidnLibrary)
+		s_bake.oidnLibrary = bx::dlopen(OIDN_LIB);
+		if (!s_bake.oidnLibrary) {
+			fprintf(stderr, "OIDN not installed. Cannot open '%s'.", OIDN_LIB);
 			return;
+		}
 		oidn::NewDevice = (oidn::NewDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnNewDevice");
 		oidn::CommitDevice = (oidn::CommitDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnCommitDevice");
 		oidn::ReleaseDevice = (oidn::ReleaseDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnReleaseDevice");
@@ -831,6 +835,9 @@ void bakeFrame(uint32_t frameNo)
 		std::vector<float> *data = s_bake.denoiseSucceeded ? &s_bake.denoisedLightmapData : &s_bake.lightmapData;
 		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(data->data(), (uint32_t)data->size() * sizeof(float)));
 		s_bake.status = BakeStatus::Finished;
+	} else if (s_bake.status == BakeStatus::Error && g_options.shadeMode == ShadeMode::Lightmap) {
+		// Executing bake sets shade mode to lightmap. Set it back to charts if there was an error.
+		g_options.shadeMode = ShadeMode::Charts;
 	}
 }
 
@@ -897,7 +904,7 @@ void bakeShowGuiOptions()
 
 void bakeShowGuiWindow()
 {
-	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Error || !g_options.showLightmapWindow)
+	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::InitEmbree || s_bake.status == BakeStatus::Error || !g_options.showLightmapWindow)
 		return;
 	ImGuiIO &io = ImGui::GetIO();
 	const float size = 500;
@@ -930,7 +937,7 @@ uint32_t bakeGetLightmapSamplerFlags()
 	return flags;
 }
 
-bool bakeIsIdle()
+bool bakeIsLightmapReady()
 {
-	return s_bake.status == BakeStatus::Idle;
+	return !(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::InitEmbree || s_bake.status == BakeStatus::Error);
 }
