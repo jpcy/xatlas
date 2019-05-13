@@ -535,7 +535,7 @@ struct Occluded16Functor
 };
 
 template<typename Ray, typename Occluded, int N>
-static float bakeCalculateRayPacketVisibility(RTCIntersectContext *context, const SampleLocation &sample, float near)
+static int bakeCalculateRayPacketVisibility(RTCIntersectContext *context, const SampleLocation &sample, float near)
 {
 	Ray ray;
 	int valid[N];
@@ -543,16 +543,10 @@ static float bakeCalculateRayPacketVisibility(RTCIntersectContext *context, cons
 		ray.org_x[i] = sample.pos.x;
 		ray.org_y[i] = sample.pos.y;
 		ray.org_z[i] = sample.pos.z;
-		if (i == 0) {
-			ray.dir_x[i] = sample.normal.x;
-			ray.dir_y[i] = sample.normal.y;
-			ray.dir_z[i] = sample.normal.z;
-		} else {
-			const bx::Vec3 dir = bx::randUnitHemisphere(&s_bake.rng, sample.normal);
-			ray.dir_x[i] = dir.x;
-			ray.dir_y[i] = dir.y;
-			ray.dir_z[i] = dir.z;
-		}
+		const bx::Vec3 dir = bx::randUnitHemisphere(&s_bake.rng, sample.normal);
+		ray.dir_x[i] = dir.x;
+		ray.dir_y[i] = dir.y;
+		ray.dir_z[i] = dir.z;
 		ray.tnear[i] = near;
 		ray.tfar[i] = FLT_MAX;
 		ray.flags[i] = 0;
@@ -560,13 +554,12 @@ static float bakeCalculateRayPacketVisibility(RTCIntersectContext *context, cons
 	}
 	Occluded occluded;
 	occluded(valid, s_bake.embreeScene, context, &ray);
-	float visibility = 0.0f;
-	const float c = 1.0f / (float)N;
+	int visible = 0;
 	for (int i = 0; i < N; i++) {
 		if (ray.tfar[i] > 0.0f)
-			visibility += c;
+			visible++;
 	}
-	return visibility;
+	return visible;
 }
 
 static bool bakeTraceRays()
@@ -583,11 +576,17 @@ static bool bakeTraceRays()
 		const SampleLocation &sample = s_bake.sampleLocations[si];
 		float visibility = 0.0f;
 		if (s_bake.options.numSamples == 4)
-			visibility = bakeCalculateRayPacketVisibility<RTCRay4, Occluded4Functor, 4>(&context, sample, near);
+			visibility = bakeCalculateRayPacketVisibility<RTCRay4, Occluded4Functor, 4>(&context, sample, near) / 4.0f;
 		else if (s_bake.options.numSamples == 8)
-			visibility = bakeCalculateRayPacketVisibility<RTCRay8, Occluded8Functor, 8>(&context, sample, near);
+			visibility = bakeCalculateRayPacketVisibility<RTCRay8, Occluded8Functor, 8>(&context, sample, near) / 8.0f;
 		else if (s_bake.options.numSamples == 16)
-			visibility = bakeCalculateRayPacketVisibility<RTCRay16, Occluded16Functor, 16>(&context, sample, near);
+			visibility = bakeCalculateRayPacketVisibility<RTCRay16, Occluded16Functor, 16>(&context, sample, near) / 16.0f;
+		else if (s_bake.options.numSamples == 256) {
+			int visible = 0;
+			for (int i = 0; i < 16; i++)
+				visible += bakeCalculateRayPacketVisibility<RTCRay16, Occluded16Functor, 16>(&context, sample, near);
+			visibility = visible / 256.0f;
+		}
 		else {
 			RTCRay ray;
 			ray.org_x = sample.pos.x;
@@ -861,8 +860,8 @@ void bakeShowGuiOptions()
 		ImGui::Checkbox("Sky", &s_bake.options.sky);
 		ImGui::SameLine();
 		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
-		static const char * const sampleLabels[] = { "1", "4", "8", "16" };
-		static const int samples[] = { 1, 4, 8, 16 };
+		static const char * const sampleLabels[] = { "1", "4", "8", "16", "256" };
+		static const int samples[] = { 1, 4, 8, 16, 256 };
 		int sampleIndex = 0;
 		for (int i = 0; i < (int)BX_COUNTOF(samples); i++) {
 			if (samples[i] == s_bake.options.numSamples) {
@@ -870,7 +869,7 @@ void bakeShowGuiOptions()
 				break;
 			}
 		}
-		ImGui::ListBox("Samples", &sampleIndex, sampleLabels, (int)BX_COUNTOF(sampleLabels));
+		ImGui::Combo("Samples", &sampleIndex, sampleLabels, (int)BX_COUNTOF(sampleLabels));
 		s_bake.options.numSamples = samples[sampleIndex];
 		//ImGui::SliderInt("Bounces", &s_bake.options.numBounces, 0, 4);
 		const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
