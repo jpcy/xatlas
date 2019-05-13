@@ -118,7 +118,7 @@ private:
 struct BakeOptions
 {
 	bool fitToWindow = true;
-	bool denoise = false;
+	bool denoise = true;
 	bool sky = true;
 	bx::Vec3 skyColor = bx::Vec3(0.5f, 0.5f, 0.5f);
 	int numSamples = 16;
@@ -155,6 +155,7 @@ struct
 	std::vector<float> denoisedLightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
 	std::atomic<uint32_t> numSampleLocationsProcessed;
+	double denoiseProgress;
 	bool denoiseSucceeded;
 	bx::RngMwc rng;
 	// lightmap update
@@ -200,34 +201,6 @@ namespace embree
 	Occluded4Func Occluded4;
 	Occluded8Func Occluded8;
 	Occluded16Func Occluded16;
-};
-
-#define OIDN_LIB "OpenImageDenoise.dll"
-
-namespace oidn
-{
-	typedef OIDNDevice (*NewDeviceFunc)(OIDNDeviceType type);
-	typedef void (*CommitDeviceFunc)(OIDNDevice device);
-	typedef void (*ReleaseDeviceFunc)(OIDNDevice device);
-	typedef void (*SetDevice1bFunc)(OIDNDevice device, const char* name, bool value);
-	typedef OIDNError (*GetDeviceErrorFunc)(OIDNDevice device, const char** outMessage);
-	typedef OIDNFilter (*NewFilterFunc)(OIDNDevice device, const char* type);
-	typedef void (*SetSharedFilterImageFunc)(OIDNFilter filter, const char* name, void* ptr, OIDNFormat format, size_t width, size_t height, size_t byteOffset, size_t bytePixelStride, size_t byteRowStride);
-	typedef void (*SetFilter1bFunc)(OIDNFilter filter, const char* name, bool value);
-	typedef void (*CommitFilterFunc)(OIDNFilter filter);
-	typedef void (*ExecuteFilterFunc)(OIDNFilter filter);
-	typedef void (*ReleaseFilterFunc)(OIDNFilter filter);
-	NewDeviceFunc NewDevice;
-	CommitDeviceFunc CommitDevice;
-	ReleaseDeviceFunc ReleaseDevice;
-	SetDevice1bFunc SetDevice1b;
-	GetDeviceErrorFunc GetDeviceError;
-	NewFilterFunc NewFilter;
-	SetSharedFilterImageFunc SetSharedFilterImage;
-	SetFilter1bFunc SetFilter1b;
-	CommitFilterFunc CommitFilter;
-	ExecuteFilterFunc ExecuteFilter;
-	ReleaseFilterFunc ReleaseFilter;
 };
 
 static void bakeEmbreeError(void* /*userPtr*/, enum RTCError /*code*/, const char* str)
@@ -692,7 +665,7 @@ static bool bakeTraceRays()
 			return false;
 		// Handle lightmap updates.
 		const double elapsedMs = (clock() - s_bake.lastUpdateTime) * 1000.0 / CLOCKS_PER_SEC;
-		if (elapsedMs >= s_bake.updateIntervalMs) {
+		if (elapsedMs >= s_bake.updateIntervalMs || si == uint32_t(s_bake.sampleLocations.size() - 1)) {
 			if (s_bake.updateStatus == UpdateStatus::Idle) {
 				memcpy(s_bake.updateData.data(), s_bake.lightmapData.data(), s_bake.lightmapData.size() * sizeof(float));
 				s_bake.updateStatus = UpdateStatus::Pending;
@@ -703,9 +676,56 @@ static bool bakeTraceRays()
 	return true;
 }
 
+#define OIDN_LIB "OpenImageDenoise.dll"
+
+namespace oidn
+{
+	typedef OIDNDevice (*NewDeviceFunc)(OIDNDeviceType type);
+	typedef void (*CommitDeviceFunc)(OIDNDevice device);
+	typedef void (*ReleaseDeviceFunc)(OIDNDevice device);
+	typedef void (*SetDevice1bFunc)(OIDNDevice device, const char* name, bool value);
+	typedef void (*SetDeviceErrorFunctionFunc)(OIDNDevice device, OIDNErrorFunction func, void* userPtr);
+	typedef OIDNFilter (*NewFilterFunc)(OIDNDevice device, const char* type);
+	typedef void (*SetFilterProgressMonitorFunctionFunc)(OIDNFilter filter, OIDNProgressMonitorFunction func, void* userPtr);
+	typedef void (*SetSharedFilterImageFunc)(OIDNFilter filter, const char* name, void* ptr, OIDNFormat format, size_t width, size_t height, size_t byteOffset, size_t bytePixelStride, size_t byteRowStride);
+	typedef void (*SetFilter1bFunc)(OIDNFilter filter, const char* name, bool value);
+	typedef void (*CommitFilterFunc)(OIDNFilter filter);
+	typedef void (*ExecuteFilterFunc)(OIDNFilter filter);
+	typedef void (*ReleaseFilterFunc)(OIDNFilter filter);
+	NewDeviceFunc NewDevice;
+	CommitDeviceFunc CommitDevice;
+	ReleaseDeviceFunc ReleaseDevice;
+	SetDevice1bFunc SetDevice1b;
+	SetDeviceErrorFunctionFunc SetDeviceErrorFunction;
+	NewFilterFunc NewFilter;
+	SetFilterProgressMonitorFunctionFunc SetFilterProgressMonitorFunction;
+	SetSharedFilterImageFunc SetSharedFilterImage;
+	SetFilter1bFunc SetFilter1b;
+	CommitFilterFunc CommitFilter;
+	ExecuteFilterFunc ExecuteFilter;
+	ReleaseFilterFunc ReleaseFilter;
+};
+
+static void bakeOidnError(void* /*userPtr*/, OIDNError code, const char* message)
+{
+	if (code == OIDN_ERROR_CANCELLED)
+		return;
+	fprintf(stderr, "OIDN error: %s\n", message);
+	exit(EXIT_FAILURE);
+}
+
+static bool bakeOidnProgress(void* /*userPtr*/, double n)
+{
+	if (bakeIsWorkerThreadCancelled())
+		return false;
+	s_bake.denoiseProgress = n;
+	return true;
+}
+
 static void bakeDenoise()
 {
 	s_bake.denoiseSucceeded = false;
+	s_bake.denoiseProgress = 0;
 	if (!s_bake.options.denoise)
 		return;
 	if (!s_bake.oidnLibrary) {
@@ -718,53 +738,37 @@ static void bakeDenoise()
 		oidn::CommitDevice = (oidn::CommitDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnCommitDevice");
 		oidn::ReleaseDevice = (oidn::ReleaseDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnReleaseDevice");
 		oidn::SetDevice1b = (oidn::SetDevice1bFunc)bx::dlsym(s_bake.oidnLibrary, "oidnSetDevice1b");
-		oidn::GetDeviceError = (oidn::GetDeviceErrorFunc)bx::dlsym(s_bake.oidnLibrary, "oidnGetDeviceError");
+		oidn::SetDeviceErrorFunction = (oidn::SetDeviceErrorFunctionFunc)bx::dlsym(s_bake.oidnLibrary, "oidnSetDeviceErrorFunction");
 		oidn::NewFilter = (oidn::NewFilterFunc)bx::dlsym(s_bake.oidnLibrary, "oidnNewFilter");
+		oidn::SetFilterProgressMonitorFunction = (oidn::SetFilterProgressMonitorFunctionFunc)bx::dlsym(s_bake.oidnLibrary, "oidnSetFilterProgressMonitorFunction");
 		oidn::SetSharedFilterImage = (oidn::SetSharedFilterImageFunc)bx::dlsym(s_bake.oidnLibrary, "oidnSetSharedFilterImage");
 		oidn::SetFilter1b = (oidn::SetFilter1bFunc)bx::dlsym(s_bake.oidnLibrary, "oidnSetFilter1b");
 		oidn::CommitFilter = (oidn::CommitFilterFunc)bx::dlsym(s_bake.oidnLibrary, "oidnCommitFilter");
 		oidn::ExecuteFilter = (oidn::ExecuteFilterFunc)bx::dlsym(s_bake.oidnLibrary, "oidnExecuteFilter");
 		oidn::ReleaseFilter = (oidn::ReleaseFilterFunc)bx::dlsym(s_bake.oidnLibrary, "oidnReleaseFilter");
 	}
-	// OIDN_FORMAT_FLOAT4 not supported.
-	std::vector<float> input, output;
-	input.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 3);
-	for (uint32_t i = 0; i < s_bake.lightmapWidth * s_bake.lightmapHeight; i++) {
-		const float *rgbaIn = &s_bake.lightmapData[i * 4];
-		float *rgbOut = &input[i * 3];
-		rgbOut[0] = rgbaIn[0];
-		rgbOut[1] = rgbaIn[1];
-		rgbOut[2] = rgbaIn[2];
-	}
-	output.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 3);
+	s_bake.denoisedLightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	OIDNDevice device = oidn::NewDevice(OIDN_DEVICE_TYPE_DEFAULT);
 	if (!device) {
 		fprintf(stderr, "Error creating OIDN device\n");
 		return;
 	}
+	oidn::SetDeviceErrorFunction(device, bakeOidnError, nullptr);
 	oidn::SetDevice1b(device, "setAffinity", false);
 	oidn::CommitDevice(device);
 	OIDNFilter filter = oidn::NewFilter(device, "RT");
-	oidn::SetSharedFilterImage(filter, "color", input.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, 0, 0);
-	oidn::SetSharedFilterImage(filter, "output", output.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, 0, 0);
+	oidn::SetFilterProgressMonitorFunction(filter, bakeOidnProgress, nullptr);
+	oidn::SetSharedFilterImage(filter, "color", s_bake.lightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
+	oidn::SetSharedFilterImage(filter, "output", s_bake.denoisedLightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
 	oidn::CommitFilter(filter);
 	oidn::ExecuteFilter(filter);
-	const char *errorMessage;
-	if (oidn::GetDeviceError(device, &errorMessage) != OIDN_ERROR_NONE) {
-		fprintf(stderr, "Denoiser error: %s\n", errorMessage);
-		return;
-	}
 	oidn::ReleaseFilter(filter);
 	oidn::ReleaseDevice(device);
-	s_bake.denoisedLightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
-	for (uint32_t i = 0; i < s_bake.lightmapWidth * s_bake.lightmapHeight; i++) {
-		const float *rgbIn = &output[i * 3];
-		float *rgbaOut = &s_bake.denoisedLightmapData[i * 4];
-		rgbaOut[0] = rgbIn[0];
-		rgbaOut[1] = rgbIn[1];
-		rgbaOut[2] = rgbIn[2];
-		rgbaOut[3] = 1.0f;
-	}
+	if (bakeIsWorkerThreadCancelled())
+		return;
+	// Copy alpha channel.
+	for (uint32_t i = 0; i < s_bake.lightmapWidth * s_bake.lightmapHeight; i++)
+		s_bake.denoisedLightmapData[i * 4 + 3] = s_bake.lightmapData[i * 4 + 3];
 	s_bake.denoiseSucceeded = true;
 }
 
@@ -786,6 +790,10 @@ static void bakeWorkerThread()
 	}
 	s_bake.status = BakeStatus::Denoising;
 	bakeDenoise();
+	if (bakeIsWorkerThreadCancelled()) {
+		s_bake.status = BakeStatus::Finished;
+		return;
+	}
 	s_bake.status = BakeStatus::ThreadFinished;
 }
 
@@ -931,6 +939,9 @@ void bakeShowGuiOptions()
 			bakeShutdownWorkerThread();
 	} else if (s_bake.status == BakeStatus::Denoising) {
 		ImGui::Text("Denoising...");
+		ImGui::ProgressBar((float)s_bake.denoiseProgress);
+		if (ImGui::Button("Cancel"))
+			bakeShutdownWorkerThread();
 	}
 #endif
 }

@@ -131,6 +131,9 @@ namespace oidn {
   // Filter
   // --------------------------------------------------------------------------
 
+  // Progress monitor callback function
+  typedef bool (*ProgressMonitorFunction)(void* userPtr, double n);
+
   // Filter object with automatic reference counting
   class FilterRef
   {
@@ -241,6 +244,12 @@ namespace oidn {
     template<typename T>
     T get(const char* name);
 
+    // Sets the progress monitor callback function of the filter.
+    void setProgressMonitorFunction(ProgressMonitorFunction func, void* userPtr = nullptr)
+    {
+      oidnSetFilterProgressMonitorFunction(handle, (OIDNProgressMonitorFunction)func, userPtr);
+    }
+
     // Commits all previous changes to the filter.
     void commit()
     {
@@ -289,6 +298,7 @@ namespace oidn {
     InvalidOperation    = OIDN_ERROR_INVALID_OPERATION,    // the operation is not allowed
     OutOfMemory         = OIDN_ERROR_OUT_OF_MEMORY,        // not enough memory to execute the operation
     UnsupportedHardware = OIDN_ERROR_UNSUPPORTED_HARDWARE, // the hardware (e.g. CPU) is not supported
+    Cancelled           = OIDN_ERROR_CANCELLED,            // the operation was cancelled by the user
   };
 
   // Error callback function
