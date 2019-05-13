@@ -882,9 +882,16 @@ void bakeShowGuiOptions()
 {
 	ImGui::Text("Lightmap");
 	if (atlasGetCount() > 1) {
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
 		ImGui::Text("Baking doesn't support multiple atlases");
+		ImGui::PopStyleColor();
 		return;
 	}
+#if BX_ARCH_32BIT
+	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+	ImGui::Text("Baking not supported in 32-bit build");
+	ImGui::PopStyleColor();
+#else
 	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Error) {
 		ImGui::Checkbox("Denoise", &s_bake.options.denoise);
 		ImGui::Checkbox("Sky", &s_bake.options.sky);
@@ -923,9 +930,9 @@ void bakeShowGuiOptions()
 		if (ImGui::Button("Cancel"))
 			bakeShutdownWorkerThread();
 	} else if (s_bake.status == BakeStatus::Denoising) {
-		//ImGui::AlignTextToFramePadding();
 		ImGui::Text("Denoising...");
 	}
+#endif
 }
 
 void bakeShowGuiWindow()
