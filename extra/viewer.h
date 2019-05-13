@@ -134,6 +134,7 @@ void modelShowGuiWindow(int progressDots);
 AABB modelGetAABB();
 const objzModel *modelGetData();
 bx::Vec3 modelGetCentroid();
+float modelGetScale();
 bgfx::ShaderHandle modelGet_vs_model();
 bool modelIsLoaded();
 

@@ -3258,7 +3258,7 @@ public:
 		float area = 0;
 		for (uint32_t f = 0; f < m_faces.size(); f++)
 			area += faceParametricArea(f);
-		//XA_DEBUG_ASSERT(area >= 0);
+		XA_DEBUG_ASSERT(area >= 0);
 		return fabsf(area);
 	}
 

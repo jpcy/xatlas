@@ -700,6 +700,11 @@ bx::Vec3 modelGetCentroid()
 	return bx::mul(s_model.centroid, s_model.scale);
 }
 
+float modelGetScale()
+{
+	return s_model.scale;
+}
+
 bgfx::ShaderHandle modelGet_vs_model()
 {
 	return s_model.vs_model;

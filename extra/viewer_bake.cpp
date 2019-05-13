@@ -81,7 +81,7 @@ struct BakeOptions
 	bool denoise = false;
 	bool sky = true;
 	bx::Vec3 skyColor = bx::Vec3(0.5f, 0.5f, 0.5f);
-	int numSamples = 4;
+	int numSamples = 16;
 	int numBounces = 1;
 };
 
@@ -114,7 +114,9 @@ struct
 	std::vector<float> lightmapData;
 	std::vector<float> denoisedLightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
+	std::atomic<uint32_t> numSampleLocationsProcessed;
 	bool denoiseSucceeded;
+	bx::RngMwc rng;
 }
 s_bake;
 
@@ -133,6 +135,10 @@ namespace embree
 	typedef void (*ReleaseGeometryFunc)(RTCGeometry geometry);
 	typedef void (*SetSharedGeometryBufferFunc)(RTCGeometry geometry, enum RTCBufferType type, unsigned int slot, enum RTCFormat format, const void* ptr, size_t byteOffset, size_t byteStride, size_t itemCount);
 	typedef void (*CommitGeometryFunc)(RTCGeometry geometry);
+	typedef void (*Occluded1Func)(RTCScene scene, struct RTCIntersectContext* context, struct RTCRay* ray);
+	typedef void (*Occluded4Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay4* ray);
+	typedef void (*Occluded8Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay8* ray);
+	typedef void (*Occluded16Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay16* ray);
 	NewDeviceFunc NewDevice;
 	ReleaseDeviceFunc ReleaseDevice;
 	SetDeviceErrorFunctionFunc SetDeviceErrorFunction;
@@ -144,6 +150,10 @@ namespace embree
 	ReleaseGeometryFunc ReleaseGeometry;
 	SetSharedGeometryBufferFunc SetSharedGeometryBuffer;
 	CommitGeometryFunc CommitGeometry;
+	Occluded1Func Occluded1;
+	Occluded4Func Occluded4;
+	Occluded8Func Occluded8;
+	Occluded16Func Occluded16;
 };
 
 namespace oidn
@@ -457,7 +467,7 @@ static void bakeRasterize()
 			for (;;) {
 				SampleLocation sample;
 				sample.pos = bx::Vec3(ctx.sample.position.x, ctx.sample.position.y, ctx.sample.position.z);
-				sample.normal = bx::Vec3(-ctx.sample.direction.x, -ctx.sample.direction.y, -ctx.sample.direction.z);
+				sample.normal = bx::Vec3(ctx.sample.direction.x, ctx.sample.direction.y, ctx.sample.direction.z);
 				sample.uv[0] = ctx.rasterizer.x;
 				sample.uv[1] = ctx.rasterizer.y;
 				s_bake.sampleLocations.push_back(sample);
@@ -469,17 +479,106 @@ static void bakeRasterize()
 	}
 }
 
+struct Occluded4Functor
+{
+	void operator()(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay4* ray)
+	{
+		embree::Occluded4(valid, scene, context, ray);
+	}
+};
+
+struct Occluded8Functor
+{
+	void operator()(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay8* ray)
+	{
+		embree::Occluded8(valid, scene, context, ray);
+	}
+};
+
+struct Occluded16Functor
+{
+	void operator()(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay16* ray)
+	{
+		embree::Occluded16(valid, scene, context, ray);
+	}
+};
+
+template<typename Ray, typename Occluded, int N>
+static float bakeCalculateRayPacketVisibility(RTCIntersectContext *context, const SampleLocation &sample, float near)
+{
+	Ray ray;
+	int valid[N];
+	for (int i = 0; i < N; i++) {
+		ray.org_x[i] = sample.pos.x;
+		ray.org_y[i] = sample.pos.y;
+		ray.org_z[i] = sample.pos.z;
+		if (i == 0) {
+			ray.dir_x[i] = sample.normal.x;
+			ray.dir_y[i] = sample.normal.y;
+			ray.dir_z[i] = sample.normal.z;
+		} else {
+			const bx::Vec3 dir = bx::randUnitHemisphere(&s_bake.rng, sample.normal);
+			ray.dir_x[i] = dir.x;
+			ray.dir_y[i] = dir.y;
+			ray.dir_z[i] = dir.z;
+		}
+		ray.tnear[i] = near;
+		ray.tfar[i] = FLT_MAX;
+		ray.flags[i] = 0;
+		valid[i] = -1;
+	}
+	Occluded occluded;
+	occluded(valid, s_bake.embreeScene, context, &ray);
+	float visibility = 0.0f;
+	const float c = 1.0f / (float)N;
+	for (int i = 0; i < N; i++) {
+		if (ray.tfar[i] > 0.0f)
+			visibility += c;
+	}
+	return visibility;
+}
+
 static void bakeTraceRays()
 {
+	s_bake.rng.reset();
+	s_bake.numSampleLocationsProcessed = 0;
 	s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	memset(s_bake.lightmapData.data(), 0, s_bake.lightmapData.size() * sizeof(float));
-	for (uint32_t i = 0; i < (uint32_t)s_bake.sampleLocations.size(); i++) {
-		const SampleLocation &sample = s_bake.sampleLocations[i];
-		float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
-		rgba[0] = 1.0f;
-		rgba[1] = 1.0f;
-		rgba[2] = 1.0f;
-		rgba[3] = 1.0f;
+	RTCIntersectContext context;
+	const float near = 0.01f * modelGetScale();
+	for (uint32_t si = 0; si < (uint32_t)s_bake.sampleLocations.size(); si++) {
+		rtcInitIntersectContext(&context);
+		const SampleLocation &sample = s_bake.sampleLocations[si];
+		float visibility = 0.0f;
+		if (s_bake.options.numSamples == 4)
+			visibility = bakeCalculateRayPacketVisibility<RTCRay4, Occluded4Functor, 4>(&context, sample, near);
+		else if (s_bake.options.numSamples == 8)
+			visibility = bakeCalculateRayPacketVisibility<RTCRay8, Occluded8Functor, 8>(&context, sample, near);
+		else if (s_bake.options.numSamples == 16)
+			visibility = bakeCalculateRayPacketVisibility<RTCRay16, Occluded16Functor, 16>(&context, sample, near);
+		else {
+			RTCRay ray;
+			ray.org_x = sample.pos.x;
+			ray.org_y = sample.pos.y;
+			ray.org_z = sample.pos.z;
+			ray.dir_x = sample.normal.x;
+			ray.dir_y = sample.normal.y;
+			ray.dir_z = sample.normal.z;
+			ray.tnear = near;
+			ray.tfar = FLT_MAX;
+			ray.flags = 0;
+			embree::Occluded1(s_bake.embreeScene, &context, &ray);
+			if (ray.tfar > 0.0f)
+				visibility = 1.0f;
+		}
+		if (visibility > 0.0f) {
+			float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
+			rgba[0] = s_bake.options.skyColor.x * visibility;
+			rgba[1] = s_bake.options.skyColor.y * visibility;
+			rgba[2] = s_bake.options.skyColor.z * visibility;
+			rgba[3] = 1.0f;
+		}
+		s_bake.numSampleLocationsProcessed++;
 	}
 }
 
@@ -590,6 +689,10 @@ void bakeInit()
 	embree::ReleaseGeometry = (embree::ReleaseGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseGeometry");
 	embree::SetSharedGeometryBuffer = (embree::SetSharedGeometryBufferFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetSharedGeometryBuffer");
 	embree::CommitGeometry = (embree::CommitGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitGeometry");
+	embree::Occluded1 = (embree::Occluded1Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded1");
+	embree::Occluded4 = (embree::Occluded4Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded4");
+	embree::Occluded8 = (embree::Occluded8Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded8");
+	embree::Occluded16 = (embree::Occluded16Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded16");
 	s_bake.enabled = true;
 }
 
@@ -618,8 +721,7 @@ void bakeExecute()
 	s_bake.embreeGeometry = embree::NewGeometry(s_bake.embreeDevice, RTC_GEOMETRY_TYPE_TRIANGLE);
 	const objzModel *model = modelGetData();
 	embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, model->vertices, offsetof(ModelVertex, pos), sizeof(ModelVertex), (size_t)model->numVertices);
-	//embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_NORMAL, 0, RTC_FORMAT_FLOAT3, model->vertices, offsetof(ModelVertex, normal), sizeof(ModelVertex), (size_t)model->numVertices);
-	embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, model->indices, 0, sizeof(uint32_t), (size_t)model->numIndices / 3);
+	embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, model->indices, 0, sizeof(uint32_t) * 3, (size_t)model->numIndices / 3);
 	embree::CommitGeometry(s_bake.embreeGeometry);
 	s_bake.embreeScene = embree::NewScene(s_bake.embreeDevice);
 	embree::AttachGeometry(s_bake.embreeScene, s_bake.embreeGeometry);
@@ -692,7 +794,7 @@ void bakeShowGuiOptions()
 		}
 		ImGui::ListBox("Samples", &sampleIndex, sampleLabels, (int)BX_COUNTOF(sampleLabels));
 		s_bake.options.numSamples = samples[sampleIndex];
-		ImGui::SliderInt("Bounces", &s_bake.options.numBounces, 0, 4);
+		//ImGui::SliderInt("Bounces", &s_bake.options.numBounces, 0, 4);
 		const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 		if (ImGui::Button("Bake", buttonSize))
 			bakeExecute();
@@ -703,6 +805,7 @@ void bakeShowGuiOptions()
 			s_bake.status = BakeStatus::Finished;*/
 	} else if (s_bake.status == BakeStatus::Tracing) {
 		ImGui::Text("Tracing rays...");
+		ImGui::ProgressBar(s_bake.numSampleLocationsProcessed / float(s_bake.sampleLocations.size()));
 	} else if (s_bake.status == BakeStatus::Denoising) {
 		ImGui::AlignTextToFramePadding();
 		ImGui::Text("Denoising...");
