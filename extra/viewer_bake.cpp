@@ -488,8 +488,8 @@ static bool bakeRasterize()
 		lm_vec2 bbMax = lm_ceil2(uvMax);
 		ctx.rasterizer.minx = ctx.rasterizer.x = bx::max((int)bbMin.x - 1, 0);
 		ctx.rasterizer.miny = ctx.rasterizer.y = bx::max((int)bbMin.y - 1, 0);
-		ctx.rasterizer.maxx = bx::min((int)bbMax.x + 1, (int)s_bake.lightmapWidth - 1);
-		ctx.rasterizer.maxy = bx::min((int)bbMax.y + 1, (int)s_bake.lightmapHeight - 1);
+		ctx.rasterizer.maxx = bx::min((int)bbMax.x + 1, (int)s_bake.lightmapWidth);
+		ctx.rasterizer.maxy = bx::min((int)bbMax.y + 1, (int)s_bake.lightmapHeight);
 		assert(ctx.rasterizer.minx <= ctx.rasterizer.maxx && ctx.rasterizer.miny <= ctx.rasterizer.maxy);
 		if (lm_findFirstConservativeTriangleRasterizerPosition(&ctx)) {
 			for (;;) {
