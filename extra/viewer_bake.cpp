@@ -524,6 +524,11 @@ static bool bakeRasterize()
 	s_bake.numTrianglesRasterized = 0;
 	std::vector<ModelVertex> &modelVertices = *atlasGetVertices();
 	std::vector<uint32_t> &modelIndices = *atlasGetIndices();
+	// Don't allow duplicate samples at the same uv.
+	std::vector<bool> sampleExists;
+	sampleExists.resize(s_bake.lightmapWidth * s_bake.lightmapHeight);
+	for (uint32_t i = 0; i < s_bake.lightmapWidth * s_bake.lightmapHeight; i++)
+		sampleExists[i] = false;
 	for (uint32_t tri = 0; tri < uint32_t(modelIndices.size() / 3); tri++) {
 		lm_context ctx;
 		ctx.rasterizer.x = ctx.rasterizer.y = 0;
@@ -552,7 +557,11 @@ static bool bakeRasterize()
 				sample.normal = ctx.sample.direction;
 				sample.uv[0] = ctx.rasterizer.x;
 				sample.uv[1] = ctx.rasterizer.y;
-				s_bake.sampleLocations.push_back(sample);
+				const uint32_t offset = sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth;
+				if (!sampleExists[offset]) {
+					sampleExists[offset] = true;
+					s_bake.sampleLocations.push_back(sample);
+				}
 				if (!lm_findNextConservativeTriangleRasterizerPosition(&ctx))
 					break;
 			}
