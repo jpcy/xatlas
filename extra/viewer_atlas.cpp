@@ -152,6 +152,9 @@ void atlasInit()
 	s_atlas.vs_chartTexcoordSpace = loadShader(ShaderId::vs_chartTexcoordSpace);
 	s_atlas.chartProgram = bgfx::createProgram(s_atlas.vs_chart, s_atlas.fs_chart);
 	s_atlas.chartTexcoordSpaceProgram = bgfx::createProgram(s_atlas.vs_chartTexcoordSpace, s_atlas.fs_chart);
+	// Baking needs 1 pixel padding for dilate filter.
+	s_atlas.packOptions.conservative = true;
+	s_atlas.packOptions.padding = 1;
 }
 
 void atlasShutdown()

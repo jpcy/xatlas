@@ -9,18 +9,6 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
-/***********************************************************
-* A single header file OpenGL lightmapping library         *
-* https://github.com/ands/lightmapper                      *
-* no warranty implied | use at your own risk               *
-* author: Andreas Mantler (ands) | last change: 12.06.2016 *
-*                                                          *
-* License:                                                 *
-* This software is in the public domain.                   *
-* Where that dedication is not recognized,                 *
-* you are granted a perpetual, irrevocable license to copy *
-* and modify this file however you want.                   *
-***********************************************************/
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -35,230 +23,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "shaders/shared.h"
 #include "viewer.h"
 
-struct BakeStatus
-{
-	enum Enum
-	{
-		Idle,
-		InitEmbree,
-		Rasterizing,
-		Tracing,
-		Denoising,
-		ThreadFinished,
-		Finished,
-		Error
-	};
-
-	bool operator==(Enum value)
-	{
-		m_lock.lock();
-		const bool result = m_value == value;
-		m_lock.unlock();
-		return result;
-	}
-
-	bool operator!=(Enum value)
-	{
-		m_lock.lock();
-		const bool result = m_value != value;
-		m_lock.unlock();
-		return result;
-	}
-
-	BakeStatus &operator=(Enum value)
-	{
-		m_lock.lock();
-		m_value = value;
-		m_lock.unlock();
-		return *this;
-	}
-
-private:
-	std::mutex m_lock;
-	Enum m_value = Idle;
-};
-
-struct UpdateStatus
-{
-	enum Enum
-	{
-		Idle,
-		Pending,
-		Updating
-	};
-
-	bool operator==(Enum value)
-	{
-		m_lock.lock();
-		const bool result = m_value == value;
-		m_lock.unlock();
-		return result;
-	}
-
-	bool operator!=(Enum value)
-	{
-		m_lock.lock();
-		const bool result = m_value != value;
-		m_lock.unlock();
-		return result;
-	}
-
-	UpdateStatus &operator=(Enum value)
-	{
-		m_lock.lock();
-		m_value = value;
-		m_lock.unlock();
-		return *this;
-	}
-
-private:
-	std::mutex m_lock;
-	Enum m_value = Idle;
-};
-
-struct BakeOptions
-{
-	bool fitToWindow = true;
-	bool denoise = true;
-	bool sky = true;
-	bx::Vec3 skyColor = bx::Vec3(0.5f, 0.5f, 0.5f);
-	int numSamples = 16;
-	int numBounces = 1;
-};
-
-struct SampleLocation
-{
-	bx::Vec3 pos;
-	bx::Vec3 normal;
-	uint32_t uv[2];
-};
-
-struct
-{
-	char errorMessage[256];
-	bool initialized = false;
-	BakeStatus status;
-	BakeOptions options;
-	void *embreeLibrary = nullptr;
-	RTCDevice embreeDevice = nullptr;
-	RTCScene embreeScene = nullptr;
-	RTCGeometry embreeGeometry = nullptr;
-	void *oidnLibrary = nullptr;
-	// lightmap
-	bgfx::TextureHandle lightmap;
-	uint32_t lightmapWidth, lightmapHeight;
-	// worker thread
-	std::thread *workerThread = nullptr;
-	bool cancelWorker = false;
-	std::mutex cancelWorkerMutex;
-	std::vector<SampleLocation> sampleLocations;
-	std::vector<float> lightmapData;
-	std::vector<float> denoisedLightmapData;
-	std::atomic<uint32_t> numTrianglesRasterized;
-	std::atomic<uint32_t> numSampleLocationsProcessed;
-	double denoiseProgress;
-	bool denoiseSucceeded;
-	bx::RngMwc rng;
-	// lightmap update
-	clock_t lastUpdateTime = 0;
-	const double updateIntervalMs = 50;
-	std::vector<float> updateData;
-	UpdateStatus updateStatus;
-	uint32_t updateFinishedFrameNo;
-}
-s_bake;
-
-#define EMBREE_LIB "embree3.dll"
-
-namespace embree
-{
-	typedef RTCDevice (*NewDeviceFunc)(const char* config);
-	typedef void (*ReleaseDeviceFunc)(RTCDevice device);
-	typedef void (*SetDeviceErrorFunctionFunc)(RTCDevice device, RTCErrorFunction error, void* userPtr);
-	typedef RTCScene (*NewSceneFunc)(RTCDevice device);
-	typedef void (*ReleaseSceneFunc)(RTCScene scene);
-	typedef unsigned int (*AttachGeometryFunc)(RTCScene scene, RTCGeometry geometry);
-	typedef void (*CommitSceneFunc)(RTCScene scene);
-	typedef RTCGeometry (*NewGeometryFunc)(RTCDevice device, enum RTCGeometryType type);
-	typedef void (*ReleaseGeometryFunc)(RTCGeometry geometry);
-	typedef void (*SetSharedGeometryBufferFunc)(RTCGeometry geometry, enum RTCBufferType type, unsigned int slot, enum RTCFormat format, const void* ptr, size_t byteOffset, size_t byteStride, size_t itemCount);
-	typedef void (*CommitGeometryFunc)(RTCGeometry geometry);
-	typedef void (*Occluded1Func)(RTCScene scene, struct RTCIntersectContext* context, struct RTCRay* ray);
-	typedef void (*Occluded4Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay4* ray);
-	typedef void (*Occluded8Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay8* ray);
-	typedef void (*Occluded16Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay16* ray);
-	NewDeviceFunc NewDevice;
-	ReleaseDeviceFunc ReleaseDevice;
-	SetDeviceErrorFunctionFunc SetDeviceErrorFunction;
-	NewSceneFunc NewScene;
-	ReleaseSceneFunc ReleaseScene;
-	AttachGeometryFunc AttachGeometry;
-	CommitSceneFunc CommitScene;
-	NewGeometryFunc NewGeometry;
-	ReleaseGeometryFunc ReleaseGeometry;
-	SetSharedGeometryBufferFunc SetSharedGeometryBuffer;
-	CommitGeometryFunc CommitGeometry;
-	Occluded1Func Occluded1;
-	Occluded4Func Occluded4;
-	Occluded8Func Occluded8;
-	Occluded16Func Occluded16;
-};
-
-static void bakeEmbreeError(void* /*userPtr*/, enum RTCError /*code*/, const char* str)
-{
-	fprintf(stderr, "Embree error: %s\n", str);
-	exit(EXIT_FAILURE);
-}
-
-static bool bakeInitEmbree()
-{
-	if (!s_bake.embreeLibrary) {
-		s_bake.embreeLibrary = bx::dlopen(EMBREE_LIB);
-		if (!s_bake.embreeLibrary) {
-			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Embree not installed. Cannot open '%s'.", EMBREE_LIB);
-			return false;
-		}
-		embree::NewDevice = (embree::NewDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewDevice");
-		embree::ReleaseDevice = (embree::ReleaseDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseDevice");
-		embree::SetDeviceErrorFunction = (embree::SetDeviceErrorFunctionFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetDeviceErrorFunction");
-		embree::NewScene = (embree::NewSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewScene");
-		embree::ReleaseScene = (embree::ReleaseSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseScene");
-		embree::AttachGeometry = (embree::AttachGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcAttachGeometry");
-		embree::CommitScene = (embree::CommitSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitScene");
-		embree::NewGeometry = (embree::NewGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewGeometry");
-		embree::ReleaseGeometry = (embree::ReleaseGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseGeometry");
-		embree::SetSharedGeometryBuffer = (embree::SetSharedGeometryBufferFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetSharedGeometryBuffer");
-		embree::CommitGeometry = (embree::CommitGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitGeometry");
-		embree::Occluded1 = (embree::Occluded1Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded1");
-		embree::Occluded4 = (embree::Occluded4Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded4");
-		embree::Occluded8 = (embree::Occluded8Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded8");
-		embree::Occluded16 = (embree::Occluded16Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded16");
-	}
-	if (!s_bake.embreeDevice) {
-		s_bake.embreeDevice = embree::NewDevice(nullptr);
-		if (!s_bake.embreeDevice) {
-			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Error creating Embree device");
-			return false;
-		}
-		embree::SetDeviceErrorFunction(s_bake.embreeDevice, bakeEmbreeError, nullptr);
-		s_bake.embreeGeometry = embree::NewGeometry(s_bake.embreeDevice, RTC_GEOMETRY_TYPE_TRIANGLE);
-		const objzModel *model = modelGetData();
-		embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, model->vertices, offsetof(ModelVertex, pos), sizeof(ModelVertex), (size_t)model->numVertices);
-		embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, model->indices, 0, sizeof(uint32_t) * 3, (size_t)model->numIndices / 3);
-		embree::CommitGeometry(s_bake.embreeGeometry);
-		s_bake.embreeScene = embree::NewScene(s_bake.embreeDevice);
-		embree::AttachGeometry(s_bake.embreeScene, s_bake.embreeGeometry);
-		embree::CommitScene(s_bake.embreeScene);
-	}
-	return true;
-}
-
-static bool bakeIsWorkerThreadCancelled()
-{
-	std::lock_guard<std::mutex> lock(s_bake.cancelWorkerMutex);
-	return s_bake.cancelWorker;
-}
-
+/***********************************************************
+* A single header file OpenGL lightmapping library         *
+* https://github.com/ands/lightmapper                      *
+* no warranty implied | use at your own risk               *
+* author: Andreas Mantler (ands) | last change: 12.06.2016 *
+*                                                          *
+* License:                                                 *
+* This software is in the public domain.                   *
+* Where that dedication is not recognized,                 *
+* you are granted a perpetual, irrevocable license to copy *
+* and modify this file however you want.                   *
+***********************************************************/
 typedef struct lm_vec2 { float x, y; } lm_vec2;
 static lm_vec2  lm_v2i       (int     x, int     y) { lm_vec2 v = { (float)x, (float)y }; return v; }
 static lm_vec2  lm_v2        (float   x, float   y) { lm_vec2 v = { x, y }; return v; }
@@ -462,6 +238,284 @@ static bool lm_findNextConservativeTriangleRasterizerPosition(lm_context *ctx)
 	return lm_findFirstConservativeTriangleRasterizerPosition(ctx);
 }
 
+static void lmImageDilate(const float *image, float *outImage, int w, int h, int c)
+{
+	assert(c > 0 && c <= 4);
+	for (int y = 0; y < h; y++)
+	{
+		for (int x = 0; x < w; x++)
+		{
+			float color[4];
+			bool valid = false;
+			for (int i = 0; i < c; i++)
+			{
+				color[i] = image[(y * w + x) * c + i];
+				valid |= color[i] > 0.0f;
+			}
+			if (!valid)
+			{
+				int n = 0;
+				const int dx[] = { -1, 0, 1,  0 };
+				const int dy[] = {  0, 1, 0, -1 };
+				for (int d = 0; d < 4; d++)
+				{
+					int cx = x + dx[d];
+					int cy = y + dy[d];
+					if (cx >= 0 && cx < w && cy >= 0 && cy < h)
+					{
+						float dcolor[4];
+						bool dvalid = false;
+						for (int i = 0; i < c; i++)
+						{
+							dcolor[i] = image[(cy * w + cx) * c + i];
+							dvalid |= dcolor[i] > 0.0f;
+						}
+						if (dvalid)
+						{
+							for (int i = 0; i < c; i++)
+								color[i] += dcolor[i];
+							n++;
+						}
+					}
+				}
+				if (n)
+				{
+					float in = 1.0f / n;
+					for (int i = 0; i < c; i++)
+						color[i] *= in;
+				}
+			}
+			for (int i = 0; i < c; i++)
+				outImage[(y * w + x) * c + i] = color[i];
+		}
+	}
+}
+
+struct BakeStatus
+{
+	enum Enum
+	{
+		Idle,
+		InitEmbree,
+		Rasterizing,
+		Tracing,
+		Denoising,
+		ThreadFinished,
+		Finished,
+		Error
+	};
+
+	bool operator==(Enum value)
+	{
+		m_lock.lock();
+		const bool result = m_value == value;
+		m_lock.unlock();
+		return result;
+	}
+
+	bool operator!=(Enum value)
+	{
+		m_lock.lock();
+		const bool result = m_value != value;
+		m_lock.unlock();
+		return result;
+	}
+
+	BakeStatus &operator=(Enum value)
+	{
+		m_lock.lock();
+		m_value = value;
+		m_lock.unlock();
+		return *this;
+	}
+
+private:
+	std::mutex m_lock;
+	Enum m_value = Idle;
+};
+
+struct UpdateStatus
+{
+	enum Enum
+	{
+		Idle,
+		Pending,
+		Updating
+	};
+
+	bool operator==(Enum value)
+	{
+		m_lock.lock();
+		const bool result = m_value == value;
+		m_lock.unlock();
+		return result;
+	}
+
+	bool operator!=(Enum value)
+	{
+		m_lock.lock();
+		const bool result = m_value != value;
+		m_lock.unlock();
+		return result;
+	}
+
+	UpdateStatus &operator=(Enum value)
+	{
+		m_lock.lock();
+		m_value = value;
+		m_lock.unlock();
+		return *this;
+	}
+
+private:
+	std::mutex m_lock;
+	Enum m_value = Idle;
+};
+
+struct BakeOptions
+{
+	bool fitToWindow = true;
+	bool denoise = true;
+	bool sky = true;
+	bx::Vec3 skyColor = bx::Vec3(0.5f, 0.5f, 0.5f);
+	int numSamples = 16;
+	int numBounces = 1;
+};
+
+struct SampleLocation
+{
+	bx::Vec3 pos;
+	bx::Vec3 normal;
+	uint32_t uv[2];
+};
+
+struct
+{
+	char errorMessage[256];
+	bool initialized = false;
+	BakeStatus status;
+	BakeOptions options;
+	void *embreeLibrary = nullptr;
+	RTCDevice embreeDevice = nullptr;
+	RTCScene embreeScene = nullptr;
+	RTCGeometry embreeGeometry = nullptr;
+	void *oidnLibrary = nullptr;
+	// lightmap
+	bgfx::TextureHandle lightmap;
+	uint32_t lightmapWidth, lightmapHeight;
+	// worker thread
+	std::thread *workerThread = nullptr;
+	bool cancelWorker = false;
+	std::mutex cancelWorkerMutex;
+	std::vector<SampleLocation> sampleLocations;
+	std::vector<float> lightmapData;
+	std::vector<float> denoisedLightmapData;
+	std::vector<float> dilatedLightmapData;
+	std::atomic<uint32_t> numTrianglesRasterized;
+	std::atomic<uint32_t> numSampleLocationsProcessed;
+	double denoiseProgress;
+	bool denoiseSucceeded;
+	bx::RngMwc rng;
+	// lightmap update
+	clock_t lastUpdateTime = 0;
+	const double updateIntervalMs = 50;
+	std::vector<float> updateData;
+	UpdateStatus updateStatus;
+	uint32_t updateFinishedFrameNo;
+}
+s_bake;
+
+#define EMBREE_LIB "embree3.dll"
+
+namespace embree
+{
+	typedef RTCDevice (*NewDeviceFunc)(const char* config);
+	typedef void (*ReleaseDeviceFunc)(RTCDevice device);
+	typedef void (*SetDeviceErrorFunctionFunc)(RTCDevice device, RTCErrorFunction error, void* userPtr);
+	typedef RTCScene (*NewSceneFunc)(RTCDevice device);
+	typedef void (*ReleaseSceneFunc)(RTCScene scene);
+	typedef unsigned int (*AttachGeometryFunc)(RTCScene scene, RTCGeometry geometry);
+	typedef void (*CommitSceneFunc)(RTCScene scene);
+	typedef RTCGeometry (*NewGeometryFunc)(RTCDevice device, enum RTCGeometryType type);
+	typedef void (*ReleaseGeometryFunc)(RTCGeometry geometry);
+	typedef void (*SetSharedGeometryBufferFunc)(RTCGeometry geometry, enum RTCBufferType type, unsigned int slot, enum RTCFormat format, const void* ptr, size_t byteOffset, size_t byteStride, size_t itemCount);
+	typedef void (*CommitGeometryFunc)(RTCGeometry geometry);
+	typedef void (*Occluded1Func)(RTCScene scene, struct RTCIntersectContext* context, struct RTCRay* ray);
+	typedef void (*Occluded4Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay4* ray);
+	typedef void (*Occluded8Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay8* ray);
+	typedef void (*Occluded16Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay16* ray);
+	NewDeviceFunc NewDevice;
+	ReleaseDeviceFunc ReleaseDevice;
+	SetDeviceErrorFunctionFunc SetDeviceErrorFunction;
+	NewSceneFunc NewScene;
+	ReleaseSceneFunc ReleaseScene;
+	AttachGeometryFunc AttachGeometry;
+	CommitSceneFunc CommitScene;
+	NewGeometryFunc NewGeometry;
+	ReleaseGeometryFunc ReleaseGeometry;
+	SetSharedGeometryBufferFunc SetSharedGeometryBuffer;
+	CommitGeometryFunc CommitGeometry;
+	Occluded1Func Occluded1;
+	Occluded4Func Occluded4;
+	Occluded8Func Occluded8;
+	Occluded16Func Occluded16;
+};
+
+static void bakeEmbreeError(void* /*userPtr*/, enum RTCError /*code*/, const char* str)
+{
+	fprintf(stderr, "Embree error: %s\n", str);
+	exit(EXIT_FAILURE);
+}
+
+static bool bakeInitEmbree()
+{
+	if (!s_bake.embreeLibrary) {
+		s_bake.embreeLibrary = bx::dlopen(EMBREE_LIB);
+		if (!s_bake.embreeLibrary) {
+			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Embree not installed. Cannot open '%s'.", EMBREE_LIB);
+			return false;
+		}
+		embree::NewDevice = (embree::NewDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewDevice");
+		embree::ReleaseDevice = (embree::ReleaseDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseDevice");
+		embree::SetDeviceErrorFunction = (embree::SetDeviceErrorFunctionFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetDeviceErrorFunction");
+		embree::NewScene = (embree::NewSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewScene");
+		embree::ReleaseScene = (embree::ReleaseSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseScene");
+		embree::AttachGeometry = (embree::AttachGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcAttachGeometry");
+		embree::CommitScene = (embree::CommitSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitScene");
+		embree::NewGeometry = (embree::NewGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewGeometry");
+		embree::ReleaseGeometry = (embree::ReleaseGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseGeometry");
+		embree::SetSharedGeometryBuffer = (embree::SetSharedGeometryBufferFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetSharedGeometryBuffer");
+		embree::CommitGeometry = (embree::CommitGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitGeometry");
+		embree::Occluded1 = (embree::Occluded1Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded1");
+		embree::Occluded4 = (embree::Occluded4Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded4");
+		embree::Occluded8 = (embree::Occluded8Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded8");
+		embree::Occluded16 = (embree::Occluded16Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded16");
+	}
+	if (!s_bake.embreeDevice) {
+		s_bake.embreeDevice = embree::NewDevice(nullptr);
+		if (!s_bake.embreeDevice) {
+			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Error creating Embree device");
+			return false;
+		}
+		embree::SetDeviceErrorFunction(s_bake.embreeDevice, bakeEmbreeError, nullptr);
+		s_bake.embreeGeometry = embree::NewGeometry(s_bake.embreeDevice, RTC_GEOMETRY_TYPE_TRIANGLE);
+		const objzModel *model = modelGetData();
+		embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, model->vertices, offsetof(ModelVertex, pos), sizeof(ModelVertex), (size_t)model->numVertices);
+		embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_INDEX, 0, RTC_FORMAT_UINT3, model->indices, 0, sizeof(uint32_t) * 3, (size_t)model->numIndices / 3);
+		embree::CommitGeometry(s_bake.embreeGeometry);
+		s_bake.embreeScene = embree::NewScene(s_bake.embreeDevice);
+		embree::AttachGeometry(s_bake.embreeScene, s_bake.embreeGeometry);
+		embree::CommitScene(s_bake.embreeScene);
+	}
+	return true;
+}
+
+static bool bakeIsWorkerThreadCancelled()
+{
+	std::lock_guard<std::mutex> lock(s_bake.cancelWorkerMutex);
+	return s_bake.cancelWorker;
+}
+
 static bool bakeRasterize()
 {
 	// Only need to do this once, unless the atlas or models changes - bakeClear will be called.
@@ -622,13 +676,6 @@ static bool bakeTraceRays()
 			s_bake.lastUpdateTime = clock();
 		}
 	}
-	// Make sure there's a lightmap texture update before denoising.
-	// Otherwise you're looking at an unfinished bake while the denoiser is running.
-	if (s_bake.options.denoise) {
-		while (s_bake.updateStatus != UpdateStatus::Idle) {}
-		memcpy(s_bake.updateData.data(), s_bake.lightmapData.data(), s_bake.lightmapData.size() * sizeof(float));
-		s_bake.updateStatus = UpdateStatus::Pending;
-	}
 	return true;
 }
 
@@ -709,12 +756,16 @@ static void bakeDenoise()
 		fprintf(stderr, "Error creating OIDN device\n");
 		return;
 	}
+	// Dilate into temp buffer.
+	std::vector<float> temp;
+	temp.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
+	lmImageDilate(s_bake.lightmapData.data(), temp.data(), (int)s_bake.lightmapWidth, (int)s_bake.lightmapHeight, 4);
 	oidn::SetDeviceErrorFunction(device, bakeOidnError, nullptr);
 	oidn::SetDevice1b(device, "setAffinity", false);
 	oidn::CommitDevice(device);
 	OIDNFilter filter = oidn::NewFilter(device, "RT");
 	oidn::SetFilterProgressMonitorFunction(filter, bakeOidnProgress, nullptr);
-	oidn::SetSharedFilterImage(filter, "color", s_bake.lightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
+	oidn::SetSharedFilterImage(filter, "color", temp.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
 	oidn::SetSharedFilterImage(filter, "output", s_bake.denoisedLightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
 	oidn::CommitFilter(filter);
 	oidn::ExecuteFilter(filter);
@@ -744,12 +795,22 @@ static void bakeWorkerThread()
 		s_bake.status = BakeStatus::Finished;
 		return;
 	}
+	// Make sure there's a lightmap texture update before denoising.
+	// Otherwise you're looking at an unfinished bake while the denoiser is running.
+	if (s_bake.options.denoise) {
+		while (s_bake.updateStatus != UpdateStatus::Idle) {}
+		memcpy(s_bake.updateData.data(), s_bake.lightmapData.data(), s_bake.lightmapData.size() * sizeof(float));
+		s_bake.updateStatus = UpdateStatus::Pending;
+	}
 	s_bake.status = BakeStatus::Denoising;
 	bakeDenoise();
 	if (bakeIsWorkerThreadCancelled()) {
 		s_bake.status = BakeStatus::Finished;
 		return;
 	}
+	// Dilate
+	s_bake.dilatedLightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
+	lmImageDilate(s_bake.denoiseSucceeded ? s_bake.denoisedLightmapData.data() : s_bake.lightmapData.data(), s_bake.dilatedLightmapData.data(), (int)s_bake.lightmapWidth, (int)s_bake.lightmapHeight, 4);
 	s_bake.status = BakeStatus::ThreadFinished;
 }
 
@@ -819,8 +880,8 @@ void bakeFrame(uint32_t frameNo)
 	}
 	if (s_bake.status == BakeStatus::ThreadFinished) {
 		bakeShutdownWorkerThread();
-		std::vector<float> *data = s_bake.denoiseSucceeded ? &s_bake.denoisedLightmapData : &s_bake.lightmapData;
-		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(data->data(), (uint32_t)data->size() * sizeof(float)));
+		// Do a final update of the lightmap texture with the dilated result.
+		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.dilatedLightmapData.data(), (uint32_t)s_bake.dilatedLightmapData.size() * sizeof(float)));
 		s_bake.status = BakeStatus::Finished;
 	} else if (s_bake.status == BakeStatus::Error && g_options.shadeMode == ShadeMode::Lightmap) {
 		// Executing bake sets shade mode to lightmap. Set it back to charts if there was an error.
