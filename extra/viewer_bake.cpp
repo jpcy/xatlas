@@ -413,6 +413,7 @@ struct
 	std::vector<float> dilatedLightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
 	std::atomic<uint32_t> numSampleLocationsProcessed;
+	uint32_t numRaysTraced;
 	double denoiseProgress;
 	bool denoiseSucceeded;
 	bx::RngMwc rng;
@@ -615,6 +616,7 @@ static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, int depth, const flo
 	rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
 	rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
 	embree::Intersect1(s_bake.embreeScene, &context, &rh);
+	s_bake.numRaysTraced++;
 	if (rh.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
 		// Ray missed, use sky color.
 		return s_bake.options.skyColor;
@@ -636,6 +638,7 @@ static bool bakeTraceRays()
 {
 	s_bake.rng.reset();
 	s_bake.numSampleLocationsProcessed = 0;
+	s_bake.numRaysTraced = 0;
 	s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	memset(s_bake.lightmapData.data(), 0, s_bake.lightmapData.size() * sizeof(float));
 	s_bake.updateData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
@@ -643,6 +646,7 @@ static bool bakeTraceRays()
 	accumulated.resize(s_bake.lightmapWidth * s_bake.lightmapHeight);
 	memset(accumulated.data(), 0, accumulated.size() * sizeof(bx::Vec3));
 	const float kNear = 0.01f * modelGetScale();
+	const clock_t start = clock();
 	for (int pi = 0; pi < s_bake.options.numPasses; pi++) {
 		const float invPass = 1.0f / (pi + 1.0f);
 		for (uint32_t si = 0; si < (uint32_t)s_bake.sampleLocations.size(); si++) {
@@ -670,6 +674,8 @@ static bool bakeTraceRays()
 			}
 		}
 	}
+	const double elapsedSeconds = (clock() - start) / (double)CLOCKS_PER_SEC;
+	printf("Finished tracing rays in %.2f seconds. %.2f Mrays/s.\n", elapsedSeconds, s_bake.numRaysTraced / elapsedSeconds / 1000000.0);
 	return true;
 }
 
