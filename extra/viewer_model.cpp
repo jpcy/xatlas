@@ -573,7 +573,7 @@ void modelSetMaterialTexturesAndUniforms(int32_t materialIndex, uint8_t stageOff
 {
 	const objzMaterial *mat = materialIndex == -1 ? nullptr : &s_model.data->materials[materialIndex];
 	if (!mat) {
-		const float diffuse[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+		const float diffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
 		const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 		bgfx::setUniform(s_model.u_diffuse, diffuse);
 		bgfx::setUniform(s_model.u_emission, emission);

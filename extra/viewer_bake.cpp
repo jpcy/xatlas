@@ -587,21 +587,6 @@ static bool bakeRasterize()
 }
 
 // https://github.com/aras-p/ToyPathTracer
-static void bakeScatterRay(const RTCRayHit &rh, bx::Vec3 *attenuation, bx::Vec3 *scatteredRayOrigin, bx::Vec3 *scatteredRayDir)
-{
-	const objzMaterial *mat = s_bake.triMaterials[rh.hit.primID];
-	if (mat)
-		*attenuation = bx::Vec3(mat->diffuse[0], mat->diffuse[1], mat->diffuse[2]);
-	else
-		*attenuation = bx::Vec3(0.0f);
-	const bx::Vec3 origin(rh.ray.org_x, rh.ray.org_y, rh.ray.org_z);
-	const bx::Vec3 normal = bx::normalize(bx::Vec3(rh.ray.dir_x, rh.ray.dir_y, rh.ray.dir_z));
-	const bx::Vec3 hitPos = origin + normal * rh.ray.tfar;
-	const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z));
-	*scatteredRayOrigin = hitPos;
-	*scatteredRayDir = bx::randUnitHemisphere(&s_bake.rng, hitNormal);
-}
-
 static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, int depth, const float near)
 {
 	RTCIntersectContext context;
@@ -627,14 +612,17 @@ static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, int depth, const flo
 		return s_bake.options.skyColor;
 	}
 	if (depth < s_bake.options.maxDepth) {
+		// we got a new ray bounced from the surface; recursively trace it
+		bx::Vec3 attenuation = bx::Vec3(0.5f);
 		bx::Vec3 emission(0.0f);
 		const objzMaterial *mat = s_bake.triMaterials[rh.hit.primID];
-		if (mat)
+		if (mat) {
+			attenuation = bx::Vec3(mat->diffuse[0], mat->diffuse[1], mat->diffuse[2]);
 			emission = bx::Vec3(mat->emission[0], mat->emission[1], mat->emission[2]);
-		// we got a new ray bounced from the surface; recursively trace it
-		bx::Vec3 attenuation, newOrigin, newDir;
-		bakeScatterRay(rh, &attenuation, &newOrigin, &newDir);
-		return emission + attenuation * bakeTraceRay(newOrigin, newDir, depth + 1, near);
+		}
+		const bx::Vec3 hitPos = origin + dir * rh.ray.tfar;
+		const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z));
+		return emission + attenuation * bakeTraceRay(hitPos, bx::randUnitHemisphere(&s_bake.rng, hitNormal), depth + 1, near);
 	}
 	return bx::Vec3(0.0f);
 }
