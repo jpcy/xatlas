@@ -23,6 +23,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "shaders/shared.h"
 #include "viewer.h"
 
+static bx::Vec3 operator+(bx::Vec3 a, bx::Vec3 b) { return bx::add(a, b); }
+static bx::Vec3 operator-(bx::Vec3 a, bx::Vec3 b) { return bx::sub(a, b); }
+static bx::Vec3 operator*(bx::Vec3 a, bx::Vec3 b) { return bx::mul(a, b); }
+static bx::Vec3 operator*(bx::Vec3 a, float s) { return bx::mul(a, s); }
+
 /***********************************************************
 * A single header file OpenGL lightmapping library         *
 * https://github.com/ands/lightmapper                      *
@@ -199,12 +204,12 @@ static bool lm_trySamplingConservativeTriangleRasterizerPosition(lm_context *ctx
 			// sample it only if its's not degenerate
 			if (bx::isFinite(uv.x) && bx::isFinite(uv.y))
 			{
-				bx::Vec3 p0 = ctx->triangle.p[0];
-				bx::Vec3 p1 = ctx->triangle.p[1];
-				bx::Vec3 p2 = ctx->triangle.p[2];
-				bx::Vec3 v1 = bx::sub(p1, p0);
-				bx::Vec3 v2 = bx::sub(p2, p0);
-				ctx->sample.position = bx::add(p0, bx::add(bx::mul(v2, uv.x), bx::mul(v1, uv.y)));
+				const bx::Vec3 &p0 = ctx->triangle.p[0];
+				const bx::Vec3 &p1 = ctx->triangle.p[1];
+				const bx::Vec3 &p2 = ctx->triangle.p[2];
+				const bx::Vec3 v1 = p1 - p0;
+				const bx::Vec3 v2 = p2 - p0;
+				ctx->sample.position = p0 + v2 * uv.x + v1 * uv.y;
 				ctx->sample.direction = bx::normalize(bx::cross(v1, v2));
 
 				if (bx::isFinite(ctx->sample.position.x) && bx::isFinite(ctx->sample.position.y) && bx::isFinite(ctx->sample.position.z) &&
@@ -591,7 +596,7 @@ static void bakeScatterRay(const RTCRayHit &rh, bx::Vec3 *attenuation, bx::Vec3 
 		*attenuation = bx::Vec3(0.0f);
 	const bx::Vec3 origin(rh.ray.org_x, rh.ray.org_y, rh.ray.org_z);
 	const bx::Vec3 normal = bx::normalize(bx::Vec3(rh.ray.dir_x, rh.ray.dir_y, rh.ray.dir_z));
-	const bx::Vec3 hitPos = bx::add(origin, bx::mul(normal, rh.ray.tfar));
+	const bx::Vec3 hitPos = origin + normal * rh.ray.tfar;
 	const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z));
 	*scatteredRayOrigin = hitPos;
 	*scatteredRayDir = bx::randUnitHemisphere(&s_bake.rng, hitNormal);
@@ -629,7 +634,7 @@ static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, int depth, const flo
 		// we got a new ray bounced from the surface; recursively trace it
 		bx::Vec3 attenuation, newOrigin, newDir;
 		bakeScatterRay(rh, &attenuation, &newOrigin, &newDir);
-		return bx::add(emission, bx::mul(attenuation, bakeTraceRay(newOrigin, newDir, depth + 1, near)));
+		return emission + attenuation * bakeTraceRay(newOrigin, newDir, depth + 1, near);
 	}
 	return bx::Vec3(0.0f);
 }
@@ -652,9 +657,9 @@ static bool bakeTraceRays()
 		for (uint32_t si = 0; si < (uint32_t)s_bake.sampleLocations.size(); si++) {
 			const SampleLocation &sample = s_bake.sampleLocations[si];
 			const bx::Vec3 dir = bx::randUnitHemisphere(&s_bake.rng, sample.normal);
-			bx::Vec3 color = bakeTraceRay(sample.pos, dir, 0, kNear);
+			const bx::Vec3 color = bakeTraceRay(sample.pos, dir, 0, kNear);
 			bx::Vec3 &accum = accumulated[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth)];
-			accum = bx::add(accum, color);
+			accum = accum + color;
 			float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
 			rgba[0] = accum.x * invPass;
 			rgba[1] = accum.y * invPass;
