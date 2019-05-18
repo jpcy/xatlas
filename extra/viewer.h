@@ -137,6 +137,8 @@ bx::Vec3 modelGetCentroid();
 float modelGetScale();
 bgfx::ShaderHandle modelGet_vs_model();
 bool modelIsLoaded();
+bool modelSampleMaterialDiffuse(const objzMaterial *mat, const float *uv, bx::Vec3 *color);
+bool modelSampleMaterialEmission(const objzMaterial *mat, const float *uv, bx::Vec3 *color);
 
 enum class ShadeMode
 {

@@ -89,6 +89,9 @@ struct TextureData
 	uint16_t height;
 	const bgfx::Memory *mem;
 	int numComponents;
+	// Data used by baking to sample the texture.
+	uint8_t *sampleData;
+	uint32_t sampleWidth, sampleHeight;
 };
 
 static TextureData textureLoad(const char *basePath, const char *filename)
@@ -98,6 +101,7 @@ static TextureData textureLoad(const char *basePath, const char *filename)
 	bx::strCat(fullFilename, sizeof(fullFilename), filename);
 	TextureData td;
 	td.mem = nullptr;
+	td.sampleData = nullptr;
 #if _MSC_VER
 	FILE *f;
 	if (fopen_s(&f, fullFilename, "rb") != 0)
@@ -148,6 +152,14 @@ static TextureData textureLoad(const char *basePath, const char *filename)
 		src = dest;
 		srcWidth = mipWidth;
 		srcHeight = mipHeight;
+		// Copy a small mip for baking to use for sampling textures.
+		if (!td.sampleData && (mipWidth <= 32 || mipHeight <= 32)) {
+			const size_t size = mipWidth * mipHeight * numComponents;
+			td.sampleData = new uint8_t[size];
+			memcpy(td.sampleData, dest, size);
+			td.sampleWidth = (uint32_t)mipWidth;
+			td.sampleHeight = (uint32_t)mipHeight;
+		}
 	}
 	td.mem = mem;
 	td.width = (uint16_t)width;
@@ -203,8 +215,10 @@ static bgfx::TextureHandle textureGetHandle(uint32_t index)
 
 static void textureDestroyCache()
 {
-	for (int i = 0; i < (int)s_textureCache.size(); i++)
+	for (int i = 0; i < (int)s_textureCache.size(); i++) {
 		bgfx::destroy(s_textureCache[i].handle);
+		delete s_textureCache[i].data.sampleData;
+	}
 	s_textureCache.clear();
 }
 
@@ -713,4 +727,29 @@ bgfx::ShaderHandle modelGet_vs_model()
 bool modelIsLoaded()
 {
 	return s_model.status.get() == ModelStatus::Loaded;
+}
+
+static bool modelSampleTexture(uint32_t textureIndex, const float *uv, bx::Vec3 *color)
+{
+	if (textureIndex == UINT32_MAX)
+		return false;
+	const CachedTexture &texture = s_textureCache[textureIndex];
+	const uint32_t x = uint32_t(uv[0] * texture.data.sampleWidth) % texture.data.sampleWidth;
+	const uint32_t y = uint32_t(uv[1] * texture.data.sampleHeight) % texture.data.sampleHeight;
+	const uint8_t *rgb = &texture.data.sampleData[(x + y * texture.data.sampleWidth) * texture.data.numComponents];
+	if (texture.data.numComponents == 1)
+		*color = bx::Vec3(rgb[0] / 255.0f);
+	else
+		*color = bx::Vec3(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f);
+	return true;
+}
+
+bool modelSampleMaterialDiffuse(const objzMaterial *mat, const float *uv, bx::Vec3 *color)
+{
+	return modelSampleTexture(s_model.diffuseTextures[mat - s_model.data->materials], uv, color);
+}
+
+bool modelSampleMaterialEmission(const objzMaterial *mat, const float *uv, bx::Vec3 *color)
+{
+	return modelSampleTexture(s_model.emissionTextures[mat - s_model.data->materials], uv, color);
 }

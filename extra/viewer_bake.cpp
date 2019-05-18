@@ -612,17 +612,31 @@ static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, int depth, const flo
 		return s_bake.options.skyColor;
 	}
 	if (depth < s_bake.options.maxDepth) {
+		const uint32_t *indices = atlasGetIndices()->data();
+		const ModelVertex *vertices = atlasGetVertices()->data();
+		const ModelVertex &v0 = vertices[indices[rh.hit.primID * 3 + 0]];
+		const ModelVertex &v1 = vertices[indices[rh.hit.primID * 3 + 1]];
+		const ModelVertex &v2 = vertices[indices[rh.hit.primID * 3 + 2]];
 		// we got a new ray bounced from the surface; recursively trace it
-		bx::Vec3 attenuation = bx::Vec3(0.5f);
+		bx::Vec3 diffuse = bx::Vec3(0.5f);
 		bx::Vec3 emission(0.0f);
 		const objzMaterial *mat = s_bake.triMaterials[rh.hit.primID];
 		if (mat) {
-			attenuation = bx::Vec3(mat->diffuse[0], mat->diffuse[1], mat->diffuse[2]);
+			diffuse = bx::Vec3(mat->diffuse[0], mat->diffuse[1], mat->diffuse[2]);
 			emission = bx::Vec3(mat->emission[0], mat->emission[1], mat->emission[2]);
+			float uv[2];
+			for (int i = 0; i < 2; i++)
+				uv[i] = v0.texcoord[i] + (v1.texcoord[i] - v0.texcoord[i]) * rh.hit.u + (v2.texcoord[i] - v0.texcoord[i]) * rh.hit.v;
+			bx::Vec3 sample;
+			if (modelSampleMaterialDiffuse(mat, uv, &sample))
+				diffuse = diffuse * sample;
+			if (modelSampleMaterialEmission(mat, uv, &sample))
+				emission = sample;
 		}
-		const bx::Vec3 hitPos = origin + dir * rh.ray.tfar;
+		// Using barycentrics should be more precise than "origin + dir * rh.ray.tfar".
+		const bx::Vec3 hitPos = v0.pos + (v1.pos - v0.pos) * rh.hit.u + (v2.pos - v0.pos) * rh.hit.v;
 		const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z));
-		return emission + attenuation * bakeTraceRay(hitPos, bx::randUnitHemisphere(&s_bake.rng, hitNormal), depth + 1, near);
+		return emission + diffuse * bakeTraceRay(hitPos, bx::randUnitHemisphere(&s_bake.rng, hitNormal), depth + 1, near);
 	}
 	return bx::Vec3(0.0f);
 }
