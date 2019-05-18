@@ -23,6 +23,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "shaders/shared.h"
 #include "viewer.h"
 
+namespace std { typedef std::lock_guard<std::mutex> mutex_lock; }
 static bx::Vec3 operator+(bx::Vec3 a, bx::Vec3 b) { return bx::add(a, b); }
 static bx::Vec3 operator-(bx::Vec3 a, bx::Vec3 b) { return bx::sub(a, b); }
 static bx::Vec3 operator*(bx::Vec3 a, bx::Vec3 b) { return bx::mul(a, b); }
@@ -304,7 +305,6 @@ struct BakeStatus
 		InitEmbree,
 		Rasterizing,
 		Tracing,
-		Denoising,
 		ThreadFinished,
 		Finished,
 		Error
@@ -312,30 +312,60 @@ struct BakeStatus
 
 	bool operator==(Enum value)
 	{
-		m_lock.lock();
-		const bool result = m_value == value;
-		m_lock.unlock();
-		return result;
+		std::mutex_lock lock(m_mutex);
+		return m_value == value;
 	}
 
 	bool operator!=(Enum value)
 	{
-		m_lock.lock();
-		const bool result = m_value != value;
-		m_lock.unlock();
-		return result;
+		std::mutex_lock lock(m_mutex);
+		return m_value != value;
 	}
 
 	BakeStatus &operator=(Enum value)
 	{
-		m_lock.lock();
+		std::mutex_lock lock(m_mutex);
 		m_value = value;
-		m_lock.unlock();
 		return *this;
 	}
 
 private:
-	std::mutex m_lock;
+	std::mutex m_mutex;
+	Enum m_value = Idle;
+};
+
+struct DenoiseStatus
+{
+	enum Enum
+	{
+		Idle,
+		Working,
+		ThreadFinished,
+		Finished,
+		Error
+	};
+
+	bool operator==(Enum value)
+	{
+		std::mutex_lock lock(m_mutex);
+		return m_value == value;
+	}
+
+	bool operator!=(Enum value)
+	{
+		std::mutex_lock lock(m_mutex);
+		return m_value != value;
+	}
+
+	DenoiseStatus &operator=(Enum value)
+	{
+		std::mutex_lock lock(m_mutex);
+		m_value = value;
+		return *this;
+	}
+
+private:
+	std::mutex m_mutex;
 	Enum m_value = Idle;
 };
 
@@ -350,37 +380,32 @@ struct UpdateStatus
 
 	bool operator==(Enum value)
 	{
-		m_lock.lock();
-		const bool result = m_value == value;
-		m_lock.unlock();
-		return result;
+		std::mutex_lock lock(m_mutex);
+		return m_value == value;
 	}
 
 	bool operator!=(Enum value)
 	{
-		m_lock.lock();
-		const bool result = m_value != value;
-		m_lock.unlock();
-		return result;
+		std::mutex_lock lock(m_mutex);
+		return m_value != value;
 	}
 
 	UpdateStatus &operator=(Enum value)
 	{
-		m_lock.lock();
+		std::mutex_lock lock(m_mutex);
 		m_value = value;
-		m_lock.unlock();
 		return *this;
 	}
 
 private:
-	std::mutex m_lock;
+	std::mutex m_mutex;
 	Enum m_value = Idle;
 };
 
 struct BakeOptions
 {
 	bool fitToWindow = true;
-	bool denoise = true;
+	bool useDenoisedLightmap = true;
 	bx::Vec3 skyColor = bx::Vec3(0.5f, 0.5f, 0.5f);
 	int numPasses = 8;
 	int maxDepth = 10;
@@ -406,7 +431,7 @@ struct
 	void *oidnLibrary = nullptr;
 	std::vector<objzMaterial *> triMaterials;
 	// lightmap
-	bgfx::TextureHandle lightmap;
+	bgfx::TextureHandle lightmap, denoisedLightmap;
 	uint32_t lightmapWidth, lightmapHeight;
 	// worker thread
 	std::thread *workerThread = nullptr;
@@ -414,14 +439,16 @@ struct
 	std::mutex cancelWorkerMutex;
 	std::vector<SampleLocation> sampleLocations;
 	std::vector<float> lightmapData;
-	std::vector<float> denoisedLightmapData;
 	std::vector<float> dilatedLightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
 	std::atomic<uint32_t> numSampleLocationsProcessed;
 	uint32_t numRaysTraced;
-	double denoiseProgress;
-	bool denoiseSucceeded;
 	bx::RngMwc rng;
+	// denoise thread
+	DenoiseStatus denoiseStatus;
+	std::thread *denoiseThread = nullptr;
+	double denoiseProgress;
+	std::vector<float> denoisedLightmapData;
 	// lightmap update
 	clock_t lastUpdateTime = 0;
 	const double updateIntervalMs = 50;
@@ -686,6 +713,40 @@ static bool bakeTraceRays()
 	return true;
 }
 
+static void bakeWorkerThread()
+{
+	if (!bakeInitEmbree()) {
+		s_bake.status = BakeStatus::Error;
+		return;
+	}
+	s_bake.status = BakeStatus::Rasterizing;
+	if (!bakeRasterize()) {
+		s_bake.status = BakeStatus::Finished;
+		return;
+	}
+	s_bake.status = BakeStatus::Tracing;
+	if (!bakeTraceRays()) {
+		s_bake.status = BakeStatus::Finished;
+		return;
+	}
+	// Dilate
+	s_bake.dilatedLightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
+	lmImageDilate(s_bake.lightmapData.data(), s_bake.dilatedLightmapData.data(), (int)s_bake.lightmapWidth, (int)s_bake.lightmapHeight, 4);
+	s_bake.status = BakeStatus::ThreadFinished;
+}
+
+static void bakeShutdownWorkerThread()
+{
+	s_bake.cancelWorkerMutex.lock();
+	s_bake.cancelWorker = true;
+	s_bake.cancelWorkerMutex.unlock();
+	if (s_bake.workerThread) {
+		s_bake.workerThread->join();
+		delete s_bake.workerThread;
+		s_bake.workerThread = nullptr;
+	}
+}
+
 #define OIDN_LIB "OpenImageDenoise.dll"
 
 namespace oidn
@@ -726,22 +787,18 @@ static void bakeOidnError(void* /*userPtr*/, OIDNError code, const char* message
 
 static bool bakeOidnProgress(void* /*userPtr*/, double n)
 {
-	if (bakeIsWorkerThreadCancelled())
-		return false;
 	s_bake.denoiseProgress = n;
 	return true;
 }
 
-static void bakeDenoise()
+static void bakeDenoiseThread()
 {
-	s_bake.denoiseSucceeded = false;
 	s_bake.denoiseProgress = 0;
-	if (!s_bake.options.denoise)
-		return;
 	if (!s_bake.oidnLibrary) {
 		s_bake.oidnLibrary = bx::dlopen(OIDN_LIB);
 		if (!s_bake.oidnLibrary) {
 			fprintf(stderr, "OIDN not installed. Cannot open '%s'.", OIDN_LIB);
+			s_bake.denoiseStatus = DenoiseStatus::Error;
 			return;
 		}
 		oidn::NewDevice = (oidn::NewDeviceFunc)bx::dlsym(s_bake.oidnLibrary, "oidnNewDevice");
@@ -761,75 +818,42 @@ static void bakeDenoise()
 	OIDNDevice device = oidn::NewDevice(OIDN_DEVICE_TYPE_DEFAULT);
 	if (!device) {
 		fprintf(stderr, "Error creating OIDN device\n");
+		s_bake.denoiseStatus = DenoiseStatus::Error;
 		return;
 	}
-	// Dilate into temp buffer.
-	std::vector<float> temp;
-	temp.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
-	lmImageDilate(s_bake.lightmapData.data(), temp.data(), (int)s_bake.lightmapWidth, (int)s_bake.lightmapHeight, 4);
 	oidn::SetDeviceErrorFunction(device, bakeOidnError, nullptr);
 	oidn::SetDevice1b(device, "setAffinity", false);
 	oidn::CommitDevice(device);
 	OIDNFilter filter = oidn::NewFilter(device, "RT");
 	oidn::SetFilterProgressMonitorFunction(filter, bakeOidnProgress, nullptr);
-	oidn::SetSharedFilterImage(filter, "color", temp.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
+	oidn::SetSharedFilterImage(filter, "color", s_bake.dilatedLightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
 	oidn::SetSharedFilterImage(filter, "output", s_bake.denoisedLightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
 	oidn::CommitFilter(filter);
 	oidn::ExecuteFilter(filter);
 	oidn::ReleaseFilter(filter);
 	oidn::ReleaseDevice(device);
-	if (bakeIsWorkerThreadCancelled())
-		return;
 	// Copy alpha channel.
 	for (uint32_t i = 0; i < s_bake.lightmapWidth * s_bake.lightmapHeight; i++)
-		s_bake.denoisedLightmapData[i * 4 + 3] = s_bake.lightmapData[i * 4 + 3];
-	s_bake.denoiseSucceeded = true;
-}
-
-static void bakeWorkerThread()
-{
-	if (!bakeInitEmbree()) {
-		s_bake.status = BakeStatus::Error;
-		return;
-	}
-	s_bake.status = BakeStatus::Rasterizing;
-	if (!bakeRasterize()) {
-		s_bake.status = BakeStatus::Finished;
-		return;
-	}
-	s_bake.status = BakeStatus::Tracing;
-	if (!bakeTraceRays()) {
-		s_bake.status = BakeStatus::Finished;
-		return;
-	}
-	// Make sure there's a lightmap texture update before denoising.
-	// Otherwise you're looking at an unfinished bake while the denoiser is running.
-	if (s_bake.options.denoise) {
-		while (s_bake.updateStatus != UpdateStatus::Idle) {}
-		memcpy(s_bake.updateData.data(), s_bake.lightmapData.data(), s_bake.lightmapData.size() * sizeof(float));
-		s_bake.updateStatus = UpdateStatus::Pending;
-	}
-	s_bake.status = BakeStatus::Denoising;
-	bakeDenoise();
-	if (bakeIsWorkerThreadCancelled()) {
-		s_bake.status = BakeStatus::Finished;
-		return;
-	}
+		s_bake.denoisedLightmapData[i * 4 + 3] = s_bake.dilatedLightmapData[i * 4 + 3];
 	// Dilate
-	s_bake.dilatedLightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
-	lmImageDilate(s_bake.denoiseSucceeded ? s_bake.denoisedLightmapData.data() : s_bake.lightmapData.data(), s_bake.dilatedLightmapData.data(), (int)s_bake.lightmapWidth, (int)s_bake.lightmapHeight, 4);
-	s_bake.status = BakeStatus::ThreadFinished;
+	lmImageDilate(s_bake.denoisedLightmapData.data(), s_bake.dilatedLightmapData.data(), (int)s_bake.lightmapWidth, (int)s_bake.lightmapHeight, 4);
+	s_bake.denoiseStatus = DenoiseStatus::ThreadFinished;
 }
 
-static void bakeShutdownWorkerThread()
+static void bakeDenoise()
 {
-	s_bake.cancelWorkerMutex.lock();
-	s_bake.cancelWorker = true;
-	s_bake.cancelWorkerMutex.unlock();
-	if (s_bake.workerThread) {
-		s_bake.workerThread->join();
-		delete s_bake.workerThread;
-		s_bake.workerThread = nullptr;
+	if (s_bake.status != BakeStatus::Finished)
+		return;
+	s_bake.denoiseStatus = DenoiseStatus::Working;
+	s_bake.denoiseThread = new std::thread(bakeDenoiseThread);
+}
+
+static void bakeShutdownDenoiseThread()
+{
+	if (s_bake.denoiseThread) {
+		s_bake.denoiseThread->join();
+		delete s_bake.denoiseThread;
+		s_bake.denoiseThread = nullptr;
 	}
 }
 
@@ -839,6 +863,7 @@ void bakeInit()
 
 void bakeShutdown()
 {
+	bakeShutdownDenoiseThread();
 	bakeShutdownWorkerThread();
 	if (s_bake.embreeDevice) {
 		embree::ReleaseGeometry(s_bake.embreeGeometry);
@@ -850,8 +875,10 @@ void bakeShutdown()
 		bx::dlclose(s_bake.embreeLibrary);
 	if (s_bake.oidnLibrary)
 		bx::dlclose(s_bake.oidnLibrary);
-	if (s_bake.initialized)
+	if (s_bake.initialized) { 
 		bgfx::destroy(s_bake.lightmap);
+		bgfx::destroy(s_bake.denoisedLightmap);
+	}
 }
 
 void bakeExecute()
@@ -863,9 +890,12 @@ void bakeExecute()
 	if (!s_bake.initialized || lightmapResolutionChanged) {
 		s_bake.lightmapWidth = atlasGetWidth();
 		s_bake.lightmapHeight = atlasGetHeight();
-		if (s_bake.initialized)
+		if (s_bake.initialized) {
 			bgfx::destroy(s_bake.lightmap);
+			bgfx::destroy(s_bake.denoisedLightmap);
+		}
 		s_bake.lightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_SAMPLER_UVW_CLAMP);
+		s_bake.denoisedLightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_SAMPLER_UVW_CLAMP);
 	}
 	s_bake.initialized = true;
 	g_options.shadeMode = ShadeMode::Lightmap;
@@ -877,14 +907,6 @@ void bakeExecute()
 
 void bakeFrame(uint32_t frameNo)
 {
-	if (s_bake.updateStatus == UpdateStatus::Pending) {
-		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.updateData.data(), (uint32_t)s_bake.updateData.size() * sizeof(float)));
-		s_bake.updateStatus = UpdateStatus::Updating;
-		s_bake.updateFinishedFrameNo = frameNo + 2;
-	} else if (s_bake.updateStatus == UpdateStatus::Updating) {
-		if (frameNo == s_bake.updateFinishedFrameNo)
-			s_bake.updateStatus = UpdateStatus::Idle;
-	}
 	if (s_bake.status == BakeStatus::ThreadFinished) {
 		bakeShutdownWorkerThread();
 		// Do a final update of the lightmap texture with the dilated result.
@@ -894,11 +916,25 @@ void bakeFrame(uint32_t frameNo)
 		// Executing bake sets shade mode to lightmap. Set it back to charts if there was an error.
 		g_options.shadeMode = ShadeMode::Charts;
 	}
+	if (s_bake.denoiseStatus == DenoiseStatus::ThreadFinished) {
+		bakeShutdownDenoiseThread();
+		bgfx::updateTexture2D(s_bake.denoisedLightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.dilatedLightmapData.data(), (uint32_t)s_bake.dilatedLightmapData.size() * sizeof(float)));
+		s_bake.denoiseStatus = DenoiseStatus::Finished;
+	}
+	if (s_bake.updateStatus == UpdateStatus::Pending) {
+		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.updateData.data(), (uint32_t)s_bake.updateData.size() * sizeof(float)));
+		s_bake.updateStatus = UpdateStatus::Updating;
+		s_bake.updateFinishedFrameNo = frameNo + 2;
+	} else if (s_bake.updateStatus == UpdateStatus::Updating) {
+		if (frameNo == s_bake.updateFinishedFrameNo)
+			s_bake.updateStatus = UpdateStatus::Idle;
+	}
 }
 
 void bakeClear()
 {
 	s_bake.status = BakeStatus::Idle;
+	s_bake.denoiseStatus = DenoiseStatus::Idle;
 	g_options.shadeMode = atlasIsReady() ? ShadeMode::Charts : ShadeMode::Flat;
 	if (s_bake.embreeDevice) {
 		embree::ReleaseGeometry(s_bake.embreeGeometry);
@@ -934,14 +970,20 @@ void bakeShowGuiOptions()
 	ImGui::Text("Baking not supported in 32-bit build");
 	ImGui::PopStyleColor();
 #else
-	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Error) {
+	if ((s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Error) && (s_bake.denoiseStatus == DenoiseStatus::Idle || s_bake.denoiseStatus == DenoiseStatus::Finished || s_bake.denoiseStatus == DenoiseStatus::Error)) {
 		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
 		ImGui::SliderInt("Passes", &s_bake.options.numPasses, 1, 64);
 		ImGui::SliderInt("Max depth", &s_bake.options.maxDepth, 1, 16);
-		ImGui::Checkbox("Denoise", &s_bake.options.denoise);
 		const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 		if (ImGui::Button("Bake", buttonSize))
 			bakeExecute();
+		if (s_bake.status == BakeStatus::Finished) {
+			ImGui::SameLine();
+			if (ImGui::Button("Denoise", buttonSize))
+				bakeDenoise();
+		}
+		if (s_bake.denoiseStatus == DenoiseStatus::Finished)
+			ImGui::Checkbox("Use denoised lightmap", &s_bake.options.useDenoisedLightmap);
 		if (s_bake.status == BakeStatus::Error) {
 			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
 			ImGui::Text(s_bake.errorMessage);
@@ -959,11 +1001,10 @@ void bakeShowGuiOptions()
 		ImGui::ProgressBar(s_bake.numSampleLocationsProcessed / float(s_bake.sampleLocations.size() * s_bake.options.numPasses));
 		if (ImGui::Button("Cancel"))
 			bakeShutdownWorkerThread();
-	} else if (s_bake.status == BakeStatus::Denoising) {
+	}
+	if (s_bake.denoiseStatus == DenoiseStatus::Working) {
 		ImGui::Text("Denoising...");
 		ImGui::ProgressBar((float)s_bake.denoiseProgress);
-		if (ImGui::Button("Cancel"))
-			bakeShutdownWorkerThread();
 	}
 #endif
 }
@@ -980,7 +1021,7 @@ void bakeShowGuiWindow()
 	if (ImGui::Begin("Lightmap", &g_options.showLightmapWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 		ImGui::Checkbox("Fit to window", &s_bake.options.fitToWindow);
 		GuiTexture texture;
-		texture.bgfx.handle = s_bake.lightmap;
+		texture.bgfx.handle = bakeGetLightmap();
 		texture.bgfx.flags = GuiTextureFlags::PointSampler;
 		if (s_bake.options.fitToWindow)
 			ImGui::Image(texture.imgui, ImGui::GetContentRegionAvail());
@@ -992,7 +1033,7 @@ void bakeShowGuiWindow()
 
 bgfx::TextureHandle bakeGetLightmap()
 {
-	return s_bake.lightmap;
+	return (s_bake.denoiseStatus == DenoiseStatus::Finished && s_bake.options.useDenoisedLightmap) ? s_bake.denoisedLightmap : s_bake.lightmap;
 }
 
 uint32_t bakeGetLightmapSamplerFlags()
