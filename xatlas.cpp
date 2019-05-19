@@ -5568,14 +5568,22 @@ struct AtlasBuilder
 	float evaluatePriority(ChartBuildData *chart, uint32_t face) const
 	{
 		// Estimate boundary length and area:
-		const float newBoundaryLength = evaluateBoundaryLength(chart, face);
 		const float newChartArea = evaluateChartArea(chart, face);
+		const float newBoundaryLength = evaluateBoundaryLength(chart, face);
+		// Enforce limits strictly:
+		if (m_options.maxChartArea > 0.0f && newChartArea > m_options.maxChartArea)
+			return FLT_MAX;
+		if (m_options.maxBoundaryLength > 0.0f && newBoundaryLength > m_options.maxBoundaryLength)
+			return FLT_MAX;
+		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
+		// Make sure normal seams are fully respected:
+		const float N = evaluateNormalSeamMetric(chart, face);
+		if (m_options.normalSeamMetricWeight >= 1000 && N > 0.0f)
+			return FLT_MAX;
+		const float T = evaluateTextureSeamMetric(chart, face);
 		const float F = evaluateProxyFitMetric(chart, face);
 		const float C = evaluateRoundnessMetric(chart, face, newBoundaryLength, newChartArea);
 		const float P = evaluateStraightnessMetric(chart, face);
-		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
-		const float N = evaluateNormalSeamMetric(chart, face);
-		const float T = evaluateTextureSeamMetric(chart, face);
 		//float R = evaluateCompletenessMetric(chart, face);
 		//float D = evaluateDihedralAngleMetric(chart, face);
 		// @@ Add a metric based on local dihedral angle.
@@ -5587,14 +5595,6 @@ struct AtlasBuilder
 			m_options.straightnessMetricWeight * P +
 			m_options.normalSeamMetricWeight * N +
 			m_options.textureSeamMetricWeight * T;
-		// Enforce limits strictly:
-		if (m_options.maxChartArea > 0 && newChartArea > m_options.maxChartArea)
-			cost = FLT_MAX;
-		if (m_options.maxBoundaryLength > 0 && newBoundaryLength > m_options.maxBoundaryLength)
-			cost = FLT_MAX;
-		// Make sure normal seams are fully respected:
-		if (m_options.normalSeamMetricWeight >= 1000 && N != 0)
-			cost = FLT_MAX;
 		XA_DEBUG_ASSERT(isFinite(cost));
 		return cost;
 	}
