@@ -152,10 +152,10 @@ struct ChartOptions
 	float proxyFitMetricWeight;
 	float roundnessMetricWeight;
 	float straightnessMetricWeight;
-	float normalSeamMetricWeight;
+	float normalSeamMetricWeight; // If > 1000, normal seams are fully respected.
 	float textureSeamMetricWeight;
-	float maxChartArea;
-	float maxBoundaryLength;
+	float maxChartArea; // Don't grow charts to be larger than this. 0 means no limit.
+	float maxBoundaryLength; // Don't grow charts to have a longer boundary than this. 0 means no limit.
 	float maxThreshold;
 	uint32_t growFaceCount;
 	uint32_t maxIterations;
