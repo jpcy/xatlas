@@ -5578,23 +5578,22 @@ struct AtlasBuilder
 		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
 		// Make sure normal seams are fully respected:
 		const float N = evaluateNormalSeamMetric(chart, face);
-		if (m_options.normalSeamMetricWeight >= 1000 && N > 0.0f)
+		if (m_options.normalSeamMetricWeight >= 1000.0f && N > 0.0f)
 			return FLT_MAX;
-		const float T = evaluateTextureSeamMetric(chart, face);
-		const float F = evaluateProxyFitMetric(chart, face);
-		const float C = evaluateRoundnessMetric(chart, face, newBoundaryLength, newChartArea);
-		const float P = evaluateStraightnessMetric(chart, face);
+		float cost = m_options.normalSeamMetricWeight * N;
+		if (m_options.proxyFitMetricWeight > 0.0f)
+			cost += m_options.proxyFitMetricWeight * evaluateProxyFitMetric(chart, face);
+		if (m_options.roundnessMetricWeight > 0.0f)
+			cost += m_options.roundnessMetricWeight * evaluateRoundnessMetric(chart, face, newBoundaryLength, newChartArea);
+		if (m_options.straightnessMetricWeight > 0.0f)
+			cost += m_options.straightnessMetricWeight * evaluateStraightnessMetric(chart, face);
+		if (m_options.textureSeamMetricWeight > 0.0f)
+			cost += m_options.textureSeamMetricWeight * evaluateTextureSeamMetric(chart, face);
 		//float R = evaluateCompletenessMetric(chart, face);
 		//float D = evaluateDihedralAngleMetric(chart, face);
 		// @@ Add a metric based on local dihedral angle.
 		// @@ Tweaking the normal and texture seam metrics.
 		// - Cause more impedance. Never cross 90 degree edges.
-		float cost =
-			m_options.proxyFitMetricWeight * F +
-			m_options.roundnessMetricWeight * C +
-			m_options.straightnessMetricWeight * P +
-			m_options.normalSeamMetricWeight * N +
-			m_options.textureSeamMetricWeight * T;
 		XA_DEBUG_ASSERT(isFinite(cost));
 		return cost;
 	}
