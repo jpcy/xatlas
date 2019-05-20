@@ -672,6 +672,7 @@ void atlasShowGuiOptions()
 		return;
 	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
 	ImGui::Text("Atlas");
+	ImGui::Spacing();
 	if (ImGui::Button("Generate", buttonSize))
 		atlasGenerate();
 	ImGui::SameLine();
@@ -683,7 +684,7 @@ void atlasShowGuiOptions()
 			numIndices += outputMesh.indexCount;
 			numVertices += outputMesh.vertexCount;
 		}
-		ImGui::Text("%u atlas", s_atlas.data->atlasCount, s_atlas.data->atlasCount > 1 ? "es" : "");
+		ImGui::Text("%u atlas%s", s_atlas.data->atlasCount, s_atlas.data->atlasCount > 1 ? "es" : "");
 		ImGui::Text("%ux%u resolution", s_atlas.data->width, s_atlas.data->height);
 		ImGui::Text("%u charts", s_atlas.data->chartCount);
 		ImGui::Text("%u vertices", numVertices);
@@ -724,10 +725,6 @@ void atlasShowGuiOptions()
 #endif
 	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding)) {
 		bool changed = false;
-		if (ImGui::Button("Reset to default", buttonSize)) {
-			clearPackOptions();
-			changed = true;
-		}
 		changed |= ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
 		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
 		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);

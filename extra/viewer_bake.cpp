@@ -958,22 +958,21 @@ void bakeClear()
 
 void bakeShowGuiOptions()
 {
+	const ImVec4 red(1.0f, 0.0f, 0.0f, 1.0f);
 	ImGui::Text("Lightmap");
+	ImGui::Spacing();
 	if (atlasGetCount() > 1) {
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_Text, red);
 		ImGui::Text("Baking doesn't support multiple atlases");
 		ImGui::PopStyleColor();
 		return;
 	}
 #if BX_ARCH_32BIT
-	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+	ImGui::PushStyleColor(ImGuiCol_Text, red);
 	ImGui::Text("Baking not supported in 32-bit build");
 	ImGui::PopStyleColor();
 #else
 	if ((s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Error) && (s_bake.denoiseStatus == DenoiseStatus::Idle || s_bake.denoiseStatus == DenoiseStatus::Finished || s_bake.denoiseStatus == DenoiseStatus::Error)) {
-		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
-		ImGui::SliderInt("Passes", &s_bake.options.numPasses, 1, 64);
-		ImGui::SliderInt("Max depth", &s_bake.options.maxDepth, 1, 16);
 		const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 		if (ImGui::Button("Bake", buttonSize))
 			bakeExecute();
@@ -982,13 +981,16 @@ void bakeShowGuiOptions()
 			if (ImGui::Button("Denoise", buttonSize))
 				bakeDenoise();
 		}
-		if (s_bake.denoiseStatus == DenoiseStatus::Finished)
-			ImGui::Checkbox("Use denoised lightmap", &s_bake.options.useDenoisedLightmap);
 		if (s_bake.status == BakeStatus::Error) {
-			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+			ImGui::PushStyleColor(ImGuiCol_Text, red);
 			ImGui::Text(s_bake.errorMessage);
 			ImGui::PopStyleColor();
 		}
+		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
+		ImGui::SliderInt("Passes", &s_bake.options.numPasses, 1, 64);
+		ImGui::SliderInt("Max depth", &s_bake.options.maxDepth, 1, 16);
+		if (s_bake.denoiseStatus == DenoiseStatus::Finished)
+			ImGui::Checkbox("Use denoised lightmap", &s_bake.options.useDenoisedLightmap);
 	} else if (s_bake.status == BakeStatus::InitEmbree) {
 		ImGui::Text("Initializing Embree...");
 	} else if (s_bake.status == BakeStatus::Rasterizing) {
