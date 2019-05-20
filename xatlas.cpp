@@ -6549,6 +6549,12 @@ public:
 	*/
 	void computeCharts(const ChartOptions &options)
 	{
+		// This function may be called multiple times, so destroy existing charts.
+		for (uint32_t i = 0; i < m_chartArray.size(); i++) {
+			m_chartArray[i]->~Chart();
+			XA_FREE(m_chartArray[i]);
+		}
+		m_chartArray.clear();
 #if XA_DEBUG_SINGLE_CHART
 		Array<uint32_t> chartFaces;
 		chartFaces.resize(m_mesh->faceCount());
@@ -6771,6 +6777,8 @@ public:
 
 	void computeCharts(task::Scheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
+		m_chartsComputed = false;
+		m_chartsParameterized = false;
 		uint32_t jobCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
@@ -6801,6 +6809,7 @@ public:
 
 	void parameterizeCharts(task::Scheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
 	{
+		m_chartsParameterized = false;
 		uint32_t jobCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
@@ -7897,11 +7906,8 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 		XA_PRINT_WARNING("ComputeCharts: No meshes. Call AddMesh first.\n");
 		return;
 	}
-	if (ctx->paramAtlas.chartsComputed()) {
-		XA_PRINT_WARNING("ComputeCharts: this function can only be called once per context.\n");
-		return;
-	}
 	XA_PRINT("Computing charts\n");
+	atlas->chartCount = 0;
 	ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData);
 	// Count charts.
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {

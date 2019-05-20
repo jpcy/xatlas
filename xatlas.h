@@ -216,10 +216,10 @@ struct PackOptions
 	}
 };
 
-// Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence.
+// Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence. Can be called multiple times to regenerate with different options.
 void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeFunc paramFunc = NULL, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
 
-// Call after AddMesh.
+// Call after AddMesh. Can be called multiple times to recompute charts with different options.
 void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
 
 // Call after ComputeCharts. Can be called multiple times to re-parameterize charts with a different ParameterizeFunc.
