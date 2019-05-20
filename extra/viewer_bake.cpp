@@ -307,6 +307,7 @@ struct BakeStatus
 		Tracing,
 		ThreadFinished,
 		Finished,
+		Cancelled,
 		Error
 	};
 
@@ -407,7 +408,6 @@ struct BakeOptions
 	bool fitToWindow = true;
 	bool useDenoisedLightmap = true;
 	bx::Vec3 skyColor = bx::Vec3(0.5f, 0.5f, 0.5f);
-	int numPasses = 8;
 	int maxDepth = 10;
 };
 
@@ -435,6 +435,8 @@ struct
 	uint32_t lightmapWidth, lightmapHeight;
 	// worker thread
 	std::thread *workerThread = nullptr;
+	bool stopWorker = false;
+	std::mutex stopWorkerMutex;
 	bool cancelWorker = false;
 	std::mutex cancelWorkerMutex;
 	std::vector<SampleLocation> sampleLocations;
@@ -546,7 +548,13 @@ static bool bakeInitEmbree()
 	return true;
 }
 
-static bool bakeIsWorkerThreadCancelled()
+static bool shouldWorkerThreadStop()
+{
+	std::lock_guard<std::mutex> lock(s_bake.stopWorkerMutex);
+	return s_bake.stopWorker;
+}
+
+static bool isWorkerThreadCancelled()
 {
 	std::lock_guard<std::mutex> lock(s_bake.cancelWorkerMutex);
 	return s_bake.cancelWorker;
@@ -607,7 +615,7 @@ static bool bakeRasterize()
 			}
 		}
 		s_bake.numTrianglesRasterized++;
-		if (bakeIsWorkerThreadCancelled())
+		if (isWorkerThreadCancelled())
 			return false;
 	}
 	return true;
@@ -679,23 +687,33 @@ static bool bakeTraceRays()
 	std::vector<bx::Vec3> accumulated;
 	accumulated.resize(s_bake.lightmapWidth * s_bake.lightmapHeight);
 	memset(accumulated.data(), 0, accumulated.size() * sizeof(bx::Vec3));
+	std::vector<uint32_t> numSamples;
+	numSamples.resize(s_bake.lightmapWidth * s_bake.lightmapHeight);
+	memset(numSamples.data(), 0, numSamples.size() * sizeof(uint32_t));
 	const float kNear = 0.01f * modelGetScale();
 	const clock_t start = clock();
-	for (int pi = 0; pi < s_bake.options.numPasses; pi++) {
-		const float invPass = 1.0f / (pi + 1.0f);
+	bool finished = false;
+	while (!finished) {
 		for (uint32_t si = 0; si < (uint32_t)s_bake.sampleLocations.size(); si++) {
 			const SampleLocation &sample = s_bake.sampleLocations[si];
 			const bx::Vec3 dir = bx::randUnitHemisphere(&s_bake.rng, sample.normal);
 			const bx::Vec3 color = bakeTraceRay(sample.pos, dir, 0, kNear);
-			bx::Vec3 &accum = accumulated[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth)];
+			const uint32_t offset = (sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth);
+			bx::Vec3 &accum = accumulated[offset];
+			uint32_t &n = numSamples[offset];
 			accum = accum + color;
-			float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
-			rgba[0] = accum.x * invPass;
-			rgba[1] = accum.y * invPass;
-			rgba[2] = accum.z * invPass;
+			n++;
+			float *rgba = &s_bake.lightmapData[offset * 4];
+			rgba[0] = accum.x / (float)n;
+			rgba[1] = accum.y / (float)n;
+			rgba[2] = accum.z / (float)n;
 			rgba[3] = 1.0f;
 			s_bake.numSampleLocationsProcessed++;
-			if (bakeIsWorkerThreadCancelled())
+			if (shouldWorkerThreadStop()) {
+				finished = true;
+				break;
+			}
+			if (isWorkerThreadCancelled())
 				return false;
 			// Handle lightmap updates.
 			const double elapsedMs = (clock() - s_bake.lastUpdateTime) * 1000.0 / CLOCKS_PER_SEC;
@@ -721,12 +739,12 @@ static void bakeWorkerThread()
 	}
 	s_bake.status = BakeStatus::Rasterizing;
 	if (!bakeRasterize()) {
-		s_bake.status = BakeStatus::Finished;
+		s_bake.status = BakeStatus::Cancelled;
 		return;
 	}
 	s_bake.status = BakeStatus::Tracing;
 	if (!bakeTraceRays()) {
-		s_bake.status = BakeStatus::Finished;
+		s_bake.status = BakeStatus::Cancelled;
 		return;
 	}
 	// Dilate
@@ -735,7 +753,7 @@ static void bakeWorkerThread()
 	s_bake.status = BakeStatus::ThreadFinished;
 }
 
-static void bakeShutdownWorkerThread()
+static void shutdownWorkerThread()
 {
 	s_bake.cancelWorkerMutex.lock();
 	s_bake.cancelWorker = true;
@@ -864,7 +882,7 @@ void bakeInit()
 void bakeShutdown()
 {
 	bakeShutdownDenoiseThread();
-	bakeShutdownWorkerThread();
+	shutdownWorkerThread();
 	if (s_bake.embreeDevice) {
 		embree::ReleaseGeometry(s_bake.embreeGeometry);
 		embree::ReleaseScene(s_bake.embreeScene);
@@ -883,7 +901,7 @@ void bakeShutdown()
 
 void bakeExecute()
 {
-	if (!(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Error))
+	if (!(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Cancelled || s_bake.status == BakeStatus::Error))
 		return;
 	// Re-create lightmap if atlas resolution has changed.
 	const bool lightmapResolutionChanged = s_bake.lightmapWidth != atlasGetWidth() || s_bake.lightmapHeight != atlasGetHeight();
@@ -900,7 +918,9 @@ void bakeExecute()
 	s_bake.initialized = true;
 	g_options.shadeMode = ShadeMode::Lightmap;
 	s_bake.status = BakeStatus::InitEmbree;
+	s_bake.denoiseStatus = DenoiseStatus::Idle;
 	s_bake.updateStatus = UpdateStatus::Idle;
+	s_bake.stopWorker = false;
 	s_bake.cancelWorker = false;
 	s_bake.workerThread = new std::thread(bakeWorkerThread);
 }
@@ -908,12 +928,12 @@ void bakeExecute()
 void bakeFrame(uint32_t frameNo)
 {
 	if (s_bake.status == BakeStatus::ThreadFinished) {
-		bakeShutdownWorkerThread();
+		shutdownWorkerThread();
 		// Do a final update of the lightmap texture with the dilated result.
 		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.dilatedLightmapData.data(), (uint32_t)s_bake.dilatedLightmapData.size() * sizeof(float)));
 		s_bake.status = BakeStatus::Finished;
-	} else if (s_bake.status == BakeStatus::Error && g_options.shadeMode == ShadeMode::Lightmap) {
-		// Executing bake sets shade mode to lightmap. Set it back to charts if there was an error.
+	} else if ((s_bake.status == BakeStatus::Cancelled || s_bake.status == BakeStatus::Error) && g_options.shadeMode == ShadeMode::Lightmap) {
+		// Executing bake sets shade mode to lightmap. Set it back to charts if bake was cancelled or there was an error.
 		g_options.shadeMode = ShadeMode::Charts;
 	}
 	if (s_bake.denoiseStatus == DenoiseStatus::ThreadFinished) {
@@ -958,6 +978,7 @@ void bakeClear()
 
 void bakeShowGuiOptions()
 {
+	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 	const ImVec4 red(1.0f, 0.0f, 0.0f, 1.0f);
 	ImGui::Text("Lightmap");
 	ImGui::Spacing();
@@ -972,11 +993,10 @@ void bakeShowGuiOptions()
 	ImGui::Text("Baking not supported in 32-bit build");
 	ImGui::PopStyleColor();
 #else
-	if ((s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Error) && (s_bake.denoiseStatus == DenoiseStatus::Idle || s_bake.denoiseStatus == DenoiseStatus::Finished || s_bake.denoiseStatus == DenoiseStatus::Error)) {
-		const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
+	if ((s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Cancelled || s_bake.status == BakeStatus::Error) && (s_bake.denoiseStatus == DenoiseStatus::Idle || s_bake.denoiseStatus == DenoiseStatus::Finished || s_bake.denoiseStatus == DenoiseStatus::Error)) {
 		if (ImGui::Button("Bake", buttonSize))
 			bakeExecute();
-		if (s_bake.status == BakeStatus::Finished) {
+		if (s_bake.status == BakeStatus::Finished && (s_bake.denoiseStatus == DenoiseStatus::Idle || s_bake.denoiseStatus == DenoiseStatus::Error)) {
 			ImGui::SameLine();
 			if (ImGui::Button("Denoise", buttonSize))
 				bakeDenoise();
@@ -987,7 +1007,6 @@ void bakeShowGuiOptions()
 			ImGui::PopStyleColor();
 		}
 		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
-		ImGui::SliderInt("Passes", &s_bake.options.numPasses, 1, 64);
 		ImGui::SliderInt("Max depth", &s_bake.options.maxDepth, 1, 16);
 		if (s_bake.denoiseStatus == DenoiseStatus::Finished)
 			ImGui::Checkbox("Use denoised lightmap", &s_bake.options.useDenoisedLightmap);
@@ -997,12 +1016,16 @@ void bakeShowGuiOptions()
 		ImGui::Text("Rasterizing...");
 		ImGui::ProgressBar(s_bake.numTrianglesRasterized / float(modelGetData()->numIndices / 3));
 		if (ImGui::Button("Cancel"))
-			bakeShutdownWorkerThread();
+			shutdownWorkerThread();
 	} else if (s_bake.status == BakeStatus::Tracing) {
 		ImGui::Text("Tracing rays...");
-		ImGui::ProgressBar(s_bake.numSampleLocationsProcessed / float(s_bake.sampleLocations.size() * s_bake.options.numPasses));
-		if (ImGui::Button("Cancel"))
-			bakeShutdownWorkerThread();
+		if (ImGui::Button("Stop", buttonSize)) {
+			std::lock_guard<std::mutex> lock(s_bake.stopWorkerMutex);
+			s_bake.stopWorker = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", buttonSize))
+			shutdownWorkerThread();
 	}
 	if (s_bake.denoiseStatus == DenoiseStatus::Working) {
 		ImGui::Text("Denoising...");
