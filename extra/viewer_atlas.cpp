@@ -491,6 +491,8 @@ void atlasGenerate()
 	}
 	bakeClear();
 	xatlas::SetPrint(printf, s_atlas.verbose);
+	g_options.shadeMode = ShadeMode::Flat;
+	g_options.wireframeMode = WireframeMode::Triangles;
 	s_atlas.status.set(AtlasStatus::AddingMeshes);
 	s_atlas.thread = new std::thread(atlasGenerateThread);
 }
