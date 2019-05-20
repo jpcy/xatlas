@@ -139,6 +139,14 @@ struct
 }
 s_atlas;
 
+static void clearPackOptions()
+{
+	s_atlas.packOptions = xatlas::PackOptions();
+	// Baking needs 1 pixel padding for dilate filter.
+	s_atlas.packOptions.conservative = true;
+	s_atlas.packOptions.padding = 1;
+}
+
 void atlasInit()
 {
 	s_atlas.wireVertexDecl
@@ -154,9 +162,7 @@ void atlasInit()
 	s_atlas.vs_chartTexcoordSpace = loadShader(ShaderId::vs_chartTexcoordSpace);
 	s_atlas.chartProgram = bgfx::createProgram(s_atlas.vs_chart, s_atlas.fs_chart);
 	s_atlas.chartTexcoordSpaceProgram = bgfx::createProgram(s_atlas.vs_chartTexcoordSpace, s_atlas.fs_chart);
-	// Baking needs 1 pixel padding for dilate filter.
-	s_atlas.packOptions.conservative = true;
-	s_atlas.packOptions.padding = 1;
+	clearPackOptions();
 }
 
 void atlasShutdown()
@@ -697,7 +703,7 @@ void atlasShowGuiOptions()
 	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
 		bool changed = false;
 		if (ImGui::Button("Reset to default", buttonSize)) {
-			s_atlas.packOptions = xatlas::PackOptions();
+			clearPackOptions();
 			changed = true;
 		}
 		changed |= ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
