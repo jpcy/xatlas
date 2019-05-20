@@ -668,14 +668,30 @@ void atlasRenderChartsWireframe(const float *modelMatrix)
 
 void atlasShowGuiOptions()
 {
+	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
+		return;
 	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
 	ImGui::Text("Atlas");
-	if (ImGui::TreeNodeEx("Chart options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
-		bool changed = false;
-		if (ImGui::Button("Reset to default", buttonSize)) {
-			s_atlas.chartOptions = xatlas::ChartOptions();
-			changed = true;
+	if (ImGui::Button("Generate", buttonSize))
+		atlasGenerate();
+	ImGui::SameLine();
+	ImGui::Checkbox("Verbose", &s_atlas.verbose);
+	if (s_atlas.status.get() == AtlasStatus::Ready) {
+		uint32_t numIndices = 0, numVertices = 0;
+		for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+			const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
+			numIndices += outputMesh.indexCount;
+			numVertices += outputMesh.vertexCount;
 		}
+		ImGui::Text("%u atlas", s_atlas.data->atlasCount, s_atlas.data->atlasCount > 1 ? "es" : "");
+		ImGui::Text("%ux%u resolution", s_atlas.data->width, s_atlas.data->height);
+		ImGui::Text("%u charts", s_atlas.data->chartCount);
+		ImGui::Text("%u vertices", numVertices);
+		ImGui::Text("%u triangles", numIndices / 3);
+		ImGui::Text("%g texels per unit", s_atlas.data->texelsPerUnit);
+	}
+	if (ImGui::TreeNodeEx("Chart options", ImGuiTreeNodeFlags_FramePadding)) {
+		bool changed = false;
 		changed |= ImGui::InputFloat("Proxy fit metric weight", &s_atlas.chartOptions.proxyFitMetricWeight);
 		changed |= ImGui::InputFloat("Roundness metric weight", &s_atlas.chartOptions.roundnessMetricWeight);
 		changed |= ImGui::InputFloat("Straightness metric weight", &s_atlas.chartOptions.straightnessMetricWeight);
@@ -686,21 +702,27 @@ void atlasShowGuiOptions()
 		changed |= ImGui::InputFloat("Max threshold", &s_atlas.chartOptions.maxThreshold);
 		changed |= ImGui::InputInt("Grow face count", (int *)&s_atlas.chartOptions.growFaceCount);
 		changed |= ImGui::InputInt("Max iterations", (int *)&s_atlas.chartOptions.maxIterations);
+		if (ImGui::Button("Reset to default", buttonSize)) {
+			s_atlas.chartOptions = xatlas::ChartOptions();
+			changed = true;
+		}
+		ImGui::TreePop();
 		if (changed)
 			s_atlas.chartOptionsChanged = true;
 	}
 #if USE_LIBIGL
-	if (ImGui::TreeNodeEx("Parameterization options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
+	if (ImGui::TreeNodeEx("Parameterization options", ImGuiTreeNodeFlags_FramePadding)) {
 		const ParamMethod oldParamMethod = s_atlas.paramMethod;
 		ImGui::RadioButton("LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::LSCM);
 		ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_Harmonic);
 		ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_LSCM);
 		ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_ARAP);
+		ImGui::TreePop();
 		if (s_atlas.paramMethod != oldParamMethod)
 			s_atlas.paramMethodChanged = true;
 	}
 #endif
-	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
+	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding)) {
 		bool changed = false;
 		if (ImGui::Button("Reset to default", buttonSize)) {
 			clearPackOptions();
@@ -714,28 +736,13 @@ void atlasShowGuiOptions()
 		ImGui::SameLine();
 		changed |= ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
 		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.packOptions.padding, 0, 8);
+		if (ImGui::Button("Reset to default", buttonSize)) {
+			clearPackOptions();
+			changed = true;
+		}
+		ImGui::TreePop();
 		if (changed)
 			s_atlas.packOptionsChanged = true;
-	}
-	if (s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready) {
-		if (ImGui::Button("Generate", buttonSize))
-			atlasGenerate();
-		ImGui::SameLine();
-		ImGui::Checkbox("Verbose", &s_atlas.verbose);
-	}
-	if (s_atlas.status.get() == AtlasStatus::Ready) {
-		uint32_t numIndices = 0, numVertices = 0;
-		for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
-			const xatlas::Mesh &outputMesh = s_atlas.data->meshes[i];
-			numIndices += outputMesh.indexCount;
-			numVertices += outputMesh.vertexCount;
-		}
-		ImGui::Text("%u atlases", s_atlas.data->atlasCount);
-		ImGui::Text("%ux%u resolution", s_atlas.data->width, s_atlas.data->height);
-		ImGui::Text("%u charts", s_atlas.data->chartCount);
-		ImGui::Text("%u vertices", numVertices);
-		ImGui::Text("%u triangles", numIndices / 3);
-		ImGui::Text("Texels per unit: %g", s_atlas.data->texelsPerUnit);
 	}
 }
 
