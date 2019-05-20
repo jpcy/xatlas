@@ -120,6 +120,7 @@ struct
 	xatlas::ChartOptions chartOptions;
 	bool chartOptionsChanged = false;
 	xatlas::PackOptions packOptions;
+	bool packOptionsChanged = false;
 	ParamMethod paramMethod = ParamMethod::LSCM;
 	bool paramMethodChanged = false;
 	std::vector<ModelVertex> vertices;
@@ -380,9 +381,12 @@ static void atlasGenerateThread()
 #endif
 		xatlas::ParameterizeCharts(s_atlas.data, paramFunc, atlasProgressCallback);
 	}
+	if (firstRun || s_atlas.chartOptionsChanged || s_atlas.paramMethodChanged || s_atlas.packOptionsChanged) {
+		xatlas::PackCharts(s_atlas.data, s_atlas.packOptions, atlasProgressCallback);
+	}
 	s_atlas.chartOptionsChanged = false;
 	s_atlas.paramMethodChanged = false;
-	xatlas::PackCharts(s_atlas.data, s_atlas.packOptions, atlasProgressCallback);
+	s_atlas.packOptionsChanged = false;
 	// Find chart boundary edges.
 	uint32_t numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -481,6 +485,10 @@ void atlasGenerate()
 {
 	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
 		return;
+	if (s_atlas.data && !s_atlas.chartOptionsChanged && !s_atlas.paramMethodChanged && !s_atlas.packOptionsChanged) {
+		// Already have an atlas and none of the options that affect atlas creation have changed.
+		return;
+	}
 	bakeClear();
 	xatlas::SetPrint(printf, s_atlas.verbose);
 	s_atlas.status.set(AtlasStatus::AddingMeshes);
@@ -683,16 +691,21 @@ void atlasShowGuiOptions()
 	}
 #endif
 	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
-		if (ImGui::Button("Reset to default", buttonSize))
+		bool changed = false;
+		if (ImGui::Button("Reset to default", buttonSize)) {
 			s_atlas.packOptions = xatlas::PackOptions();
-		ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
-		ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
-		ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
-		ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
-		ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
+			changed = true;
+		}
+		changed |= ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
+		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
+		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
+		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
+		changed |= ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
 		ImGui::SameLine();
-		ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
-		ImGui::SliderInt("Padding", (int *)&s_atlas.packOptions.padding, 0, 8);
+		changed |= ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
+		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.packOptions.padding, 0, 8);
+		if (changed)
+			s_atlas.packOptionsChanged = true;
 	}
 	if (s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready) {
 		if (ImGui::Button("Generate", buttonSize))
