@@ -621,8 +621,50 @@ static bool bakeRasterize()
 	return true;
 }
 
+// https://en.wikipedia.org/wiki/Halton_sequence
+static float halton(int index, int base)
+{
+	float result = 0;
+	float f = 1;
+	while (index > 0) {
+		f /= base;
+		result += f * (index % base);
+		index = (int)bx::floor(index / (float)base);
+	}
+	return result;
+}
+
+// Precomputed Global Illumination in Frostbite (GDC 2018)
+static bx::Vec3 randomDirHemisphere(int index, const float *offset, bx::Vec3 normal)
+{
+	// Generate 2 uniformly-distributed values in range 0 to 1
+	float u = halton(index, 3);
+	float v = halton(index, 5);
+	// Apply per-texel randomization
+	u = bx::fract(u + offset[0]);
+	v = bx::fract(v + offset[1]);
+	// Transform unit square sample to uniform hemisphere direction
+	const float cosTheta = u * 2.0f - 1.0f;
+	const float sinTheta = sqrtf(1.0f - cosTheta * cosTheta);
+	const float vrad = v * bx::kPi2;
+	const float sinPhi = bx::sin(vrad);
+	const float cosPhi = bx::cos(vrad);
+	bx::Vec3 dir(cosPhi * sinTheta, sinPhi * sinTheta, cosTheta);
+	if (bx::dot(dir, normal) < 0.0f)
+		return bx::neg(dir);
+	return dir;
+}
+
+struct TexelData
+{
+	bx::Vec3 accumColor;
+	uint32_t numColorSamples;
+	int numPathsTraced;
+	float randomOffset[2];
+};
+
 // https://github.com/aras-p/ToyPathTracer
-static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, int depth, const float near)
+static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, TexelData &texel, int depth, const float near)
 {
 	RTCIntersectContext context;
 	rtcInitIntersectContext(&context);
@@ -642,6 +684,7 @@ static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, int depth, const flo
 	rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
 	embree::Intersect1(s_bake.embreeScene, &context, &rh);
 	s_bake.numRaysTraced++;
+	texel.numPathsTraced++;
 	if (rh.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
 		// Ray missed, use sky color.
 		return s_bake.options.skyColor;
@@ -671,7 +714,7 @@ static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, int depth, const flo
 		// Using barycentrics should be more precise than "origin + dir * rh.ray.tfar".
 		const bx::Vec3 hitPos = v0.pos + (v1.pos - v0.pos) * rh.hit.u + (v2.pos - v0.pos) * rh.hit.v;
 		const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z));
-		return emission + diffuse * bakeTraceRay(hitPos, bx::randUnitHemisphere(&s_bake.rng, hitNormal), depth + 1, near);
+		return emission + diffuse * bakeTraceRay(hitPos, randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, hitNormal), texel, depth + 1, near);
 	}
 	return bx::Vec3(0.0f);
 }
@@ -684,29 +727,31 @@ static bool bakeTraceRays()
 	s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	memset(s_bake.lightmapData.data(), 0, s_bake.lightmapData.size() * sizeof(float));
 	s_bake.updateData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
-	std::vector<bx::Vec3> accumulated;
-	accumulated.resize(s_bake.lightmapWidth * s_bake.lightmapHeight);
-	memset(accumulated.data(), 0, accumulated.size() * sizeof(bx::Vec3));
-	std::vector<uint32_t> numSamples;
-	numSamples.resize(s_bake.lightmapWidth * s_bake.lightmapHeight);
-	memset(numSamples.data(), 0, numSamples.size() * sizeof(uint32_t));
+	std::vector<TexelData> texels;
+	texels.resize(s_bake.sampleLocations.size());
+	for (uint32_t i = 0; i < (uint32_t)texels.size(); i++) {
+		TexelData &texel = texels[i];
+		texel.accumColor = bx::Vec3(0.0f);
+		texel.numColorSamples = 0;
+		texel.numPathsTraced = 0;
+		texel.randomOffset[0] = bx::frnd(&s_bake.rng);
+		texel.randomOffset[1] = bx::frnd(&s_bake.rng);
+	}
 	const float kNear = 0.01f * modelGetScale();
 	const clock_t start = clock();
 	bool finished = false;
 	while (!finished) {
-		for (uint32_t si = 0; si < (uint32_t)s_bake.sampleLocations.size(); si++) {
-			const SampleLocation &sample = s_bake.sampleLocations[si];
-			const bx::Vec3 dir = bx::randUnitHemisphere(&s_bake.rng, sample.normal);
-			const bx::Vec3 color = bakeTraceRay(sample.pos, dir, 0, kNear);
-			const uint32_t offset = (sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth);
-			bx::Vec3 &accum = accumulated[offset];
-			uint32_t &n = numSamples[offset];
-			accum = accum + color;
-			n++;
-			float *rgba = &s_bake.lightmapData[offset * 4];
-			rgba[0] = accum.x / (float)n;
-			rgba[1] = accum.y / (float)n;
-			rgba[2] = accum.z / (float)n;
+		for (uint32_t i = 0; i < (uint32_t)s_bake.sampleLocations.size(); i++) {
+			const SampleLocation &sample = s_bake.sampleLocations[i];
+			TexelData &texel = texels[i];
+			const bx::Vec3 dir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, sample.normal);
+			const bx::Vec3 color = bakeTraceRay(sample.pos, dir, texel, 0, kNear);
+			texel.accumColor = texel.accumColor + color;
+			texel.numColorSamples++;
+			float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
+			rgba[0] = texel.accumColor.x / (float)texel.numColorSamples;
+			rgba[1] = texel.accumColor.y / (float)texel.numColorSamples;
+			rgba[2] = texel.accumColor.z / (float)texel.numColorSamples;
 			rgba[3] = 1.0f;
 			s_bake.numSampleLocationsProcessed++;
 			if (shouldWorkerThreadStop()) {
