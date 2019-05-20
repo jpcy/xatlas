@@ -152,10 +152,10 @@ struct ChartOptions
 	float proxyFitMetricWeight;
 	float roundnessMetricWeight;
 	float straightnessMetricWeight;
-	float normalSeamMetricWeight;
+	float normalSeamMetricWeight; // If > 1000, normal seams are fully respected.
 	float textureSeamMetricWeight;
-	float maxChartArea;
-	float maxBoundaryLength;
+	float maxChartArea; // Don't grow charts to be larger than this. 0 means no limit.
+	float maxBoundaryLength; // Don't grow charts to have a longer boundary than this. 0 means no limit.
 	float maxThreshold;
 	uint32_t growFaceCount;
 	uint32_t maxIterations;
@@ -216,10 +216,10 @@ struct PackOptions
 	}
 };
 
-// Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence.
+// Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence. Can be called multiple times to regenerate with different options.
 void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeFunc paramFunc = NULL, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
 
-// Call after AddMesh.
+// Call after AddMesh. Can be called multiple times to recompute charts with different options.
 void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
 
 // Call after ComputeCharts. Can be called multiple times to re-parameterize charts with a different ParameterizeFunc.

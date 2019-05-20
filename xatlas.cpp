@@ -5568,33 +5568,32 @@ struct AtlasBuilder
 	float evaluatePriority(ChartBuildData *chart, uint32_t face) const
 	{
 		// Estimate boundary length and area:
-		const float newBoundaryLength = evaluateBoundaryLength(chart, face);
 		const float newChartArea = evaluateChartArea(chart, face);
-		const float F = evaluateProxyFitMetric(chart, face);
-		const float C = evaluateRoundnessMetric(chart, face, newBoundaryLength, newChartArea);
-		const float P = evaluateStraightnessMetric(chart, face);
+		const float newBoundaryLength = evaluateBoundaryLength(chart, face);
+		// Enforce limits strictly:
+		if (m_options.maxChartArea > 0.0f && newChartArea > m_options.maxChartArea)
+			return FLT_MAX;
+		if (m_options.maxBoundaryLength > 0.0f && newBoundaryLength > m_options.maxBoundaryLength)
+			return FLT_MAX;
 		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
+		// Make sure normal seams are fully respected:
 		const float N = evaluateNormalSeamMetric(chart, face);
-		const float T = evaluateTextureSeamMetric(chart, face);
+		if (m_options.normalSeamMetricWeight >= 1000.0f && N > 0.0f)
+			return FLT_MAX;
+		float cost = m_options.normalSeamMetricWeight * N;
+		if (m_options.proxyFitMetricWeight > 0.0f)
+			cost += m_options.proxyFitMetricWeight * evaluateProxyFitMetric(chart, face);
+		if (m_options.roundnessMetricWeight > 0.0f)
+			cost += m_options.roundnessMetricWeight * evaluateRoundnessMetric(chart, face, newBoundaryLength, newChartArea);
+		if (m_options.straightnessMetricWeight > 0.0f)
+			cost += m_options.straightnessMetricWeight * evaluateStraightnessMetric(chart, face);
+		if (m_options.textureSeamMetricWeight > 0.0f)
+			cost += m_options.textureSeamMetricWeight * evaluateTextureSeamMetric(chart, face);
 		//float R = evaluateCompletenessMetric(chart, face);
 		//float D = evaluateDihedralAngleMetric(chart, face);
 		// @@ Add a metric based on local dihedral angle.
 		// @@ Tweaking the normal and texture seam metrics.
 		// - Cause more impedance. Never cross 90 degree edges.
-		float cost =
-			m_options.proxyFitMetricWeight * F +
-			m_options.roundnessMetricWeight * C +
-			m_options.straightnessMetricWeight * P +
-			m_options.normalSeamMetricWeight * N +
-			m_options.textureSeamMetricWeight * T;
-		// Enforce limits strictly:
-		if (m_options.maxChartArea > 0 && newChartArea > m_options.maxChartArea)
-			cost = FLT_MAX;
-		if (m_options.maxBoundaryLength > 0 && newBoundaryLength > m_options.maxBoundaryLength)
-			cost = FLT_MAX;
-		// Make sure normal seams are fully respected:
-		if (m_options.normalSeamMetricWeight >= 1000 && N != 0)
-			cost = FLT_MAX;
 		XA_DEBUG_ASSERT(isFinite(cost));
 		return cost;
 	}
@@ -6550,6 +6549,12 @@ public:
 	*/
 	void computeCharts(const ChartOptions &options)
 	{
+		// This function may be called multiple times, so destroy existing charts.
+		for (uint32_t i = 0; i < m_chartArray.size(); i++) {
+			m_chartArray[i]->~Chart();
+			XA_FREE(m_chartArray[i]);
+		}
+		m_chartArray.clear();
 #if XA_DEBUG_SINGLE_CHART
 		Array<uint32_t> chartFaces;
 		chartFaces.resize(m_mesh->faceCount());
@@ -6772,6 +6777,8 @@ public:
 
 	void computeCharts(task::Scheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
+		m_chartsComputed = false;
+		m_chartsParameterized = false;
 		uint32_t jobCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
@@ -6802,6 +6809,7 @@ public:
 
 	void parameterizeCharts(task::Scheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
 	{
+		m_chartsParameterized = false;
 		uint32_t jobCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
@@ -7822,9 +7830,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 			const internal::Vector3 &b = mesh->position(tri[1]);
 			const internal::Vector3 &c = mesh->position(tri[2]);
 			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
-			if (area <= XA_EPSILON) {
+			if (area <= FLT_EPSILON) {
 				faceFlags |= internal::FaceFlags::Ignore;
-				XA_PRINT("   Zero area face: %d, indices (%d %d %d)\n", i, tri[0], tri[1], tri[2]);
+				XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", i, tri[0], tri[1], tri[2], area);
 			}
 		}
 		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
@@ -7898,11 +7906,8 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 		XA_PRINT_WARNING("ComputeCharts: No meshes. Call AddMesh first.\n");
 		return;
 	}
-	if (ctx->paramAtlas.chartsComputed()) {
-		XA_PRINT_WARNING("ComputeCharts: this function can only be called once per context.\n");
-		return;
-	}
 	XA_PRINT("Computing charts\n");
+	atlas->chartCount = 0;
 	ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData);
 	// Count charts.
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {

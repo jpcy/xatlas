@@ -117,7 +117,9 @@ struct
 	bgfx::IndexBufferHandle chartIb = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle chartBoundaryVb = BGFX_INVALID_HANDLE;
 	xatlas::ChartOptions chartOptions;
+	bool chartOptionsChanged = false;
 	xatlas::PackOptions packOptions;
+	bool packOptionsChanged = false;
 	ParamMethod paramMethod = ParamMethod::LSCM;
 	bool paramMethodChanged = false;
 	std::vector<ModelVertex> vertices;
@@ -368,12 +370,12 @@ static void atlasGenerateThread()
 				s_atlas.status.setProgress((xatlas::ProgressCategory::Enum)-1, progress);
 			}
 		}
-		s_atlas.status.set(AtlasStatus::Generating);
+	}
+	s_atlas.status.set(AtlasStatus::Generating);
+	if (firstRun || s_atlas.chartOptionsChanged) {
 		xatlas::ComputeCharts(s_atlas.data, s_atlas.chartOptions, atlasProgressCallback);
-	} else
-		s_atlas.status.set(AtlasStatus::Generating);
-	if (firstRun || s_atlas.paramMethodChanged) {
-		s_atlas.paramMethodChanged = false;
+	}
+	if (firstRun || s_atlas.chartOptionsChanged || s_atlas.paramMethodChanged) {
 		xatlas::ParameterizeFunc paramFunc = nullptr;
 #if USE_LIBIGL
 		if (s_atlas.paramMethod != ParamMethod::LSCM)
@@ -381,7 +383,12 @@ static void atlasGenerateThread()
 #endif
 		xatlas::ParameterizeCharts(s_atlas.data, paramFunc, atlasProgressCallback);
 	}
-	xatlas::PackCharts(s_atlas.data, s_atlas.packOptions, atlasProgressCallback);
+	if (firstRun || s_atlas.chartOptionsChanged || s_atlas.paramMethodChanged || s_atlas.packOptionsChanged) {
+		xatlas::PackCharts(s_atlas.data, s_atlas.packOptions, atlasProgressCallback);
+	}
+	s_atlas.chartOptionsChanged = false;
+	s_atlas.paramMethodChanged = false;
+	s_atlas.packOptionsChanged = false;
 	// Find chart boundary edges.
 	uint32_t numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -480,8 +487,14 @@ void atlasGenerate()
 {
 	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
 		return;
+	if (s_atlas.data && !s_atlas.chartOptionsChanged && !s_atlas.paramMethodChanged && !s_atlas.packOptionsChanged) {
+		// Already have an atlas and none of the options that affect atlas creation have changed.
+		return;
+	}
 	bakeClear();
 	xatlas::SetPrint(printf, s_atlas.verbose);
+	g_options.shadeMode = ShadeMode::Flat;
+	g_options.wireframeMode = WireframeMode::Triangles;
 	s_atlas.status.set(AtlasStatus::AddingMeshes);
 	s_atlas.thread = new std::thread(atlasGenerateThread);
 }
@@ -649,19 +662,26 @@ void atlasRenderChartsWireframe(const float *modelMatrix)
 
 void atlasShowGuiOptions()
 {
-	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
+	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
 	ImGui::Text("Atlas");
 	if (ImGui::TreeNodeEx("Chart options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
-		ImGui::InputFloat("Proxy fit metric weight", &s_atlas.chartOptions.proxyFitMetricWeight);
-		ImGui::InputFloat("Roundness metric weight", &s_atlas.chartOptions.roundnessMetricWeight);
-		ImGui::InputFloat("Straightness metric weight", &s_atlas.chartOptions.straightnessMetricWeight);
-		ImGui::InputFloat("NormalSeam metric weight", &s_atlas.chartOptions.normalSeamMetricWeight);
-		ImGui::InputFloat("Texture seam metric weight", &s_atlas.chartOptions.textureSeamMetricWeight);
-		ImGui::InputFloat("Max chart area", &s_atlas.chartOptions.maxChartArea);
-		ImGui::InputFloat("Max boundary length", &s_atlas.chartOptions.maxBoundaryLength);
-		ImGui::InputFloat("Max threshold", &s_atlas.chartOptions.maxThreshold);
-		ImGui::InputInt("Grow face count", (int *)&s_atlas.chartOptions.growFaceCount);
-		ImGui::InputInt("Max iterations", (int *)&s_atlas.chartOptions.maxIterations);
+		bool changed = false;
+		if (ImGui::Button("Reset to default", buttonSize)) {
+			s_atlas.chartOptions = xatlas::ChartOptions();
+			changed = true;
+		}
+		changed |= ImGui::InputFloat("Proxy fit metric weight", &s_atlas.chartOptions.proxyFitMetricWeight);
+		changed |= ImGui::InputFloat("Roundness metric weight", &s_atlas.chartOptions.roundnessMetricWeight);
+		changed |= ImGui::InputFloat("Straightness metric weight", &s_atlas.chartOptions.straightnessMetricWeight);
+		changed |= ImGui::InputFloat("Normal seam metric weight", &s_atlas.chartOptions.normalSeamMetricWeight);
+		changed |= ImGui::InputFloat("Texture seam metric weight", &s_atlas.chartOptions.textureSeamMetricWeight);
+		changed |= ImGui::InputFloat("Max chart area", &s_atlas.chartOptions.maxChartArea);
+		changed |= ImGui::InputFloat("Max boundary length", &s_atlas.chartOptions.maxBoundaryLength);
+		changed |= ImGui::InputFloat("Max threshold", &s_atlas.chartOptions.maxThreshold);
+		changed |= ImGui::InputInt("Grow face count", (int *)&s_atlas.chartOptions.growFaceCount);
+		changed |= ImGui::InputInt("Max iterations", (int *)&s_atlas.chartOptions.maxIterations);
+		if (changed)
+			s_atlas.chartOptionsChanged = true;
 	}
 #if USE_LIBIGL
 	if (ImGui::TreeNodeEx("Parameterization options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
@@ -675,14 +695,21 @@ void atlasShowGuiOptions()
 	}
 #endif
 	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
-		ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
-		ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
-		ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
-		ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
-		ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
+		bool changed = false;
+		if (ImGui::Button("Reset to default", buttonSize)) {
+			s_atlas.packOptions = xatlas::PackOptions();
+			changed = true;
+		}
+		changed |= ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
+		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
+		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
+		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
+		changed |= ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
 		ImGui::SameLine();
-		ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
-		ImGui::SliderInt("Padding", (int *)&s_atlas.packOptions.padding, 0, 8);
+		changed |= ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
+		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.packOptions.padding, 0, 8);
+		if (changed)
+			s_atlas.packOptionsChanged = true;
 	}
 	if (s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready) {
 		if (ImGui::Button("Generate", buttonSize))
