@@ -96,6 +96,10 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_RANDOM_SEED (845281456)
 #define XA_UNUSED(a) ((void)(a))
 
+#ifndef XA_MIN_FACEAREA
+#define XA_MIN_FACEAREA (0.0f)
+#endif
+
 #ifndef XA_MULTITHREADED
 #define XA_MULTITHREADED 1
 #endif
@@ -7822,7 +7826,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 			const internal::Vector3 &b = mesh->position(tri[1]);
 			const internal::Vector3 &c = mesh->position(tri[2]);
 			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
-			if (area <= XA_EPSILON) {
+			if (area <= XA_MIN_FACEAREA) {
 				faceFlags |= internal::FaceFlags::Ignore;
 				XA_PRINT("   Zero area face: %d, indices (%d %d %d)\n", i, tri[0], tri[1], tri[2]);
 			}
