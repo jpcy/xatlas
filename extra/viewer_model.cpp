@@ -303,6 +303,8 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 		if (!node.parent) {
 			nodeStack.clear();
 			gltfBuildNodeStack(&node, &nodeStack);
+			if (nodeStack.empty())
+				continue;
 			for (uint32_t ci = 0; ci < (uint32_t)nodeStack.size(); ci++) {
 				const cgltf_mesh *mesh = nodeStack[ci]->mesh;
 				if (!mesh)
