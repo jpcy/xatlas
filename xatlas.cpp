@@ -5297,27 +5297,19 @@ struct ChartBuildData
 	ChartBuildData(int id) : id(id)
 	{
 		planeNormal = Vector3(0);
-		centroid = Vector3(0);
-		coneAxis = Vector3(0);
-		coneAngle = 0;
 		area = 0;
 		boundaryLength = 0;
 		normalSum = Vector3(0);
-		centroidSum = Vector3(0);
 	}
 
 	int id;
 
 	// Proxy info:
 	Vector3 planeNormal;
-	Vector3 centroid;
-	Vector3 coneAxis;
-	float coneAngle;
 
 	float area;
 	float boundaryLength;
 	Vector3 normalSum;
-	Vector3 centroidSum;
 
 	Array<uint32_t> seeds;
 	Array<uint32_t> faces;
@@ -5411,7 +5403,6 @@ struct AtlasBuilder
 		chart->area = evaluateChartArea(chart, f);
 		chart->boundaryLength = evaluateBoundaryLength(chart, f);
 		chart->normalSum = evaluateChartNormalSum(chart, f);
-		chart->centroidSum = evaluateChartCentroidSum(chart, f);
 		if (recomputeProxy) {
 			// Update proxy and candidate's priorities.
 			updateProxy(chart);
@@ -5470,7 +5461,6 @@ struct AtlasBuilder
 			chart->area = 0.0f;
 			chart->boundaryLength = 0.0f;
 			chart->normalSum = Vector3(0);
-			chart->centroidSum = Vector3(0);
 			chart->faces.clear();
 			chart->candidates.clear();
 			addFaceToChart(chart, seed);
@@ -5502,7 +5492,6 @@ struct AtlasBuilder
 	{
 		//#pragma message(NV_FILE_LINE "TODO: Use best fit plane instead of average normal.")
 		chart->planeNormal = normalizeSafe(chart->normalSum, Vector3(0), 0.0f);
-		chart->centroid = chart->centroidSum / float(chart->faces.size());
 	}
 
 	bool relocateSeeds()
@@ -5519,16 +5508,20 @@ struct AtlasBuilder
 
 	bool relocateSeed(ChartBuildData *chart)
 	{
-		Vector3 centroid = computeChartCentroid(chart);
+		// Compute chart centroid.
+		const uint32_t faceCount = chart->faces.size();
+		Vector3 centroid(0.0f);
+		for (uint32_t i = 0; i < faceCount; i++)
+			centroid += m_mesh->triangleCenter(chart->faces[i]);
+		centroid *= 1.0f / float(faceCount);
 		// Find the first N triangles that fit the proxy best.
 		m_bestTriangles.clear();
-		const uint32_t faceCount = chart->faces.size();
 		for (uint32_t i = 0; i < faceCount; i++) {
 			float priority = evaluateProxyFitMetric(chart, chart->faces[i]);
 			m_bestTriangles.push(priority, chart->faces[i]);
 		}
-		// Of those, choose the most central triangle.
-		uint32_t mostCentral = 0;
+		// Of those, choose the least central triangle.
+		uint32_t leastCentral = 0;
 		float maxDistance = -1;
 		const uint32_t bestCount = m_bestTriangles.count();
 		for (uint32_t i = 0; i < bestCount; i++) {
@@ -5536,13 +5529,13 @@ struct AtlasBuilder
 			float distance = length(centroid - faceCentroid);
 			if (distance > maxDistance) {
 				maxDistance = distance;
-				mostCentral = m_bestTriangles.pairs[i].face;
+				leastCentral = m_bestTriangles.pairs[i].face;
 			}
 		}
 		XA_DEBUG_ASSERT(maxDistance >= 0);
 		// In order to prevent k-means cyles we record all the previously chosen seeds.
 		for (uint32_t i = 0; i < chart->seeds.size(); i++) {
-			if (chart->seeds[i] == mostCentral) {
+			if (chart->seeds[i] == leastCentral) {
 				// Move new seed to the end of the seed array.
 				uint32_t last = chart->seeds.size() - 1;
 				swap(chart->seeds[i], chart->seeds[last]);
@@ -5550,7 +5543,7 @@ struct AtlasBuilder
 			}
 		}
 		// Append new seed.
-		chart->seeds.push_back(mostCentral);
+		chart->seeds.push_back(leastCentral);
 		return true;
 	}
 
@@ -5732,20 +5725,6 @@ struct AtlasBuilder
 		return chart->normalSum + m_mesh->triangleNormalAreaScaled(f);
 	}
 
-	Vector3 evaluateChartCentroidSum(ChartBuildData *chart, uint32_t f) const
-	{
-		return chart->centroidSum + m_mesh->faceCentroid(f);
-	}
-
-	Vector3 computeChartCentroid(const ChartBuildData *chart) const
-	{
-		Vector3 centroid(0);
-		const uint32_t faceCount = chart->faces.size();
-		for (uint32_t i = 0; i < faceCount; i++)
-			centroid += m_mesh->triangleCenter(chart->faces[i]);
-		return centroid / float(faceCount);
-	}
-
 	void fillHoles(float threshold)
 	{
 		while (m_facesLeft > 0)
@@ -5905,7 +5884,6 @@ struct AtlasBuilder
 		owner->area += chart->area;
 		owner->boundaryLength += chart->boundaryLength - sharedBoundaryLength;
 		owner->normalSum += chart->normalSum;
-		owner->centroidSum += chart->centroidSum;
 		updateProxy(owner);
 	}
 
