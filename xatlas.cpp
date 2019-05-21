@@ -100,6 +100,8 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_MULTITHREADED 1
 #endif
 
+#define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
+
 #define XA_CHECK_FACE_OVERLAP 1
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
@@ -5759,34 +5761,34 @@ struct AtlasBuilder
 					}
 				}
 			}
+			// Find the best chart to merge.
+			int bestChart2Index = -1;
 			for (int cc = chartCount - 1; cc >= 0; cc--) {
 				if (cc == c)
 					continue;
 				ChartBuildData *chart2 = m_chartArray[cc];
 				if (chart2 == NULL)
 					continue;
-				if (sharedBoundaryLengths[cc] > 0.8 * max(0.0f, chart->boundaryLength - externalBoundary)) {
-					// Try to avoid degenerate configurations.
-					if (chart2->boundaryLength > sharedBoundaryLengths[cc]) {
-						if (dot(chart2->planeNormal, chart->planeNormal) > -0.25) {
-							mergeChart(chart2, chart, sharedBoundaryLengths[cc]);
-							chart->~ChartBuildData();
-							XA_FREE(chart);
-							m_chartArray[c] = chart = NULL;
-							break;
-						}
-					}
+				if (sharedBoundaryLengths[cc] >= chart2->boundaryLength) {
+					// chart2 is inside chart1
+					bestChart2Index = cc;
+					break;
 				}
 				if (sharedBoundaryLengths[cc] > 0.20 * max(0.0f, chart->boundaryLength - externalBoundary)) {
+					// Over 20% of chart1 boundary touching other faces is shared with chart2.
 					// Compare proxies.
-					if (dot(chart2->planeNormal, chart->planeNormal) > 0) {
-						mergeChart(chart2, chart, sharedBoundaryLengths[cc]);
-						chart->~ChartBuildData();
-						XA_FREE(chart);
-						m_chartArray[c] = chart = NULL;
-						break;
+					if (dot(chart2->planeNormal, chart->planeNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION) {
+						if (bestChart2Index == -1 || sharedBoundaryLengths[bestChart2Index] < sharedBoundaryLengths[cc])
+							bestChart2Index = cc;
 					}
 				}
+			}
+			// Merge the charts.
+			if (bestChart2Index != -1) {
+				mergeChart(m_chartArray[bestChart2Index], chart, sharedBoundaryLengths[bestChart2Index]);
+				chart->~ChartBuildData();
+				XA_FREE(chart);
+				m_chartArray[c] = chart = NULL;
 			}
 		}
 		// Remove deleted charts.
