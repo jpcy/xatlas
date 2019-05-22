@@ -696,11 +696,11 @@ struct Vector3Hash
 	}
 };
 
-struct Vector3Equal
+struct Vector3AlwaysEqual
 {
-	bool operator()(const Vector3 &v0, const Vector3 &v1) const
+	bool operator()(const Vector3 &, const Vector3 &) const
 	{
-		return equal(v0, v1);
+		return true;
 	}
 };
 
@@ -2811,25 +2811,33 @@ public:
 	void createColocals()
 	{
 		const uint32_t vertexCount = m_positions.size();
-		HashMap<Vector3, uint32_t, Vector3Hash, Vector3Equal> positionMap(vertexCount);
+		HashMap<Vector3, uint32_t, Vector3Hash, Vector3AlwaysEqual> positionMap(vertexCount);
 		for (uint32_t i = 0; i < m_positions.size(); i++)
 			positionMap.add(m_positions[i], i);
 		Array<uint32_t> colocals;
 		m_nextColocalVertex.resize(vertexCount, UINT32_MAX);
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			if (m_nextColocalVertex[i] != UINT32_MAX)
-				continue; // Already done.
+				continue; // Already linked.
+			// Find other vertices colocal to this one.
 			colocals.clear();
-			uint32_t mapPosIndex = positionMap.get(m_positions[i]);
-			while (mapPosIndex != UINT32_MAX) {
-				colocals.push_back(positionMap.value(mapPosIndex));
-				mapPosIndex = positionMap.getNext(mapPosIndex);
+			colocals.push_back(i); // Always add this vertex.
+			uint32_t mapOtherVertex = positionMap.get(m_positions[i]);
+			while (mapOtherVertex != UINT32_MAX) {
+				const uint32_t otherVertex = positionMap.value(mapOtherVertex);
+				// Skip this vertex, since it's already added.
+				// Test equality with this vertex.
+				// Ensure the other vertex isn't already linked.
+				if (otherVertex != i && equal(m_positions[i], m_positions[otherVertex]) && m_nextColocalVertex[otherVertex] == UINT32_MAX)
+					colocals.push_back(otherVertex);
+				mapOtherVertex = positionMap.getNext(mapOtherVertex);
 			}
 			if (colocals.size() == 1) {
 				// No colocals for this vertex.
 				m_nextColocalVertex[i] = i;
 				continue; 
 			}
+			// Link in ascending order.
 			insertionSort(colocals.data(), colocals.size());
 			for (uint32_t j = 0; j < colocals.size(); j++)
 				m_nextColocalVertex[colocals[j]] = colocals[(j + 1) % colocals.size()];
