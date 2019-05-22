@@ -2757,21 +2757,21 @@ public:
 		m_texcoords.push_back(texcoord);
 	}
 
-	void addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t flags = 0)
+	void addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t flags = 0, bool hashEdge = true)
 	{
 		uint32_t indexArray[3];
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
-		addFace(indexArray, 3, flags);
+		addFace(indexArray, 3, flags, hashEdge);
 	}
 
-	void addFace(const Array<uint32_t> &indexArray, uint32_t flags = 0)
+	void addFace(const Array<uint32_t> &indexArray, uint32_t flags = 0, bool hashEdge = true)
 	{
-		addFace(indexArray.data(), indexArray.size(), flags);
+		addFace(indexArray.data(), indexArray.size(), flags, hashEdge);
 	}
 
-	void addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0)
+	void addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0, bool hashEdge = true)
 	{
 		Face face;
 		face.firstIndex = m_indices.size();
@@ -2788,15 +2788,17 @@ public:
 			edge.index0 = face.firstIndex + i;
 			edge.index1 = face.firstIndex + (i + 1) % face.nIndices;
 			m_edges.push_back(edge);
-			const uint32_t vertex0 = m_indices[edge.index0];
-			const uint32_t vertex1 = m_indices[edge.index1];
-			const uint32_t edgeIndex = m_edges.size() - 1;
-			const EdgeKey key(vertex0, vertex1);
+			if (hashEdge) {
+				const uint32_t vertex0 = m_indices[edge.index0];
+				const uint32_t vertex1 = m_indices[edge.index1];
+				const uint32_t edgeIndex = m_edges.size() - 1;
+				const EdgeKey key(vertex0, vertex1);
 #ifdef _DEBUG
-			if (m_id == UINT32_MAX)
-				XA_DEBUG_ASSERT(m_edgeMap.get(key) == UINT32_MAX);
+				if (m_id == UINT32_MAX)
+					XA_DEBUG_ASSERT(m_edgeMap.get(key) == UINT32_MAX);
 #endif
-			m_edgeMap.add(key, edgeIndex);
+				m_edgeMap.add(key, edgeIndex);
+			}
 		}
 	}
 
@@ -6433,10 +6435,9 @@ public:
 				}
 			}
 		}
-		m_mesh->createColocals();
+		// Add faces.
 		Array<uint32_t> faceIndices;
 		faceIndices.reserve(7);
-		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const Face *face = sourceMesh->faceAt(m_faceArray[f]);
 			faceIndices.clear();
@@ -6445,11 +6446,12 @@ public:
 				XA_DEBUG_ASSERT(meshIndices[vertex] != (uint32_t)~0);
 				faceIndices.push_back(meshIndices[vertex]);
 			}
-			m_mesh->addFace(faceIndices);
+			m_mesh->addFace(faceIndices, 0, !m_isVertexMap); // Don't hash edges if m_isVertexMap, they may be degenerate.
 		}
-		if (!(sourceMesh->flags() & MeshFlags::HasNormals))
-			m_mesh->createFaceNormals(); // For isNormalSeam.
 		if (!m_isVertexMap) {
+			m_mesh->createColocals();
+			if (!(sourceMesh->flags() & MeshFlags::HasNormals))
+				m_mesh->createFaceNormals(); // For isNormalSeam.
 			m_mesh->createBoundaries();
 			m_mesh->linkBoundaries();
 		}
