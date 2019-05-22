@@ -678,6 +678,7 @@ void modelRender(const float *view, const float *projection)
 void modelShowGuiOptions()
 {
 	ImGui::Text("%u objects", s_model.data->numObjects);
+	ImGui::Text("%u meshes", s_model.data->numMeshes);
 	ImGui::Text("%u vertices", s_model.data->numVertices);
 	ImGui::Text("%u triangles", s_model.data->numIndices / 3);
 	ImGui::InputFloat("Model scale", &s_model.scale, 0.01f, 0.1f);

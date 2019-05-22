@@ -42,6 +42,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "../xatlas.h"
 #include "viewer.h"
 
+#define ONE_XATLAS_MESH_PER_OBJECT 1
+
 static const uint8_t kPaletteBlack = 0;
 
 struct AtlasStatus
@@ -330,13 +332,22 @@ static void atlasGenerateThread()
 	const objzModel *model = modelGetData();
 	int progress = 0;
 	const bool firstRun = !s_atlas.data;
+#if !ONE_XATLAS_MESH_PER_OBJECT
+	std::vector<uint32_t> meshToObjectMap;
+#endif
+	const clock_t startTime = clock();
 	if (firstRun) {
-		// Create xatlas context and compute charts on first run only.
+		// Create xatlas context on first run only.
 		s_atlas.data = xatlas::Create();
+#if ONE_XATLAS_MESH_PER_OBJECT
 		std::vector<uint8_t> ignoreFaces; // Should be bool, workaround stupid C++ specialization.
+#else
+		uint32_t meshCount = 0;
+#endif
 		for (uint32_t i = 0; i < model->numObjects; i++) {
 			const objzObject &object = model->objects[i];
 			auto v = &((const ModelVertex *)model->vertices)[object.firstVertex];
+#if ONE_XATLAS_MESH_PER_OBJECT
 			// Ignore faces with an emissive material.
 			ignoreFaces.resize(object.numIndices / 3);
 			memset(ignoreFaces.data(), 0, ignoreFaces.size() * sizeof(uint8_t));
@@ -375,6 +386,43 @@ static void atlasGenerateThread()
 				progress = newProgress;
 				s_atlas.status.setProgress((xatlas::ProgressCategory::Enum)-1, progress);
 			}
+#else
+			for (uint32_t j = 0; j < object.numMeshes; j++) {
+				const objzMesh &mesh = model->meshes[object.firstMesh + j];
+				// Ignore meshes with an emissive material.
+				/*const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &model->materials[mesh.materialIndex];
+				if (mat && (mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f))
+					continue;*/
+				meshToObjectMap.push_back(i);
+				xatlas::MeshDecl meshDecl;
+				meshDecl.vertexCount = object.numVertices;
+				meshDecl.vertexPositionData = &v->pos;
+				meshDecl.vertexPositionStride = sizeof(ModelVertex);
+				meshDecl.vertexNormalData = &v->normal;
+				meshDecl.vertexNormalStride = sizeof(ModelVertex);
+				meshDecl.vertexUvData = &v->texcoord;
+				meshDecl.vertexUvStride = sizeof(ModelVertex);
+				meshDecl.indexCount = mesh.numIndices;
+				meshDecl.indexData = &((uint32_t *)model->indices)[mesh.firstIndex];
+				meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
+				meshDecl.indexOffset = -(int32_t)object.firstVertex;
+				xatlas::AddMeshError::Enum error = xatlas::AddMesh(s_atlas.data, meshDecl);
+				if (error != xatlas::AddMeshError::Success) {
+					fprintf(stderr, "Error adding mesh: %s\n", xatlas::StringForEnum(error));
+					setErrorMessage("Error adding mesh: %s", xatlas::StringForEnum(error));
+					xatlas::Destroy(s_atlas.data);
+					s_atlas.data = nullptr;
+					s_atlas.status.set(AtlasStatus::NotGenerated);
+					return;
+				}
+				const int newProgress = int((meshCount + 1) / (float)model->numMeshes * 100.0f);
+				if (newProgress != progress) {
+					progress = newProgress;
+					s_atlas.status.setProgress((xatlas::ProgressCategory::Enum)-1, progress);
+				}
+				meshCount++;
+			}
+#endif
 		}
 	}
 	s_atlas.status.set(AtlasStatus::Generating);
@@ -392,6 +440,8 @@ static void atlasGenerateThread()
 	if (firstRun || s_atlas.chartOptionsChanged || s_atlas.paramMethodChanged || s_atlas.packOptionsChanged) {
 		xatlas::PackCharts(s_atlas.data, s_atlas.packOptions, atlasProgressCallback);
 	}
+	const double elapsedTime = (clock() - startTime) * 1000.0 / CLOCKS_PER_SEC;
+	printf("Generated atlas in %.2f seconds (%g ms)\n", elapsedTime / 1000.0, elapsedTime);
 	s_atlas.chartOptionsChanged = false;
 	s_atlas.paramMethodChanged = false;
 	s_atlas.packOptionsChanged = false;
@@ -406,7 +456,11 @@ static void atlasGenerateThread()
 	numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
+#if ONE_XATLAS_MESH_PER_OBJECT
 		const objzObject &object = model->objects[i];
+#else
+		const objzObject &object = model->objects[meshToObjectMap[i]];
+#endif
 		const ModelVertex *vertices = &((const ModelVertex *)model->vertices)[object.firstVertex];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
@@ -451,7 +505,11 @@ static void atlasGenerateThread()
 	numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
+#if ONE_XATLAS_MESH_PER_OBJECT
 		const objzObject &object = model->objects[i];
+#else
+		const objzObject &object = model->objects[meshToObjectMap[i]];
+#endif
 		const ModelVertex *oldVertices = &((const ModelVertex *)model->vertices)[object.firstVertex];
 		for (uint32_t j = 0; j < mesh.indexCount; j++)
 			s_atlas.indices[firstIndex + j] = firstVertex + mesh.indexArray[j];
