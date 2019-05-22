@@ -804,7 +804,8 @@ static void shutdownWorkerThread()
 	s_bake.cancelWorker = true;
 	s_bake.cancelWorkerMutex.unlock();
 	if (s_bake.workerThread) {
-		s_bake.workerThread->join();
+		if (s_bake.workerThread->joinable())
+			s_bake.workerThread->join();
 		delete s_bake.workerThread;
 		s_bake.workerThread = nullptr;
 	}
@@ -914,7 +915,8 @@ static void bakeDenoise()
 static void bakeShutdownDenoiseThread()
 {
 	if (s_bake.denoiseThread) {
-		s_bake.denoiseThread->join();
+		if (s_bake.denoiseThread->joinable())
+			s_bake.denoiseThread->join();
 		delete s_bake.denoiseThread;
 		s_bake.denoiseThread = nullptr;
 	}

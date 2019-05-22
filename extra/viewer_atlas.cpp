@@ -181,7 +181,8 @@ void atlasDestroy()
 {
 	bakeClear();
 	if (s_atlas.thread) {
-		s_atlas.thread->join();
+		if (s_atlas.thread->joinable())
+			s_atlas.thread->join();
 		delete s_atlas.thread;
 		s_atlas.thread = nullptr;
 	}
@@ -653,7 +654,8 @@ void atlasFinalize()
 	if (s_atlas.status.get() != AtlasStatus::Finalizing)
 		return;
 	if (s_atlas.thread) {
-		s_atlas.thread->join();
+		if (s_atlas.thread->joinable())
+			s_atlas.thread->join();
 		delete s_atlas.thread;
 		s_atlas.thread = nullptr;
 	}

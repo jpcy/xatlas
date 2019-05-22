@@ -510,7 +510,8 @@ void modelFinalize()
 	if (s_model.status.get() != ModelStatus::Finalizing)
 		return;
 	if (s_model.thread) {
-		s_model.thread->join();
+		if (s_model.thread->joinable())
+			s_model.thread->join();
 		delete s_model.thread;
 		s_model.thread = nullptr;
 	}
@@ -562,7 +563,8 @@ void modelDestroy()
 	textureDestroyCache();
 	atlasDestroy();
 	if (s_model.thread) {
-		s_model.thread->join();
+		if (s_model.thread->joinable())
+			s_model.thread->join();
 		delete s_model.thread;
 		s_model.thread = nullptr;
 	}
