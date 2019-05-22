@@ -110,7 +110,6 @@ struct
 	xatlas::Atlas *data = nullptr;
 	std::thread *thread = nullptr;
 	AtlasStatus status;
-	bool verbose = false;
 	int currentTexture;
 	bool fitToWindow = true;
 	std::vector<bgfx::FrameBufferHandle> chartsFrameBuffers;
@@ -556,7 +555,7 @@ void atlasGenerate()
 		return;
 	}
 	bakeClear();
-	xatlas::SetPrint(printf, s_atlas.verbose);
+	xatlas::SetPrint(printf, true);
 	g_options.shadeMode = ShadeMode::Flat;
 	g_options.wireframeMode = WireframeMode::Triangles;
 	s_atlas.status.set(AtlasStatus::AddingMeshes);
@@ -733,8 +732,6 @@ void atlasShowGuiOptions()
 	ImGui::Spacing();
 	if (ImGui::Button("Generate", buttonSize))
 		atlasGenerate();
-	ImGui::SameLine();
-	ImGui::Checkbox("Verbose", &s_atlas.verbose);
 	if (s_atlas.status.get() == AtlasStatus::Ready) {
 		uint32_t numIndices = 0, numVertices = 0;
 		for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {

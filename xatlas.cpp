@@ -3009,7 +3009,7 @@ public:
 			}
 			group++;
 		}
-		XA_PRINT("   %d face groups\n", group);
+		XA_PRINT(": %u face groups\n", group);
 	}
 
 	void createBoundaries()
@@ -6120,7 +6120,7 @@ private:
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_mesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isPlanar(false), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_mesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isPlanar(false), m_closeHolesFailed(false), m_faceArray(faceArray)
 	{
 		// Copy face indices.
 		m_mesh = XA_NEW(Mesh);
@@ -6201,7 +6201,7 @@ public:
 				closeHoles(boundaryLoops);
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 				if (boundaryLoops.size() > 1) {
-					XA_PRINT_WARNING("Failed to close chart holes\n");
+					m_closeHolesFailed = true;
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES
 					m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
 #endif
@@ -6215,8 +6215,6 @@ public:
 			}
 			MeshTopology topology(m_unifiedMesh);
 			m_isDisk = topology.isDisk();
-			if (!m_isDisk)
-				XA_PRINT_WARNING("Chart doesn't have disk topology\n");
 		}
 	}
 
@@ -6234,6 +6232,7 @@ public:
 
 	bool isDisk() const { return m_isDisk; }
 	bool isPlanar() const { return m_isPlanar; }
+	bool closeHolesFailed() const { return m_closeHolesFailed; }
 	const ParameterizationQuality &paramQuality() const { return m_paramQuality; }
 	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
 	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceArray[i]; }
@@ -6388,6 +6387,7 @@ private:
 	Mesh *m_unifiedMesh;
 	bool m_isDisk;
 	bool m_isPlanar;
+	bool m_closeHolesFailed;
 
 	// List of faces of the original mesh that belong to this chart.
 	Array<uint32_t> m_faceArray;
@@ -6635,11 +6635,6 @@ public:
 			// Transfer parameterization from unified mesh to chart mesh.
 			chart->transferParameterization();
 		}
-		XA_PRINT("Parameterized %d charts\n", chartCount);
-		XA_PRINT("   RMS stretch metric: %g\n", globalParameterizationQuality.rmsStretchMetric());
-		XA_PRINT("   MAX stretch metric: %g\n", globalParameterizationQuality.maxStretchMetric());
-		XA_PRINT("   RMS conformal metric: %g\n", globalParameterizationQuality.rmsConformalMetric());
-		XA_PRINT("   RMS authalic metric: %g\n", globalParameterizationQuality.maxAuthalicMetric());
 	}
 
 private:
@@ -7830,8 +7825,11 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 			faceFlags |= internal::FaceFlags::Ignore;
 		mesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
+	XA_PRINT("   Creating colocals\n");
 	mesh->createColocals();
+	XA_PRINT("   Creating face groups");
 	mesh->createFaceGroups();
+	XA_PRINT("   Creating boundaries\n");
 	mesh->createBoundaries();
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES
 	char filename[256];
@@ -7908,6 +7906,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 				atlas->chartCount += chartGroup->chartCount();
 		}
 	}
+	XA_PRINT("   %u charts\n", atlas->chartCount);
 }
 
 void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
@@ -7946,6 +7945,10 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 				const internal::param::ParameterizationQuality &quality = chart->paramQuality();
+				if (chart->closeHolesFailed())
+					XA_PRINT_WARNING("Chart %u: failed to close chart holes\n", chartIndex);
+				if (!chart->isDisk())
+					XA_PRINT_WARNING("Chart %u: doesn't have disk topology\n", chartIndex);
 				if (quality.flippedTriangleCount() > 0) {
 					XA_PRINT_WARNING("Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount(), quality.totalTriangleCount());
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
