@@ -426,7 +426,7 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 		const cgltf_texture *emission = sourceMat.emissive_texture.texture;
 		objzMaterial &destMat = model->materials[i];
 		memset(&destMat, 0, sizeof(destMat));
-		destMat.diffuse[0] = destMat.diffuse[1] = destMat.diffuse[2] = 1.0f;
+		memcpy(destMat.diffuse, sourceMat.pbr_metallic_roughness.base_color_factor, sizeof(float) * 3);
 		if (diffuse)
 			bx::strCopy(destMat.diffuseTexture, sizeof(destMat.diffuseTexture), diffuse->image->uri);
 		if (emission)
