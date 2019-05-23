@@ -3940,8 +3940,6 @@ static Mesh *meshTriangulate(const Mesh &inputMesh)
 			}
 		}
 	}
-	mesh->createBoundaries();
-	mesh->linkBoundaries();
 	return mesh;
 }
 
@@ -6216,7 +6214,10 @@ public:
 				m_unifiedMesh->~Mesh();
 				XA_FREE(m_unifiedMesh);
 				m_unifiedMesh = triangulatedMesh;
+				m_unifiedMesh->createBoundaries();
+				m_unifiedMesh->linkBoundaries();
 			}
+			// Note: MeshTopology needs linked boundaries.
 			MeshTopology topology(m_unifiedMesh);
 			m_isDisk = topology.isDisk();
 		}
