@@ -258,13 +258,38 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_dummyTexture);
 }
 
-static void gltfBuildNodeStack(const cgltf_node *node, std::vector<const cgltf_node *> *stack)
+static bool gltfAnyNodeInHierarchyHasMesh(const cgltf_node *node)
 {
-	stack->push_back(node);
-	for (cgltf_size ci = 0; ci < node->children_count; ci++) {
-		stack->push_back(node->children[ci]);
-		gltfBuildNodeStack(node->children[ci], stack);
+	if (node->mesh)
+		return true;
+	for (cgltf_size ci = 0; ci < node->children_count; ci++)
+		return gltfAnyNodeInHierarchyHasMesh(node->children[ci]);
+	return false;
+}
+
+static void gltfCountMeshData(const cgltf_node *node, objzModel *model)
+{
+	if (node->mesh) {
+		for (cgltf_size pi = 0; pi < node->mesh->primitives_count; pi++) {
+			const cgltf_primitive &primitive = node->mesh->primitives[pi];
+			const cgltf_accessor *apositions = nullptr;
+			for (cgltf_size ai = 0; ai < primitive.attributes_count; ai++) {
+				const cgltf_attribute &attrib = primitive.attributes[ai];
+				if (attrib.type == cgltf_attribute_type_position) {
+					apositions = attrib.data;
+					break;
+				}
+			}
+			const cgltf_accessor *aindices = primitive.indices;
+			if (apositions && aindices) {
+				model->numVertices += (uint32_t)apositions->count;
+				model->numIndices += (uint32_t)aindices->count;
+			}
+			model->numMeshes++;
+		}
 	}
+	for (cgltf_size ci = 0; ci < node->children_count; ci++)
+		gltfCountMeshData(node->children[ci], model);
 }
 
 template<typename T>
@@ -273,6 +298,87 @@ static const T *gltfGetBufferData(const cgltf_accessor *accessor)
 	auto buffer = (const uint8_t *)accessor->buffer_view->buffer->data;
 	const cgltf_size offset = accessor->offset + accessor->buffer_view->offset;
 	return (const T *)&buffer[offset];
+}
+
+static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *firstMaterial, objzModel *model, uint32_t currentObject, uint32_t &currentMesh, uint32_t &firstMeshIndex, uint32_t &firstMeshVertex)
+{
+	const cgltf_mesh *sourceMesh = node->mesh;
+	if (sourceMesh) {
+		float transform[16];
+		cgltf_node_transform_world(node, transform);
+		float rotation[16];
+		if (node->has_rotation)
+			bx::mtxQuat(rotation, *(bx::Quaternion *)node->rotation);
+		else
+			bx::mtxIdentity(rotation);
+		for (cgltf_size pi = 0; pi < sourceMesh->primitives_count; pi++) {
+			const cgltf_primitive &primitive = sourceMesh->primitives[pi];
+			const cgltf_accessor *apositions = nullptr, *anormals = nullptr, *atexcoords = nullptr;
+			for (cgltf_size ai = 0; ai < primitive.attributes_count; ai++) {
+				const cgltf_attribute &attrib = primitive.attributes[ai];
+				if (attrib.type == cgltf_attribute_type_position)
+					apositions = attrib.data;
+				else if (attrib.type == cgltf_attribute_type_normal)
+					anormals = attrib.data;
+				else if (attrib.type == cgltf_attribute_type_texcoord)
+					atexcoords = attrib.data;
+			}
+			const cgltf_accessor *aindices = primitive.indices;
+			if (!apositions || !aindices)
+				continue;
+			// Copy vertex data.
+			const float *meshPosition = gltfGetBufferData<float>(apositions);
+			const float *meshNormal = anormals && anormals->count == apositions->count ? gltfGetBufferData<float>(anormals) : nullptr;
+			const float *meshTexcoord = atexcoords && atexcoords->count == apositions->count ? gltfGetBufferData<float>(atexcoords) : nullptr;
+			for (cgltf_size vi = 0; vi < apositions->count; vi++) {
+				assert(vi + firstMeshVertex < model->numVertices);
+				ModelVertex &vertex = ((ModelVertex *)model->vertices)[vi + firstMeshVertex];
+				vertex.pos = bx::mul(bx::Vec3(meshPosition[0], meshPosition[1], meshPosition[2]), transform);
+				meshPosition += apositions->stride / sizeof(float);
+				if (meshNormal) {
+					vertex.normal = bx::Vec3(meshNormal[0], meshNormal[1], meshNormal[2]);
+					if (node->has_rotation)
+						vertex.normal = bx::mul(vertex.normal, rotation);
+					meshNormal += anormals->stride / sizeof(float);
+				}
+				if (meshTexcoord) {
+					vertex.texcoord[0] = meshTexcoord[0];
+					vertex.texcoord[1] = meshTexcoord[1];
+					meshTexcoord += atexcoords->stride / sizeof(float);
+				}
+			}
+			// Copy indices.
+			auto indices = (uint32_t *)model->indices;
+			if (aindices->component_type == cgltf_component_type_r_16u) {
+				const uint16_t *meshIndices = gltfGetBufferData<uint16_t>(aindices);
+				for (uint32_t ii = 0; ii < (uint32_t)aindices->count; ii++) {
+					assert(ii + firstMeshIndex < model->numIndices);
+					indices[ii + firstMeshIndex] = firstMeshVertex + (uint32_t)meshIndices[ii];
+				}
+			} else  if (aindices->component_type == cgltf_component_type_r_32u) {
+				const uint32_t *meshIndices = gltfGetBufferData<uint32_t>(aindices);
+				for (uint32_t ii = 0; ii < (uint32_t)aindices->count; ii++) {
+					assert(ii + firstMeshIndex < model->numIndices);
+					indices[ii + firstMeshIndex] = firstMeshVertex + meshIndices[ii];
+				}
+			}
+			// Create mesh.
+			assert(currentMesh < model->numMeshes);
+			objzMesh &mesh = model->meshes[currentMesh];
+			mesh.materialIndex = uint32_t(primitive.material - firstMaterial);
+			mesh.firstIndex = firstMeshIndex;
+			mesh.numIndices = (uint32_t)aindices->count;
+			currentMesh++;
+			objzObject &object = model->objects[currentObject];
+			object.numMeshes++;
+			object.numIndices += (uint32_t)aindices->count;
+			object.numVertices += (uint32_t)apositions->count;
+			firstMeshVertex += (uint32_t)apositions->count;
+			firstMeshIndex += (uint32_t)aindices->count;
+		}
+	}
+	for (cgltf_size ci = 0; ci < node->children_count; ci++)
+		gltfPopulateMeshData(node->children[ci], firstMaterial, model, currentObject, currentMesh, firstMeshIndex, firstMeshVertex);
 }
 
 static objzModel *gltfLoad(const char *filename, const char *basePath) 
@@ -298,136 +404,42 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 	model->numObjects = 0;
 	model->numVertices = 0;
 	// Count array lengths.
-	std::vector<const cgltf_node *> nodeStack;
 	for (cgltf_size ni = 0; ni < gltfData->nodes_count; ni++) {
+		// Objects are root nodes with a mesh, or any ancestor with a mesh.
 		const cgltf_node &node = gltfData->nodes[ni];
-		if (!node.parent) {
-			nodeStack.clear();
-			gltfBuildNodeStack(&node, &nodeStack);
-			if (nodeStack.empty())
-				continue;
-			const uint32_t prevNumMeshes = model->numMeshes;
-			for (uint32_t ci = 0; ci < (uint32_t)nodeStack.size(); ci++) {
-				const cgltf_mesh *mesh = nodeStack[ci]->mesh;
-				if (!mesh)
-					continue;
-				for (cgltf_size pi = 0; pi < mesh->primitives_count; pi++) {
-					const cgltf_primitive &primitive = mesh->primitives[pi];
-					const cgltf_accessor *apositions = nullptr;
-					for (cgltf_size ai = 0; ai < primitive.attributes_count; ai++) {
-						const cgltf_attribute &attrib = primitive.attributes[ai];
-						if (attrib.type == cgltf_attribute_type_position) {
-							apositions = attrib.data;
-							break;
-						}
-					}
-					const cgltf_accessor *aindices = primitive.indices;
-					if (apositions && aindices) {
-						model->numVertices += (uint32_t)apositions->count;
-						model->numIndices += (uint32_t)aindices->count;
-					}
-					model->numMeshes++;
-				}
-			}
-			if (model->numMeshes > prevNumMeshes) // Nodes have meshes?
-				model->numObjects++;
-		}
+		if (node.parent)
+			continue;
+		if (!gltfAnyNodeInHierarchyHasMesh(&node))
+			continue;
+		gltfCountMeshData(&node, model);
+		model->numObjects++;
 	}
 	// Alloc data.
-	auto indices = new uint32_t[model->numIndices];
-	model->indices = indices;
+	model->indices = new uint32_t[model->numIndices];
 	model->meshes = new objzMesh[model->numMeshes];
 	model->objects = new objzObject[model->numObjects];
-	auto vertices = new ModelVertex[model->numVertices];
-	model->vertices = vertices;
+	model->vertices = new ModelVertex[model->numVertices];
 	// Populate data.
 	uint32_t currentObject = 0, currentMesh = 0, firstMeshIndex = 0, firstMeshVertex = 0;
 	for (cgltf_size ni = 0; ni < gltfData->nodes_count; ni++) {
 		const cgltf_node &node = gltfData->nodes[ni];
-		if (!node.parent) {
-			// Create object.
-			objzObject &object = model->objects[currentObject];
-			bx::strCopy(object.name, sizeof(object.name), node.name);
-			object.firstMesh = currentMesh;
-			object.numMeshes = 0;
-			object.firstIndex = firstMeshIndex;
-			object.numIndices = 0;
-			object.firstVertex = firstMeshVertex;
-			object.numVertices = 0;
-			nodeStack.clear();
-			gltfBuildNodeStack(&node, &nodeStack);
-			const uint32_t prevMesh = currentMesh;
-			for (uint32_t ci = 0; ci < (uint32_t)nodeStack.size(); ci++) {
-				const cgltf_node *cnode = nodeStack[ci];
-				const cgltf_mesh *sourceMesh = cnode->mesh;
-				if (!sourceMesh)
-					continue;
-				float transform[16];
-				cgltf_node_transform_world(cnode, transform);
-				float rotation[16];
-				if (cnode->has_rotation)
-					bx::mtxQuat(rotation, *(bx::Quaternion *)cnode->rotation);
-				for (cgltf_size pi = 0; pi < sourceMesh->primitives_count; pi++) {
-					const cgltf_primitive &primitive = sourceMesh->primitives[pi];
-					const cgltf_accessor *apositions = nullptr, *anormals = nullptr, *atexcoords = nullptr;
-					for (cgltf_size ai = 0; ai < primitive.attributes_count; ai++) {
-						const cgltf_attribute &attrib = primitive.attributes[ai];
-						if (attrib.type == cgltf_attribute_type_position)
-							apositions = attrib.data;
-						else if (attrib.type == cgltf_attribute_type_normal)
-							anormals = attrib.data;
-						else if (attrib.type == cgltf_attribute_type_texcoord)
-							atexcoords = attrib.data;
-					}
-					const cgltf_accessor *aindices = primitive.indices;
-					if (!apositions || !aindices)
-						continue;
-					// Copy vertex data.
-					const float *meshPosition = gltfGetBufferData<float>(apositions);
-					const float *meshNormal = anormals && anormals->count == apositions->count ? gltfGetBufferData<float>(anormals) : nullptr;
-					const float *meshTexcoord = atexcoords && atexcoords->count == apositions->count ? gltfGetBufferData<float>(atexcoords) : nullptr;
-					for (cgltf_size vi = 0; vi < apositions->count; vi++) {
-						ModelVertex &vertex = vertices[vi + firstMeshVertex];
-						vertex.pos = bx::mul(bx::Vec3(meshPosition[0], meshPosition[1], meshPosition[2]), transform);
-						meshPosition += apositions->stride / sizeof(float);
-						if (meshNormal) {
-							vertex.normal = bx::Vec3(meshNormal[0], meshNormal[1], meshNormal[2]);
-							if (cnode->has_rotation)
-								vertex.normal = bx::mul(vertex.normal, rotation);
-							meshNormal += anormals->stride / sizeof(float);
-						}
-						if (meshTexcoord) {
-							vertex.texcoord[0] = meshTexcoord[0];
-							vertex.texcoord[1] = meshTexcoord[1];
-							meshTexcoord += atexcoords->stride / sizeof(float);
-						}
-					}
-					// Copy indices.
-					if (aindices->component_type == cgltf_component_type_r_16u) {
-						const uint16_t *meshIndices = gltfGetBufferData<uint16_t>(aindices);
-						for (uint32_t ii = 0; ii < (uint32_t)aindices->count; ii++)
-							indices[ii + firstMeshIndex] = firstMeshVertex + (uint32_t)meshIndices[ii];
-					} else  if (aindices->component_type == cgltf_component_type_r_32u) {
-						const uint32_t *meshIndices = gltfGetBufferData<uint32_t>(aindices);
-						for (uint32_t ii = 0; ii < (uint32_t)aindices->count; ii++)
-							indices[ii + firstMeshIndex] = firstMeshVertex + meshIndices[ii];
-					}
-					// Create mesh.
-					objzMesh &mesh = model->meshes[currentMesh];
-					mesh.materialIndex = uint32_t(primitive.material - gltfData->materials);
-					mesh.firstIndex = firstMeshIndex;
-					mesh.numIndices = (uint32_t)aindices->count;
-					currentMesh++;
-					object.numMeshes++;
-					object.numIndices += (uint32_t)aindices->count;
-					object.numVertices += (uint32_t)apositions->count;
-					firstMeshVertex += (uint32_t)apositions->count;
-					firstMeshIndex += (uint32_t)aindices->count;
-				}
-			}
-			if (currentMesh > prevMesh) // Nodes have meshes?
-				currentObject++;
-		}
+		if (node.parent)
+			continue;
+		if (!gltfAnyNodeInHierarchyHasMesh(&node))
+			continue;
+		// Create object.
+		assert(currentObject < model->numObjects);
+		objzObject &object = model->objects[currentObject];
+		bx::strCopy(object.name, sizeof(object.name), node.name);
+		object.firstMesh = currentMesh;
+		object.numMeshes = 0;
+		object.firstIndex = firstMeshIndex;
+		object.numIndices = 0;
+		object.firstVertex = firstMeshVertex;
+		object.numVertices = 0;
+		// Create mesh data.
+		gltfPopulateMeshData(&node, gltfData->materials, model, currentObject, currentMesh, firstMeshIndex, firstMeshVertex);
+		currentObject++;
 	}
 	// Materials.
 	model->materials = new objzMaterial[model->numMaterials];
