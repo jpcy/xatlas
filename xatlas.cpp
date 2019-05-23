@@ -1234,6 +1234,9 @@ class BVH
 public:
 	BVH(const Array<AABB> &objectAabbs, uint32_t leafSize = 4)
 	{
+		m_objectAabbs = &objectAabbs;
+		if (m_objectAabbs->isEmpty())
+			return;
 		m_objectIds.resize(objectAabbs.size());
 		for (uint32_t i = 0; i < m_objectIds.size(); i++)
 			m_objectIds[i] = i;
@@ -1312,7 +1315,6 @@ public:
 			todo[stackptr].parent = nNodes - 1;
 			stackptr++;
 		}
-		m_objectAabbs = &objectAabbs;
 	}
 
 	void query(const AABB &queryAabb, Array<uint32_t> &result) const
@@ -3011,7 +3013,7 @@ public:
 			}
 			group++;
 		}
-		XA_PRINT(": %u face groups\n", group);
+		XA_PRINT("      %u face groups\n", group);
 	}
 
 	void createBoundaries()
@@ -7764,8 +7766,6 @@ static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, int
 AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 {
 	XA_DEBUG_ASSERT(atlas);
-	XA_DEBUG_ASSERT(meshDecl.vertexCount > 0);
-	XA_DEBUG_ASSERT(meshDecl.indexCount > 0);
 	Context *ctx = (Context *)atlas;
 	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", atlas->meshCount, meshDecl.vertexCount, meshDecl.indexCount / 3);
 	// Expecting triangle faces.
@@ -7829,7 +7829,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 	}
 	XA_PRINT("   Creating colocals\n");
 	mesh->createColocals();
-	XA_PRINT("   Creating face groups");
+	XA_PRINT("   Creating face groups\n");
 	mesh->createFaceGroups();
 	XA_PRINT("   Creating boundaries\n");
 	mesh->createBoundaries();
