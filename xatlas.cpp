@@ -118,6 +118,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES 0
 #define XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES 0
+#define XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE 0
 #define XA_DEBUG_EXPORT_OBJ_NOT_DISK 0
 
 namespace xatlas {
@@ -6209,6 +6210,9 @@ public:
 #endif
 				}
 			}
+#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE
+			m_unifiedMesh->writeObjFile("debug_before_triangulate.obj");
+#endif
 			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
 			if (triangulatedMesh) {
 				m_unifiedMesh->~Mesh();
