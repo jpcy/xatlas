@@ -1801,9 +1801,9 @@ static int cgltf_parse_json_primitive(cgltf_options* options, jsmntok_t const* t
 				return i;
 			}
 
-			for (cgltf_size j = 0; j < out_prim->targets_count; ++j)
+			for (cgltf_size k = 0; k < out_prim->targets_count; ++k)
 			{
-				i = cgltf_parse_json_attribute_list(options, tokens, i, json_chunk, &out_prim->targets[j].attributes, &out_prim->targets[j].attributes_count);
+				i = cgltf_parse_json_attribute_list(options, tokens, i, json_chunk, &out_prim->targets[k].attributes, &out_prim->targets[k].attributes_count);
 				if (i < 0)
 				{
 					return i;

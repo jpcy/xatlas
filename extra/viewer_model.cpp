@@ -258,8 +258,9 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_dummyTexture);
 }
 
-static void gltfBuildNodeStack(const cgltf_node *node, std::vector<cgltf_node *> *stack)
+static void gltfBuildNodeStack(const cgltf_node *node, std::vector<const cgltf_node *> *stack)
 {
+	stack->push_back(node);
 	for (cgltf_size ci = 0; ci < node->children_count; ci++) {
 		stack->push_back(node->children[ci]);
 		gltfBuildNodeStack(node->children[ci], stack);
@@ -297,7 +298,7 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 	model->numObjects = 0;
 	model->numVertices = 0;
 	// Count array lengths.
-	std::vector<cgltf_node *> nodeStack;
+	std::vector<const cgltf_node *> nodeStack;
 	for (cgltf_size ni = 0; ni < gltfData->nodes_count; ni++) {
 		const cgltf_node &node = gltfData->nodes[ni];
 		if (!node.parent) {
@@ -305,6 +306,7 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 			gltfBuildNodeStack(&node, &nodeStack);
 			if (nodeStack.empty())
 				continue;
+			const uint32_t prevNumMeshes = model->numMeshes;
 			for (uint32_t ci = 0; ci < (uint32_t)nodeStack.size(); ci++) {
 				const cgltf_mesh *mesh = nodeStack[ci]->mesh;
 				if (!mesh)
@@ -327,7 +329,8 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 					model->numMeshes++;
 				}
 			}
-			model->numObjects++;
+			if (model->numMeshes > prevNumMeshes) // Nodes have meshes?
+				model->numObjects++;
 		}
 	}
 	// Alloc data.
@@ -353,12 +356,17 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 			object.numVertices = 0;
 			nodeStack.clear();
 			gltfBuildNodeStack(&node, &nodeStack);
+			const uint32_t prevMesh = currentMesh;
 			for (uint32_t ci = 0; ci < (uint32_t)nodeStack.size(); ci++) {
-				const cgltf_mesh *sourceMesh = nodeStack[ci]->mesh;
+				const cgltf_node *cnode = nodeStack[ci];
+				const cgltf_mesh *sourceMesh = cnode->mesh;
 				if (!sourceMesh)
 					continue;
 				float transform[16];
-				cgltf_node_transform_world(nodeStack[ci], transform);
+				cgltf_node_transform_world(cnode, transform);
+				float rotation[16];
+				if (cnode->has_rotation)
+					bx::mtxQuat(rotation, *(bx::Quaternion *)cnode->rotation);
 				for (cgltf_size pi = 0; pi < sourceMesh->primitives_count; pi++) {
 					const cgltf_primitive &primitive = sourceMesh->primitives[pi];
 					const cgltf_accessor *apositions = nullptr, *anormals = nullptr, *atexcoords = nullptr;
@@ -383,7 +391,9 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 						vertex.pos = bx::mul(bx::Vec3(meshPosition[0], meshPosition[1], meshPosition[2]), transform);
 						meshPosition += apositions->stride / sizeof(float);
 						if (meshNormal) {
-							vertex.normal = bx::Vec3(-meshNormal[0], meshNormal[1], -meshNormal[2]);
+							vertex.normal = bx::Vec3(meshNormal[0], meshNormal[1], meshNormal[2]);
+							if (cnode->has_rotation)
+								vertex.normal = bx::mul(vertex.normal, rotation);
 							meshNormal += anormals->stride / sizeof(float);
 						}
 						if (meshTexcoord) {
@@ -415,7 +425,8 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 					firstMeshIndex += (uint32_t)aindices->count;
 				}
 			}
-			currentObject++;
+			if (currentMesh > prevMesh) // Nodes have meshes?
+				currentObject++;
 		}
 	}
 	// Materials.
