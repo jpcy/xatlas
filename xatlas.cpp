@@ -2760,22 +2760,32 @@ public:
 		m_texcoords.push_back(texcoord);
 	}
 
-	void addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t flags = 0, bool hashEdge = true)
+	struct AddFaceResult
+	{
+		enum Enum
+		{
+			OK,
+			DuplicateEdge = 1
+		};
+	};
+
+	AddFaceResult::Enum addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t flags = 0, bool hashEdge = true)
 	{
 		uint32_t indexArray[3];
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
-		addFace(indexArray, 3, flags, hashEdge);
+		return addFace(indexArray, 3, flags, hashEdge);
 	}
 
-	void addFace(const Array<uint32_t> &indexArray, uint32_t flags = 0, bool hashEdge = true)
+	AddFaceResult::Enum addFace(const Array<uint32_t> &indexArray, uint32_t flags = 0, bool hashEdge = true)
 	{
-		addFace(indexArray.data(), indexArray.size(), flags, hashEdge);
+		return addFace(indexArray.data(), indexArray.size(), flags, hashEdge);
 	}
 
-	void addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0, bool hashEdge = true)
+	AddFaceResult::Enum addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0, bool hashEdge = true)
 	{
+		AddFaceResult::Enum result = AddFaceResult::OK;
 		Face face;
 		face.firstIndex = m_indices.size();
 		face.nIndices = indexCount;
@@ -2796,13 +2806,12 @@ public:
 				const uint32_t vertex1 = m_indices[edge.index1];
 				const uint32_t edgeIndex = m_edges.size() - 1;
 				const EdgeKey key(vertex0, vertex1);
-#ifdef _DEBUG
-				if (m_id == UINT32_MAX)
-					XA_DEBUG_ASSERT(m_edgeMap.get(key) == UINT32_MAX);
-#endif
+				if (m_edgeMap.get(key) != UINT32_MAX)
+					result = AddFaceResult::DuplicateEdge;
 				m_edgeMap.add(key, edgeIndex);
 			}
 		}
+		return result;
 	}
 
 	void createFaceNormals()
@@ -3769,8 +3778,10 @@ struct SplitEdge
 };
 
 // Returns NULL if there were no t-junctions to fix.
-static Mesh *meshFixTJunctions(const Mesh &inputMesh)
+static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 {
+	if (duplicatedEdge)
+		*duplicatedEdge = false;
 	Array<SplitEdge> splitEdges;
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t edgeCount = inputMesh.edgeCount();
@@ -3843,7 +3854,10 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh)
 					indexArray.push_back(vertexCount + faceSplitEdges[se].index);
 			}
 		}
-		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
+		if (mesh->addFace(indexArray, inputMesh.faceFlagsAt(f)) == Mesh::AddFaceResult::DuplicateEdge) {
+			if (duplicatedEdge)
+				*duplicatedEdge = true;
+		}
 	}
 	mesh->createColocals(); // Added new vertices, some may be colocal with existing vertices.
 	return mesh;
@@ -3851,8 +3865,10 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh)
 
 // This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
 // also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
-static Mesh *meshTriangulate(const Mesh &inputMesh)
+static Mesh *meshTriangulate(const Mesh &inputMesh, bool *duplicatedEdge)
 {
+	if (duplicatedEdge)
+		*duplicatedEdge = false;
 	if (inputMesh.faceCount() * 3 == inputMesh.edgeCount())
 		return NULL;
 	const uint32_t vertexCount = inputMesh.vertexCount();
@@ -3874,7 +3890,10 @@ static Mesh *meshTriangulate(const Mesh &inputMesh)
 			// Simple case for triangles.
 			for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
 				polygonVertices.push_back(it.vertex0());
-			mesh->addFace(polygonVertices[0], polygonVertices[1], polygonVertices[2]);
+			if (mesh->addFace(polygonVertices[0], polygonVertices[1], polygonVertices[2]) == Mesh::AddFaceResult::DuplicateEdge) {
+				if (duplicatedEdge)
+					*duplicatedEdge = true;
+			}
 		} else {
 			// Build 2D polygon projecting vertices onto normal plane.
 			// Faces are not necesarily planar, this is for example the case, when the face comes from filling a hole. In such cases
@@ -3934,7 +3953,10 @@ static Mesh *meshTriangulate(const Mesh &inputMesh)
 				const uint32_t i0 = (bestEar + size - 1) % size;
 				const uint32_t i1 = (bestEar + 0) % size;
 				const uint32_t i2 = (bestEar + 1) % size;
-				mesh->addFace(polygonVertices[i0], polygonVertices[i1], polygonVertices[i2]);
+				if (mesh->addFace(polygonVertices[i0], polygonVertices[i1], polygonVertices[i2]) == Mesh::AddFaceResult::DuplicateEdge) {
+					if (duplicatedEdge)
+						*duplicatedEdge = true;
+				}
 				polygonVertices.removeAt(i1);
 				polygonPoints.removeAt(i1);
 				polygonAngles.removeAt(i1);
@@ -3960,7 +3982,9 @@ static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 		indexArray.clear();
 		for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
 			indexArray.push_back(inputMesh.firstColocal(it.vertex0()));
-		mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
+		Mesh::AddFaceResult::Enum result = mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
+		XA_UNUSED(result);
+		XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 	}
 	return mesh;
 }
@@ -6119,11 +6143,22 @@ private:
 	float m_authalicMetric;
 };
 
+struct ChartWarningFlags
+{
+	enum Enum
+	{
+		CloseHolesDuplicatedEdge = 1<<0,
+		CloseHolesFailed = 1<<1,
+		FixTJunctionsDuplicatedEdge = 1<<2,
+		TriangulateDuplicatedEdge = 1<<3,
+	};
+};
+
 /// A chart is a connected set of faces with a certain topology (usually a disk).
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_mesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isPlanar(false), m_closeHolesFailed(false), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_mesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_faceArray(faceArray)
 	{
 		// Copy face indices.
 		m_mesh = XA_NEW(Mesh);
@@ -6159,7 +6194,9 @@ public:
 			faceIndices.clear();
 			for (Mesh::FaceEdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance())
 				faceIndices.push_back(chartMeshIndices[it.vertex0()]);
-			m_mesh->addFace(faceIndices, faceFlags);
+			Mesh::AddFaceResult::Enum result = m_mesh->addFace(faceIndices, faceFlags);
+			XA_UNUSED(result);
+			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 			faceIndices.clear();
 			for (Mesh::FaceEdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance()) {
 				uint32_t unifiedVertex = originalMesh->firstColocal(it.vertex0());
@@ -6167,7 +6204,9 @@ public:
 					unifiedVertex = it.vertex0();
 				faceIndices.push_back(unifiedMeshIndices[unifiedVertex]);
 			}
-			m_unifiedMesh->addFace(faceIndices, faceFlags);
+			result = m_unifiedMesh->addFace(faceIndices, faceFlags);
+			XA_UNUSED(result);
+			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
 		m_mesh->createBoundaries();
 		m_unifiedMesh->createBoundaries();
@@ -6179,8 +6218,11 @@ public:
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
 			m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
 #endif
-			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh);
+			bool duplicatedEdge = false;
+			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh, &duplicatedEdge);
 			if (fixedUnifiedMesh) {
+				if (duplicatedEdge)
+					m_warningFlags |= ChartWarningFlags::FixTJunctionsDuplicatedEdge;
 				m_unifiedMesh->~Mesh();
 				XA_FREE(m_unifiedMesh);
 				m_unifiedMesh = meshUnifyVertices(*fixedUnifiedMesh);
@@ -6201,10 +6243,12 @@ public:
 				// - Find cuts that reduce genus.
 				// - Find cuts to connect holes.
 				// - Use minimal spanning trees or seamster.
-				closeHoles(boundaryLoops);
+				closeHoles(boundaryLoops, &duplicatedEdge);
+				if (duplicatedEdge)
+					m_warningFlags |= ChartWarningFlags::CloseHolesDuplicatedEdge;
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 				if (boundaryLoops.size() > 1) {
-					m_closeHolesFailed = true;
+					m_warningFlags |= ChartWarningFlags::CloseHolesFailed;
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES
 					m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
 #endif
@@ -6213,8 +6257,10 @@ public:
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE
 			m_unifiedMesh->writeObjFile("debug_before_triangulate.obj");
 #endif
-			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh);
+			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh, &duplicatedEdge);
 			if (triangulatedMesh) {
+				if (duplicatedEdge)
+					m_warningFlags |= ChartWarningFlags::TriangulateDuplicatedEdge;
 				m_unifiedMesh->~Mesh();
 				XA_FREE(m_unifiedMesh);
 				m_unifiedMesh = triangulatedMesh;
@@ -6241,7 +6287,7 @@ public:
 
 	bool isDisk() const { return m_isDisk; }
 	bool isPlanar() const { return m_isPlanar; }
-	bool closeHolesFailed() const { return m_closeHolesFailed; }
+	uint32_t warningFlags() const { return m_warningFlags; }
 	const ParameterizationQuality &paramQuality() const { return m_paramQuality; }
 	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
 	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceArray[i]; }
@@ -6293,8 +6339,10 @@ public:
 	int32_t atlasIndex;
 
 private:
-	void closeHoles(const Array<uint32_t> &boundaryLoops)
+	void closeHoles(const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge)
 	{
+		if (duplicatedEdge)
+			*duplicatedEdge = false;
 		// Compute lengths.
 		const uint32_t boundaryCount = boundaryLoops.size();
 		Array<float> boundaryLengths;
@@ -6338,7 +6386,7 @@ private:
 				if (isCrossing) {
 					// Close loop.
 					edgeLoop.insertAt(0, edge);
-					closeLoop(j + 1, edgeLoop);
+					closeLoop(j + 1, edgeLoop, duplicatedEdge);
 					// Start over again.
 					vertexLoop.clear();
 					edgeLoop.clear();
@@ -6347,13 +6395,13 @@ private:
 				vertexLoop.push_back(vertex);
 				edgeLoop.insertAt(0, edge);
 			}
-			closeLoop(0, edgeLoop);
+			closeLoop(0, edgeLoop, duplicatedEdge);
 		}
 		m_unifiedMesh->createBoundaries();
 		m_unifiedMesh->linkBoundaries();
 	}
 
-	bool closeLoop(uint32_t startVertex, const Array<const Edge *> &loop)
+	bool closeLoop(uint32_t startVertex, const Array<const Edge *> &loop, bool *duplicatedEdge)
 	{
 		const uint32_t vertexCount = loop.size() - startVertex;
 		XA_DEBUG_ASSERT(vertexCount >= 3);
@@ -6372,7 +6420,10 @@ private:
 			indices.resize(vertexCount);
 			for (uint32_t i = 0; i < vertexCount; i++)
 				indices[i] = m_unifiedMesh->vertexAt(loop[startVertex + i]->index0);
-			m_unifiedMesh->addFace(indices);
+			if (m_unifiedMesh->addFace(indices) == Mesh::AddFaceResult::DuplicateEdge) {
+				if (duplicatedEdge)
+					*duplicatedEdge = true;
+			}
 		} else {
 			// If the polygon is not planar, we just cross our fingers, and hope this will work:
 			// Compute boundary centroid:
@@ -6386,7 +6437,10 @@ private:
 			for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
 				const uint32_t vertex1 = m_unifiedMesh->vertexAt(loop[startVertex + j]->index0);
 				const uint32_t vertex2 = m_unifiedMesh->vertexAt(loop[startVertex + i]->index0);
-				m_unifiedMesh->addFace(centroidVertex, vertex1, vertex2);
+				if (m_unifiedMesh->addFace(centroidVertex, vertex1, vertex2) == Mesh::AddFaceResult::DuplicateEdge) {
+					if (duplicatedEdge)
+						*duplicatedEdge = true;
+				}
 			}
 		}
 		return true;
@@ -6396,7 +6450,7 @@ private:
 	Mesh *m_unifiedMesh;
 	bool m_isDisk;
 	bool m_isPlanar;
-	bool m_closeHolesFailed;
+	uint32_t m_warningFlags;
 
 	// List of faces of the original mesh that belong to this chart.
 	Array<uint32_t> m_faceArray;
@@ -6453,7 +6507,10 @@ public:
 				XA_DEBUG_ASSERT(meshIndices[vertex] != (uint32_t)~0);
 				faceIndices.push_back(meshIndices[vertex]);
 			}
-			m_mesh->addFace(faceIndices, 0, !m_isVertexMap); // Don't hash edges if m_isVertexMap, they may be degenerate.
+			// Don't hash edges if m_isVertexMap, they may be degenerate.
+			Mesh::AddFaceResult::Enum result = m_mesh->addFace(faceIndices, 0, !m_isVertexMap);
+			XA_UNUSED(result);
+			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
 		if (!m_isVertexMap) {
 			m_mesh->createColocals();
@@ -7905,12 +7962,26 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 	XA_PRINT("Computing charts\n");
 	atlas->chartCount = 0;
 	ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData);
-	// Count charts.
+	// Count charts and print warnings.
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-			if (!chartGroup->isVertexMap())
-				atlas->chartCount += chartGroup->chartCount();
+			if (chartGroup->isVertexMap())
+				continue;
+			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
+				const internal::param::Chart *chart = chartGroup->chartAt(k);
+				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesDuplicatedEdge)
+					XA_PRINT_WARNING("   Chart %u: closing holes created non-manifold geometry\n", atlas->chartCount);
+				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesFailed)
+					XA_PRINT_WARNING("   Chart %u: failed to close holes\n", atlas->chartCount);
+				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
+					XA_PRINT_WARNING("   Chart %u: fixing t-junctions created non-manifold geometry\n", atlas->chartCount);
+				if (chart->warningFlags() & internal::param::ChartWarningFlags::TriangulateDuplicatedEdge)
+					XA_PRINT_WARNING("   Chart %u: triangulation created non-manifold geometry\n", atlas->chartCount);
+				if (!chart->isDisk())
+					XA_PRINT_WARNING("   Chart %u: doesn't have disk topology\n", atlas->chartCount);
+				atlas->chartCount++;
+			}
 		}
 	}
 	XA_PRINT("   %u charts\n", atlas->chartCount);
@@ -7942,7 +8013,6 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 	DestroyOutputMeshes(ctx);
 	XA_PRINT("Parameterizing charts\n");
 	ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, func, progressFunc, progressUserData);
-	// Print warnings for charts the have invalid parameterizations. Do that here, rather than when the parameterization quality is evaulated, so the chart index can be paired with the warning.
 	uint32_t chartIndex = 0;
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
@@ -7952,12 +8022,8 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 				const internal::param::ParameterizationQuality &quality = chart->paramQuality();
-				if (chart->closeHolesFailed())
-					XA_PRINT_WARNING("Chart %u: failed to close chart holes\n", chartIndex);
-				if (!chart->isDisk())
-					XA_PRINT_WARNING("Chart %u: doesn't have disk topology\n", chartIndex);
 				if (quality.flippedTriangleCount() > 0) {
-					XA_PRINT_WARNING("Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount(), quality.totalTriangleCount());
+					XA_PRINT_WARNING("   Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount(), quality.totalTriangleCount());
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 					char filename[256];
 					sprintf(filename, "debug_chart_%0.3u_invalid_parameterization.obj", chartIndex);
