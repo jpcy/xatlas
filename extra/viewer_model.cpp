@@ -118,7 +118,11 @@ static TextureData textureLoad(const char *basePath, const char *filename)
 	fseek(f, 0, SEEK_SET);
 	std::vector<uint8_t> fileData;
 	fileData.resize(length);
-	fread(fileData.data(), 1, (size_t)length, f);
+	if (fread(fileData.data(), 1, (size_t)length, f) < (size_t)length) {
+		fclose(f);
+		fprintf(stderr, "Error reading '%s'\n", fullFilename);
+		return td;
+	}
 	fclose(f);
 	int width, height, numComponents;
 	const uint8_t *imageData = stbi_load_from_memory(fileData.data(), (int)fileData.size(), &width, &height, &numComponents, 0);

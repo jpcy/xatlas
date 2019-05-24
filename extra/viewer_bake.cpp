@@ -1050,7 +1050,7 @@ void bakeShowGuiOptions()
 		}
 		if (s_bake.status == BakeStatus::Error) {
 			ImGui::PushStyleColor(ImGuiCol_Text, red);
-			ImGui::Text(s_bake.errorMessage);
+			ImGui::Text("%s", s_bake.errorMessage);
 			ImGui::PopStyleColor();
 		}
 		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
