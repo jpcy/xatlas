@@ -3286,8 +3286,7 @@ public:
 		float area = 0;
 		for (uint32_t f = 0; f < m_faces.size(); f++)
 			area += faceParametricArea(f);
-		XA_DEBUG_ASSERT(area >= 0);
-		return fabsf(area);
+		return fabsf(area); // May be negative, depends on texcoord winding.
 	}
 
 	uint32_t countTriangles() const
@@ -7104,7 +7103,7 @@ struct AtlasPacker
 			const float chartArea = chart->computeSurfaceArea();
 			//chartOrderArray[c] = chartArea;
 			// Compute chart scale
-			float parametricArea = fabsf(chart->computeParametricArea());    // @@ There doesn't seem to be anything preventing parametric area to be negative.
+			float parametricArea = chart->computeParametricArea();
 			if (parametricArea < XA_EPSILON) {
 				// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
 				Vector2 bounds = chart->computeParametricBounds();
