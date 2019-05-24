@@ -22,6 +22,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "shaders/shared.h"
 #include "viewer.h"
 
+#define ONE_GLTF_OBJECT_PER_MESH 0
+
 bgfx::VertexDecl ModelVertex::decl;
 
 struct ModelStatus
@@ -290,6 +292,9 @@ static void gltfCountMeshData(const cgltf_node *node, objzModel *model)
 				model->numIndices += (uint32_t)aindices->count;
 			}
 			model->numMeshes++;
+#if ONE_GLTF_OBJECT_PER_MESH
+			model->numObjects++;
+#endif
 		}
 	}
 	for (cgltf_size ci = 0; ci < node->children_count; ci++)
@@ -304,7 +309,7 @@ static const T *gltfGetBufferData(const cgltf_accessor *accessor)
 	return (const T *)&buffer[offset];
 }
 
-static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *firstMaterial, objzModel *model, uint32_t currentObject, uint32_t &currentMesh, uint32_t &firstMeshIndex, uint32_t &firstMeshVertex)
+static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *firstMaterial, objzModel *model, uint32_t &currentObject, uint32_t &currentMesh, uint32_t &firstMeshIndex, uint32_t &firstMeshVertex)
 {
 	const cgltf_mesh *sourceMesh = node->mesh;
 	if (sourceMesh) {
@@ -366,6 +371,19 @@ static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *f
 					indices[ii + firstMeshIndex] = firstMeshVertex + meshIndices[ii];
 				}
 			}
+#if ONE_GLTF_OBJECT_PER_MESH
+			// Create object.
+			assert(currentObject < model->numObjects);
+			objzObject &object = model->objects[currentObject];
+			object.name[0] = 0;
+			object.firstMesh = currentMesh;
+			object.numMeshes = 1;
+			object.firstIndex = firstMeshIndex;
+			object.numIndices = (uint32_t)aindices->count;
+			object.firstVertex = firstMeshVertex;
+			object.numVertices = (uint32_t)apositions->count;
+			currentObject++;
+#endif
 			// Create mesh.
 			assert(currentMesh < model->numMeshes);
 			objzMesh &mesh = model->meshes[currentMesh];
@@ -373,10 +391,13 @@ static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *f
 			mesh.firstIndex = firstMeshIndex;
 			mesh.numIndices = (uint32_t)aindices->count;
 			currentMesh++;
+#if !ONE_GLTF_OBJECT_PER_MESH
+			// Update object.
 			objzObject &object = model->objects[currentObject];
 			object.numMeshes++;
 			object.numIndices += (uint32_t)aindices->count;
 			object.numVertices += (uint32_t)apositions->count;
+#endif
 			firstMeshVertex += (uint32_t)apositions->count;
 			firstMeshIndex += (uint32_t)aindices->count;
 		}
@@ -416,7 +437,9 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 		if (!gltfAnyNodeInHierarchyHasMesh(&node))
 			continue;
 		gltfCountMeshData(&node, model);
+#if !ONE_GLTF_OBJECT_PER_MESH
 		model->numObjects++;
+#endif
 	}
 	// Alloc data.
 	model->indices = new uint32_t[model->numIndices];
@@ -431,6 +454,7 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 			continue;
 		if (!gltfAnyNodeInHierarchyHasMesh(&node))
 			continue;
+#if !ONE_GLTF_OBJECT_PER_MESH
 		// Create object.
 		assert(currentObject < model->numObjects);
 		objzObject &object = model->objects[currentObject];
@@ -441,9 +465,12 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 		object.numIndices = 0;
 		object.firstVertex = firstMeshVertex;
 		object.numVertices = 0;
+#endif
 		// Create mesh data.
 		gltfPopulateMeshData(&node, gltfData->materials, model, currentObject, currentMesh, firstMeshIndex, firstMeshVertex);
+#if !ONE_GLTF_OBJECT_PER_MESH
 		currentObject++;
+#endif
 	}
 	// Materials.
 	model->materials = new objzMaterial[model->numMaterials];
