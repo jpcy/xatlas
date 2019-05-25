@@ -54,8 +54,12 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #include <string.h>
 #include "xatlas.h"
 
-#if !defined(NDEBUG) && !defined(_DEBUG)
-#define _DEBUG 1
+#ifndef XA_DEBUG
+#ifdef NDEBUG
+#define XA_DEBUG 0
+#else
+#define XA_DEBUG 1
+#endif
 #endif
 
 #ifndef M_PI
@@ -66,7 +70,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_XSTR(x) XA_STR(x)
 
 #ifndef XA_ASSERT
-#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT_WARNING(0, "\rASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
+#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT_WARNING("\rASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
 #endif
 
 #ifndef XA_DEBUG_ASSERT
@@ -429,7 +433,7 @@ static float length(const Vector2 &v)
 	return sqrtf(lengthSquared(v));
 }
 
-#ifdef _DEBUG
+#if XA_DEBUG
 static bool isNormalized(const Vector2 &v, float epsilon = XA_NORMAL_EPSILON)
 {
 	return equal(length(v), 1, epsilon);
@@ -678,7 +682,7 @@ static Vector3 max(const Vector3 &a, const Vector3 &b)
 	return Vector3(max(a.x, b.x), max(a.y, b.y), max(a.z, b.z));
 }
 
-#ifdef _DEBUG
+#if XA_DEBUG
 bool isFinite(const Vector3 &v)
 {
 	return isFinite(v.x) && isFinite(v.y) && isFinite(v.z);
@@ -2160,7 +2164,7 @@ struct ObjectPool
 	void unref(uint32_t hnd) const
 	{
 		const uint32_t pos = hnd & kPosMask;
-#ifdef _DEBUG
+#if XA_DEBUG
 		const uint32_t ver = (hnd & kVerMask);
 #endif
 		D &d = m_data[pos];
@@ -2185,7 +2189,7 @@ struct ObjectPool
 	void unref(uint32_t hnd, F f) const
 	{
 		const uint32_t pos = hnd & kPosMask;
-#ifdef _DEBUG
+#if XA_DEBUG
 		const uint32_t ver = (hnd & kVerMask);
 #endif
 		D& d = m_data[pos];
@@ -3170,7 +3174,7 @@ public:
 				if ((faceGroup == UINT32_MAX || m_faceGroups[edge->face] == faceGroup) && !(m_faceFlags[edge->face] & FaceFlags::Ignore)) {
 					XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && !result)); // duplicate edge - ignore on initial meshes
 					result = edge;
-#if NDEBUG
+#if !XA_DEBUG
 					return result;
 #endif
 				}
@@ -3187,7 +3191,7 @@ public:
 						if ((faceGroup == UINT32_MAX || m_faceGroups[edge->face] == faceGroup) && !(m_faceFlags[edge->face] & FaceFlags::Ignore)) {
 							XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && !result)); // duplicate edge - ignore on initial meshes
 							result = edge;
-#if NDEBUG
+#if !XA_DEBUG
 							return result;
 #endif
 						}
@@ -4774,7 +4778,7 @@ static void sgemm(float alpha, const Matrix &A, const Matrix &B, float beta, Mat
 {
 	const uint32_t w = C.width();
 	const uint32_t h = C.height();
-#ifdef _DEBUG
+#if XA_DEBUG
 	const uint32_t aw = A.width();
 	const uint32_t ah = A.height();
 	const uint32_t bw = B.width();
