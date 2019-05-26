@@ -264,7 +264,9 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_dummyTexture);
 }
 
-static bool gltfAnyNodeInHierarchyHasMesh(const cgltf_node *node)
+BX_PRAGMA_DIAGNOSTIC_PUSH();
+BX_PRAGMA_DIAGNOSTIC_IGNORED_MSVC(4702) // 'unreachable code'
+bool gltfAnyNodeInHierarchyHasMesh(const cgltf_node *node)
 {
 	if (node->mesh)
 		return true;
@@ -272,6 +274,7 @@ static bool gltfAnyNodeInHierarchyHasMesh(const cgltf_node *node)
 		return gltfAnyNodeInHierarchyHasMesh(node->children[ci]);
 	return false;
 }
+BX_PRAGMA_DIAGNOSTIC_POP();
 
 static void gltfCountMeshData(const cgltf_node *node, objzModel *model)
 {

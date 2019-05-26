@@ -811,6 +811,7 @@ static void shutdownWorkerThread()
 	}
 }
 
+#if BX_ARCH_64BIT
 #define OIDN_LIB "OpenImageDenoise.dll"
 
 namespace oidn
@@ -921,6 +922,7 @@ static void bakeShutdownDenoiseThread()
 		s_bake.denoiseThread = nullptr;
 	}
 }
+#endif
 
 void bakeInit()
 {
@@ -928,7 +930,9 @@ void bakeInit()
 
 void bakeShutdown()
 {
+#if BX_ARCH_64BIT
 	bakeShutdownDenoiseThread();
+#endif
 	shutdownWorkerThread();
 	if (s_bake.embreeDevice) {
 		embree::ReleaseGeometry(s_bake.embreeGeometry);
@@ -984,7 +988,9 @@ void bakeFrame(uint32_t frameNo)
 		g_options.shadeMode = ShadeMode::Charts;
 	}
 	if (s_bake.denoiseStatus == DenoiseStatus::ThreadFinished) {
+#if BX_ARCH_64BIT
 		bakeShutdownDenoiseThread();
+#endif
 		bgfx::updateTexture2D(s_bake.denoisedLightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.dilatedLightmapData.data(), (uint32_t)s_bake.dilatedLightmapData.size() * sizeof(float)));
 		s_bake.denoiseStatus = DenoiseStatus::Finished;
 	}
