@@ -6375,7 +6375,7 @@ private:
 				continue;
 			}
 			Array<uint32_t> vertexLoop;
-			Array<const Edge *> edgeLoop;
+			Array<uint32_t> edgeLoop;
 			startOver:
 			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
 				const Edge *edge = m_unifiedMesh->edgeAt(it.edge());
@@ -6388,7 +6388,7 @@ private:
 				bool isCrossing = (j != vertexLoop.size());
 				if (isCrossing) {
 					// Close loop.
-					edgeLoop.insertAt(0, edge);
+					edgeLoop.insertAt(0, it.edge());
 					closeLoop(j + 1, edgeLoop, duplicatedEdge);
 					// Start over again.
 					vertexLoop.clear();
@@ -6396,7 +6396,7 @@ private:
 					goto startOver; // HE mesh version is bugged, actually breaks at end of edge iteration instead.
 				}
 				vertexLoop.push_back(vertex);
-				edgeLoop.insertAt(0, edge);
+				edgeLoop.insertAt(0, it.edge());
 			}
 			closeLoop(0, edgeLoop, duplicatedEdge);
 		}
@@ -6404,9 +6404,9 @@ private:
 		m_unifiedMesh->linkBoundaries();
 	}
 
-	bool closeLoop(uint32_t startVertex, const Array<const Edge *> &loop, bool *duplicatedEdge)
+	bool closeLoop(uint32_t startVertex, const Array<uint32_t> &edgeLoop, bool *duplicatedEdge)
 	{
-		const uint32_t vertexCount = loop.size() - startVertex;
+		const uint32_t vertexCount = edgeLoop.size() - startVertex;
 		XA_DEBUG_ASSERT(vertexCount >= 3);
 		if (vertexCount < 3)
 			return false;
@@ -6415,14 +6415,18 @@ private:
 		// This is still a bit of a hack. There surely are better hole filling algorithms out there.
 		Array<Vector3> points;
 		points.resize(vertexCount);
-		for (uint32_t i = 0; i < vertexCount; i++)
-			points[i] = m_unifiedMesh->position(m_unifiedMesh->vertexAt(loop[startVertex + i]->index0));
+		for (uint32_t i = 0; i < vertexCount; i++) {
+			const Edge *edge = m_unifiedMesh->edgeAt(edgeLoop[startVertex + i]);
+			points[i] = m_unifiedMesh->position(m_unifiedMesh->vertexAt(edge->index0));
+		}
 		const bool isPlanar = Fit::isPlanar(vertexCount, points.data());
 		if (isPlanar) {
 			Array<uint32_t> indices;
 			indices.resize(vertexCount);
-			for (uint32_t i = 0; i < vertexCount; i++)
-				indices[i] = m_unifiedMesh->vertexAt(loop[startVertex + i]->index0);
+			for (uint32_t i = 0; i < vertexCount; i++) {
+				const Edge *edge = m_unifiedMesh->edgeAt(edgeLoop[startVertex + i]);
+				indices[i] = m_unifiedMesh->vertexAt(edge->index0);
+			}
 			if (m_unifiedMesh->addFace(indices) == Mesh::AddFaceResult::DuplicateEdge) {
 				if (duplicatedEdge)
 					*duplicatedEdge = true;
@@ -6438,8 +6442,10 @@ private:
 			m_unifiedMesh->addVertex(centroidPos);
 			// Add one pair of edges for each boundary vertex.
 			for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
-				const uint32_t vertex1 = m_unifiedMesh->vertexAt(loop[startVertex + j]->index0);
-				const uint32_t vertex2 = m_unifiedMesh->vertexAt(loop[startVertex + i]->index0);
+				const Edge *edge1 = m_unifiedMesh->edgeAt(edgeLoop[startVertex + j]);
+				const Edge *edge2 = m_unifiedMesh->edgeAt(edgeLoop[startVertex + i]);
+				const uint32_t vertex1 = m_unifiedMesh->vertexAt(edge1->index0);
+				const uint32_t vertex2 = m_unifiedMesh->vertexAt(edge2->index0);
 				if (m_unifiedMesh->addFace(centroidVertex, vertex1, vertex2) == Mesh::AddFaceResult::DuplicateEdge) {
 					if (duplicatedEdge)
 						*duplicatedEdge = true;
