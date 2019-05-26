@@ -99,6 +99,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 
 #define XA_CHECK_FACE_OVERLAP 1
+#define XA_CHECK_PARAMETERIZATION_FACE_OVERLAP 0
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
 
@@ -486,12 +487,12 @@ static float triangleArea(const Vector2 &a, const Vector2 &b, const Vector2 &c)
 	return triangleArea(a - c, b - c);
 }
 
-static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c)
+static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c, float epsilon = 0.00001f)
 {
-	return triangleArea(a, b, p) >= 0.00001f && triangleArea(b, c, p) >= 0.00001f && triangleArea(c, a, p) >= 0.00001f;
+	return triangleArea(a, b, p) >= epsilon && triangleArea(b, c, p) >= epsilon && triangleArea(c, a, p) >= epsilon;
 }
 
-#if XA_CHECK_FACE_OVERLAP
+#if XA_CHECK_FACE_OVERLAP || XA_CHECK_PARAMETERIZATION_FACE_OVERLAP 
 static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &b1, const Vector2 &b2)
 {
 	const Vector2 v0 = a2 - a1;
@@ -5979,6 +5980,9 @@ public:
 		m_maxStretchMetric = 0.0f;
 		m_conformalMetric = 0.0f;
 		m_authalicMetric = 0.0f;
+#if XA_CHECK_PARAMETERIZATION_FACE_OVERLAP
+		triangleOverlapCount = 0;
+#endif
 	}
 
 	ParameterizationQuality(const Mesh *mesh, Array<uint32_t> *flippedFaces)
@@ -5994,6 +5998,53 @@ public:
 		m_conformalMetric = 0.0f;
 		m_authalicMetric = 0.0f;
 		const uint32_t faceCount = mesh->faceCount();
+#if XA_CHECK_PARAMETERIZATION_FACE_OVERLAP
+		triangleOverlapCount = 0;
+		for (uint32_t f1 = 0; f1 < faceCount; f1++) {
+			const Face *face1 = mesh->faceAt(f1);
+			uint32_t verts1[3];
+			Vector2 points1[3];
+			for (int i = 0; i < 3; i++) {
+				verts1[i] = mesh->vertexAt(face1->firstIndex + i);
+				points1[i] = mesh->texcoord(verts1[i]);
+			}
+			for (uint32_t f2 = f1 + 1; f2 < faceCount; f2++) {
+				const Face *face2 = mesh->faceAt(f2);
+				uint32_t verts2[3];
+				Vector2 points2[3];
+				for (int i = 0; i < 3; i++) {
+					verts2[i] = mesh->vertexAt(face2->firstIndex + i);
+					points2[i] = mesh->texcoord(verts2[i]);
+				}
+				for (int i = 0; i < 3; i++) {
+					// Any face 1 vertex inside face 2.
+					// Don't test if vertex matches any face 2 vertex.
+					if (verts1[i] != verts2[0] && verts1[i] != verts2[1] && verts1[i] != verts2[2])
+						if (pointInTriangle(points1[i], points2[0], points2[1], points2[2]))
+							goto overlap;
+					// As above, but with opposite faces.
+					if (verts2[i] != verts1[0] && verts2[i] != verts1[1] && verts2[i] != verts1[2])
+						if (pointInTriangle(points2[i], points1[0], points1[1], points1[2]))
+							goto overlap;
+					// Test all edges from face 1 against all edges from face 2.
+					// Skip if any vertices match.
+					for (int j = 0; j < 3; j++) {
+						if (verts1[i + 0] == verts2[j + 0] || verts1[i + 0] == verts2[(j + 1) % 3])
+							continue;
+						if (verts1[(i + 1) % 3] == verts2[j + 0] || verts1[(i + 1) % 3] == verts2[(j + 1) % 3])
+							continue;
+						if (linesIntersect(points1[i + 0], points1[(i + 1) % 3], points2[j + 0], points2[(j + 1) % 3]))
+							goto overlap;
+					}
+				}
+				continue;
+			overlap:
+				triangleOverlapCount++;
+			}
+		}
+#endif
+		if (flippedFaces)
+			flippedFaces->clear();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			uint32_t vertex0 = UINT32_MAX;
 			Vector3 p[3];
@@ -6019,7 +6070,9 @@ public:
 				flippedFaces->push_back(f);
 		}
 		if (m_flippedTriangleCount + m_zeroAreaTriangleCount == m_totalTriangleCount) {
-			// If all triangles are flipped, then none is.
+			// If all triangles are flipped, then none are.
+			if (flippedFaces)
+				flippedFaces->clear();
 			m_flippedTriangleCount = 0;
 		}
 		if (m_flippedTriangleCount > m_totalTriangleCount / 2)
@@ -6084,18 +6137,9 @@ public:
 		return sqrtf(m_authalicMetric / m_geometricArea);
 	}
 
-	void operator+=(const ParameterizationQuality &pq)
-	{
-		m_totalTriangleCount += pq.m_totalTriangleCount;
-		m_flippedTriangleCount += pq.m_flippedTriangleCount;
-		m_zeroAreaTriangleCount += pq.m_zeroAreaTriangleCount;
-		m_parametricArea += pq.m_parametricArea;
-		m_geometricArea += pq.m_geometricArea;
-		m_stretchMetric += pq.m_stretchMetric;
-		m_maxStretchMetric = max(m_maxStretchMetric, pq.m_maxStretchMetric);
-		m_conformalMetric += pq.m_conformalMetric;
-		m_authalicMetric += pq.m_authalicMetric;
-	}
+#if XA_CHECK_PARAMETERIZATION_FACE_OVERLAP
+	uint32_t triangleOverlapCount;
+#endif
 
 private:
 	void processTriangle(Vector3 q[3], Vector2 p[3], bool *isFlipped)
@@ -6706,7 +6750,6 @@ public:
 
 	void parameterizeCharts(ParameterizeFunc func)
 	{
-		ParameterizationQuality globalParameterizationQuality;
 		// Parameterize the charts.
 		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
@@ -6725,7 +6768,6 @@ public:
 			// @@ Check that parameterization quality is above a certain threshold.
 			// @@ Detect boundary self-intersections.
 			chart->evaluateParameterizationQuality();
-			globalParameterizationQuality += chart->paramQuality();
 			// Transfer parameterization from unified mesh to chart mesh.
 			chart->transferParameterization();
 		}
@@ -8050,9 +8092,19 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 				const internal::param::ParameterizationQuality &quality = chart->paramQuality();
+				bool invalid = false;
+#if XA_CHECK_PARAMETERIZATION_FACE_OVERLAP
+				if (quality.triangleOverlapCount > 0) {
+					invalid = true;
+					XA_PRINT_WARNING("   Chart %u: invalid parameterization, %u overlapping triangles.\n", chartIndex, quality.triangleOverlapCount);
+				}
+#endif
 				if (quality.flippedTriangleCount() > 0) {
+					invalid = true;
 					XA_PRINT_WARNING("   Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount(), quality.totalTriangleCount());
+				}
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
+				if (invalid) {
 					char filename[256];
 					sprintf(filename, "debug_chart_%0.3u_invalid_parameterization.obj", chartIndex);
 					const internal::Mesh *mesh = chart->unifiedMesh();
@@ -8072,8 +8124,8 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 						mesh->writeObjLinkedBoundaries(file);
 						fclose(file);
 					}
-#endif
 				}
+#endif
 #if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_NOT_DISK
 				if (!chart->isDisk()) {
 					char filename[256];
