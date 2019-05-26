@@ -46,7 +46,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #include <assert.h>
 #include <float.h> // FLT_MAX
 #include <limits.h>
-#define _USE_MATH_DEFINES
 #include <math.h>
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
@@ -60,10 +59,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #else
 #define XA_DEBUG 1
 #endif
-#endif
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
 #endif
 
 #define XA_STR(x) #x
@@ -95,9 +90,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 		xatlas::internal::s_print(__VA_ARGS__);
 #endif
 
-#define XA_EPSILON (0.0001f)
-#define XA_NORMAL_EPSILON (0.001f)
-#define XA_RANDOM_SEED (845281456)
 #define XA_UNUSED(a) ((void)(a))
 
 #ifndef XA_MULTITHREADED
@@ -210,6 +202,11 @@ static void *Realloc(void *ptr, size_t size, const char * /*file*/, int /*line*/
 }
 #endif
 
+static const float kPi = 3.14159265358979323846f;
+static const float kPi2 = 6.28318530717958647692f;
+static const float kEpsilon = 0.0001f;
+static const float kNormalEpsilon = 0.001f;
+
 static int align(int x, int a)
 {
 	return (x + a - 1) & ~(a - 1);
@@ -271,7 +268,7 @@ static bool isFinite(float f)
 
 // Robust floating point comparisons:
 // http://realtimecollisiondetection.net/blog/?p=89
-static bool equal(const float f0, const float f1, const float epsilon = XA_EPSILON)
+static bool equal(const float f0, const float f1, const float epsilon = kEpsilon)
 {
 	//return fabs(f0-f1) <= epsilon;
 	return fabs(f0 - f1) <= epsilon * max3(1.0f, fabsf(f0), fabsf(f1));
@@ -287,7 +284,7 @@ static int ftoi_round(float f)
 	return int(floorf(f + 0.5f));
 }
 
-static bool isZero(const float f, const float epsilon = XA_EPSILON)
+static bool isZero(const float f, const float epsilon = kEpsilon)
 {
 	return fabs(f) <= epsilon;
 }
@@ -434,13 +431,13 @@ static float length(const Vector2 &v)
 }
 
 #if XA_DEBUG
-static bool isNormalized(const Vector2 &v, float epsilon = XA_NORMAL_EPSILON)
+static bool isNormalized(const Vector2 &v, float epsilon = kNormalEpsilon)
 {
 	return equal(length(v), 1, epsilon);
 }
 #endif
 
-static Vector2 normalize(const Vector2 &v, float epsilon = XA_EPSILON)
+static Vector2 normalize(const Vector2 &v, float epsilon = kEpsilon)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
@@ -450,7 +447,7 @@ static Vector2 normalize(const Vector2 &v, float epsilon = XA_EPSILON)
 	return n;
 }
 
-static bool equal(const Vector2 &v1, const Vector2 &v2, float epsilon = XA_EPSILON)
+static bool equal(const Vector2 &v1, const Vector2 &v2, float epsilon = kEpsilon)
 {
 	return equal(v1.x, v2.x, epsilon) && equal(v1.y, v2.y, epsilon);
 }
@@ -643,12 +640,12 @@ static float length(const Vector3 &v)
 	return sqrtf(lengthSquared(v));
 }
 
-static bool isNormalized(const Vector3 &v, float epsilon = XA_NORMAL_EPSILON)
+static bool isNormalized(const Vector3 &v, float epsilon = kNormalEpsilon)
 {
 	return equal(length(v), 1, epsilon);
 }
 
-static Vector3 normalize(const Vector3 &v, float epsilon = XA_EPSILON)
+static Vector3 normalize(const Vector3 &v, float epsilon = kEpsilon)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
@@ -658,7 +655,7 @@ static Vector3 normalize(const Vector3 &v, float epsilon = XA_EPSILON)
 	return n;
 }
 
-static Vector3 normalizeSafe(const Vector3 &v, const Vector3 &fallback, float epsilon = XA_EPSILON)
+static Vector3 normalizeSafe(const Vector3 &v, const Vector3 &fallback, float epsilon = kEpsilon)
 {
 	float l = length(v);
 	if (isZero(l, epsilon)) {
@@ -667,7 +664,7 @@ static Vector3 normalizeSafe(const Vector3 &v, const Vector3 &fallback, float ep
 	return v * (1.0f / l);
 }
 
-static bool equal(const Vector3 &v0, const Vector3 &v1, float epsilon = XA_EPSILON)
+static bool equal(const Vector3 &v0, const Vector3 &v1, float epsilon = kEpsilon)
 {
 	return fabs(v0.x - v1.x) <= epsilon && fabs(v0.y - v1.y) <= epsilon && fabs(v0.z - v1.z) <= epsilon;
 }
@@ -1403,7 +1400,7 @@ public:
 		return centroid;
 	}
 
-	static bool isPlanar(int n, const Vector3 *points, float epsilon = XA_EPSILON)
+	static bool isPlanar(int n, const Vector3 *points, float epsilon = kEpsilon)
 	{
 		// compute the centroid and covariance
 		float matrix[6];
@@ -1727,7 +1724,7 @@ public:
 	enum { M = 397 };
 
 	/// Constructor that uses the given seed.
-	MTRand(uint32_t s = (uint32_t)XA_RANDOM_SEED)
+	MTRand(uint32_t s = 845281456u)
 	{
 		seed(s);
 	}
@@ -2966,7 +2963,7 @@ public:
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			edgeAabbs[i].expandToInclude(m_positions[m_indices[m_edges[i].index0]]);
 			edgeAabbs[i].expandToInclude(m_positions[m_indices[m_edges[i].index1]]);
-			edgeAabbs[i].expand(XA_EPSILON);
+			edgeAabbs[i].expand(kEpsilon);
 		}
 		BVH edgeBvh(edgeAabbs);
 #endif
@@ -3808,7 +3805,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 			if (!isZero(d))
 				continue;
 			float t = dot(v01, v21) / (l * l);
-			if (t < XA_EPSILON || t > 1.0f - XA_EPSILON)
+			if (t < kEpsilon || t > 1.0f - kEpsilon)
 				continue;
 			//XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
 			SplitEdge splitEdge;
@@ -3917,7 +3914,7 @@ static Mesh *meshTriangulate(const Mesh &inputMesh, bool *duplicatedEdge)
 			while (polygonVertices.size() > 2) {
 				const uint32_t size = polygonVertices.size();
 				// Update polygon angles. @@ Update only those that have changed.
-				float minAngle = float(2.0f * M_PI);
+				float minAngle = kPi2;
 				uint32_t bestEar = 0; // Use first one if none of them is valid.
 				bool bestIsValid = false;
 				for (uint32_t i = 0; i < size; i++) {
@@ -3931,7 +3928,7 @@ static Mesh *meshTriangulate(const Mesh &inputMesh, bool *duplicatedEdge)
 					float angle = acosf(d);
 					float area = triangleArea(p0, p1, p2);
 					if (area < 0.0f)
-						angle = float(2.0f * M_PI - angle);
+						angle = kPi2 - angle;
 					polygonAngles[i1] = angle;
 					if (angle < minAngle || !bestIsValid) {
 						// Make sure this is a valid ear, if not, skip this point.
@@ -5099,7 +5096,7 @@ static void triangle_angles(const Vector3 &v1, const Vector3 &v2, const Vector3 
 {
 	*a1 = vec_angle(v3, v1, v2);
 	*a2 = vec_angle(v1, v2, v3);
-	*a3 = float(M_PI - *a2 - *a1);
+	*a3 = kPi - *a2 - *a1;
 }
 
 static void setup_abf_relations(sparse::Matrix &A, int row, int id0, int id1, int id2, const Vector3 &p0, const Vector3 &p1, const Vector3 &p2)
@@ -5648,7 +5645,7 @@ struct AtlasBuilder
 		float roundness = square(chart->boundaryLength) / chart->area;
 		float newRoundness = square(newBoundaryLength) / newChartArea;
 		if (newRoundness > roundness) {
-			return square(newBoundaryLength) / float(newChartArea * 4 * M_PI);
+			return square(newBoundaryLength) / (newChartArea * 4.0f * kPi);
 		} else {
 			// Offer no impedance to faces that improve roundness.
 			return 0;
@@ -7114,13 +7111,13 @@ struct AtlasPacker
 			//chartOrderArray[c] = chartArea;
 			// Compute chart scale
 			float parametricArea = chart->computeParametricArea();
-			if (parametricArea < XA_EPSILON) {
+			if (parametricArea < kEpsilon) {
 				// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
 				Vector2 bounds = chart->computeParametricBounds();
 				parametricArea = bounds.x * bounds.y;
 			}
 			float scale = (chartArea / parametricArea) * m_texelsPerUnit;
-			if (parametricArea == 0) { // < XA_EPSILON)
+			if (parametricArea == 0) { // < kEpsilon)
 				scale = 0;
 			}
 			XA_ASSERT(isFinite(scale));
@@ -7172,7 +7169,7 @@ struct AtlasPacker
 						cw = align(cw + 1, 4) - 1;
 					}
 				}
-				scale_x = (float(cw) - XA_EPSILON);
+				scale_x = (float(cw) - kEpsilon);
 				divide_x = extents.x;
 				extents.x = float(cw);
 			}
@@ -7186,7 +7183,7 @@ struct AtlasPacker
 						ch = align(ch + 1, 4) - 1;
 					}
 				}
-				scale_y = (float(ch) - XA_EPSILON);
+				scale_y = (float(ch) - kEpsilon);
 				divide_y = extents.y;
 				extents.y = float(ch);
 			}
