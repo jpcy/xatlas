@@ -5337,6 +5337,10 @@ struct ChartBuildData
 		area = 0;
 		boundaryLength = 0;
 		normalSum = Vector3(0);
+		centroidSum = Vector3(0.0f);
+		centroid = Vector3(0.0f);
+		centroidFace = UINT32_MAX;
+		centroidFaceDistance = FLT_MAX;
 	}
 
 	int id;
@@ -5347,6 +5351,11 @@ struct ChartBuildData
 	float area;
 	float boundaryLength;
 	Vector3 normalSum;
+
+	Vector3 centroidSum; // Sum of chart face centroids.
+	Vector3 centroid; // Average centroid of chart faces.
+	uint32_t centroidFace; // The face with the closest centroid to the chart centroid.
+	float centroidFaceDistance; // The distance between centroidFace and the chart centroid.
 
 	Array<uint32_t> seeds;
 	Array<uint32_t> faces;
@@ -5436,6 +5445,16 @@ struct AtlasBuilder
 		XA_DEBUG_ASSERT(m_faceChartArray[f] == -1);
 		m_faceChartArray[f] = chart->id;
 		m_facesLeft--;
+		// Compute the chart centroid.
+		chart->centroidSum += m_mesh->triangleCenter(f);
+		chart->centroid = chart->centroidSum * (1.0f / float(m_mesh->faceCount()));
+		// Find the most central face.
+		const Vector3 faceCentroid = m_mesh->triangleCenter(f);
+		const float distanceFromChartCentroid = length(chart->centroid - faceCentroid);
+		if (distanceFromChartCentroid < chart->centroidFaceDistance) {
+			chart->centroidFaceDistance = distanceFromChartCentroid;
+			chart->centroidFace = f;
+		}
 		// Update area and boundary length.
 		chart->area = evaluateChartArea(chart, f);
 		chart->boundaryLength = evaluateBoundaryLength(chart, f);
@@ -5497,7 +5516,11 @@ struct AtlasBuilder
 			const uint32_t seed = chart->seeds.back();
 			chart->area = 0.0f;
 			chart->boundaryLength = 0.0f;
-			chart->normalSum = Vector3(0);
+			chart->normalSum = Vector3(0.0f);
+			chart->centroidSum = Vector3(0.0f);
+			chart->centroid = Vector3(0.0f);
+			chart->centroidFace = UINT32_MAX;
+			chart->centroidFaceDistance = FLT_MAX;
 			chart->faces.clear();
 			chart->candidates.clear();
 			addFaceToChart(chart, seed);
@@ -5545,13 +5568,8 @@ struct AtlasBuilder
 
 	bool relocateSeed(ChartBuildData *chart)
 	{
-		// Compute chart centroid.
-		const uint32_t faceCount = chart->faces.size();
-		Vector3 centroid(0.0f);
-		for (uint32_t i = 0; i < faceCount; i++)
-			centroid += m_mesh->triangleCenter(chart->faces[i]);
-		centroid *= 1.0f / float(faceCount);
 		// Find the first N triangles that fit the proxy best.
+		const uint32_t faceCount = chart->faces.size();
 		m_bestTriangles.clear();
 		for (uint32_t i = 0; i < faceCount; i++) {
 			float priority = evaluateProxyFitMetric(chart, chart->faces[i]);
@@ -5563,7 +5581,7 @@ struct AtlasBuilder
 		const uint32_t bestCount = m_bestTriangles.count();
 		for (uint32_t i = 0; i < bestCount; i++) {
 			Vector3 faceCentroid = m_mesh->triangleCenter(m_bestTriangles.pairs[i].face);
-			float distance = length(centroid - faceCentroid);
+			float distance = length(chart->centroid - faceCentroid);
 			if (distance > maxDistance) {
 				maxDistance = distance;
 				leastCentral = m_bestTriangles.pairs[i].face;
@@ -5609,6 +5627,10 @@ struct AtlasBuilder
 			return FLT_MAX;
 		if (m_options.maxBoundaryLength > 0.0f && newBoundaryLength > m_options.maxBoundaryLength)
 			return FLT_MAX;
+		if (chart->centroidFace != UINT32_MAX) {
+			if (dot(m_mesh->triangleNormal(chart->centroidFace), chart->planeNormal) < 0.5f)
+				return FLT_MAX;
+		}
 		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
 		// Make sure normal seams are fully respected:
 		const float N = evaluateNormalSeamMetric(chart, face);
