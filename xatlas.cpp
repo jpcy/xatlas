@@ -5985,7 +5985,7 @@ public:
 #endif
 	}
 
-	ParameterizationQuality(const Mesh *mesh, Array<uint32_t> *flippedFaces)
+	ParameterizationQuality(const Mesh *mesh, Array<uint32_t> *flippedFaces, Array<uint32_t> *overlappingFaces)
 	{
 		XA_DEBUG_ASSERT(mesh != NULL);
 		m_totalTriangleCount = 0;
@@ -6000,6 +6000,11 @@ public:
 		const uint32_t faceCount = mesh->faceCount();
 #if XA_CHECK_PARAMETERIZATION_FACE_OVERLAP
 		triangleOverlapCount = 0;
+		BitArray faceHasOverlap;
+		faceHasOverlap.resize(faceCount);
+		faceHasOverlap.clearAll();
+		if (overlappingFaces)
+			overlappingFaces->clear();
 		for (uint32_t f1 = 0; f1 < faceCount; f1++) {
 			const Face *face1 = mesh->faceAt(f1);
 			uint32_t verts1[3];
@@ -6009,6 +6014,11 @@ public:
 				points1[i] = mesh->texcoord(verts1[i]);
 			}
 			for (uint32_t f2 = f1 + 1; f2 < faceCount; f2++) {
+				// Ignore small faces.
+				const float f1area = mesh->faceArea(f1);
+				const float f2area = mesh->faceArea(f2);
+				if (f1area <= kEpsilon || f2area <= kEpsilon)
+					continue;
 				const Face *face2 = mesh->faceAt(f2);
 				uint32_t verts2[3];
 				Vector2 points2[3];
@@ -6019,13 +6029,15 @@ public:
 				for (int i = 0; i < 3; i++) {
 					// Any face 1 vertex inside face 2.
 					// Don't test if vertex matches any face 2 vertex.
-					if (verts1[i] != verts2[0] && verts1[i] != verts2[1] && verts1[i] != verts2[2])
-						if (pointInTriangle(points1[i], points2[0], points2[1], points2[2]))
+					if (verts1[i] != verts2[0] && verts1[i] != verts2[1] && verts1[i] != verts2[2]) {
+						if (pointInTriangle(points1[i], points2[0], points2[1], points2[2], kEpsilon))
 							goto overlap;
+					}
 					// As above, but with opposite faces.
-					if (verts2[i] != verts1[0] && verts2[i] != verts1[1] && verts2[i] != verts1[2])
-						if (pointInTriangle(points2[i], points1[0], points1[1], points1[2]))
+					if (verts2[i] != verts1[0] && verts2[i] != verts1[1] && verts2[i] != verts1[2]) {
+						if (pointInTriangle(points2[i], points1[0], points1[1], points1[2], kEpsilon))
 							goto overlap;
+					}
 					// Test all edges from face 1 against all edges from face 2.
 					// Skip if any vertices match.
 					for (int j = 0; j < 3; j++) {
@@ -6039,9 +6051,19 @@ public:
 				}
 				continue;
 			overlap:
-				triangleOverlapCount++;
+				faceHasOverlap.setBitAt(f1);
+				faceHasOverlap.setBitAt(f2);
 			}
 		}
+		for (uint32_t f = 0; f < faceCount; f++) {
+			if (faceHasOverlap.bitAt(f)) {
+				triangleOverlapCount++;
+				if (overlappingFaces)
+					overlappingFaces->push_back(f);
+			}
+		}
+#else
+		XA_UNUSED(overlappingFaces);
 #endif
 		if (flippedFaces)
 			flippedFaces->clear();
@@ -6355,7 +6377,10 @@ public:
 	bool isPlanar() const { return m_isPlanar; }
 	uint32_t warningFlags() const { return m_warningFlags; }
 	const ParameterizationQuality &paramQuality() const { return m_paramQuality; }
+#if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
+	const Array<uint32_t> &paramOverlappingFaces() const { return m_paramOverlappingFaces; }
+#endif
 	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceArray[i]; }
 	const Mesh *mesh() const { return m_mesh; }
 	Mesh *mesh() { return m_mesh; }
@@ -6366,9 +6391,9 @@ public:
 	void evaluateParameterizationQuality()
 	{
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-		m_paramQuality = ParameterizationQuality(m_unifiedMesh, &m_paramFlippedFaces);
+		m_paramQuality = ParameterizationQuality(m_unifiedMesh, &m_paramFlippedFaces, &m_paramOverlappingFaces);
 #else
-		m_paramQuality = ParameterizationQuality(m_unifiedMesh, nullptr);
+		m_paramQuality = ParameterizationQuality(m_unifiedMesh, nullptr, nullptr);
 #endif
 	}
 
@@ -6533,7 +6558,10 @@ private:
 	Array<uint32_t> m_chartToUnifiedMap;
 
 	ParameterizationQuality m_paramQuality;
+#if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	Array<uint32_t> m_paramFlippedFaces;
+	Array<uint32_t> m_paramOverlappingFaces;
+#endif
 };
 
 // Set of charts corresponding to mesh faces in the same face group.
@@ -8093,6 +8121,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 				const internal::param::ParameterizationQuality &quality = chart->paramQuality();
 				bool invalid = false;
+				XA_UNUSED(invalid);
 #if XA_CHECK_PARAMETERIZATION_FACE_OVERLAP
 				if (quality.triangleOverlapCount > 0) {
 					invalid = true;
@@ -8119,6 +8148,11 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 							fprintf(file, "o flipped_faces\n");
 							for (uint32_t f = 0; f < chart->paramFlippedFaces().size(); f++)
 								mesh->writeObjFace(file, chart->paramFlippedFaces()[f]);
+						}
+						if (!chart->paramOverlappingFaces().isEmpty()) {
+							fprintf(file, "o overlapping_faces\n");
+							for (uint32_t f = 0; f < chart->paramOverlappingFaces().size(); f++)
+								mesh->writeObjFace(file, chart->paramOverlappingFaces()[f]);
 						}
 						mesh->writeObjBoundaryEges(file);
 						mesh->writeObjLinkedBoundaries(file);
