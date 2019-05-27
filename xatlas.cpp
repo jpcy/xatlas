@@ -107,7 +107,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
 #endif
 
-#define XA_DEBUG_EXPORT_OBJ 0
 #define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
@@ -117,6 +116,17 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE 0
 #define XA_DEBUG_EXPORT_OBJ_NOT_DISK 0
+
+#define XA_DEBUG_EXPORT_OBJ (0 \
+	|| XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES \
+	|| XA_DEBUG_EXPORT_OBJ_CHART_GROUPS \
+	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
+	|| XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION \
+	|| XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION \
+	|| XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES \
+	|| XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES \
+	|| XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE \
+	|| XA_DEBUG_EXPORT_OBJ_NOT_DISK)
 
 namespace xatlas {
 namespace internal {
@@ -6303,7 +6313,7 @@ public:
 		if (m_isPlanar) {
 			m_isDisk = true;
 		} else {
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
+#if XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
 			m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
 #endif
 			bool duplicatedEdge = false;
@@ -6323,7 +6333,7 @@ public:
 			Array<uint32_t> boundaryLoops;
 			meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 			if (boundaryLoops.size() > 1) {
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
+#if XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
 				m_unifiedMesh->writeObjFile("debug_before_close_holes.obj");
 #endif
 				// Closing the holes is not always the best solution and does not fix all the problems.
@@ -6337,12 +6347,12 @@ public:
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 				if (boundaryLoops.size() > 1) {
 					m_warningFlags |= ChartWarningFlags::CloseHolesFailed;
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES
+#if XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES
 					m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
 #endif
 				}
 			}
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE
+#if XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE
 			m_unifiedMesh->writeObjFile("debug_before_triangulate.obj");
 #endif
 			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh, &duplicatedEdge);
@@ -6619,7 +6629,7 @@ public:
 			m_mesh->createBoundaries();
 			m_mesh->linkBoundaries();
 		}
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHART_GROUPS
+#if XA_DEBUG_EXPORT_OBJ_CHART_GROUPS
 		char filename[256];
 		sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u.obj", m_sourceId, m_id);
 		m_mesh->writeObjFile(filename);
@@ -6754,7 +6764,7 @@ public:
 				Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(i));
 				m_chartArray.push_back(chart);
 			}
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_CHARTS
+#if XA_DEBUG_EXPORT_OBJ_CHARTS
 			char filename[256];
 			sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_charts.obj", m_sourceId, m_id);
 			FILE *file = fopen(filename, "w");
@@ -7993,7 +8003,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 	mesh->createFaceGroups();
 	XA_PRINT("   Creating boundaries\n");
 	mesh->createBoundaries();
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES
+#if XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES
 	char filename[256];
 	sprintf(filename, "debug_mesh_%0.3u.obj", mesh->id());
 	FILE *file = fopen(filename, "w");
@@ -8132,7 +8142,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 					invalid = true;
 					XA_PRINT_WARNING("   Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount(), quality.totalTriangleCount());
 				}
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
+#if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 				if (invalid) {
 					char filename[256];
 					sprintf(filename, "debug_chart_%0.3u_invalid_parameterization.obj", chartIndex);
@@ -8160,7 +8170,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 					}
 				}
 #endif
-#if XA_DEBUG_EXPORT_OBJ && XA_DEBUG_EXPORT_OBJ_NOT_DISK
+#if XA_DEBUG_EXPORT_OBJ_NOT_DISK
 				if (!chart->isDisk()) {
 					char filename[256];
 					sprintf(filename, "debug_chart_%0.3u_not_disk.obj", chartIndex);
