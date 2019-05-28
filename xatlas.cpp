@@ -115,7 +115,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE 0
 #define XA_DEBUG_EXPORT_OBJ_NOT_DISK 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION 0
-#define XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION 0
+#define XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION 1
 
 #define XA_DEBUG_EXPORT_OBJ (0 \
 	|| XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES \
@@ -6049,7 +6049,6 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 	for (uint32_t f = 0; f < faceCount; f++) {
 		Vector3 pos[3];
 		Vector2 texcoord[3];
-		bool isFlipped = false;
 		for (int i = 0; i < 3; i++) {
 			const uint32_t v = mesh->vertexAt(mesh->faceAt(f)->firstIndex + i);
 			pos[i] = mesh->position(v);
@@ -6073,7 +6072,7 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 		if (parametricArea < 0.0f) {
 			// Count flipped triangles.
 			quality.flippedTriangleCount++;
-			if (flippedFaces && isFlipped)
+			if (flippedFaces)
 				flippedFaces->push_back(f);
 			parametricArea = fabsf(parametricArea);
 		}
@@ -8080,11 +8079,6 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 							fprintf(file, "o flipped_faces\n");
 							for (uint32_t f = 0; f < chart->paramFlippedFaces().size(); f++)
 								mesh->writeObjFace(file, chart->paramFlippedFaces()[f]);
-						}
-						if (!chart->paramOverlappingFaces().isEmpty()) {
-							fprintf(file, "o overlapping_faces\n");
-							for (uint32_t f = 0; f < chart->paramOverlappingFaces().size(); f++)
-								mesh->writeObjFace(file, chart->paramOverlappingFaces()[f]);
 						}
 						mesh->writeObjBoundaryEges(file);
 						mesh->writeObjLinkedBoundaries(file);
