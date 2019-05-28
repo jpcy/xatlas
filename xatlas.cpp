@@ -5852,7 +5852,7 @@ struct AtlasBuilder
 						continue;
 					// Merge if chart2 has a single face.
 					// Merge if chart2 is wholely inside chart1, ignoring seams.
-					if (chart2->faces.size() == 1 || sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength) {
+					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && (chart2->faces.size() == 1 || sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength)) {
 						mergeChart(chart, cc, sharedBoundaryLengthsNoSeams[cc]);
 						merged = true;
 						break;
