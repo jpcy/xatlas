@@ -7846,7 +7846,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 {
 	XA_DEBUG_ASSERT(atlas);
 	bool decoded = (meshDecl.indexCount <= 0);
-	uint32_t indexCount = decoded ? meshDecl.vertexCount : indexCount = meshDecl.indexCount;
+	uint32_t indexCount = decoded ? meshDecl.vertexCount : meshDecl.indexCount;
 	Context *ctx = (Context *)atlas;
 	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", atlas->meshCount, meshDecl.vertexCount, indexCount / 3);
 	// Expecting triangle faces.
