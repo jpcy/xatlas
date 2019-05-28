@@ -46,6 +46,8 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 
 [aobaker](https://github.com/prideout/aobaker) - Ambient occlusion baking. Uses [thekla_atlas](https://github.com/Thekla/thekla_atlas).
 
+[seamoptimizer](https://github.com/ands/seamoptimizer]) - A C/C++ single-file library that minimizes the hard transition errors of disjoint edges in lightmaps.
+
 [Gazebo model](https://opengameart.org/content/gazebo-0) by Teh_Bucket
 
 [Tunnel scene](https://lmhpoly.com/unity-tutorial-volumetric-lighting/) by LMHPoly
