@@ -5351,6 +5351,7 @@ struct ChartBuildData
 		centroid = Vector3(0.0f);
 		centroidFace = UINT32_MAX;
 		centroidFaceDistance = FLT_MAX;
+		centroidFaceNormal = Vector3(0.0f);
 	}
 
 	int id;
@@ -5366,6 +5367,7 @@ struct ChartBuildData
 	Vector3 centroid; // Average centroid of chart faces.
 	uint32_t centroidFace; // The face with the closest centroid to the chart centroid.
 	float centroidFaceDistance; // The distance between centroidFace and the chart centroid.
+	Vector3 centroidFaceNormal;
 
 	Array<uint32_t> seeds;
 	Array<uint32_t> faces;
@@ -5464,6 +5466,7 @@ struct AtlasBuilder
 		if (distanceFromChartCentroid < chart->centroidFaceDistance) {
 			chart->centroidFaceDistance = distanceFromChartCentroid;
 			chart->centroidFace = f;
+			chart->centroidFaceNormal = m_mesh->triangleNormal(f);
 		}
 		// Update area and boundary length.
 		chart->area = evaluateChartArea(chart, f);
@@ -5531,6 +5534,7 @@ struct AtlasBuilder
 			chart->centroid = Vector3(0.0f);
 			chart->centroidFace = UINT32_MAX;
 			chart->centroidFaceDistance = FLT_MAX;
+			chart->centroidFaceNormal = Vector3(0.0f);
 			chart->faces.clear();
 			chart->candidates.clear();
 			addFaceToChart(chart, seed);
@@ -5803,60 +5807,73 @@ struct AtlasBuilder
 	void mergeCharts()
 	{
 		Array<float> sharedBoundaryLengths;
+		Array<float> sharedBoundaryLengthsNoSeams;
 		const uint32_t chartCount = m_chartArray.size();
-		for (int c = chartCount - 1; c >= 0; c--) {
-			sharedBoundaryLengths.clear();
-			sharedBoundaryLengths.resize(chartCount, 0.0f);
-			ChartBuildData *chart = m_chartArray[c];
-			float externalBoundary = 0.0f;
-			const uint32_t faceCount = chart->faces.size();
-			for (uint32_t i = 0; i < faceCount; i++) {
-				uint32_t f = chart->faces[i];
-				for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-					const float l = m_edgeLengths[it.edge()];
-					if (it.isBoundary()) {
-						externalBoundary += l;
-					} else {
-						int neighborChart = m_faceChartArray[it.oppositeFace()];
-						if (neighborChart != c) {
-							if ((it.isSeam() && (it.isNormalSeam() || it.isTextureSeam())) || neighborChart == -2) {
-								externalBoundary += l;
-							} else {
-								sharedBoundaryLengths[neighborChart] += l;
+		// Merge charts progressively until there's none left to merge.
+		for (;;) {
+			bool merged = false;
+			for (int c = chartCount - 1; c >= 0; c--) {
+				ChartBuildData *chart = m_chartArray[c];
+				if (chart == NULL)
+					continue;
+				float externalBoundaryLength = 0.0f;
+				sharedBoundaryLengths.clear();
+				sharedBoundaryLengths.resize(chartCount, 0.0f);
+				sharedBoundaryLengthsNoSeams.clear();
+				sharedBoundaryLengthsNoSeams.resize(chartCount, 0.0f);
+				const uint32_t faceCount = chart->faces.size();
+				for (uint32_t i = 0; i < faceCount; i++) {
+					const uint32_t f = chart->faces[i];
+					for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+						const float l = m_edgeLengths[it.edge()];
+						if (it.isBoundary()) {
+							externalBoundaryLength += l;
+						} else {
+							const int neighborChart = m_faceChartArray[it.oppositeFace()];
+							if (m_chartArray[neighborChart] != chart) {
+								if ((it.isSeam() && (it.isNormalSeam() || it.isTextureSeam()))) {
+									externalBoundaryLength += l;
+								} else {
+									sharedBoundaryLengths[neighborChart] += l;
+								}
+								sharedBoundaryLengthsNoSeams[neighborChart] += l;
 							}
 						}
 					}
 				}
-			}
-			// Find the best chart to merge.
-			int bestChart2Index = -1;
-			for (int cc = chartCount - 1; cc >= 0; cc--) {
-				if (cc == c)
-					continue;
-				ChartBuildData *chart2 = m_chartArray[cc];
-				if (chart2 == NULL)
-					continue;
-				if (sharedBoundaryLengths[cc] >= chart2->boundaryLength) {
-					// chart2 is inside chart1
-					bestChart2Index = cc;
-					break;
-				}
-				if (sharedBoundaryLengths[cc] > 0.20 * max(0.0f, chart->boundaryLength - externalBoundary)) {
-					// Over 20% of chart1 boundary touching other faces is shared with chart2.
-					// Compare proxies.
-					if (dot(chart2->planeNormal, chart->planeNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION) {
-						if (bestChart2Index == -1 || sharedBoundaryLengths[bestChart2Index] < sharedBoundaryLengths[cc])
-							bestChart2Index = cc;
+				for (int cc = chartCount - 1; cc >= 0; cc--) {
+					if (cc == c)
+						continue;
+					ChartBuildData *chart2 = m_chartArray[cc];
+					if (chart2 == NULL)
+						continue;
+					// Merge if chart2 is wholely inside chart1. Ignore seams.
+					if (sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength) {
+						mergeChart(chart, cc, sharedBoundaryLengthsNoSeams[cc]);
+						merged = true;
+						break;
 					}
+					if (sharedBoundaryLengths[cc] > 0.2f * max(0.0f, chart->boundaryLength - externalBoundaryLength) || 
+						sharedBoundaryLengths[cc] > 0.75f * chart2->boundaryLength) {
+						// Over 20% of chart1 boundary touching other faces is shared with chart2.
+						// Over 75% of chart2 boundary is shared with chart1.
+						// Compare proxies.
+						if (dot(chart2->planeNormal, chart->planeNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION /*&&
+							dot(chart2->centroidFaceNormal, chart->centroidFaceNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION*/) {
+							// Always use sharedBoundaryLengthsNoSeams when merging, it's the real shared boundary length.
+							mergeChart(chart, cc, sharedBoundaryLengthsNoSeams[cc]);
+							merged = true;
+							break;
+						}
+					}
+					if (merged)
+						break;
 				}
+				if (merged)
+					break;
 			}
-			// Merge the charts.
-			if (bestChart2Index != -1) {
-				mergeChart(m_chartArray[bestChart2Index], chart, sharedBoundaryLengths[bestChart2Index]);
-				chart->~ChartBuildData();
-				XA_FREE(chart);
-				m_chartArray[c] = chart = NULL;
-			}
+			if (!merged)
+				break;
 		}
 		// Remove deleted charts.
 		for (int c = 0; c < int32_t(m_chartArray.size()); /*do not increment if removed*/) {
@@ -5940,8 +5957,9 @@ struct AtlasBuilder
 		}
 	}
 
-	void mergeChart(ChartBuildData *owner, ChartBuildData *chart, float sharedBoundaryLength)
+	void mergeChart(ChartBuildData *owner, uint32_t chartIndex, float sharedBoundaryLength)
 	{
+		ChartBuildData *chart = m_chartArray[chartIndex];
 		const uint32_t faceCount = chart->faces.size();
 		for (uint32_t i = 0; i < faceCount; i++) {
 			uint32_t f = chart->faces[i];
@@ -5954,6 +5972,10 @@ struct AtlasBuilder
 		owner->boundaryLength += chart->boundaryLength - sharedBoundaryLength;
 		owner->normalSum += chart->normalSum;
 		updateProxy(owner);
+		// Delete chart.
+		chart->~ChartBuildData();
+		XA_FREE(chart);
+		m_chartArray[chartIndex] = NULL;
 	}
 
 	uint32_t facesLeft() const { return m_facesLeft;	}
