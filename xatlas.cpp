@@ -5848,7 +5848,7 @@ struct AtlasBuilder
 					if (chart2 == NULL)
 						continue;
 					// Merge if chart2 is wholely inside chart1. Ignore seams.
-					if (sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength) {
+					if (sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength && dot(chart2->planeNormal, chart->planeNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION) {
 						mergeChart(chart, cc, sharedBoundaryLengthsNoSeams[cc]);
 						merged = true;
 						break;
