@@ -110,6 +110,7 @@ struct
 	AtlasStatus status;
 	int currentTexture;
 	bool fitToWindow = true;
+	bool wireframe = false;
 	std::vector<bgfx::FrameBufferHandle> chartsFrameBuffers;
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
@@ -553,43 +554,43 @@ static void atlasRenderChartsTextures()
 				firstIndex += chart.indexCount;
 			}
 		}
-#if 0
-		// Render chart boundary lines.
-		std::vector<PosVertex> boundaryVertices;
-		int edge = 0;
-		for (uint32_t mi = 0; mi < s_atlas.data->meshCount; mi++) {
-			const xatlas::Mesh &mesh = s_atlas.data->meshes[mi];
-			for (uint32_t ci = 0; ci < mesh.chartCount; ci++) {
-				const xatlas::Chart &chart = mesh.chartArray[ci];
-				for (uint32_t k = 0; k < chart.indexCount; k += 3) {
-					for (int l = 0; l < 3; l++) {
-						if (chart.atlasIndex == i && s_atlas.boundaryEdges[edge]) {
-							const xatlas::Vertex &v0 = mesh.vertexArray[chart.indexArray[k + l]];
-							const xatlas::Vertex &v1 = mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]];
-							PosVertex p;
-							p.pos[0] = v0.uv[0];
-							p.pos[1] = v0.uv[1];
-							boundaryVertices.push_back(p);
-							p.pos[0] = v1.uv[0];
-							p.pos[1] = v1.uv[1];
-							boundaryVertices.push_back(p);
+		if (s_atlas.wireframe) {
+			// Render chart boundary lines.
+			std::vector<PosVertex> boundaryVertices;
+			int edge = 0;
+			for (uint32_t mi = 0; mi < s_atlas.data->meshCount; mi++) {
+				const xatlas::Mesh &mesh = s_atlas.data->meshes[mi];
+				for (uint32_t ci = 0; ci < mesh.chartCount; ci++) {
+					const xatlas::Chart &chart = mesh.chartArray[ci];
+					for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+						for (int l = 0; l < 3; l++) {
+							if (chart.atlasIndex == i && s_atlas.boundaryEdges[edge]) {
+								const xatlas::Vertex &v0 = mesh.vertexArray[chart.indexArray[k + l]];
+								const xatlas::Vertex &v1 = mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]];
+								PosVertex p;
+								p.pos[0] = v0.uv[0];
+								p.pos[1] = v0.uv[1];
+								boundaryVertices.push_back(p);
+								p.pos[0] = v1.uv[0];
+								p.pos[1] = v1.uv[1];
+								boundaryVertices.push_back(p);
+							}
+							edge++;
 						}
-						edge++;
 					}
 				}
 			}
+			if (!boundaryVertices.empty() && bgfx::getAvailTransientVertexBuffer((uint32_t)boundaryVertices.size(), PosVertex::decl) == (uint32_t)boundaryVertices.size()) {
+				bgfx::TransientVertexBuffer vb;
+				bgfx::allocTransientVertexBuffer(&vb, (uint32_t)boundaryVertices.size(), PosVertex::decl);
+				memcpy(vb.data, boundaryVertices.data(), boundaryVertices.size() * sizeof(PosVertex));
+				bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
+				bgfx::setVertexBuffer(0, &vb);
+				const float color[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+				bgfx::setUniform(s_atlas.u_color, color);
+				bgfx::submit(viewId, getColorProgram(), 1);
+			}
 		}
-		if (!boundaryVertices.empty() && bgfx::getAvailTransientVertexBuffer((uint32_t)boundaryVertices.size(), PosVertex::decl) == (uint32_t)boundaryVertices.size()) {
-			bgfx::TransientVertexBuffer vb;
-			bgfx::allocTransientVertexBuffer(&vb, (uint32_t)boundaryVertices.size(), PosVertex::decl);
-			memcpy(vb.data, boundaryVertices.data(), boundaryVertices.size() * sizeof(PosVertex));
-			bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
-			bgfx::setVertexBuffer(0, &vb);
-			const float color[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-			bgfx::setUniform(s_atlas.u_color, color);
-			bgfx::submit(viewId, getColorProgram(), 1);
-		}
-#endif
 		viewId++;
 	}
 }
@@ -791,6 +792,9 @@ void atlasShowGuiWindow(int progressDots)
 				ImGui::SameLine();
 			}
 			ImGui::Checkbox("Fit to window", &s_atlas.fitToWindow);
+			ImGui::SameLine();
+			if (ImGui::Checkbox("Wireframe", &s_atlas.wireframe))
+				atlasRenderChartsTextures();
 			GuiTexture texture;
 			texture.bgfx.handle = bgfx::getTexture(s_atlas.chartsFrameBuffers[s_atlas.currentTexture]);
 			texture.bgfx.flags = GuiTextureFlags::PointSampler;
