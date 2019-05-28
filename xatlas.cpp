@@ -72,8 +72,8 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_ASSERT(exp) assert(exp)
 #endif
 
-#define XA_ALLOC(type) (type *)internal::Realloc(NULL, sizeof(type), __FILE__, __LINE__)
-#define XA_ALLOC_ARRAY(type, num) (type *)internal::Realloc(NULL, sizeof(type) * num, __FILE__, __LINE__)
+#define XA_ALLOC(type) (type *)internal::Realloc(nullptr, sizeof(type), __FILE__, __LINE__)
+#define XA_ALLOC_ARRAY(type, num) (type *)internal::Realloc(nullptr, sizeof(type) * num, __FILE__, __LINE__)
 #define XA_REALLOC(ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * num, __FILE__, __LINE__)
 #define XA_FREE(ptr) internal::Realloc(ptr, 0, __FILE__, __LINE__)
 #define XA_NEW(type, ...) new (XA_ALLOC(type)) type(__VA_ARGS__)
@@ -145,16 +145,16 @@ struct AllocHeader
 	AllocHeader *prev, *next;
 };
 
-static AllocHeader *s_allocRoot = NULL;
+static AllocHeader *s_allocRoot = nullptr;
 static size_t s_allocTotalSize = 0;
 static size_t s_allocPeakSize = 0;
 
 static void *Realloc(void *ptr, size_t size, const char *file, int line)
 {
 	if (!size && !ptr)
-		return NULL;
-	uint8_t *realPtr = NULL;
-	AllocHeader *header = NULL;
+		return nullptr;
+	uint8_t *realPtr = nullptr;
+	AllocHeader *header = nullptr;
 	if (ptr) {
 		realPtr = ((uint8_t *)ptr) - sizeof(AllocHeader);
 		header = (AllocHeader *)realPtr;
@@ -174,7 +174,7 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 	size += sizeof(AllocHeader);
 	uint8_t *newPtr = (uint8_t *)s_realloc(realPtr, size);
 	if (!newPtr)
-		return NULL;
+		return nullptr;
 	header = (AllocHeader *)newPtr;
 	header->size = size;
 	header->file = file;
@@ -183,7 +183,7 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 		s_allocRoot = header;
 		header->prev = header->next = 0;
 	} else {
-		header->prev = NULL;
+		header->prev = nullptr;
 		header->next = s_allocRoot;
 		s_allocRoot = header;
 		header->next->prev = header;
@@ -214,10 +214,10 @@ static void *Realloc(void *ptr, size_t size, const char * /*file*/, int /*line*/
 }
 #endif
 
-static const float kPi = 3.14159265358979323846f;
-static const float kPi2 = 6.28318530717958647692f;
-static const float kEpsilon = 0.0001f;
-static const float kNormalEpsilon = 0.001f;
+static constexpr float kPi = 3.14159265358979323846f;
+static constexpr float kPi2 = 6.28318530717958647692f;
+static constexpr float kEpsilon = 0.0001f;
+static constexpr float kNormalEpsilon = 0.001f;
 
 static int align(int x, int a)
 {
@@ -753,19 +753,19 @@ class Array {
 public:
 	typedef uint32_t size_type;
 
-	Array() : m_buffer(NULL), m_capacity(0), m_size(0) {}
+	Array() : m_buffer(nullptr), m_capacity(0), m_size(0) {}
 
-	Array(const Array & a) : m_buffer(NULL), m_capacity(0), m_size(0)
+	Array(const Array & a) : m_buffer(nullptr), m_capacity(0), m_size(0)
 	{
 		copy(a.m_buffer, a.m_size);
 	}
 
-	Array(const T * ptr, uint32_t num) : m_buffer(NULL), m_capacity(0), m_size(0)
+	Array(const T * ptr, uint32_t num) : m_buffer(nullptr), m_capacity(0), m_size(0)
 	{
 		copy(ptr, num);
 	}
 
-	explicit Array(uint32_t capacity) : m_buffer(NULL), m_capacity(0), m_size(0)
+	explicit Array(uint32_t capacity) : m_buffer(nullptr), m_capacity(0), m_size(0)
 	{
 		setArrayCapacity(capacity);
 	}
@@ -906,7 +906,7 @@ public:
 	{
 		clear();
 		XA_FREE(m_buffer);
-		m_buffer = NULL;
+		m_buffer = nullptr;
 		m_capacity = 0;
 		m_size = 0;
 	}
@@ -955,9 +955,9 @@ protected:
 		XA_DEBUG_ASSERT(new_capacity >= m_size);
 		if (new_capacity == 0) {
 			// free the buffer.
-			if (m_buffer != NULL) {
+			if (m_buffer != nullptr) {
 				XA_FREE(m_buffer);
-				m_buffer = NULL;
+				m_buffer = nullptr;
 			}
 		}
 		else {
@@ -1428,7 +1428,7 @@ public:
 	// Seems to be based on the code from Numerical Recipes in C.
 	static bool eigenSolveSymmetric3(const float matrix[6], float eigenValues[3], Vector3 eigenVectors[3])
 	{
-		XA_DEBUG_ASSERT(matrix != NULL && eigenValues != NULL && eigenVectors != NULL);
+		XA_DEBUG_ASSERT(matrix != nullptr && eigenValues != nullptr && eigenVectors != nullptr);
 		float subd[3];
 		float diag[3];
 		float work[3][3];
@@ -1620,11 +1620,11 @@ template<typename Key, typename Value, typename H = Hash<Key>, typename E = Equa
 class HashMap
 {
 public:
-	HashMap() : m_size(4096), m_numSlots(0), m_slots(NULL)
+	HashMap() : m_size(4096), m_numSlots(0), m_slots(nullptr)
 	{
 	}
 
-	HashMap(uint32_t size) : m_size(size), m_numSlots(0), m_slots(NULL)
+	HashMap(uint32_t size) : m_size(size), m_numSlots(0), m_slots(nullptr)
 	{
 		m_size = max(m_size, 4096u);
 	}
@@ -1844,7 +1844,7 @@ private:
 class RadixSort
 {
 public:
-	RadixSort() : m_size(0), m_ranks(NULL), m_ranks2(NULL), m_validRanks(false) {}
+	RadixSort() : m_size(0), m_ranks(nullptr), m_ranks2(nullptr), m_validRanks(false) {}
 
 	~RadixSort()
 	{
@@ -1855,7 +1855,7 @@ public:
 
 	RadixSort &sort(const float *input, uint32_t count)
 	{
-		if (input == NULL || count == 0) return *this;
+		if (input == nullptr || count == 0) return *this;
 		// Resize lists if needed
 		if (count != m_size) {
 			if (count > m_size) {
@@ -3171,7 +3171,7 @@ public:
 	/// Find edge, test all colocals.
 	const Edge *findEdge(uint32_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
 	{
-		const Edge *result = NULL;
+		const Edge *result = nullptr;
 		if (m_nextColocalVertex.isEmpty()) {
 			EdgeKey key(vertex0, vertex1);
 			uint32_t mapEdgeIndex = m_edgeMap.get(key);
@@ -3787,7 +3787,7 @@ struct SplitEdge
 	}
 };
 
-// Returns NULL if there were no t-junctions to fix.
+// Returns nullptr if there were no t-junctions to fix.
 static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 {
 	if (duplicatedEdge)
@@ -3827,7 +3827,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 		}
 	}
 	if (splitEdges.isEmpty())
-		return NULL;
+		return nullptr;
 	const uint32_t faceCount = inputMesh.faceCount();
 	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount + splitEdges.size(), faceCount);
 	for (uint32_t v = 0; v < vertexCount; v++)
@@ -3880,7 +3880,7 @@ static Mesh *meshTriangulate(const Mesh &inputMesh, bool *duplicatedEdge)
 	if (duplicatedEdge)
 		*duplicatedEdge = false;
 	if (inputMesh.faceCount() * 3 == inputMesh.edgeCount())
-		return NULL;
+		return nullptr;
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t faceCount = inputMesh.faceCount();
 	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
@@ -5033,8 +5033,8 @@ namespace param {
 // Fast sweep in 3 directions
 static bool findApproximateDiameterVertices(Mesh *mesh, uint32_t *a, uint32_t *b)
 {
-	XA_DEBUG_ASSERT(a != NULL);
-	XA_DEBUG_ASSERT(b != NULL);
+	XA_DEBUG_ASSERT(a != nullptr);
+	XA_DEBUG_ASSERT(b != nullptr);
 	const uint32_t vertexCount = mesh->vertexCount();
 	uint32_t minVertex[3];
 	uint32_t maxVertex[3];
@@ -5243,10 +5243,10 @@ static bool computeOrthogonalProjectionMap(Mesh *mesh)
 
 static void computeSingleFaceMap(Mesh *mesh)
 {
-	XA_DEBUG_ASSERT(mesh != NULL);
+	XA_DEBUG_ASSERT(mesh != nullptr);
 	XA_DEBUG_ASSERT(mesh->faceCount() == 1);
 	Face *face = mesh->faceAt(0);
-	XA_ASSERT(face != NULL);
+	XA_ASSERT(face != nullptr);
 	const Vector3 &p0 = mesh->position(mesh->vertexAt(face->firstIndex + 0));
 	const Vector3 &p1 = mesh->position(mesh->vertexAt(face->firstIndex + 1));
 	Vector3 X = normalizeSafe(p1 - p0, Vector3(0.0f), 0.0f);
@@ -5814,7 +5814,7 @@ struct AtlasBuilder
 			bool merged = false;
 			for (int c = chartCount - 1; c >= 0; c--) {
 				ChartBuildData *chart = m_chartArray[c];
-				if (chart == NULL)
+				if (chart == nullptr)
 					continue;
 				float externalBoundaryLength = 0.0f;
 				sharedBoundaryLengths.clear();
@@ -5845,7 +5845,7 @@ struct AtlasBuilder
 					if (cc == c)
 						continue;
 					ChartBuildData *chart2 = m_chartArray[cc];
-					if (chart2 == NULL)
+					if (chart2 == nullptr)
 						continue;
 					// Compare proxies.
 					if (dot(chart2->planeNormal, chart->planeNormal) < XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION)
@@ -5879,7 +5879,7 @@ struct AtlasBuilder
 		}
 		// Remove deleted charts.
 		for (int c = 0; c < int32_t(m_chartArray.size()); /*do not increment if removed*/) {
-			if (m_chartArray[c] == NULL) {
+			if (m_chartArray[c] == nullptr) {
 				m_chartArray.removeAt(c);
 				// Update m_faceChartArray.
 				const uint32_t faceCount = m_faceChartArray.size();
@@ -5977,7 +5977,7 @@ struct AtlasBuilder
 		// Delete chart.
 		chart->~ChartBuildData();
 		XA_FREE(chart);
-		m_chartArray[chartIndex] = NULL;
+		m_chartArray[chartIndex] = nullptr;
 	}
 
 	uint32_t facesLeft() const { return m_facesLeft;	}
@@ -6015,7 +6015,7 @@ struct ParameterizationQuality
 
 static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh, Array<uint32_t> *flippedFaces)
 {
-	XA_DEBUG_ASSERT(mesh != NULL);
+	XA_DEBUG_ASSERT(mesh != nullptr);
 	ParameterizationQuality quality;
 	const uint32_t faceCount = mesh->faceCount();
 	uint32_t firstBoundaryEdge = UINT32_MAX;
@@ -6168,7 +6168,7 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_mesh(NULL), m_unifiedMesh(NULL), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : atlasIndex(-1), m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_faceArray(faceArray)
 	{
 		// Copy face indices.
 		m_mesh = XA_NEW(Mesh);
@@ -6503,7 +6503,7 @@ public:
 		meshIndices.resize(sourceMesh->vertexCount(), (uint32_t)~0);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const Face *face = sourceMesh->faceAt(m_faceArray[f]);
-			XA_DEBUG_ASSERT(face != NULL);
+			XA_DEBUG_ASSERT(face != nullptr);
 			for (uint32_t i = 0; i < face->nIndices; i++) {
 				const uint32_t vertex = sourceMesh->vertexAt(face->firstIndex + i);
 				if (meshIndices[vertex] == (uint32_t)~0) {
@@ -6797,7 +6797,7 @@ public:
 				return m_chartGroups[c];
 			group--;
 		}
-		return NULL;
+		return nullptr;
 	}
 
 	uint32_t chartCount() const
@@ -6817,7 +6817,7 @@ public:
 			}
 			i -= count;
 		}
-		return NULL;
+		return nullptr;
 	}
 
 	void addMesh(const Mesh *mesh)
@@ -7774,9 +7774,9 @@ Atlas *Create()
 	ctx->atlas.chartCount = 0;
 	ctx->atlas.height = 0;
 	ctx->atlas.meshCount = 0;
-	ctx->atlas.meshes = NULL;
+	ctx->atlas.meshes = nullptr;
 	ctx->atlas.texelsPerUnit = 0;
-	ctx->atlas.utilization = NULL;
+	ctx->atlas.utilization = nullptr;
 	ctx->atlas.width = 0;
 	ctx->taskScheduler = XA_NEW(internal::task::Scheduler);
 	return &ctx->atlas;
@@ -7795,7 +7795,7 @@ static void DestroyOutputMeshes(Context *ctx)
 		XA_FREE(mesh.indexArray);
 	}
 	XA_FREE(ctx->atlas.meshes);
-	ctx->atlas.meshes = NULL;
+	ctx->atlas.meshes = nullptr;
 }
 
 void Destroy(Atlas *atlas)
@@ -7953,7 +7953,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFunc, PackOptions packOptions, ProgressFunc progressFunc, void *progressUserData)
 {
 	if (!atlas) {
-		XA_PRINT_WARNING("Generate: atlas is NULL.\n");
+		XA_PRINT_WARNING("Generate: atlas is nullptr.\n");
 		return;
 	}
 	Context *ctx = (Context *)atlas;
@@ -7969,7 +7969,7 @@ void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFun
 void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progressFunc, void *progressUserData)
 {
 	if (!atlas) {
-		XA_PRINT_WARNING("ComputeCharts: atlas is NULL.\n");
+		XA_PRINT_WARNING("ComputeCharts: atlas is nullptr.\n");
 		return;
 	}
 	Context *ctx = (Context *)atlas;
@@ -8008,7 +8008,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
 {
 	if (!atlas) {
-		XA_PRINT_WARNING("ParameterizeCharts: atlas is NULL.\n");
+		XA_PRINT_WARNING("ParameterizeCharts: atlas is nullptr.\n");
 		return;
 	}
 	Context *ctx = (Context *)atlas;
@@ -8026,7 +8026,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 	atlas->width = 0;
 	if (atlas->utilization) {
 		XA_FREE(atlas->utilization);
-		atlas->utilization = NULL;
+		atlas->utilization = nullptr;
 	}
 	DestroyOutputMeshes(ctx);
 	XA_PRINT("Parameterizing charts\n");
@@ -8101,7 +8101,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc, void *progressUserData)
 {
 	if (!atlas) {
-		XA_PRINT_WARNING("PackCharts: atlas is NULL.\n");
+		XA_PRINT_WARNING("PackCharts: atlas is nullptr.\n");
 		return;
 	}
 	Context *ctx = (Context *)atlas;
@@ -8127,7 +8127,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 	DestroyOutputMeshes(ctx);
 	if (atlas->utilization) {
 		XA_FREE(atlas->utilization);
-		atlas->utilization = NULL;
+		atlas->utilization = nullptr;
 	}
 	if (atlas->chartCount > 0) {
 		ctx->paramAtlas.restoreOriginalChartTexcoords();

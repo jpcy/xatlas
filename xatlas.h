@@ -99,37 +99,21 @@ struct IndexFormat
 
 struct MeshDecl
 {
-	uint32_t vertexCount;
-	const void *vertexPositionData;
-	uint32_t vertexPositionStride;
-	const void *vertexNormalData; // optional
-	uint32_t vertexNormalStride; // optional
-	const void *vertexUvData; // optional. The input UVs are provided as a hint to the chart generator.
-	uint32_t vertexUvStride; // optional
-	uint32_t indexCount;
-	const void *indexData;
-	int32_t indexOffset; // optional. Add this offset to all indices.
-	IndexFormat::Enum indexFormat;
+	uint32_t vertexCount = 0;
+	const void *vertexPositionData = nullptr;
+	uint32_t vertexPositionStride = 0;
+	const void *vertexNormalData = nullptr; // optional
+	uint32_t vertexNormalStride = 0; // optional
+	const void *vertexUvData = nullptr; // optional. The input UVs are provided as a hint to the chart generator.
+	uint32_t vertexUvStride = 0; // optional
+	uint32_t indexCount = 0;
+	const void *indexData = nullptr;
+	int32_t indexOffset = 0; // optional. Add this offset to all indices.
+	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
 	
 	// optional. indexCount / 3 in length.
 	// Don't atlas faces set to true. Faces will still exist in the output meshes, Vertex uv will be (0, 0) and Vertex atlasIndex will be -1.
-	const bool *faceIgnoreData;
-
-	MeshDecl()
-	{
-		vertexCount = 0;
-		vertexPositionData = NULL;
-		vertexPositionStride = 0;
-		vertexNormalData = NULL;
-		vertexNormalStride = 0;
-		vertexUvData = NULL;
-		vertexUvStride = 0;
-		indexCount = 0;
-		indexData = NULL;
-		indexOffset = 0;
-		indexFormat = IndexFormat::UInt16;
-		faceIgnoreData = NULL;
-	}
+	const bool *faceIgnoreData = nullptr;
 };
 
 AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl);
@@ -149,30 +133,16 @@ typedef void (*ProgressFunc)(ProgressCategory::Enum category, int progress, void
 
 struct ChartOptions
 {
-	float proxyFitMetricWeight;
-	float roundnessMetricWeight;
-	float straightnessMetricWeight;
-	float normalSeamMetricWeight; // If > 1000, normal seams are fully respected.
-	float textureSeamMetricWeight;
-	float maxChartArea; // Don't grow charts to be larger than this. 0 means no limit.
-	float maxBoundaryLength; // Don't grow charts to have a longer boundary than this. 0 means no limit.
-	float maxThreshold;
-	uint32_t growFaceCount;
-	uint32_t maxIterations;
-
-	ChartOptions()
-	{
-		proxyFitMetricWeight = 2.0f;
-		roundnessMetricWeight = 0.01f;
-		straightnessMetricWeight = 6.0f;
-		normalSeamMetricWeight = 4.0f;
-		textureSeamMetricWeight = 0.5f;
-		maxChartArea = 0.0f;
-		maxBoundaryLength = 0.0f;
-		maxThreshold = 2.0f;
-		growFaceCount = 32;
-		maxIterations = 1;
-	}
+	float proxyFitMetricWeight = 2.0f;
+	float roundnessMetricWeight = 0.01f;
+	float straightnessMetricWeight = 6.0f;
+	float normalSeamMetricWeight = 4.0f; // If > 1000, normal seams are fully respected.
+	float textureSeamMetricWeight = 0.5f;
+	float maxChartArea = 0.0f; // Don't grow charts to be larger than this. 0 means no limit.
+	float maxBoundaryLength = 0.0f; // Don't grow charts to have a longer boundary than this. 0 means no limit.
+	float maxThreshold = 2.0f;
+	uint32_t growFaceCount = 32;
+	uint32_t maxIterations = 1;
 };
 
 typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount, bool isPlanar);
@@ -181,52 +151,41 @@ struct PackOptions
 {
 	// The number of attempts to find a suitable random chart location.
 	// 0 is brute force - very slow, but best results. Faster if blockAlign is true;
-	int attempts;
+	int attempts = 4096;
 
 	// Unit to texel scale. e.g. a 1x1 quad with texelsPerUnit of 32 will take up approximately 32x32 texels in the atlas.
 	// If 0, an estimated value will be calculated to try and match the given resolution.
 	// If resolution is also 0, the estimated value will try to match a 1024x1024 atlas.
-	float texelsPerUnit;
+	float texelsPerUnit = 0.0f;
 
 	// If 0, generate a single atlas with texelsPerUnit determining the final resolution.
 	// If not 0, generate 1 or more atlases with that exact resolution.
-	uint32_t resolution;
+	uint32_t resolution = 0;
 
 	// Charts larger than this will be scaled down.
-	uint32_t maxChartSize;
+	uint32_t maxChartSize = 1024;
 
 	// Align charts to 4x4 blocks. 
-	bool blockAlign;
+	bool blockAlign = false;
 
 	// Pack charts with extra padding.
-	bool conservative;
+	bool conservative = false;
 
 	// Number of pixels to pad. conservative must be true.
-	uint32_t padding;
-
-	PackOptions()
-	{
-		attempts = 4096;
-		texelsPerUnit = 0.0f;
-		resolution = 0;
-		maxChartSize = 1024;
-		blockAlign = false;
-		conservative = false;
-		padding = 0;
-	}
+	uint32_t padding = 0;
 };
 
 // Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence. Can be called multiple times to regenerate with different options.
-void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeFunc paramFunc = NULL, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
+void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeFunc paramFunc = nullptr, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
 
 // Call after AddMesh. Can be called multiple times to recompute charts with different options.
-void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
+void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
 
 // Call after ComputeCharts. Can be called multiple times to re-parameterize charts with a different ParameterizeFunc.
-void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = NULL, ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
+void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = nullptr, ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
 
 // Call after ParameterizeCharts. Can be called multiple times to re-pack charts with different options.
-void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = NULL, void *progressUserData = NULL);
+void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
 
 typedef void *(*ReallocFunc)(void *, size_t);
 void SetRealloc(ReallocFunc reallocFunc);
