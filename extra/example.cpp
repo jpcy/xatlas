@@ -191,6 +191,7 @@ int main(int argc, char *argv[])
 		meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
 		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, meshDecl);
 		if (error != xatlas::AddMeshError::Success) {
+			xatlas::Destroy(atlas);
 			printf("\rError adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
 			return EXIT_FAILURE;
 		}
