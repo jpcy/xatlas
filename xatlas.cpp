@@ -5847,8 +5847,12 @@ struct AtlasBuilder
 					ChartBuildData *chart2 = m_chartArray[cc];
 					if (chart2 == NULL)
 						continue;
-					// Merge if chart2 is wholely inside chart1. Ignore seams.
-					if (sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength && dot(chart2->planeNormal, chart->planeNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION) {
+					// Compare proxies.
+					if (dot(chart2->planeNormal, chart->planeNormal) < XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION)
+						continue;
+					// Merge if chart2 has a single face.
+					// Merge if chart2 is wholely inside chart1, ignoring seams.
+					if (chart2->faces.size() == 1 || sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength) {
 						mergeChart(chart, cc, sharedBoundaryLengthsNoSeams[cc]);
 						merged = true;
 						break;
@@ -5857,14 +5861,12 @@ struct AtlasBuilder
 						sharedBoundaryLengths[cc] > 0.75f * chart2->boundaryLength) {
 						// Over 20% of chart1 boundary touching other faces is shared with chart2.
 						// Over 75% of chart2 boundary is shared with chart1.
-						// Compare proxies.
-						if (dot(chart2->planeNormal, chart->planeNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION /*&&
-							dot(chart2->centroidFaceNormal, chart->centroidFaceNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION*/) {
+						//if (dot(chart2->centroidFaceNormal, chart->centroidFaceNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION) {
 							// Always use sharedBoundaryLengthsNoSeams when merging, it's the real shared boundary length.
 							mergeChart(chart, cc, sharedBoundaryLengthsNoSeams[cc]);
 							merged = true;
 							break;
-						}
+						//}
 					}
 					if (merged)
 						break;
