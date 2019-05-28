@@ -5999,226 +5999,159 @@ private:
 };
 
 // Estimate quality of existing parameterization.
-class ParameterizationQuality
+struct ParameterizationQuality
 {
-public:
-	ParameterizationQuality()
-	{
-		m_totalTriangleCount = 0;
-		m_flippedTriangleCount = 0;
-		m_zeroAreaTriangleCount = 0;
-		m_parametricArea = 0.0f;
-		m_geometricArea = 0.0f;
-		m_stretchMetric = 0.0f;
-		m_maxStretchMetric = 0.0f;
-		m_conformalMetric = 0.0f;
-		m_authalicMetric = 0.0f;
-		boundaryIntersection = false;
-	}
+	uint32_t totalTriangleCount = 0;
+	uint32_t flippedTriangleCount = 0;
+	uint32_t zeroAreaTriangleCount = 0;
+	float parametricArea = 0.0f;
+	float geometricArea = 0.0f;
+	float stretchMetric = 0.0f;
+	float maxStretchMetric = 0.0f;
+	float conformalMetric = 0.0f;
+	float authalicMetric = 0.0f;
+	bool boundaryIntersection = false;
+};
 
-	ParameterizationQuality(const Mesh *mesh, Array<uint32_t> *flippedFaces)
-	{
-		XA_DEBUG_ASSERT(mesh != NULL);
-		m_totalTriangleCount = 0;
-		m_flippedTriangleCount = 0;
-		m_zeroAreaTriangleCount = 0;
-		m_parametricArea = 0.0f;
-		m_geometricArea = 0.0f;
-		m_stretchMetric = 0.0f;
-		m_maxStretchMetric = 0.0f;
-		m_conformalMetric = 0.0f;
-		m_authalicMetric = 0.0f;
-		const uint32_t faceCount = mesh->faceCount();
-		boundaryIntersection = false;
-		uint32_t firstBoundaryEdge = UINT32_MAX;
-		for (uint32_t e = 0; e < mesh->edgeCount(); e++) {
-			if (mesh->isBoundaryEdge(e)) {
-				firstBoundaryEdge = e;
-			}
+static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh, Array<uint32_t> *flippedFaces)
+{
+	XA_DEBUG_ASSERT(mesh != NULL);
+	ParameterizationQuality quality;
+	const uint32_t faceCount = mesh->faceCount();
+	uint32_t firstBoundaryEdge = UINT32_MAX;
+	for (uint32_t e = 0; e < mesh->edgeCount(); e++) {
+		if (mesh->isBoundaryEdge(e)) {
+			firstBoundaryEdge = e;
 		}
-		XA_DEBUG_ASSERT(firstBoundaryEdge != UINT32_MAX);
-		for (Mesh::BoundaryEdgeIterator it1(mesh, firstBoundaryEdge); !it1.isDone(); it1.advance()) {
-			const uint32_t edge1 = it1.edge();
-			for (Mesh::BoundaryEdgeIterator it2(mesh, firstBoundaryEdge); !it2.isDone(); it2.advance()) {
-				const uint32_t edge2 = it2.edge();
-				// Skip self and edges directly connected to edge1.
-				if (edge1 == edge2 || it1.nextEdge() == edge2 || it2.nextEdge() == edge1)
-					continue;
-				const Vector2 &a1 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge1)->index0));
-				const Vector2 &a2 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge1)->index1));
-				const Vector2 &b1 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge2)->index0));
-				const Vector2 &b2 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge2)->index1));
-				if (linesIntersect(a1, a2, b1, b2)) {
-					boundaryIntersection = true;
-					break;
-				}
-			}
-			if (boundaryIntersection)
+	}
+	XA_DEBUG_ASSERT(firstBoundaryEdge != UINT32_MAX);
+	for (Mesh::BoundaryEdgeIterator it1(mesh, firstBoundaryEdge); !it1.isDone(); it1.advance()) {
+		const uint32_t edge1 = it1.edge();
+		for (Mesh::BoundaryEdgeIterator it2(mesh, firstBoundaryEdge); !it2.isDone(); it2.advance()) {
+			const uint32_t edge2 = it2.edge();
+			// Skip self and edges directly connected to edge1.
+			if (edge1 == edge2 || it1.nextEdge() == edge2 || it2.nextEdge() == edge1)
+				continue;
+			const Vector2 &a1 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge1)->index0));
+			const Vector2 &a2 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge1)->index1));
+			const Vector2 &b1 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge2)->index0));
+			const Vector2 &b2 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge2)->index1));
+			if (linesIntersect(a1, a2, b1, b2)) {
+				quality.boundaryIntersection = true;
 				break;
-		}
-		if (flippedFaces)
-			flippedFaces->clear();
-		for (uint32_t f = 0; f < faceCount; f++) {
-			uint32_t vertex0 = UINT32_MAX;
-			Vector3 p[3];
-			Vector2 t[3];
-			bool isFlipped = false;
-			for (Mesh::FaceEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
-				if (vertex0 == UINT32_MAX) {
-					vertex0 = it.vertex0();
-					p[0] = it.position0();
-					t[0] = it.texcoord0();
-				} else if (it.vertex1() != vertex0) {
-					p[1] = it.position0();
-					p[2] = it.position1();
-					t[1] = it.texcoord0();
-					t[2] = it.texcoord1();
-					bool isTriFlipped = false;
-					processTriangle(p, t, &isTriFlipped);
-					if (isTriFlipped)
-						isFlipped = true;
-				}
-			}
-			if (flippedFaces && isFlipped)
-				flippedFaces->push_back(f);
-		}
-		if (m_flippedTriangleCount + m_zeroAreaTriangleCount == m_totalTriangleCount) {
-			// If all triangles are flipped, then none are.
-			if (flippedFaces)
-				flippedFaces->clear();
-			m_flippedTriangleCount = 0;
-		}
-		if (m_flippedTriangleCount > m_totalTriangleCount / 2)
-		{
-			// If more than half the triangles are flipped, reverse the flipped / not flipped classification.
-			m_flippedTriangleCount = m_totalTriangleCount - m_flippedTriangleCount;
-			if (flippedFaces) {
-				Array<uint32_t> temp(*flippedFaces);
-				flippedFaces->clear();
-				for (uint32_t f = 0; f < faceCount; f++) {
-					bool match = false;
-					for (uint32_t ff = 0; ff < temp.size(); ff++) {
-						if (temp[ff] == f) {
-							match = true;
-							break;
-						}
-					}
-					if (!match)
-						flippedFaces->push_back(f);
-				}
 			}
 		}
-		XA_DEBUG_ASSERT(isFinite(m_parametricArea) && m_parametricArea >= 0);
-		XA_DEBUG_ASSERT(isFinite(m_geometricArea) && m_geometricArea >= 0);
-		XA_DEBUG_ASSERT(isFinite(m_stretchMetric));
-		XA_DEBUG_ASSERT(isFinite(m_maxStretchMetric));
-		XA_DEBUG_ASSERT(isFinite(m_conformalMetric));
-		XA_DEBUG_ASSERT(isFinite(m_authalicMetric));
+		if (quality.boundaryIntersection)
+			break;
 	}
-
-	uint32_t flippedTriangleCount() const { return m_flippedTriangleCount; }
-	uint32_t zeroAreaTriangleCount() const { return m_zeroAreaTriangleCount; }
-	uint32_t totalTriangleCount() const { return m_totalTriangleCount; }
-
-	float rmsStretchMetric() const
-	{
-		if (m_geometricArea == 0)
-			return 0.0f;
-		float normFactor = sqrtf(m_parametricArea / m_geometricArea);
-		return sqrtf(m_stretchMetric / m_geometricArea) * normFactor;
-	}
-
-	float maxStretchMetric() const
-	{
-		if (m_geometricArea == 0)
-			return 0.0f;
-		float normFactor = sqrtf(m_parametricArea / m_geometricArea);
-		return m_maxStretchMetric * normFactor;
-	}
-
-	float rmsConformalMetric() const
-	{
-		if (m_geometricArea == 0)
-			return 0.0f;
-		return sqrtf(m_conformalMetric / m_geometricArea);
-	}
-
-	float maxAuthalicMetric() const
-	{
-		if (m_geometricArea == 0)
-			return 0.0f;
-		return sqrtf(m_authalicMetric / m_geometricArea);
-	}
-
-	bool boundaryIntersection;
-
-private:
-	void processTriangle(Vector3 q[3], Vector2 p[3], bool *isFlipped)
-	{
-		if (isFlipped)
-			*isFlipped = false;
-		m_totalTriangleCount++;
+	if (flippedFaces)
+		flippedFaces->clear();
+	for (uint32_t f = 0; f < faceCount; f++) {
+		Vector3 pos[3];
+		Vector2 texcoord[3];
+		bool isFlipped = false;
+		for (int i = 0; i < 3; i++) {
+			const uint32_t v = mesh->vertexAt(mesh->faceAt(f)->firstIndex + i);
+			pos[i] = mesh->position(v);
+			texcoord[i] = mesh->texcoord(v);
+		}
+		quality.totalTriangleCount++;
 		// Evaluate texture stretch metric. See:
 		// - "Texture Mapping Progressive Meshes", Sander, Snyder, Gortler & Hoppe
 		// - "Mesh Parameterization: Theory and Practice", Siggraph'07 Course Notes, Hormann, Levy & Sheffer.
-		float t1 = p[0].x;
-		float s1 = p[0].y;
-		float t2 = p[1].x;
-		float s2 = p[1].y;
-		float t3 = p[2].x;
-		float s3 = p[2].y;
-		float geometricArea = length(cross(q[1] - q[0], q[2] - q[0])) / 2;
+		const float t1 = texcoord[0].x;
+		const float s1 = texcoord[0].y;
+		const float t2 = texcoord[1].x;
+		const float s2 = texcoord[1].y;
+		const float t3 = texcoord[2].x;
+		const float s3 = texcoord[2].y;
 		float parametricArea = ((s2 - s1) * (t3 - t1) - (s3 - s1) * (t2 - t1)) / 2;
 		if (isZero(parametricArea)) {
-			m_zeroAreaTriangleCount++;
-			return;
+			quality.zeroAreaTriangleCount++;
+			continue;
 		}
-		Vector3 Ss = (q[0] * (t2 - t3) + q[1] * (t3 - t1) + q[2] * (t1 - t2)) / (2 * parametricArea);
-		Vector3 St = (q[0] * (s3 - s2) + q[1] * (s1 - s3) + q[2] * (s2 - s1)) / (2 * parametricArea);
-		float a = dot(Ss, Ss); // E
-		float b = dot(Ss, St); // F
-		float c = dot(St, St); // G
-							   // Compute eigen-values of the first fundamental form:
-		float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
-		float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
+		if (parametricArea < 0.0f) {
+			// Count flipped triangles.
+			quality.flippedTriangleCount++;
+			if (flippedFaces && isFlipped)
+				flippedFaces->push_back(f);
+			parametricArea = fabsf(parametricArea);
+		}
+		const float geometricArea = length(cross(pos[1] - pos[0], pos[2] - pos[0])) / 2;
+		const Vector3 Ss = (pos[0] * (t2 - t3) + pos[1] * (t3 - t1) + pos[2] * (t1 - t2)) / (2 * parametricArea);
+		const Vector3 St = (pos[0] * (s3 - s2) + pos[1] * (s1 - s3) + pos[2] * (s2 - s1)) / (2 * parametricArea);
+		const float a = dot(Ss, Ss); // E
+		const float b = dot(Ss, St); // F
+		const float c = dot(St, St); // G
+			// Compute eigen-values of the first fundamental form:
+		const float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
+		const float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
 		XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2));
 		// isometric: sigma1 = sigma2 = 1
 		// conformal: sigma1 / sigma2 = 1
 		// authalic: sigma1 * sigma2 = 1
-		float rmsStretch = sqrtf((a + c) * 0.5f);
-		float rmsStretch2 = sqrtf((square(sigma1) + square(sigma2)) * 0.5f);
+		const float rmsStretch = sqrtf((a + c) * 0.5f);
+		const float rmsStretch2 = sqrtf((square(sigma1) + square(sigma2)) * 0.5f);
 		XA_DEBUG_ASSERT(equal(rmsStretch, rmsStretch2, 0.01f));
 		XA_UNUSED(rmsStretch2);
-		if (parametricArea < 0.0f) {
-			// Count flipped triangles.
-			m_flippedTriangleCount++;
-			if (isFlipped)
-				*isFlipped = true;
-			parametricArea = fabsf(parametricArea);
-		}
-		m_stretchMetric += square(rmsStretch) * geometricArea;
-		m_maxStretchMetric = max(m_maxStretchMetric, sigma2);
+		quality.stretchMetric += square(rmsStretch) * geometricArea;
+		quality.maxStretchMetric = max(quality.maxStretchMetric, sigma2);
 		if (!isZero(sigma1, 0.000001f)) {
 			// sigma1 is zero when geometricArea is zero.
-			m_conformalMetric += (sigma2 / sigma1) * geometricArea;
+			quality.conformalMetric += (sigma2 / sigma1) * geometricArea;
 		}
-		m_authalicMetric += (sigma1 * sigma2) * geometricArea;
+		quality.authalicMetric += (sigma1 * sigma2) * geometricArea;
 		// Accumulate total areas.
-		m_geometricArea += geometricArea;
-		m_parametricArea += parametricArea;
+		quality.geometricArea += geometricArea;
+		quality.parametricArea += parametricArea;
 		//triangleConformalEnergy(q, p);
 	}
-
-	uint32_t m_totalTriangleCount;
-	uint32_t m_flippedTriangleCount;
-	uint32_t m_zeroAreaTriangleCount;
-	float m_parametricArea;
-	float m_geometricArea;
-	float m_stretchMetric;
-	float m_maxStretchMetric;
-	float m_conformalMetric;
-	float m_authalicMetric;
-};
+	if (quality.flippedTriangleCount + quality.zeroAreaTriangleCount == quality.totalTriangleCount) {
+		// If all triangles are flipped, then none are.
+		if (flippedFaces)
+			flippedFaces->clear();
+		quality.flippedTriangleCount = 0;
+	}
+	if (quality.flippedTriangleCount > quality.totalTriangleCount / 2)
+	{
+		// If more than half the triangles are flipped, reverse the flipped / not flipped classification.
+		quality.flippedTriangleCount = quality.totalTriangleCount - quality.flippedTriangleCount;
+		if (flippedFaces) {
+			Array<uint32_t> temp(*flippedFaces);
+			flippedFaces->clear();
+			for (uint32_t f = 0; f < faceCount; f++) {
+				bool match = false;
+				for (uint32_t ff = 0; ff < temp.size(); ff++) {
+					if (temp[ff] == f) {
+						match = true;
+						break;
+					}
+				}
+				if (!match)
+					flippedFaces->push_back(f);
+			}
+		}
+	}
+	XA_DEBUG_ASSERT(isFinite(quality.parametricArea) && quality.parametricArea >= 0);
+	XA_DEBUG_ASSERT(isFinite(quality.geometricArea) && quality.geometricArea >= 0);
+	XA_DEBUG_ASSERT(isFinite(quality.stretchMetric));
+	XA_DEBUG_ASSERT(isFinite(quality.maxStretchMetric));
+	XA_DEBUG_ASSERT(isFinite(quality.conformalMetric));
+	XA_DEBUG_ASSERT(isFinite(quality.authalicMetric));
+	if (quality.geometricArea == 0.0f) {
+		quality.stretchMetric = 0.0f;
+		quality.maxStretchMetric = 0.0f;
+		quality.conformalMetric = 0.0f;
+		quality.authalicMetric = 0.0f;
+	} else {
+		const float normFactor = sqrtf(quality.parametricArea / quality.geometricArea);
+		quality.stretchMetric = sqrtf(quality.stretchMetric / quality.geometricArea) * normFactor;
+		quality.maxStretchMetric  *= normFactor;
+		quality.conformalMetric = sqrtf(quality.conformalMetric / quality.geometricArea);
+		quality.authalicMetric = sqrtf(quality.authalicMetric / quality.geometricArea);
+	}
+	return quality;
+}
 
 struct ChartWarningFlags
 {
@@ -6379,9 +6312,9 @@ public:
 	void evaluateParameterizationQuality()
 	{
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-		m_paramQuality = ParameterizationQuality(m_unifiedMesh, &m_paramFlippedFaces);
+		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, &m_paramFlippedFaces);
 #else
-		m_paramQuality = ParameterizationQuality(m_unifiedMesh, nullptr);
+		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, nullptr);
 #endif
 	}
 
@@ -8127,9 +8060,9 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 					invalid = true;
 					XA_PRINT_WARNING("   Chart %u: invalid parameterization, self-intersecting boundary.\n", chartIndex);
 				}
-				if (quality.flippedTriangleCount() > 0) {
+				if (quality.flippedTriangleCount > 0) {
 					invalid = true;
-					XA_PRINT_WARNING("   Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount(), quality.totalTriangleCount());
+					XA_PRINT_WARNING("   Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount, quality.totalTriangleCount);
 				}
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 				if (invalid) {
