@@ -7845,21 +7845,25 @@ static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, int
 AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 {
 	XA_DEBUG_ASSERT(atlas);
+	bool decoded = (meshDecl.indexCount <= 0);
+	uint32_t indexCount = decoded ? meshDecl.vertexCount : meshDecl.indexCount;
 	Context *ctx = (Context *)atlas;
-	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", atlas->meshCount, meshDecl.vertexCount, meshDecl.indexCount / 3);
+	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", atlas->meshCount, meshDecl.vertexCount, indexCount / 3);
 	// Expecting triangle faces.
-	if ((meshDecl.indexCount % 3) != 0)
+	if ((indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
-	// Check if any index is out of range.
-	for (uint32_t i = 0; i < meshDecl.indexCount; i++) {
-		const uint32_t index = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i);
-		if (index >= meshDecl.vertexCount)
-			return AddMeshError::IndexOutOfRange;
+	if (!decoded) {
+		// Check if any index is out of range.
+		for (uint32_t i = 0; i < indexCount; i++) {
+			const uint32_t index = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i);
+			if (index >= meshDecl.vertexCount)
+				return AddMeshError::IndexOutOfRange;
+		}
 	}
 	uint32_t meshFlags = 0;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
-	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshFlags, meshDecl.vertexCount, meshDecl.indexCount / 3, atlas->meshCount);
+	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshFlags, meshDecl.vertexCount, indexCount / 3, atlas->meshCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0.0f);
 		internal::Vector2 texcoord(0.0f);
@@ -7869,10 +7873,10 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 			texcoord = DecodeUv(meshDecl, i);
 		mesh->addVertex(DecodePosition(meshDecl, i), normal, texcoord);
 	}
-	for (uint32_t i = 0; i < meshDecl.indexCount / 3; i++) {
+	for (uint32_t i = 0; i < indexCount / 3; i++) {
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
-			tri[j] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
+			tri[j] = decoded ? i * 3 + j : DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
 		uint32_t faceFlags = 0;
 		// Check for degenerate or zero length edges.
 		for (int j = 0; j < 3; j++) {
