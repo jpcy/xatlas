@@ -4016,6 +4016,117 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 	}
 }
 
+static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t> &edgeLoop, bool *duplicatedEdge)
+{
+	const uint32_t vertexCount = edgeLoop.size() - startVertex;
+	XA_DEBUG_ASSERT(vertexCount >= 3);
+	if (vertexCount < 3)
+		return false;
+	// If the hole is planar, then we add a single face that will be properly triangulated later.
+	// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
+	// This is still a bit of a hack. There surely are better hole filling algorithms out there.
+	Array<Vector3> points;
+	points.resize(vertexCount);
+	for (uint32_t i = 0; i < vertexCount; i++) {
+		const Edge *edge = mesh->edgeAt(edgeLoop[startVertex + i]);
+		points[i] = mesh->position(mesh->vertexAt(edge->index0));
+	}
+	const bool isPlanar = Fit::isPlanar(vertexCount, points.data());
+	if (isPlanar) {
+		Array<uint32_t> indices;
+		indices.resize(vertexCount);
+		for (uint32_t i = 0; i < vertexCount; i++) {
+			const Edge *edge = mesh->edgeAt(edgeLoop[startVertex + i]);
+			indices[i] = mesh->vertexAt(edge->index0);
+		}
+		if (mesh->addFace(indices) == Mesh::AddFaceResult::DuplicateEdge) {
+			if (duplicatedEdge)
+				*duplicatedEdge = true;
+		}
+	} else {
+		// If the polygon is not planar, we just cross our fingers, and hope this will work:
+		// Compute boundary centroid:
+		Vector3 centroidPos(0.0f);
+		for (uint32_t i = 0; i < vertexCount; i++)
+			centroidPos += points[i];
+		centroidPos *= (1.0f / vertexCount);
+		const uint32_t centroidVertex = mesh->vertexCount();
+		mesh->addVertex(centroidPos);
+		// Add one pair of edges for each boundary vertex.
+		for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
+			const Edge *edge1 = mesh->edgeAt(edgeLoop[startVertex + j]);
+			const Edge *edge2 = mesh->edgeAt(edgeLoop[startVertex + i]);
+			const uint32_t vertex1 = mesh->vertexAt(edge1->index0);
+			const uint32_t vertex2 = mesh->vertexAt(edge2->index0);
+			if (mesh->addFace(centroidVertex, vertex1, vertex2) == Mesh::AddFaceResult::DuplicateEdge) {
+				if (duplicatedEdge)
+					*duplicatedEdge = true;
+			}
+		}
+	}
+	return true;
+}
+
+static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge)
+{
+	if (duplicatedEdge)
+		*duplicatedEdge = false;
+	// Compute lengths.
+	const uint32_t boundaryCount = boundaryLoops.size();
+	Array<float> boundaryLengths;
+	for (uint32_t i = 0; i < boundaryCount; i++) {
+		float boundaryLength = 0.0f;
+		for (Mesh::BoundaryEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
+			const Edge *edge = mesh->edgeAt(it.edge());
+			const Vector3 &t0 = mesh->position(mesh->vertexAt(edge->index0));
+			const Vector3 &t1 = mesh->position(mesh->vertexAt(edge->index1));
+			boundaryLength += length(t1 - t0);
+		}
+		boundaryLengths.push_back(boundaryLength);
+	}
+	// Find disk boundary.
+	uint32_t diskBoundary = 0;
+	float maxLength = boundaryLengths[0];
+	for (uint32_t i = 1; i < boundaryCount; i++) {
+		if (boundaryLengths[i] > maxLength) {
+			maxLength = boundaryLengths[i];
+			diskBoundary = i;
+		}
+	}
+	// Close holes.
+	for (uint32_t i = 0; i < boundaryCount; i++) {
+		if (diskBoundary == i) {
+			// Skip disk boundary.
+			continue;
+		}
+		Array<uint32_t> vertexLoop;
+		Array<uint32_t> edgeLoop;
+	startOver:
+		for (Mesh::BoundaryEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
+			const Edge *edge = mesh->edgeAt(it.edge());
+			const uint32_t vertex = mesh->vertexAt(edge->index1);
+			uint32_t j;
+			for (j = 0; j < vertexLoop.size(); j++) {
+				if (mesh->areColocal(vertex, vertexLoop[j]))
+					break;
+			}
+			bool isCrossing = (j != vertexLoop.size());
+			if (isCrossing) {
+				// Close loop.
+				edgeLoop.insertAt(0, it.edge());
+				meshCloseLoop(mesh, j + 1, edgeLoop, duplicatedEdge);
+				// Start over again.
+				vertexLoop.clear();
+				edgeLoop.clear();
+				goto startOver; // HE mesh version is bugged, actually breaks at end of edge iteration instead.
+			}
+			vertexLoop.push_back(vertex);
+			edgeLoop.insertAt(0, it.edge());
+		}
+		meshCloseLoop(mesh, 0, edgeLoop, duplicatedEdge);
+	}
+}
+
 class MeshTopology
 {
 public:
@@ -6201,7 +6312,7 @@ public:
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
-		m_mesh->createBoundaries();
+		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_unifiedMesh->createBoundaries();
 		m_unifiedMesh->linkBoundaries();
 		m_isPlanar = meshIsPlanar(*m_unifiedMesh);
@@ -6236,7 +6347,9 @@ public:
 				// - Find cuts that reduce genus.
 				// - Find cuts to connect holes.
 				// - Use minimal spanning trees or seamster.
-				closeHoles(boundaryLoops, &duplicatedEdge);
+				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge);
+				m_unifiedMesh->createBoundaries();
+				m_unifiedMesh->linkBoundaries();
 				if (duplicatedEdge)
 					m_warningFlags |= ChartWarningFlags::CloseHolesDuplicatedEdge;
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
@@ -6334,119 +6447,6 @@ public:
 	int32_t atlasIndex;
 
 private:
-	void closeHoles(const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge)
-	{
-		if (duplicatedEdge)
-			*duplicatedEdge = false;
-		// Compute lengths.
-		const uint32_t boundaryCount = boundaryLoops.size();
-		Array<float> boundaryLengths;
-		for (uint32_t i = 0; i < boundaryCount; i++) {
-			float boundaryLength = 0.0f;
-			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
-				const Edge *edge = m_unifiedMesh->edgeAt(it.edge());
-				const Vector3 &t0 = m_unifiedMesh->position(m_unifiedMesh->vertexAt(edge->index0));
-				const Vector3 &t1 = m_unifiedMesh->position(m_unifiedMesh->vertexAt(edge->index1));
-				boundaryLength += length(t1 - t0);
-			}
-			boundaryLengths.push_back(boundaryLength);
-		}
-		// Find disk boundary.
-		uint32_t diskBoundary = 0;
-		float maxLength = boundaryLengths[0];
-		for (uint32_t i = 1; i < boundaryCount; i++) {
-			if (boundaryLengths[i] > maxLength) {
-				maxLength = boundaryLengths[i];
-				diskBoundary = i;
-			}
-		}
-		// Close holes.
-		for (uint32_t i = 0; i < boundaryCount; i++) {
-			if (diskBoundary == i) {
-				// Skip disk boundary.
-				continue;
-			}
-			Array<uint32_t> vertexLoop;
-			Array<uint32_t> edgeLoop;
-			startOver:
-			for (Mesh::BoundaryEdgeIterator it(m_unifiedMesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
-				const Edge *edge = m_unifiedMesh->edgeAt(it.edge());
-				const uint32_t vertex = m_unifiedMesh->vertexAt(edge->index1);
-				uint32_t j;
-				for (j = 0; j < vertexLoop.size(); j++) {
-					if (m_unifiedMesh->areColocal(vertex, vertexLoop[j]))
-						break;
-				}
-				bool isCrossing = (j != vertexLoop.size());
-				if (isCrossing) {
-					// Close loop.
-					edgeLoop.insertAt(0, it.edge());
-					closeLoop(j + 1, edgeLoop, duplicatedEdge);
-					// Start over again.
-					vertexLoop.clear();
-					edgeLoop.clear();
-					goto startOver; // HE mesh version is bugged, actually breaks at end of edge iteration instead.
-				}
-				vertexLoop.push_back(vertex);
-				edgeLoop.insertAt(0, it.edge());
-			}
-			closeLoop(0, edgeLoop, duplicatedEdge);
-		}
-		m_unifiedMesh->createBoundaries();
-		m_unifiedMesh->linkBoundaries();
-	}
-
-	bool closeLoop(uint32_t startVertex, const Array<uint32_t> &edgeLoop, bool *duplicatedEdge)
-	{
-		const uint32_t vertexCount = edgeLoop.size() - startVertex;
-		XA_DEBUG_ASSERT(vertexCount >= 3);
-		if (vertexCount < 3)
-			return false;
-		// If the hole is planar, then we add a single face that will be properly triangulated later.
-		// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
-		// This is still a bit of a hack. There surely are better hole filling algorithms out there.
-		Array<Vector3> points;
-		points.resize(vertexCount);
-		for (uint32_t i = 0; i < vertexCount; i++) {
-			const Edge *edge = m_unifiedMesh->edgeAt(edgeLoop[startVertex + i]);
-			points[i] = m_unifiedMesh->position(m_unifiedMesh->vertexAt(edge->index0));
-		}
-		const bool isPlanar = Fit::isPlanar(vertexCount, points.data());
-		if (isPlanar) {
-			Array<uint32_t> indices;
-			indices.resize(vertexCount);
-			for (uint32_t i = 0; i < vertexCount; i++) {
-				const Edge *edge = m_unifiedMesh->edgeAt(edgeLoop[startVertex + i]);
-				indices[i] = m_unifiedMesh->vertexAt(edge->index0);
-			}
-			if (m_unifiedMesh->addFace(indices) == Mesh::AddFaceResult::DuplicateEdge) {
-				if (duplicatedEdge)
-					*duplicatedEdge = true;
-			}
-		} else {
-			// If the polygon is not planar, we just cross our fingers, and hope this will work:
-			// Compute boundary centroid:
-			Vector3 centroidPos(0.0f);
-			for (uint32_t i = 0; i < vertexCount; i++)
-				centroidPos += points[i];
-			centroidPos *= (1.0f / vertexCount);
-			const uint32_t centroidVertex = m_unifiedMesh->vertexCount();
-			m_unifiedMesh->addVertex(centroidPos);
-			// Add one pair of edges for each boundary vertex.
-			for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
-				const Edge *edge1 = m_unifiedMesh->edgeAt(edgeLoop[startVertex + j]);
-				const Edge *edge2 = m_unifiedMesh->edgeAt(edgeLoop[startVertex + i]);
-				const uint32_t vertex1 = m_unifiedMesh->vertexAt(edge1->index0);
-				const uint32_t vertex2 = m_unifiedMesh->vertexAt(edge2->index0);
-				if (m_unifiedMesh->addFace(centroidVertex, vertex1, vertex2) == Mesh::AddFaceResult::DuplicateEdge) {
-					if (duplicatedEdge)
-						*duplicatedEdge = true;
-				}
-			}
-		}
-		return true;
-	}
-
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
 	bool m_isDisk;
