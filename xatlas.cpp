@@ -3864,7 +3864,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 					indexArray.push_back(vertexCount + faceSplitEdges[se].index);
 			}
 		}
-		if (mesh->addFace(indexArray, inputMesh.faceFlagsAt(f)) == Mesh::AddFaceResult::DuplicateEdge) {
+		if (mesh->addFace(indexArray) == Mesh::AddFaceResult::DuplicateEdge) {
 			if (duplicatedEdge)
 				*duplicatedEdge = true;
 		}
@@ -3992,7 +3992,7 @@ static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 		indexArray.clear();
 		for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
 			indexArray.push_back(inputMesh.firstColocal(it.vertex0()));
-		Mesh::AddFaceResult::Enum result = mesh->addFace(indexArray, inputMesh.faceFlagsAt(f));
+		Mesh::AddFaceResult::Enum result = mesh->addFace(indexArray);
 		XA_UNUSED(result);
 		XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 	}
@@ -5389,8 +5389,6 @@ struct AtlasBuilder
 		m_edgeLengths.resize(edgeCount, 0.0f);
 		m_faceAreas.resize(m_mesh->faceCount(), 0.0f);
 		for (uint32_t f = 0; f < m_mesh->faceCount(); f++) {
-			if ((m_mesh->faceFlagsAt(f) & FaceFlags::Ignore) != 0)
-				continue;
 			float &faceArea = m_faceAreas[f];
 			Vector3 firstPos(0.0f);
 			for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
@@ -5692,8 +5690,6 @@ struct AtlasBuilder
 	{
 		float l_out = 0.0f;
 		float l_in = 0.0f;
-		if (m_mesh->faceFlagsAt(f) & FaceFlags::Ignore)
-			return 1.0f;
 		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			float l = m_edgeLengths[it.edge()];
 			if (it.isBoundary()) {
@@ -6199,11 +6195,10 @@ public:
 		faceIndices.reserve(7);
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
-			const uint32_t faceFlags = originalMesh->faceFlagsAt(faceArray[f]);
 			faceIndices.clear();
 			for (Mesh::FaceEdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance())
 				faceIndices.push_back(chartMeshIndices[it.vertex0()]);
-			Mesh::AddFaceResult::Enum result = m_mesh->addFace(faceIndices, faceFlags);
+			Mesh::AddFaceResult::Enum result = m_mesh->addFace(faceIndices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 			faceIndices.clear();
@@ -6213,7 +6208,7 @@ public:
 					unifiedVertex = it.vertex0();
 				faceIndices.push_back(unifiedMeshIndices[unifiedVertex]);
 			}
-			result = m_unifiedMesh->addFace(faceIndices, faceFlags);
+			result = m_unifiedMesh->addFace(faceIndices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
@@ -6526,6 +6521,7 @@ public:
 				XA_DEBUG_ASSERT(meshIndices[vertex] != (uint32_t)~0);
 				faceIndices.push_back(meshIndices[vertex]);
 			}
+			// Don't copy flags, it doesn't matter if a face is ignored after this point. All ignored faces get their own vertex map (m_isVertexMap) ChartGroup.
 			// Don't hash edges if m_isVertexMap, they may be degenerate.
 			Mesh::AddFaceResult::Enum result = m_mesh->addFace(faceIndices, 0, !m_isVertexMap);
 			XA_UNUSED(result);
