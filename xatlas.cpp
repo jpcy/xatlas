@@ -976,12 +976,8 @@ protected:
 
 /// Basis class to compute tangent space basis, ortogonalizations and to
 /// transform vectors from one space to another.
-class Basis
+struct Basis
 {
-public:
-	/// Create a null basis.
-	Basis() : tangent(0, 0, 0), bitangent(0, 0, 0), normal(0, 0, 0) {}
-
 	void buildFrameForDirection(const Vector3 &d, float angle = 0)
 	{
 		XA_ASSERT(isNormalized(d));
@@ -1008,9 +1004,9 @@ public:
 		}
 	}
 
-	Vector3 tangent;
-	Vector3 bitangent;
-	Vector3 normal;
+	Vector3 tangent = Vector3(0.0f);
+	Vector3 bitangent = Vector3(0.0f);
+	Vector3 normal = Vector3(0.0f);
 };
 
 // Simple bit array.
