@@ -61,6 +61,13 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #endif
 #endif
 
+#ifndef XA_PROFILE
+#define XA_PROFILE 0
+#endif
+#if XA_PROFILE
+#include <time.h>
+#endif
+
 #define XA_STR(x) #x
 #define XA_XSTR(x) XA_STR(x)
 
@@ -214,6 +221,41 @@ static void *Realloc(void *ptr, size_t size, const char * /*file*/, int /*line*/
 	}
 	return mem;
 }
+#endif
+
+#if XA_PROFILE
+#define XA_PROFILE_START(var) const clock_t var##Start = clock();
+#define XA_PROFILE_END(var) internal::s_profile.var += clock() - var##Start;
+#define XA_PROFILE_PRINT(prepend, name, var) XA_PRINT("%s%s: %.2f seconds (%g ms)\n", prepend, name, internal::clockToSeconds(internal::s_profile.var), internal::clockToMs(internal::s_profile.var));
+
+struct ProfileData
+{
+	clock_t computeChartsConcurrent;
+	std::atomic<clock_t> computeCharts;
+	std::atomic<clock_t> atlasBuilder;
+	std::atomic<clock_t> atlasBuilderInit;
+	std::atomic<clock_t> atlasBuilderCreateInitialCharts;
+	std::atomic<clock_t> atlasBuilderEvaluatePriority;
+	std::atomic<clock_t> atlasBuilderGrowCharts;
+	std::atomic<clock_t> atlasBuilderMergeCharts;
+	std::atomic<clock_t> createChartMeshes;
+};
+
+static ProfileData s_profile;
+
+static double clockToMs(clock_t c)
+{
+	return c * 1000.0 / CLOCKS_PER_SEC;
+}
+
+static double clockToSeconds(clock_t c)
+{
+	return c / CLOCKS_PER_SEC;
+}
+#else
+#define XA_PROFILE_START(var)
+#define XA_PROFILE_END(var)
+#define XA_PROFILE_PRINT(prepend, name, var)
 #endif
 
 static constexpr float kPi = 3.14159265358979323846f;
@@ -5472,6 +5514,7 @@ struct AtlasBuilder
 	// @@ Hardcoded to 10?
 	AtlasBuilder(const Mesh *mesh, Array<uint32_t> *meshFaces, const ChartOptions &options) : m_mesh(mesh), m_meshFaces(meshFaces), m_facesLeft(mesh->faceCount()), m_bestTriangles(10), m_options(options)
 	{
+		XA_PROFILE_START(atlasBuilderInit)
 		const uint32_t faceCount = m_mesh->faceCount();
 		if (meshFaces) {
 			m_ignoreFaces.resize(faceCount, true);
@@ -5505,6 +5548,7 @@ struct AtlasBuilder
 			faceArea *= 0.5f;
 			XA_DEBUG_ASSERT(faceArea > 0.0f);
 		}
+		XA_PROFILE_END(atlasBuilderInit)
 	}
 
 	~AtlasBuilder()
@@ -5540,15 +5584,18 @@ struct AtlasBuilder
 	// Returns true if any of the charts can grow more.
 	bool growCharts(float threshold, uint32_t faceCount)
 	{
+		XA_PROFILE_START(atlasBuilderGrowCharts)
 		// Using one global list.
 		faceCount = min(faceCount, m_facesLeft);
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const Candidate &candidate = getBestCandidate();
 			if (candidate.metric > threshold) {
+				XA_PROFILE_END(atlasBuilderGrowCharts)
 				return false; // Can't grow more.
 			}
 			addFaceToChart(candidate.chart, candidate.face);
 		}
+		XA_PROFILE_END(atlasBuilderGrowCharts)
 		return m_facesLeft != 0; // Can continue growing.
 	}
 
@@ -5618,6 +5665,7 @@ struct AtlasBuilder
 
 	void mergeCharts()
 	{
+		XA_PROFILE_START(atlasBuilderMergeCharts)
 		Array<float> sharedBoundaryLengths;
 		Array<float> sharedBoundaryLengthsNoSeams;
 		const uint32_t chartCount = m_chartArray.size();
@@ -5714,16 +5762,17 @@ struct AtlasBuilder
 				c++;
 			}
 		}
+		XA_PROFILE_END(atlasBuilderMergeCharts)
 	}
 
 private:
 	void createRandomChart(float threshold)
 	{
-		const uint32_t randomFaceIdx = m_rand.getRange(m_facesLeft - 1);
 		ChartBuildData *chart = XA_NEW(ChartBuildData);
 		chart->id = (int)m_chartArray.size();
 		m_chartArray.push_back(chart);
 		// Pick random face that is not used by any chart yet.
+		const uint32_t randomFaceIdx = m_rand.getRange(m_facesLeft - 1);
 		uint32_t i = 0;
 		for (uint32_t f = 0; f != randomFaceIdx; f++, i++) {
 			while (m_ignoreFaces[i] || m_faceChartArray[i] != -1) i++;
@@ -5833,7 +5882,9 @@ private:
 		uint32_t candidateCount = chart->candidates.count();
 		for (uint32_t i = 0; i < candidateCount; i++) {
 			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
+			XA_PROFILE_START(atlasBuilderEvaluatePriority)
 			pair.priority = evaluatePriority(chart, pair.face);
+			XA_PROFILE_END(atlasBuilderEvaluatePriority)
 			if (m_faceChartArray[pair.face] == -1)
 				updateCandidate(chart, pair.face, pair.priority);
 		}
@@ -6637,13 +6688,17 @@ public:
 		Chart *chart = XA_NEW(Chart, m_mesh, chartFaces);
 		m_chartArray.push_back(chart);
 #else
+		XA_PROFILE_START(atlasBuilder)
 		AtlasBuilder builder(m_mesh, nullptr, options);
 		runAtlasBuilder(builder, options);
+		XA_PROFILE_END(atlasBuilder)
+		XA_PROFILE_START(createChartMeshes)
 		const uint32_t chartCount = builder.chartCount();
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(i));
 			m_chartArray.push_back(chart);
 		}
+		XA_PROFILE_END(createChartMeshes)
 #endif
 #if XA_DEBUG_EXPORT_OBJ_CHARTS
 		char filename[256];
@@ -6729,6 +6784,7 @@ private:
 		if (builder.facesLeft() == 0)
 			return;
 		// This seems a reasonable estimate.
+		XA_PROFILE_START(atlasBuilderCreateInitialCharts)
 		uint32_t maxSeedCount = max(6U, builder.facesLeft());
 		// Create initial charts greedely.
 		builder.placeSeeds(options.maxThreshold, maxSeedCount);
@@ -6736,6 +6792,7 @@ private:
 		builder.mergeCharts();
 		builder.relocateSeeds();
 		builder.resetCharts();
+		XA_PROFILE_END(atlasBuilderCreateInitialCharts)
 		// Restart process growing charts in parallel.
 		uint32_t iteration = 0;
 		while (true) {
@@ -6806,7 +6863,9 @@ struct ComputeChartsJobArgs
 static void runComputeChartsJob(void *userData)
 {
 	ComputeChartsJobArgs *args = (ComputeChartsJobArgs *)userData;
+	XA_PROFILE_START(computeCharts)
 	args->chartGroup->computeCharts(*args->options);
+	XA_PROFILE_END(computeCharts)
 	args->progress->value++;
 	args->progress->update();
 }
@@ -8049,7 +8108,9 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 	}
 	XA_PRINT("Computing charts\n");
 	atlas->chartCount = 0;
+	XA_PROFILE_START(computeChartsConcurrent)
 	ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData);
+	XA_PROFILE_END(computeChartsConcurrent)
 	// Count charts and print warnings.
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
@@ -8073,6 +8134,15 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 		}
 	}
 	XA_PRINT("   %u charts\n", atlas->chartCount);
+	XA_PROFILE_PRINT("   ", "Total (concurrent)", computeChartsConcurrent)
+	XA_PROFILE_PRINT("   ", "Total", computeCharts)
+	XA_PROFILE_PRINT("      ", "Atlas builder", atlasBuilder)
+	XA_PROFILE_PRINT("         ", "Init", atlasBuilderInit)
+	XA_PROFILE_PRINT("         ", "Create initial charts", atlasBuilderCreateInitialCharts)
+	XA_PROFILE_PRINT("         ", "Evaluate priority", atlasBuilderEvaluatePriority)
+	XA_PROFILE_PRINT("         ", "Grow charts", atlasBuilderGrowCharts)
+	XA_PROFILE_PRINT("         ", "Merge charts", atlasBuilderMergeCharts)
+	XA_PROFILE_PRINT("      ", "Create chart meshes", createChartMeshes)
 }
 
 void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
