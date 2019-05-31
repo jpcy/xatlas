@@ -5501,9 +5501,6 @@ struct ChartBuildData
 	Vector3 normalSum = Vector3(0.0f);
 	Vector3 centroidSum = Vector3(0.0f); // Sum of chart face centroids.
 	Vector3 centroid = Vector3(0.0f); // Average centroid of chart faces.
-	uint32_t centroidFace = UINT32_MAX; // The face with the closest centroid to the chart centroid.
-	float centroidFaceDistance = 0.0f; // The distance between centroidFace and the chart centroid.
-	Vector3 centroidFaceNormal = Vector3(0.0f);
 	Array<uint32_t> seeds;
 	Array<uint32_t> faces;
 	PriorityQueue candidates;
@@ -5617,9 +5614,6 @@ struct AtlasBuilder
 			chart->normalSum = Vector3(0.0f);
 			chart->centroidSum = Vector3(0.0f);
 			chart->centroid = Vector3(0.0f);
-			chart->centroidFace = UINT32_MAX;
-			chart->centroidFaceDistance = FLT_MAX;
-			chart->centroidFaceNormal = Vector3(0.0f);
 			chart->faces.clear();
 			chart->candidates.clear();
 			addFaceToChart(chart, seed);
@@ -5792,21 +5786,11 @@ private:
 		XA_DEBUG_ASSERT(m_faceChartArray[f] == -1);
 		m_faceChartArray[f] = chart->id;
 		m_facesLeft--;
-		// Compute the chart centroid.
-		chart->centroidSum += m_mesh->triangleCenter(f);
-		chart->centroid = chart->centroidSum * (1.0f / float(chart->faces.size()));
-		// Find the most central face.
-		const Vector3 faceCentroid = m_mesh->triangleCenter(f);
-		const float distanceFromChartCentroid = length(chart->centroid - faceCentroid);
-		if (distanceFromChartCentroid < chart->centroidFaceDistance) {
-			chart->centroidFaceDistance = distanceFromChartCentroid;
-			chart->centroidFace = f;
-			chart->centroidFaceNormal = m_mesh->triangleNormal(f);
-		}
 		// Update area and boundary length.
 		chart->area = evaluateChartArea(chart, f);
 		chart->boundaryLength = evaluateBoundaryLength(chart, f);
 		chart->normalSum = evaluateChartNormalSum(chart, f);
+		chart->centroidSum += m_mesh->triangleCenter(f);
 		if (recomputeProxy) {
 			// Update proxy and candidate's priorities.
 			updateProxy(chart);
@@ -5838,6 +5822,7 @@ private:
 	{
 		//#pragma message(NV_FILE_LINE "TODO: Use best fit plane instead of average normal.")
 		chart->planeNormal = normalizeSafe(chart->normalSum, Vector3(0), 0.0f);
+		chart->centroid = chart->centroidSum / float(chart->faces.size());
 	}
 
 	bool relocateSeed(ChartBuildData *chart)
@@ -5903,10 +5888,8 @@ private:
 			return FLT_MAX;
 		if (m_options.maxBoundaryLength > 0.0f && newBoundaryLength > m_options.maxBoundaryLength)
 			return FLT_MAX;
-		if (chart->centroidFace != UINT32_MAX) {
-			if (dot(m_mesh->triangleNormal(chart->centroidFace), chart->planeNormal) < 0.5f)
-				return FLT_MAX;
-		}
+		if (dot(m_mesh->triangleNormal(face), chart->planeNormal) < 0.5f)
+			return FLT_MAX;
 		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
 		// Make sure normal seams are fully respected:
 		const float N = evaluateNormalSeamMetric(chart, face);
@@ -6134,9 +6117,9 @@ private:
 		owner->normalSum += chart->normalSum;
 		updateProxy(owner);
 		// Delete chart.
+		m_chartArray[chart->id] = nullptr;
 		chart->~ChartBuildData();
 		XA_FREE(chart);
-		m_chartArray[chart->id] = nullptr;
 	}
 
 	const Mesh *m_mesh;
