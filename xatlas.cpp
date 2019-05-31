@@ -6774,12 +6774,11 @@ private:
 				builder.fillHoles(options.maxThreshold);
 				builder.updateProxies();
 				builder.mergeCharts();
-				if (iteration == options.maxIterations)
+				if (++iteration == options.maxIterations)
 					break;
 				if (!builder.relocateSeeds())
 					break;
 				builder.resetCharts();
-				iteration++;
 			}
 		}
 		// Make sure no holes are left!
