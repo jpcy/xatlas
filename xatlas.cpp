@@ -5757,17 +5757,15 @@ private:
 		chart->id = (int)m_chartArray.size();
 		m_chartArray.push_back(chart);
 		// Pick random face that is not used by any chart yet.
-		const uint32_t randomFaceIdx = m_rand.getRange(m_facesLeft - 1);
-		uint32_t i = 0;
-		for (uint32_t f = 0; f != randomFaceIdx; f++, i++) {
-			while (m_ignoreFaces[i] || m_faceChartArray[i] != -1) i++;
+		uint32_t face = m_rand.getRange(m_mesh->faceCount() - 1);
+		while (m_ignoreFaces[face] || m_faceChartArray[face] != -1) {
+			if (++face >= m_mesh->faceCount())
+				face = 0;
 		}
-		while (m_ignoreFaces[i] || m_faceChartArray[i] != -1) i++;
-		chart->seeds.push_back(i);
-		addFaceToChart(chart, i, true);
+		chart->seeds.push_back(face);
+		addFaceToChart(chart, face, true);
 		// Grow the chart as much as possible within the given threshold.
 		growChart(chart, threshold * 0.5f, m_facesLeft);
-		//growCharts(threshold - threshold * 0.75f / chartCount(), facesLeft);
 	}
 
 	void addFaceToChart(ChartBuildData *chart, uint32_t f, bool recomputeProxy = false)
