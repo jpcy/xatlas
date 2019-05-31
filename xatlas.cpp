@@ -5765,7 +5765,7 @@ private:
 		chart->seeds.push_back(face);
 		addFaceToChart(chart, face, true);
 		// Grow the chart as much as possible within the given threshold.
-		growChart(chart, threshold * 0.5f, m_facesLeft);
+		growChart(chart, threshold, m_facesLeft);
 	}
 
 	void addFaceToChart(ChartBuildData *chart, uint32_t f, bool recomputeProxy = false)
@@ -6756,7 +6756,7 @@ private:
 		// This seems a reasonable estimate.
 		XA_PROFILE_START(atlasBuilderCreateInitialCharts)
 		// Create initial charts greedely.
-		builder.placeSeeds(options.maxThreshold);
+		builder.placeSeeds(options.maxThreshold * 0.5f);
 		if (options.maxIterations == 0) {
 			XA_DEBUG_ASSERT(builder.facesLeft() == 0);
 			XA_PROFILE_END(atlasBuilderCreateInitialCharts)
@@ -6771,7 +6771,7 @@ private:
 		while (true) {
 			if (!builder.growCharts(options.maxThreshold, options.growFaceCount)) {
 				// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
-				builder.fillHoles(options.maxThreshold);
+				builder.fillHoles(options.maxThreshold * 0.5f);
 				builder.updateProxies();
 				builder.mergeCharts();
 				if (++iteration == options.maxIterations)
