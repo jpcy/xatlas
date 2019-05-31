@@ -5624,11 +5624,8 @@ struct AtlasBuilder
 	{
 		// Traverse neighboring faces, add the ones that do not belong to any chart yet.
 		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()])
-				continue;
-			const Edge *oppositeEdge = m_mesh->edgeAt(it.oppositeEdge());
-			if (m_faceChartArray[oppositeEdge->face] == -1)
-				chart->candidates.push(oppositeEdge->face);
+			if (!it.isBoundary() && !m_ignoreFaces[it.oppositeFace()] && m_faceChartArray[it.oppositeFace()] == -1)
+				chart->candidates.push(it.oppositeFace());
 		}
 	}
 
