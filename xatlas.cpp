@@ -235,7 +235,6 @@ struct ProfileData
 	std::atomic<clock_t> atlasBuilder;
 	std::atomic<clock_t> atlasBuilderInit;
 	std::atomic<clock_t> atlasBuilderCreateInitialCharts;
-	std::atomic<clock_t> atlasBuilderEvaluatePriority;
 	std::atomic<clock_t> atlasBuilderGrowCharts;
 	std::atomic<clock_t> atlasBuilderMergeCharts;
 	std::atomic<clock_t> createChartMeshes;
@@ -250,7 +249,7 @@ static double clockToMs(clock_t c)
 
 static double clockToSeconds(clock_t c)
 {
-	return c / CLOCKS_PER_SEC;
+	return c / (double)CLOCKS_PER_SEC;
 }
 #else
 #define XA_PROFILE_START(var)
@@ -5561,7 +5560,7 @@ struct AtlasBuilder
 	uint32_t chartCount() const { return m_chartArray.size(); }
 	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_chartArray[i]->faces; }
 
-	void placeSeeds(float threshold, uint32_t maxSeedCount)
+	void placeSeeds(float threshold)
 	{
 		// Instead of using a predefiened number of seeds:
 		// - Add seeds one by one, growing chart until a certain treshold.
@@ -5569,13 +5568,8 @@ struct AtlasBuilder
 		// @@ How can we give preference to faces far from sharp features as in the LSCM paper?
 		//   - those points can be found using a simple flood filling algorithm.
 		//   - how do we weight the probabilities?
-		for (uint32_t i = 0; i < maxSeedCount; i++) {
-			if (m_facesLeft == 0) {
-				// No faces left, stop creating seeds.
-				break;
-			}
+		while (m_facesLeft > 0)
 			createRandomChart(threshold);
-		}
 	}
 
 	// Returns true if any of the charts can grow more.
@@ -5864,9 +5858,7 @@ private:
 		uint32_t candidateCount = chart->candidates.count();
 		for (uint32_t i = 0; i < candidateCount; i++) {
 			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
-			XA_PROFILE_START(atlasBuilderEvaluatePriority)
 			pair.priority = evaluatePriority(chart, pair.face);
-			XA_PROFILE_END(atlasBuilderEvaluatePriority)
 			if (m_faceChartArray[pair.face] == -1)
 				updateCandidate(chart, pair.face, pair.priority);
 		}
@@ -6765,11 +6757,14 @@ private:
 			return;
 		// This seems a reasonable estimate.
 		XA_PROFILE_START(atlasBuilderCreateInitialCharts)
-		uint32_t maxSeedCount = max(6U, builder.facesLeft());
 		// Create initial charts greedely.
-		builder.placeSeeds(options.maxThreshold, maxSeedCount);
+		builder.placeSeeds(options.maxThreshold);
+		if (options.maxIterations == 0) {
+			XA_DEBUG_ASSERT(builder.facesLeft() == 0);
+			XA_PROFILE_END(atlasBuilderCreateInitialCharts)
+			return;
+		}
 		builder.updateProxies();
-		builder.mergeCharts();
 		builder.relocateSeeds();
 		builder.resetCharts();
 		XA_PROFILE_END(atlasBuilderCreateInitialCharts)
@@ -6781,12 +6776,12 @@ private:
 				builder.fillHoles(options.maxThreshold);
 				builder.updateProxies();
 				builder.mergeCharts();
-				if (!builder.relocateSeeds())
-					break;
 				if (iteration == options.maxIterations)
 					break;
-				iteration++;
+				if (!builder.relocateSeeds())
+					break;
 				builder.resetCharts();
+				iteration++;
 			}
 		}
 		// Make sure no holes are left!
@@ -8119,7 +8114,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 	XA_PROFILE_PRINT("      ", "Atlas builder", atlasBuilder)
 	XA_PROFILE_PRINT("         ", "Init", atlasBuilderInit)
 	XA_PROFILE_PRINT("         ", "Create initial charts", atlasBuilderCreateInitialCharts)
-	XA_PROFILE_PRINT("         ", "Evaluate priority", atlasBuilderEvaluatePriority)
 	XA_PROFILE_PRINT("         ", "Grow charts", atlasBuilderGrowCharts)
 	XA_PROFILE_PRINT("         ", "Merge charts", atlasBuilderMergeCharts)
 	XA_PROFILE_PRINT("      ", "Create chart meshes", createChartMeshes)
