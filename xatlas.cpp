@@ -5695,6 +5695,11 @@ struct AtlasBuilder
 					// Compare proxies.
 					if (dot(chart2->planeNormal, chart->planeNormal) < XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION)
 						continue;
+					// Obey max chart area and boundary length.
+					if (m_options.maxChartArea > 0.0f && chart->area + chart2->area > m_options.maxChartArea)
+						continue;
+					if (m_options.maxBoundaryLength > 0.0f && chart->boundaryLength + chart2->boundaryLength - sharedBoundaryLengthsNoSeams[cc] > m_options.maxBoundaryLength)
+						continue;
 					// Merge if chart2 has a single face.
 					// chart1 must have more than 1 face.
 					// chart2 area must be <= 10% of chart1 area.
@@ -6705,14 +6710,20 @@ public:
 		Array<uint32_t> meshFaces;
 		for (uint32_t i = 0; i < invalidCharts.size(); i++) {
 			Chart *invalidChart = invalidCharts[i];
-			const uint32_t faceCount = invalidChart->mesh()->faceCount();
+			const Mesh *invalidMesh = invalidChart->mesh();
+			const uint32_t faceCount = invalidMesh->faceCount();
 			meshFaces.resize(faceCount);
-			for (uint32_t j = 0; j < faceCount; j++)
+			float invalidChartArea = 0.0f;
+			for (uint32_t j = 0; j < faceCount; j++) {
 				meshFaces[j] = invalidChart->mapFaceToSourceFace(j);
+				invalidChartArea += invalidMesh->faceArea(j);
+			}
 			ChartOptions options = m_chartOptions;
-			options.maxIterations = 2;
+			options.maxChartArea = invalidChartArea * 0.2f;
+			options.maxThreshold = 0.25f;
+			options.maxIterations = 3;
 			AtlasBuilder builder(m_mesh, &meshFaces, options);
-			runAtlasBuilder(builder, m_chartOptions);
+			runAtlasBuilder(builder, options);
 			for (uint32_t j = 0; j < builder.chartCount(); j++) {
 				Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(j));
 				m_chartArray.push_back(chart);
