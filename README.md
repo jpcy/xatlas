@@ -9,7 +9,7 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 [![](https://user-images.githubusercontent.com/3744372/43034067-5c09c1da-8d18-11e8-8490-25770f05e8e0.png)](https://user-images.githubusercontent.com/3744372/43034066-53a62dee-8d18-11e8-9767-0b38ed3fa2d3.png)
 
 ## Changes from thekla_atlas
-* Smaller code size - from about 18 KLOC to 8 KLOC
+* Smaller code size - from about 18 KLOC to 9 KLOC
 * Easier to integrate and build - a single source/header file pair instead of around 120 files and 10 directories.
 * Atlas resolution option for outputting multiple atlases.
 * Flexible data description API for input meshes.
@@ -17,28 +17,50 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 
 ## How to use
 
-1. Create an atlas with `xatlas::Create`.
-2. Add one or more meshes with `xatlas::AddMesh`. Mesh geometry should be manifold.
-3. Call `xatlas::ComputeCharts`. Meshes are segmented into roughly disk-shaped charts.
-4. Call `xatlas::ParameterizeCharts`. Charts are flattened into 2D parameterizations.
-4. Call `xatlas::PackCharts`. Charts are packed into one or more atlases. You can call `xatlas::PackCharts` multiple times to tweak options like unit to texel scale and resolution.
-5. The `xatlas::Atlas` instance created in the first step now contains the result: meshes with a new UV channel that cross-reference input meshes. The number of vertices has likely increased compared to the input meshes, as the new UV channel duplicates some vertices that were previously shared between triangles. The number and coherence of indices remain unchanged, some are changed to reference vertices that were duplicated.
-6. Cleanup with `xatlas::Destroy`.
+### Generate an atlas (simple API)
+
+1. Create an empty atlas with `xatlas::Create`.
+2. Add one or more meshes with `xatlas::AddMesh`.
+3. Call `xatlas::Generate`. Meshes are segmented into charts, which are parameterized and packed into an atlas.
+
+The `xatlas::Atlas` instance created in the first step now contains the result: each input mesh added by `xatlas::AddMesh` has a corresponding new mesh with a UV channel. New meshes have more vertices (the UV channel adds seams), but the same number of indices.
+
+Cleanup with `xatlas::Destroy`.
+
+[Example code here.](https://github.com/jpcy/xatlas/blob/master/extra/example.cpp)
+
+### Generate an atlas (tools/editor integration API)
+
+Instead of calling `xatlas::Generate`, the following functions can be called in sequence:
+
+1. `xatlas::ComputeCharts`: meshes are segmented into charts.
+2. `xatlas::ParameterizeCharts`: charts are flattened into 2D parameterizations.
+3. `xatlas::PackCharts`: charts are packed into one or more atlases.
+
+All of these functions take a progress callback.
+
+You can call any of these functions multiple times, followed by the proceeding functions, to re-generate the atlas. E.g. calling `xatlas::PackCharts` multiple times to tweak options like unit to texel scale and resolution.
+
+See the [viewer](https://github.com/jpcy/xatlas/tree/master/extra) for example code.
 
 ## TODO
 
 * Adding meshes: check for overlapping and intersecting geometry
 * Charting: simplified/faster code path for dealing with co-planar connected faces
 * Parameterization: use a better hole filling argorithm for non-planar holes
-* Parameterization: detect overlapping faces
+* Packing: allow packing of existing parameterizations
 * Packing: bilinear-aware rasterization
 * Packing: faster brute-force packing
 * Viewer: bake lightmaps with simple path tracer
+* Viewer: chart picking in scene and texture views
 
-## Links
+## Technical information
+
 [Ignacio Castaño's blog post on thekla_atlas](http://the-witness.net/news/2010/03/graphics-tech-texture-parameterization/)
 
-[Microsoft's UVAtlas](https://github.com/Microsoft/UVAtlas)
+## Related projects
+
+[Microsoft's UVAtlas](https://github.com/Microsoft/UVAtlas) - isochart texture atlasing.
 
 [Ministry of Flat](http://www.quelsolaar.com/ministry_of_flat/) - Commercial automated UV unwrapper.
 
@@ -47,6 +69,8 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 [aobaker](https://github.com/prideout/aobaker) - Ambient occlusion baking. Uses [thekla_atlas](https://github.com/Thekla/thekla_atlas).
 
 [seamoptimizer](https://github.com/ands/seamoptimizer]) - A C/C++ single-file library that minimizes the hard transition errors of disjoint edges in lightmaps.
+
+## Models used
 
 [Gazebo model](https://opengameart.org/content/gazebo-0) by Teh_Bucket
 
