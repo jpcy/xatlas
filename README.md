@@ -14,6 +14,7 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 * Atlas resolution option for outputting multiple atlases.
 * Flexible data description API for input meshes.
 * Better tolerance of bad input geometry. Zero length edges and zero area faces are ignored.
+* Support for packing multiple atlases/parameterizations into a single atlas.
 
 ## How to use
 
@@ -42,6 +43,14 @@ All of these functions take a progress callback.
 You can call any of these functions multiple times, followed by the proceeding functions, to re-generate the atlas. E.g. calling `xatlas::PackCharts` multiple times to tweak options like unit to texel scale and resolution.
 
 See the [viewer](https://github.com/jpcy/xatlas/tree/master/extra) for example code.
+
+### Pack multiple atlases into a single atlas
+
+1. Create an empty atlas with `xatlas::Create`.
+2. Add one or more meshes with `xatlas::AddUvMesh`.
+3. Call `xatlas::PackCharts`.
+
+[Example code here.](https://github.com/jpcy/xatlas/blob/master/extra/example_uvmesh.cpp)
 
 ## TODO
 

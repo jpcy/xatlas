@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
 	    printf("Usage: %s input_file.obj [options]\n", argv[0]);
 		printf("  Options:\n");
 		printf("    -verbose\n");  
-	    return 1;
+	    return EXIT_FAILURE;
 	}
 	s_verbose = (argc >= 3 && STRICMP(argv[2], "-verbose") == 0);
 	// Load object file.
@@ -163,6 +163,13 @@ int main(int argc, char *argv[])
 		printf("Error: no shapes in obj file\n");
 		return EXIT_FAILURE;
 	}
+	for (int i = 0; i < (int)shapes.size(); i++) {
+		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
+		if (objMesh.texcoords.empty()) {
+			printf("Error: obj file must have texture coordinates\n");
+			return EXIT_FAILURE;
+		}
+	}
 	printf("   %d shapes\n", (int)shapes.size());
 	// Create atlas.
 	xatlas::SetPrint(Print, s_verbose);
@@ -172,109 +179,46 @@ int main(int argc, char *argv[])
 	int progress = 0;
 	PrintProgress("Adding meshes", "", "   ", 0, &stopwatch);
 	uint32_t totalVertices = 0, totalFaces = 0;
-	for (int i = 0; i < (int)shapes.size(); i++) {
-		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
-		xatlas::MeshDecl meshDecl;
-		meshDecl.vertexCount = (int)objMesh.positions.size() / 3;
-		meshDecl.vertexPositionData = objMesh.positions.data();
-		meshDecl.vertexPositionStride = sizeof(float) * 3;
-		if (!objMesh.normals.empty()) {
-			meshDecl.vertexNormalData = objMesh.normals.data();
-			meshDecl.vertexNormalStride = sizeof(float) * 3;
-		}
-		if (!objMesh.texcoords.empty()) {
+	const int n = 10;
+	for (int i = 0; i < 10; i++) {
+		for (int s = 0; s < (int)shapes.size(); s++) {
+			tinyobj::mesh_t &objMesh = shapes[s].mesh;
+			xatlas::UvMeshDecl meshDecl;
+			meshDecl.vertexCount = (int)objMesh.texcoords.size() / 2;
 			meshDecl.vertexUvData = objMesh.texcoords.data();
-			meshDecl.vertexUvStride = sizeof(float) * 2;
-		}
-		meshDecl.indexCount = (int)objMesh.indices.size();
-		meshDecl.indexData = objMesh.indices.data();
-		meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
-		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, meshDecl);
-		if (error != xatlas::AddMeshError::Success) {
-			xatlas::Destroy(atlas);
-			printf("\rError adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
-			return EXIT_FAILURE;
-		}
-		totalVertices += meshDecl.vertexCount;
-		totalFaces += meshDecl.indexCount / 3;
-		const int newProgress = int((i + 1) / (float)shapes.size() * 100.0f);
-		if (newProgress != progress)
-		{
-			progress = newProgress;
-			PrintProgress("Adding meshes", "", "   ", progress, &stopwatch);
+			meshDecl.vertexStride = sizeof(float) * 2;
+			meshDecl.indexCount = (int)objMesh.indices.size();
+			meshDecl.indexData = objMesh.indices.data();
+			meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
+			xatlas::AddMeshError::Enum error = xatlas::AddUvMesh(atlas, meshDecl);
+			if (error != xatlas::AddMeshError::Success) {
+				xatlas::Destroy(atlas);
+				printf("\rError adding mesh %d '%s': %s\n", s, shapes[i].name.c_str(), xatlas::StringForEnum(error));
+				return EXIT_FAILURE;
+			}
+			totalVertices += meshDecl.vertexCount;
+			totalFaces += meshDecl.indexCount / 3;
+			const int newProgress = int(((i + 1) / (float)n) * ((s + 1) / (float)shapes.size()) * 100.0f);
+			if (newProgress != progress)
+			{
+				progress = newProgress;
+				PrintProgress("Adding meshes", "", "   ", progress, &stopwatch);
+			}
 		}
 	}
 	if (progress != 100)
 		PrintProgress("Adding meshes", "", "   ", 100, &stopwatch);
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
-	// Generate atlas.
-	printf("Generating atlas\n");
-	xatlas::PackOptions packerOptions;
-	packerOptions.conservative = true;
-	packerOptions.padding = 1;
-	xatlas::Generate(atlas, xatlas::ChartOptions(), NULL, packerOptions, ProgressCallback, &stopwatch);
+	// Pack charts.
+	printf("Packing charts\n");
+	xatlas::PackCharts(atlas, xatlas::PackOptions(), ProgressCallback, &stopwatch);
 	printf("   %d charts\n", atlas->chartCount);
 	printf("   %d atlases\n", atlas->atlasCount);
 	for (uint32_t i = 0; i < atlas->atlasCount; i++)
 		printf("      %d: %0.2f%% utilization\n", i, atlas->utilization[i] * 100.0f);
 	printf("   %ux%u resolution\n", atlas->width, atlas->height);
-	totalVertices = 0;
-	totalFaces = 0;
-	for (uint32_t i = 0; i < atlas->meshCount; i++) {
-		const xatlas::Mesh &mesh = atlas->meshes[i];
-		totalVertices += mesh.vertexCount;
-		totalFaces += mesh.indexCount / 3;
-	}
-	printf("   %u total vertices\n", totalVertices);
-	printf("   %u total triangles\n", totalFaces);
 	printf("%.2f seconds (%g ms) elapsed total\n", globalStopwatch.elapsed() / 1000.0, globalStopwatch.elapsed());
-	// Write meshes.
-	char filename[256];
-	snprintf(filename, sizeof(filename), "output.obj");
-	printf("Writing '%s'...\n", filename);
-	FILE *file;
-	FOPEN(file, filename, "w");
-	if (file) {
-		uint32_t firstVertex = 0;
-		for (uint32_t i = 0; i < atlas->meshCount; i++) {
-			const xatlas::Mesh &mesh = atlas->meshes[i];
-			for (uint32_t v = 0; v < mesh.vertexCount; v++) {
-				const xatlas::Vertex &vertex = mesh.vertexArray[v];
-				const float *pos = &shapes[i].mesh.positions[vertex.xref * 3];
-				fprintf(file, "v %g %g %g\n", pos[0], pos[1], pos[2]);
-				if (!shapes[i].mesh.normals.empty()) {
-					const float *normal = &shapes[i].mesh.normals[vertex.xref * 3];
-					fprintf(file, "vn %g %g %g\n", normal[0], normal[1], normal[2]);
-				}
-				fprintf(file, "vt %g %g\n", vertex.uv[0] / atlas->width, vertex.uv[1] / atlas->height);
-			}
-			fprintf(file, "o mesh%03u\n", i);
-			fprintf(file, "s off\n");
-			for (uint32_t f = 0; f < mesh.indexCount; f += 3) {
-				fprintf(file, "f ");
-				for (uint32_t j = 0; j < 3; j++) {
-					const uint32_t index = firstVertex + mesh.indexArray[f + j] + 1; // 1-indexed
-					fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
-				}
-			}
-			fprintf(file, "g charts\n");
-			for (uint32_t c = 0; c < mesh.chartCount; c++) {
-				const xatlas::Chart *chart = &mesh.chartArray[c];
-				fprintf(file, "o chart%04u\n", c);
-				fprintf(file, "s off\n");
-				for (uint32_t f = 0; f < chart->indexCount; f += 3) {
-					fprintf(file, "f ");
-					for (uint32_t j = 0; j < 3; j++) {
-						const uint32_t index = firstVertex + chart->indexArray[f + j] + 1; // 1-indexed
-						fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
-					}
-				}
-			}
-			firstVertex += mesh.vertexCount;
-		}
-		fclose(file);
-	}
 	if (atlas->width > 0 && atlas->height > 0) {
 		printf("Rasterizing result...\n");
 		// Dump images.
@@ -328,6 +272,7 @@ int main(int argc, char *argv[])
 			}
 		}
 		for (uint32_t i = 0; i < atlas->atlasCount; i++) {
+			char filename[256];
 			snprintf(filename, sizeof(filename), "output_tris%02u.tga", i);
 			printf("Writing '%s'...\n", filename);
 			stbi_write_tga(filename, atlas->width, atlas->height, 3, &outputTrisImage[i * imageDataSize]);

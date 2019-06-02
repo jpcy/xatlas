@@ -122,6 +122,19 @@ struct AddMeshError
 // Add a mesh to the atlas. MeshDecl data is copied, so it can be freed after AddMesh returns.
 AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl);
 
+struct UvMeshDecl
+{
+	uint32_t vertexCount = 0;
+	uint32_t vertexStride = 0;
+	const void *vertexUvData = nullptr;
+	uint32_t indexCount = 0;
+	const void *indexData = nullptr; // optional
+	int32_t indexOffset = 0; // optional. Add this offset to all indices.
+	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
+};
+
+AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl);
+
 // Progress tracking.
 struct ProgressCategory
 {

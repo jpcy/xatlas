@@ -88,7 +88,7 @@ solution "xatlas"
 	else
 		platforms { "x86", "x86_64" }
 	end
-	startproject "example"
+	startproject "viewer"
 	filter "platforms:x86"
 		architecture "x86"
 	filter "platforms:x86_64"
@@ -118,6 +118,19 @@ project "example"
 	rtti "Off"
 	warnings "Extra"
 	files "extra/example.cpp"
+	includedirs(THIRDPARTY_DIR)
+	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
+	filter "system:linux"
+		links { "pthread" }
+		
+project "example_uvmesh"
+	kind "ConsoleApp"
+	language "C++"
+	cppdialect "C++11"
+	exceptionhandling "Off"
+	rtti "Off"
+	warnings "Extra"
+	files "extra/example_uvmesh.cpp"
 	includedirs(THIRDPARTY_DIR)
 	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
 	filter "system:linux"
