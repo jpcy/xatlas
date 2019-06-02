@@ -302,7 +302,8 @@ static T clamp(const T &x, const T &a, const T &b)
 template <typename T>
 static void swap(T &a, T &b)
 {
-	T temp = a;
+	T temp;
+	temp = a;
 	a = b;
 	b = temp;
 	temp = T();
