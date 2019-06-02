@@ -255,19 +255,6 @@ int main(int argc, char *argv[])
 					fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
 				}
 			}
-			fprintf(file, "g charts\n");
-			for (uint32_t c = 0; c < mesh.chartCount; c++) {
-				const xatlas::Chart *chart = &mesh.chartArray[c];
-				fprintf(file, "o chart%04u\n", c);
-				fprintf(file, "s off\n");
-				for (uint32_t f = 0; f < chart->indexCount; f += 3) {
-					fprintf(file, "f ");
-					for (uint32_t j = 0; j < 3; j++) {
-						const uint32_t index = firstVertex + chart->indexArray[f + j] + 1; // 1-indexed
-						fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
-					}
-				}
-			}
 			firstVertex += mesh.vertexCount;
 		}
 		fclose(file);
