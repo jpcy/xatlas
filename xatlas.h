@@ -132,6 +132,7 @@ struct UvMeshDecl
 	const void *indexData = nullptr; // optional
 	int32_t indexOffset = 0; // optional. Add this offset to all indices.
 	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
+	bool rotateCharts = true;
 };
 
 AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl);

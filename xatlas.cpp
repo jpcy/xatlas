@@ -4272,6 +4272,7 @@ struct UvMesh
 	Array<uint32_t> indices;
 	Array<UvMeshChart *> charts;
 	Array<uint32_t> vertexToChartMap;
+	bool rotateCharts;
 };
 
 namespace raster {
@@ -7194,6 +7195,7 @@ struct AtlasPackerChart
 	Vector2 *vertices;
 	uint32_t vertexCount;
 	Array<uint32_t> uniqueVertices;
+	bool allowRotate;
 	// bounding box
 	Vector2 majorAxis, minorAxis, minCorner, maxCorner;
 
@@ -7238,6 +7240,7 @@ struct AtlasPacker
 		pchart->surfaceArea = chart->computeSurfaceArea();
 		pchart->vertices = mesh->texcoords();
 		pchart->vertexCount = mesh->vertexCount();
+		pchart->allowRotate = true;
 		// Compute list of boundary vertices.
 		Array<Vector2> boundary;
 		boundary.reserve(16);
@@ -7264,6 +7267,7 @@ struct AtlasPacker
 			pchart->indices = chart->indices.data();
 			pchart->vertices = mesh->texcoords.data();
 			pchart->vertexCount = mesh->texcoords.size();
+			pchart->allowRotate = mesh->rotateCharts;
 			// Find unique vertices.
 			vertexUsed.clearAll();
 			for (uint32_t i = 0; i < pchart->indexCount; i++) {
@@ -7355,11 +7359,13 @@ struct AtlasPacker
 			Vector2 extents(0.0f);
 			for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(i);
-				const float x = dot(texcoord, chart->majorAxis);
-				const float y = dot(texcoord, chart->minorAxis);
-				texcoord.x = x;
-				texcoord.y = y;
-				texcoord -= chart->minCorner;
+				if (chart->allowRotate) {
+					const float x = dot(texcoord, chart->majorAxis);
+					const float y = dot(texcoord, chart->minorAxis);
+					texcoord.x = x;
+					texcoord.y = y;
+					texcoord -= chart->minCorner;
+				}
 				texcoord *= scale;
 				XA_DEBUG_ASSERT(texcoord.x >= 0 && texcoord.y >= 0);
 				XA_DEBUG_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
@@ -7481,7 +7487,7 @@ struct AtlasPacker
 					debugAtlasImages.push_back(di);
 #endif
 				}
-				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, options.resolution <= 0);
+				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, options.resolution <= 0, chart->allowRotate);
 				if (firstChartInBitImage && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitImage. texelsPerUnit must be too large for the resolution.
 					XA_ASSERT(true && "chart doesn't fit");
@@ -7520,8 +7526,10 @@ struct AtlasPacker
 			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(v);
 				Vector2 t = texcoord;
-				if (best_r)
+				if (best_r) {
+					XA_DEBUG_ASSERT(chart->allowRotate);
 					swap(t.x, t.y);
+				}
 				texcoord.x = best_x + t.x + 0.5f;
 				texcoord.y = best_y + t.y + 0.5f;
 				XA_ASSERT(texcoord.x >= 0 && texcoord.y >= 0);
@@ -7576,14 +7584,14 @@ private:
 	// is occupied at this point. At the end we have many small charts and a large atlas with sparse holes. Finding those holes randomly is slow. A better approach would be to
 	// start stacking large charts as if they were tetris pieces. Once charts get small try to place them randomly. It may be interesting to try a intermediate strategy, first try
 	// along one axis and then try exhaustively along that axis.
-	bool findChartLocation(int attempts, const BitImage *atlasBitImage, const BitImage *chartBitImage, const Vector2 &extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
+	bool findChartLocation(int attempts, const BitImage *atlasBitImage, const BitImage *chartBitImage, const Vector2 &extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
 	{
 		if (attempts <= 0 || attempts >= w * h)
-			return findChartLocation_bruteForce(atlasBitImage, chartBitImage, extents, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, resizableAtlas);
-		return findChartLocation_random(atlasBitImage, chartBitImage, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned, resizableAtlas);
+			return findChartLocation_bruteForce(atlasBitImage, chartBitImage, extents, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, resizableAtlas, allowRotate);
+		return findChartLocation_random(atlasBitImage, chartBitImage, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned, resizableAtlas, allowRotate);
 	}
 
-	bool findChartLocation_bruteForce(const BitImage *atlasBitImage, const BitImage *chartBitImage, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas)
+	bool findChartLocation_bruteForce(const BitImage *atlasBitImage, const BitImage *chartBitImage, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
@@ -7593,8 +7601,12 @@ private:
 		for (int r = 0; r < 2; r++) {
 			int cw = chartBitImage->width();
 			int ch = chartBitImage->height();
-			if (r & 1)
-				swap(cw, ch);
+			if (r == 1) {
+				if (allowRotate)
+					swap(cw, ch);
+				else
+					break;
+			}
 			for (int y = 0; y <= h + step_size; y += step_size) { // + 1 to extend atlas in case atlas full.
 				for (int x = 0; x <= w + step_size; x += step_size) { // + 1 not really necessary here.
 					if (!resizableAtlas && (x > (int)atlasBitImage->width() - cw || y > (int)atlasBitImage->height() - ch))
@@ -7632,7 +7644,7 @@ private:
 		return result;
 	}
 
-	bool findChartLocation_random(const BitImage *atlasBitImage, const BitImage *chartBitImage, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned, bool resizableAtlas)
+	bool findChartLocation_random(const BitImage *atlasBitImage, const BitImage *chartBitImage, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned, bool resizableAtlas, bool allowRotate)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
@@ -7640,8 +7652,8 @@ private:
 		for (int i = 0; i < minTrialCount; i++) {
 			int cw = chartBitImage->width();
 			int ch = chartBitImage->height();
-			int r = m_rand.getRange(1);
-			if (r & 1)
+			int r = allowRotate ? m_rand.getRange(1) : 0;
+			if (r == 1)
 				swap(cw, ch);
 			// + 1 to extend atlas in case atlas full. We may want to use a higher number to increase probability of extending atlas.
 			int xRange = w + 1;
@@ -7677,7 +7689,7 @@ private:
 				*best_y = y;
 				*best_w = cw;
 				*best_h = ch;
-				*best_r = r;
+				*best_r = allowRotate ? r : 0;
 				if (area == w * h) {
 					// Chart is completely inside, do not look at any other location.
 					break;
@@ -8228,6 +8240,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		mesh->charts.push_back(chart);
 	}
 	XA_PRINT("   %u charts\n", mesh->charts.size());
+	mesh->rotateCharts = decl.rotateCharts;
 	ctx->uvMeshes.push_back(mesh);
 #if 0
 	FILE *f = fopen("charts.obj", "w");
