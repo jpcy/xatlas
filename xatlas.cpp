@@ -8507,6 +8507,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 				for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
 					Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
 					vertex.atlasIndex = -1;
+					vertex.chartIndex = -1;
 					vertex.uv[0] = vertex.uv[1] = 0.0f;
 					vertex.xref = chartGroup->mapVertexToSourceVertex(v);
 				}
@@ -8527,6 +8528,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 						Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
 						vertex.atlasIndex = packer.getChart(chartIndex)->atlasIndex;
 						XA_DEBUG_ASSERT(vertex.atlasIndex >= 0);
+						vertex.chartIndex = (int32_t)chartIndex;
 						const internal::Vector2 &uv = mesh->texcoord(v);
 						vertex.uv[0] = internal::max(0.0f, uv.x);
 						vertex.uv[1] = internal::max(0.0f, uv.y);

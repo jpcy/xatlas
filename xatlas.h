@@ -47,6 +47,7 @@ struct Chart
 struct Vertex
 {
 	int32_t atlasIndex; // Sub-atlas index. -1 if the vertex doesn't exist in any atlas.
+	int32_t chartIndex; // -1 if the vertex doesn't exist in any chart.
 	float uv[2]; // Not normalized - values are in Atlas width and height range.
 	uint32_t xref; // Index of input vertex from which this output vertex originated.
 };
