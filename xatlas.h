@@ -115,6 +115,7 @@ struct AddMeshError
 	enum Enum
 	{
 		Success, // No error.
+		Error, // Unspecified error.
 		IndexOutOfRange, // An index is >= MeshDecl vertexCount.
 		InvalidIndexCount // Not evenly divisible by 3 - expecting triangles.
 	};
