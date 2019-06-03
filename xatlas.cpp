@@ -4400,10 +4400,16 @@ struct UvMeshChart
 
 struct UvMesh
 {
-	Array<Vector2> texcoords;
+	UvMeshDecl decl;
 	Array<uint32_t> indices;
 	Array<UvMeshChart *> charts;
 	Array<uint32_t> vertexToChartMap;
+};
+
+struct UvMeshInstance
+{
+	UvMesh *mesh;
+	Array<Vector2> texcoords;
 	bool rotateCharts;
 };
 
@@ -7390,13 +7396,13 @@ struct AtlasPacker
 		m_charts.push_back(pchart);
 	}
 
-	void addUvMeshCharts(UvMesh *mesh)
+	void addUvMeshCharts(UvMeshInstance *mesh)
 	{
 		BitArray vertexUsed(mesh->texcoords.size());
 		Array<Vector2> boundary;
 		boundary.reserve(16);
-		for (uint32_t c = 0; c < mesh->charts.size(); c++) {
-			UvMeshChart *chart = mesh->charts[c];
+		for (uint32_t c = 0; c < mesh->mesh->charts.size(); c++) {
+			UvMeshChart *chart = mesh->mesh->charts[c];
 			AtlasPackerChart *pchart = XA_NEW(AtlasPackerChart);
 			pchart->atlasIndex = -1;
 			pchart->indexCount = chart->indices.size();
@@ -7993,6 +7999,7 @@ struct Context
 	internal::param::Atlas paramAtlas;
 	internal::task::Scheduler *taskScheduler;
 	internal::Array<internal::UvMesh *> uvMeshes;
+	internal::Array<internal::UvMeshInstance *> uvMeshInstances;
 };
 
 Atlas *Create()
@@ -8042,6 +8049,11 @@ void Destroy(Atlas *atlas)
 			XA_FREE(mesh->charts[j]);
 		}
 		mesh->~UvMesh();
+		XA_FREE(mesh);
+	}
+	for (uint32_t i = 0; i < ctx->uvMeshInstances.size(); i++) {
+		internal::UvMeshInstance *mesh = ctx->uvMeshInstances[i];
+		mesh->~UvMeshInstance();
 		XA_FREE(mesh);
 	}
 	ctx->~Context();
@@ -8218,15 +8230,15 @@ struct EdgeKey
 	uint32_t v1;
 };
 
-static void GrowUvMeshChart(const internal::UvMesh *mesh, const internal::HashMap<internal::Vector2, uint32_t> &vertexToFaceMap, internal::UvMeshChart *chart, uint32_t face, internal::BitArray &faceAssigned)
+static void GrowUvMeshChart(const internal::UvMeshInstance *mesh, const internal::HashMap<internal::Vector2, uint32_t> &vertexToFaceMap, internal::UvMeshChart *chart, uint32_t face, internal::BitArray &faceAssigned)
 {
 	if (faceAssigned.bitAt(face))
 		return;
 	faceAssigned.setBitAt(face);
 	for (uint32_t i = 0; i < 3; i++)
-		chart->indices.push_back(mesh->indices[face * 3 + i]);
+		chart->indices.push_back(mesh->mesh->indices[face * 3 + i]);
 	for (uint32_t i = 0; i < 3; i++) {
-		const internal::Vector2 &texcoord = mesh->texcoords[mesh->indices[face * 3 + i]];
+		const internal::Vector2 &texcoord = mesh->texcoords[mesh->mesh->indices[face * 3 + i]];
 		uint32_t mapFaceIndex = vertexToFaceMap.get(texcoord);
 		while (mapFaceIndex != UINT32_MAX) {
 			GrowUvMeshChart(mesh, vertexToFaceMap, chart, vertexToFaceMap.value(mapFaceIndex), faceAssigned);
@@ -8261,47 +8273,49 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 				return AddMeshError::IndexOutOfRange;
 		}
 	}
-	// Copy geometry to mesh.
-	internal::UvMesh *mesh = XA_NEW(internal::UvMesh);
-	mesh->texcoords.resize(decl.vertexCount);
-	mesh->indices.resize(decl.indexCount);
+	internal::UvMeshInstance *meshInstance = XA_NEW(internal::UvMeshInstance);
+	meshInstance->texcoords.resize(decl.vertexCount);
 	for (uint32_t i = 0; i < decl.vertexCount; i++)
-		mesh->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
-	for (uint32_t i = 0; i < indexCount; i++)
-		mesh->indices[i] = decoded ? i : DecodeIndex(decl.indexFormat, decl.indexData, decl.indexOffset, i);
-	mesh->vertexToChartMap.resize(decl.vertexCount);
-	// Calculate charts (incident faces).
-	internal::HashMap<internal::Vector2, uint32_t> vertexToFaceMap;
-	const uint32_t faceCount = indexCount / 3;
-	for (uint32_t i = 0; i < indexCount; i++)
-		vertexToFaceMap.add(mesh->texcoords[mesh->indices[i]], i / 3);
-	internal::BitArray faceAssigned(faceCount);
-	faceAssigned.clearAll();
-	for (uint32_t f = 0; f < faceCount; f++) {
-		if (faceAssigned.bitAt(f))
-			continue;
-		internal::UvMeshChart *chart = XA_NEW(internal::UvMeshChart);
-		GrowUvMeshChart(mesh, vertexToFaceMap, chart, f, faceAssigned);
-		for (uint32_t i = 0; i < chart->indices.size(); i++)
-			mesh->vertexToChartMap[chart->indices[i]] = mesh->charts.size();
-		mesh->charts.push_back(chart);
-	}
-	XA_PRINT("   %u charts\n", mesh->charts.size());
-	mesh->rotateCharts = decl.rotateCharts;
-	ctx->uvMeshes.push_back(mesh);
-#if 0
-	FILE *f = fopen("charts.obj", "w");
-	for (uint32_t i = 0; i < mesh->texcoords.size(); i++)
-		fprintf(f, "v %g %g 0\n", mesh->texcoords[i].x, mesh->texcoords[i].y);
-	for (uint32_t i = 0; i < mesh->charts.size(); i++) {
-		fprintf(f, "o chart%u\n", i);
-		for (uint32_t j = 0; j < mesh->charts[i]->indices.size() / 3; j++) {
-			const uint32_t *tri = &mesh->charts[i]->indices[j * 3];
-			fprintf(f, "f %d %d %d\n", tri[0] + 1, tri[1] + 1, tri[2] + 1);
+		meshInstance->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
+	meshInstance->rotateCharts = decl.rotateCharts;
+	// See if this is an instance of an already existing mesh.
+	internal::UvMesh *mesh = nullptr;
+	for (uint32_t m = 0; m < ctx->uvMeshes.size(); m++) {
+		if (memcmp(&ctx->uvMeshes[m]->decl, &decl, sizeof(UvMeshDecl)) == 0) {
+			meshInstance->mesh = mesh = ctx->uvMeshes[m];
+			break;
 		}
 	}
-	fclose(f);
-#endif
+	if (!mesh) {
+		// Copy geometry to mesh.
+		meshInstance->mesh = mesh = XA_NEW(internal::UvMesh);
+		mesh->decl = decl;
+		mesh->indices.resize(decl.indexCount);
+		for (uint32_t i = 0; i < indexCount; i++)
+			mesh->indices[i] = decoded ? i : DecodeIndex(decl.indexFormat, decl.indexData, decl.indexOffset, i);
+		mesh->vertexToChartMap.resize(decl.vertexCount);
+		// Calculate charts (incident faces).
+		internal::HashMap<internal::Vector2, uint32_t> vertexToFaceMap;
+		const uint32_t faceCount = indexCount / 3;
+		for (uint32_t i = 0; i < indexCount; i++)
+			vertexToFaceMap.add(meshInstance->texcoords[mesh->indices[i]], i / 3);
+		internal::BitArray faceAssigned(faceCount);
+		faceAssigned.clearAll();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			if (faceAssigned.bitAt(f))
+				continue;
+			internal::UvMeshChart *chart = XA_NEW(internal::UvMeshChart);
+			GrowUvMeshChart(meshInstance, vertexToFaceMap, chart, f, faceAssigned);
+			for (uint32_t i = 0; i < chart->indices.size(); i++)
+				mesh->vertexToChartMap[chart->indices[i]] = mesh->charts.size();
+			mesh->charts.push_back(chart);
+		}
+		ctx->uvMeshes.push_back(mesh);
+	} else {
+		XA_PRINT("   instance of a previous UV mesh\n");
+	}
+	XA_PRINT("   %u charts\n", meshInstance->mesh->charts.size());
+	ctx->uvMeshInstances.push_back(meshInstance);
 	return AddMeshError::Success;
 }
 
@@ -8312,7 +8326,7 @@ void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFun
 		return;
 	}
 	Context *ctx = (Context *)atlas;
-	if (!ctx->uvMeshes.isEmpty()) {
+	if (!ctx->uvMeshInstances.isEmpty()) {
 		XA_PRINT_WARNING("Generate: This function should not be called with UV meshes.\n");
 		return;
 	}
@@ -8332,7 +8346,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 		return;
 	}
 	Context *ctx = (Context *)atlas;
-	if (!ctx->uvMeshes.isEmpty()) {
+	if (!ctx->uvMeshInstances.isEmpty()) {
 		XA_PRINT_WARNING("ComputeCharts: This function should not be called with UV meshes.\n");
 		return;
 	}
@@ -8385,7 +8399,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 		return;
 	}
 	Context *ctx = (Context *)atlas;
-	if (!ctx->uvMeshes.isEmpty()) {
+	if (!ctx->uvMeshInstances.isEmpty()) {
 		XA_PRINT_WARNING("ParameterizeCharts: This function should not be called with UV meshes.\n");
 		return;
 	}
@@ -8491,11 +8505,11 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 		return;
 	}
 	Context *ctx = (Context *)atlas;
-	if (ctx->paramAtlas.meshCount() == 0 && ctx->uvMeshes.isEmpty()) {
+	if (ctx->paramAtlas.meshCount() == 0 && ctx->uvMeshInstances.isEmpty()) {
 		XA_PRINT_WARNING("PackCharts: No meshes. Call AddMesh or AddUvMesh first.\n");
 		return;
 	}
-	if (ctx->uvMeshes.isEmpty()) {
+	if (ctx->uvMeshInstances.isEmpty()) {
 		if (!ctx->paramAtlas.chartsComputed()) {
 			XA_PRINT_WARNING("PackCharts: ComputeCharts must be called first.\n");
 			return;
@@ -8517,9 +8531,9 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 	}
 	// Pack charts.
 	internal::param::AtlasPacker packer;
-	if (!ctx->uvMeshes.isEmpty()) {
-		for (uint32_t i = 0; i < ctx->uvMeshes.size(); i++)
-			packer.addUvMeshCharts(ctx->uvMeshes[i]);
+	if (!ctx->uvMeshInstances.isEmpty()) {
+		for (uint32_t i = 0; i < ctx->uvMeshInstances.size(); i++)
+			packer.addUvMeshCharts(ctx->uvMeshInstances[i]);
 	}
 	else if (ctx->paramAtlas.chartCount() > 0) {
 		ctx->paramAtlas.restoreOriginalChartTexcoords();
@@ -8542,12 +8556,12 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 	int progress = 0;
 	if (progressFunc)
 		progressFunc(ProgressCategory::BuildOutputMeshes, 0, progressUserData);
-	if (ctx->uvMeshes.isEmpty())
+	if (ctx->uvMeshInstances.isEmpty())
 		atlas->meshCount = ctx->paramAtlas.meshCount();
 	else
-		atlas->meshCount = ctx->uvMeshes.size();
+		atlas->meshCount = ctx->uvMeshInstances.size();
 	atlas->meshes = XA_ALLOC_ARRAY(Mesh, atlas->meshCount);
-	if (ctx->uvMeshes.isEmpty()) {
+	if (ctx->uvMeshInstances.isEmpty()) {
 		uint32_t chartIndex = 0;
 		for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 			Mesh &outputMesh = atlas->meshes[i];
@@ -8650,13 +8664,13 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 		}
 	} else {
 		uint32_t chartIndex = 0;
-		for (uint32_t m = 0; m < ctx->uvMeshes.size(); m++) {
+		for (uint32_t m = 0; m < ctx->uvMeshInstances.size(); m++) {
 			Mesh &outputMesh = atlas->meshes[m];
-			const internal::UvMesh *mesh = ctx->uvMeshes[m];
+			const internal::UvMeshInstance *mesh = ctx->uvMeshInstances[m];
 			// Alloc arrays.
 			outputMesh.vertexCount = mesh->texcoords.size();
-			outputMesh.indexCount = mesh->indices.size();
-			outputMesh.chartCount = mesh->charts.size();
+			outputMesh.indexCount = mesh->mesh->indices.size();
+			outputMesh.chartCount = mesh->mesh->charts.size();
 			outputMesh.vertexArray = XA_ALLOC_ARRAY(Vertex, outputMesh.vertexCount);
 			outputMesh.indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh.indexCount);
 			outputMesh.chartArray = XA_ALLOC_ARRAY(Chart, outputMesh.chartCount);
@@ -8664,7 +8678,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 			// Copy mesh data.
 			// Vertices.
 			for (uint32_t v = 0; v < mesh->texcoords.size(); v++) {
-				const internal::param::AtlasPackerChart *chart = packer.getChart(chartIndex + mesh->vertexToChartMap[v]);
+				const internal::param::AtlasPackerChart *chart = packer.getChart(chartIndex + mesh->mesh->vertexToChartMap[v]);
 				Vertex &vertex = outputMesh.vertexArray[v];
 				vertex.atlasIndex = chart->atlasIndex;
 				vertex.uv[0] = mesh->texcoords[v].x;
@@ -8672,9 +8686,9 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 				vertex.xref = v;
 			}
 			// Indices.
-			memcpy(outputMesh.indexArray, mesh->indices.data(), mesh->indices.size() * sizeof(uint32_t));
+			memcpy(outputMesh.indexArray, mesh->mesh->indices.data(), mesh->mesh->indices.size() * sizeof(uint32_t));
 			// Charts.
-			for (uint32_t c = 0; c < mesh->charts.size(); c++) {
+			for (uint32_t c = 0; c < mesh->mesh->charts.size(); c++) {
 				Chart *outputChart = &outputMesh.chartArray[c];
 				const internal::param::AtlasPackerChart *chart = packer.getChart(chartIndex);
 				XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
