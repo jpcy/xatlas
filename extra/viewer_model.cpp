@@ -527,8 +527,8 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 	if (bx::strCmpI(ext, ".glb") == 0 || bx::strCmpI(ext, ".gltf") == 0) {
 		objzModel *model = gltfLoad(args.filename, basePath);
 		if (!model) {
-			fprintf(stderr, "Error loading %s\n", args.filename);
-			setErrorMessage("Error loading %s\n", args.filename);
+			fprintf(stderr, "Error loading '%s'\n", args.filename);
+			setErrorMessage("Error loading '%s'\n", args.filename);
 			s_model.status.set(ModelStatus::NotLoaded);
 			return;
 		}
@@ -540,7 +540,7 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		objzModel *model = objz_load(args.filename);
 		if (!model) {
 			fprintf(stderr, "%s\n", objz_getError());
-			setErrorMessage(objz_getError());
+			setErrorMessage("Error loading' %s'\n%s\n", args.filename, objz_getError());
 			s_model.status.set(ModelStatus::NotLoaded);
 			return;
 		}
