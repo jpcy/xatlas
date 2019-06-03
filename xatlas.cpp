@@ -2060,6 +2060,138 @@ private:
 	}
 };
 
+// Wrapping this in a class allows temporary arrays to be re-used.
+class BoundingBox2D
+{
+public:
+	Vector2 majorAxis() const { return m_majorAxis; }
+	Vector2 minorAxis() const { return m_minorAxis; }
+	Vector2 minCorner() const { return m_minCorner; }
+	Vector2 maxCorner() const { return m_maxCorner; }
+
+	// This should compute convex hull and use rotating calipers to find the best box. Currently it uses a brute force method.
+	void compute(const Vector2 *boundaryVertices, uint32_t boundaryVertexCount, const Vector2 *vertices, uint32_t vertexCount)
+	{
+		convexHull(boundaryVertices, boundaryVertexCount, m_hull, 0.00001f);
+		// @@ Ideally I should use rotating calipers to find the best box. Using brute force for now.
+		float best_area = FLT_MAX;
+		Vector2 best_min(0);
+		Vector2 best_max(0);
+		Vector2 best_axis(0);
+		const uint32_t hullCount = m_hull.size();
+		for (uint32_t i = 0, j = hullCount - 1; i < hullCount; j = i, i++) {
+			if (equal(m_hull[i], m_hull[j])) {
+				continue;
+			}
+			Vector2 axis = normalize(m_hull[i] - m_hull[j], 0.0f);
+			XA_DEBUG_ASSERT(isFinite(axis));
+			// Compute bounding box.
+			Vector2 box_min(FLT_MAX, FLT_MAX);
+			Vector2 box_max(-FLT_MAX, -FLT_MAX);
+			for (uint32_t v = 0; v < hullCount; v++) {
+				Vector2 point = m_hull[v];
+				const float x = dot(axis, point);
+				const float y = dot(Vector2(-axis.y, axis.x), point);
+				box_min.x = min(box_min.x, x);
+				box_max.x = max(box_max.x, x);
+				box_min.y = min(box_min.y, y);
+				box_max.y = max(box_max.y, y);
+			}
+			// Compute box area.
+			const float area = (box_max.x - box_min.x) * (box_max.y - box_min.y);
+			if (area < best_area) {
+				best_area = area;
+				best_min = box_min;
+				best_max = box_max;
+				best_axis = axis;
+			}
+		}
+		// Consider all points, not only boundary points, in case the input chart is malformed.
+		for (uint32_t i = 0; i < vertexCount; i++) {
+			const Vector2 &point = vertices[i];
+			const float x = dot(best_axis, point);
+			const float y = dot(Vector2(-best_axis.y, best_axis.x), point);
+			best_min.x = min(best_min.x, x);
+			best_max.x = max(best_max.x, x);
+			best_min.y = min(best_min.y, y);
+			best_max.y = max(best_max.y, y);
+		}
+		m_majorAxis = best_axis;
+		m_minorAxis = Vector2(-best_axis.y, best_axis.x);
+		m_minCorner = best_min;
+		m_maxCorner = best_max;
+		XA_ASSERT(isFinite(m_majorAxis) && isFinite(m_minorAxis) && isFinite(m_minCorner));
+	}
+
+private:
+	// Compute the convex hull using Graham Scan.
+	void convexHull(const Vector2 *input, uint32_t inputCount, Array<Vector2> &output, float epsilon)
+	{
+		m_coords.resize(inputCount);
+		for (uint32_t i = 0; i < inputCount; i++)
+			m_coords[i] = input[i].x;
+		RadixSort radix;
+		radix.sort(m_coords);
+		const uint32_t *ranks = radix.ranks();
+		m_top.clear();
+		m_bottom.clear();
+		m_top.reserve(inputCount);
+		m_bottom.reserve(inputCount);
+		Vector2 P = input[ranks[0]];
+		Vector2 Q = input[ranks[inputCount - 1]];
+		float topy = max(P.y, Q.y);
+		float boty = min(P.y, Q.y);
+		for (uint32_t i = 0; i < inputCount; i++) {
+			Vector2 p = input[ranks[i]];
+			if (p.y >= boty)
+				m_top.push_back(p);
+		}
+		for (uint32_t i = 0; i < inputCount; i++) {
+			Vector2 p = input[ranks[inputCount - 1 - i]];
+			if (p.y <= topy)
+				m_bottom.push_back(p);
+		}
+		// Filter top list.
+		output.clear();
+		output.push_back(m_top[0]);
+		output.push_back(m_top[1]);
+		for (uint32_t i = 2; i < m_top.size(); ) {
+			Vector2 a = output[output.size() - 2];
+			Vector2 b = output[output.size() - 1];
+			Vector2 c = m_top[i];
+			float area = triangleArea(a, b, c);
+			if (area >= -epsilon)
+				output.pop_back();
+			if (area < -epsilon || output.size() == 1) {
+				output.push_back(c);
+				i++;
+			}
+		}
+		uint32_t top_count = output.size();
+		output.push_back(m_bottom[1]);
+		// Filter bottom list.
+		for (uint32_t i = 2; i < m_bottom.size(); ) {
+			Vector2 a = output[output.size() - 2];
+			Vector2 b = output[output.size() - 1];
+			Vector2 c = m_bottom[i];
+			float area = triangleArea(a, b, c);
+			if (area >= -epsilon)
+				output.pop_back();
+			if (area < -epsilon || output.size() == top_count) {
+				output.push_back(c);
+				i++;
+			}
+		}
+		// Remove duplicate element.
+		XA_DEBUG_ASSERT(output.front() == output.back());
+		output.pop_back();
+	}
+
+	Array<float> m_coords;
+	Array<Vector2> m_top, m_bottom, m_hull;
+	Vector2 m_majorAxis, m_minorAxis, m_minCorner, m_maxCorner;
+};
+
 namespace task {
 
 #define SCHED_CACHE_LINE_SIZE 64
@@ -7250,7 +7382,11 @@ struct AtlasPacker
 		}
 		XA_DEBUG_ASSERT(boundary.size() > 0);
 		// Compute bounding box of chart.
-		computeBoundingBox(boundary.data(), boundary.size(), mesh->texcoords(), mesh->vertexCount(), &pchart->majorAxis, &pchart->minorAxis, &pchart->minCorner, &pchart->maxCorner);
+		m_boundingBox.compute(boundary.data(), boundary.size(), mesh->texcoords(), mesh->vertexCount());
+		pchart->majorAxis = m_boundingBox.majorAxis();
+		pchart->minorAxis = m_boundingBox.minorAxis();
+		pchart->minCorner = m_boundingBox.minCorner();
+		pchart->maxCorner = m_boundingBox.maxCorner();
 		m_charts.push_back(pchart);
 	}
 
@@ -7305,7 +7441,11 @@ struct AtlasPacker
 				boundary.push_back(pchart->uniqueVertexAt(v));
 			XA_DEBUG_ASSERT(boundary.size() > 0);
 			// Compute bounding box of chart.
-			computeBoundingBox(boundary.data(), boundary.size(), boundary.data(), boundary.size(), &pchart->majorAxis, &pchart->minorAxis, &pchart->minCorner, &pchart->maxCorner);
+			m_boundingBox.compute(boundary.data(), boundary.size(), boundary.data(), boundary.size());
+			pchart->majorAxis = m_boundingBox.majorAxis();
+			pchart->minorAxis = m_boundingBox.minorAxis();
+			pchart->minCorner = m_boundingBox.minCorner();
+			pchart->maxCorner = m_boundingBox.maxCorner();
 			m_charts.push_back(pchart);
 		}
 	}
@@ -7831,127 +7971,8 @@ private:
 		return true;
 	}
 
-	// Compute the convex hull using Graham Scan.
-	static void convexHull(const Vector2 *input, uint32_t inputCount, Array<Vector2> &output, float epsilon)
-	{
-		Array<float> coords;
-		coords.resize(inputCount);
-		for (uint32_t i = 0; i < inputCount; i++) {
-			coords[i] = input[i].x;
-		}
-		RadixSort radix;
-		radix.sort(coords);
-		const uint32_t *ranks = radix.ranks();
-		Array<Vector2> top;
-		top.reserve(inputCount);
-		Array<Vector2> bottom;
-		bottom.reserve(inputCount);
-		Vector2 P = input[ranks[0]];
-		Vector2 Q = input[ranks[inputCount - 1]];
-		float topy = max(P.y, Q.y);
-		float boty = min(P.y, Q.y);
-		for (uint32_t i = 0; i < inputCount; i++) {
-			Vector2 p = input[ranks[i]];
-			if (p.y >= boty) top.push_back(p);
-		}
-		for (uint32_t i = 0; i < inputCount; i++) {
-			Vector2 p = input[ranks[inputCount - 1 - i]];
-			if (p.y <= topy) bottom.push_back(p);
-		}
-		// Filter top list.
-		output.clear();
-		output.push_back(top[0]);
-		output.push_back(top[1]);
-		for (uint32_t i = 2; i < top.size(); ) {
-			Vector2 a = output[output.size() - 2];
-			Vector2 b = output[output.size() - 1];
-			Vector2 c = top[i];
-			float area = triangleArea(a, b, c);
-			if (area >= -epsilon) {
-				output.pop_back();
-			}
-			if (area < -epsilon || output.size() == 1) {
-				output.push_back(c);
-				i++;
-			}
-		}
-		uint32_t top_count = output.size();
-		output.push_back(bottom[1]);
-		// Filter bottom list.
-		for (uint32_t i = 2; i < bottom.size(); ) {
-			Vector2 a = output[output.size() - 2];
-			Vector2 b = output[output.size() - 1];
-			Vector2 c = bottom[i];
-			float area = triangleArea(a, b, c);
-			if (area >= -epsilon) {
-				output.pop_back();
-			}
-			if (area < -epsilon || output.size() == top_count) {
-				output.push_back(c);
-				i++;
-			}
-		}
-		// Remove duplicate element.
-		XA_DEBUG_ASSERT(output.front() == output.back());
-		output.pop_back();
-	}
-
-	// This should compute convex hull and use rotating calipers to find the best box. Currently it uses a brute force method.
-	static void computeBoundingBox(const Vector2 *boundaryVertices, uint32_t boundaryVertexCount, const Vector2 *vertices, uint32_t vertexCount, Vector2 *majorAxis, Vector2 *minorAxis, Vector2 *minCorner, Vector2 *maxCorner)
-	{
-		Array<Vector2> hull;
-		convexHull(boundaryVertices, boundaryVertexCount, hull, 0.00001f);
-		// @@ Ideally I should use rotating calipers to find the best box. Using brute force for now.
-		float best_area = FLT_MAX;
-		Vector2 best_min(0);
-		Vector2 best_max(0);
-		Vector2 best_axis(0);
-		const uint32_t hullCount = hull.size();
-		for (uint32_t i = 0, j = hullCount - 1; i < hullCount; j = i, i++) {
-			if (equal(hull[i], hull[j])) {
-				continue;
-			}
-			Vector2 axis = normalize(hull[i] - hull[j], 0.0f);
-			XA_DEBUG_ASSERT(isFinite(axis));
-			// Compute bounding box.
-			Vector2 box_min(FLT_MAX, FLT_MAX);
-			Vector2 box_max(-FLT_MAX, -FLT_MAX);
-			for (uint32_t v = 0; v < hullCount; v++) {
-				Vector2 point = hull[v];
-				const float x = dot(axis, point);
-				const float y = dot(Vector2(-axis.y, axis.x), point);
-				box_min.x = min(box_min.x, x);
-				box_max.x = max(box_max.x, x);
-				box_min.y = min(box_min.y, y);
-				box_max.y = max(box_max.y, y);
-			}
-			// Compute box area.
-			const float area = (box_max.x - box_min.x) * (box_max.y - box_min.y);
-			if (area < best_area) {
-				best_area = area;
-				best_min = box_min;
-				best_max = box_max;
-				best_axis = axis;
-			}
-		}
-		// Consider all points, not only boundary points, in case the input chart is malformed.
-		for (uint32_t i = 0; i < vertexCount; i++) {
-			const Vector2 &point = vertices[i];
-			const float x = dot(best_axis, point);
-			const float y = dot(Vector2(-best_axis.y, best_axis.x), point);
-			best_min.x = min(best_min.x, x);
-			best_max.x = max(best_max.x, x);
-			best_min.y = min(best_min.y, y);
-			best_max.y = max(best_max.y, y);
-		}
-		*majorAxis = best_axis;
-		*minorAxis = Vector2(-best_axis.y, best_axis.x);
-		*minCorner = best_min;
-		*maxCorner = best_max;
-		XA_ASSERT(isFinite(*majorAxis) && isFinite(*minorAxis) && isFinite(*minCorner));
-	}
-
 	Array<BitImage *> m_bitImages;
+	BoundingBox2D m_boundingBox;
 	Array<AtlasPackerChart *> m_charts;
 	RadixSort m_radix;
 	uint32_t m_width = 0;
