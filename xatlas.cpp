@@ -7356,6 +7356,11 @@ struct AtlasPacker
 			// Sort charts by perimeter. @@ This is sometimes producing somewhat unexpected results. Is this right?
 			//chartOrderArray[c] = ((chart->maxCorner.x - chart->minCorner.x) + (chart->maxCorner.y - chart->minCorner.y)) * scale;
 			// Translate, rotate and scale vertices. Compute extents.
+			Vector2 minCorner(FLT_MAX, FLT_MAX);
+			if (!chart->allowRotate) {
+				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
+					minCorner = min(minCorner, chart->uniqueVertexAt(i));
+			}
 			Vector2 extents(0.0f);
 			for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(i);
@@ -7365,6 +7370,8 @@ struct AtlasPacker
 					texcoord.x = x;
 					texcoord.y = y;
 					texcoord -= chart->minCorner;
+				} else {
+					texcoord -= minCorner;
 				}
 				texcoord *= scale;
 				XA_DEBUG_ASSERT(texcoord.x >= 0 && texcoord.y >= 0);
