@@ -201,8 +201,10 @@ static void textureCreateCachedTextures()
 {
 	for (uint32_t i = 0; i < (uint32_t)s_textureCache.size(); i++) {
 		CachedTexture &texture = s_textureCache[i];
-		if (!texture.data.mem)
+		if (!texture.data.mem) {
 			texture.handle = BGFX_INVALID_HANDLE;
+			continue;
+		}
 		bgfx::TextureFormat::Enum format = bgfx::TextureFormat::RGBA8;
 		if (texture.data.numComponents == 1)
 			format = bgfx::TextureFormat::R8;
@@ -796,6 +798,8 @@ static bool modelSampleTexture(uint32_t textureIndex, const float *uv, bx::Vec3 
 	if (textureIndex == UINT32_MAX)
 		return false;
 	const CachedTexture &texture = s_textureCache[textureIndex];
+	if (!texture.data.mem)
+		return false;
 	const uint32_t x = uint32_t(uv[0] * texture.data.sampleWidth) % texture.data.sampleWidth;
 	const uint32_t y = uint32_t(uv[1] * texture.data.sampleHeight) % texture.data.sampleHeight;
 	const uint8_t *rgb = &texture.data.sampleData[(x + y * texture.data.sampleWidth) * texture.data.numComponents];
