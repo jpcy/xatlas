@@ -226,10 +226,14 @@ static void *Realloc(void *ptr, size_t size, const char * /*file*/, int /*line*/
 #if XA_PROFILE
 #define XA_PROFILE_START(var) const clock_t var##Start = clock();
 #define XA_PROFILE_END(var) internal::s_profile.var += clock() - var##Start;
-#define XA_PROFILE_PRINT(prepend, name, var) XA_PRINT("%s%s: %.2f seconds (%g ms)\n", prepend, name, internal::clockToSeconds(internal::s_profile.var), internal::clockToMs(internal::s_profile.var));
+#define XA_PROFILE_PRINT(label, var) XA_PRINT("%s%.2f seconds (%g ms)\n", label, internal::clockToSeconds(internal::s_profile.var), internal::clockToMs(internal::s_profile.var));
 
 struct ProfileData
 {
+	clock_t addMesh;
+	clock_t addMeshCreateColocals;
+	clock_t addMeshCreateFaceGroups;
+	clock_t addMeshCreateBoundaries;
 	clock_t computeChartsConcurrent;
 	std::atomic<clock_t> computeCharts;
 	std::atomic<clock_t> atlasBuilder;
@@ -254,7 +258,7 @@ static double clockToSeconds(clock_t c)
 #else
 #define XA_PROFILE_START(var)
 #define XA_PROFILE_END(var)
-#define XA_PROFILE_PRINT(prepend, name, var)
+#define XA_PROFILE_PRINT(label, var)
 #endif
 
 static constexpr float kPi = 3.14159265358979323846f;
@@ -740,24 +744,56 @@ bool isFinite(const Vector3 &v)
 }
 #endif
 
-struct Vector3Hash
+// From Fast-BVH
+struct AABB
 {
-	uint32_t operator()(const Vector3 &v) const
-	{
-		int32_t data[3];
-		data[0] = (int32_t)(v.x * 100.0f);
-		data[1] = (int32_t)(v.y * 100.0f);
-		data[2] = (int32_t)(v.z * 100.0f);
-		return sdbmHash(data, sizeof(data));
-	}
-};
+	AABB() : min(FLT_MAX, FLT_MAX, FLT_MAX), max(-FLT_MAX, -FLT_MAX, -FLT_MAX) {}
+	AABB(const Vector3 &min, const Vector3 &max) : min(min), max(max) { }
+	AABB(const Vector3 &p, float radius = 0.0f) : min(p), max(p) { if (radius > 0.0f) expand(radius); }
 
-struct Vector3AlwaysEqual
-{
-	bool operator()(const Vector3 &, const Vector3 &) const
+	bool intersect(const AABB &other) const
 	{
-		return true;
+		return min.x <= other.max.x && max.x >= other.min.x && min.y <= other.max.y && max.y >= other.min.y && min.z <= other.max.z && max.z >= other.min.z;
 	}
+
+	void expandToInclude(const Vector3 &p)
+	{
+		min = internal::min(min, p);
+		max = internal::max(max, p);
+	}
+
+	void expandToInclude(const AABB &aabb)
+	{
+		min = internal::min(min, aabb.min);
+		max = internal::max(max, aabb.max);
+	}
+
+	void expand(float amount)
+	{
+		min -= Vector3(amount);
+		max += Vector3(amount);
+	}
+
+	Vector3 centroid() const
+	{
+		return min + (max - min) * 0.5f;
+	}
+
+	uint32_t maxDimension() const
+	{
+		const Vector3 extent = max - min;
+		uint32_t result = 0;
+		if (extent.y > extent.x) {
+			result = 1;
+			if (extent.z > extent.y)
+				result = 2;
+		}
+		else if(extent.z > extent.x)
+			result = 2;
+		return result;
+	}
+
+	Vector3 min, max;
 };
 
 template <typename T>
@@ -1227,59 +1263,6 @@ private:
 	BitArray m_bitArray;
 };
 
-#if XA_CHECK_FACE_OVERLAP
-// From Fast-BVH
-struct AABB
-{
-	AABB() : min(FLT_MAX, FLT_MAX, FLT_MAX), max(-FLT_MAX, -FLT_MAX, -FLT_MAX) {}
-	AABB(const Vector3 &min, const Vector3 &max) : min(min), max(max) { }
-	AABB(const Vector3 &p) : min(p), max(p) { }
-
-	bool intersect(const AABB &other) const
-	{
-		return min.x <= other.max.x && max.x >= other.min.x && min.y <= other.max.y && max.y >= other.min.y && min.z <= other.max.z && max.z >= other.min.z;
-	}
-	
-	void expandToInclude(const Vector3 &p)
-	{
-		min = internal::min(min, p);
-		max = internal::max(max, p);
-	}
-
-	void expandToInclude(const AABB &aabb)
-	{
-		min = internal::min(min, aabb.min);
-		max = internal::max(max, aabb.max);
-	}
-
-	void expand(float amount)
-	{
-		min -= Vector3(amount);
-		max += Vector3(amount);
-	}
-
-	Vector3 centroid() const
-	{
-		return min + (max - min) * 0.5f;
-	}
-
-	uint32_t maxDimension() const
-	{
-		const Vector3 extent = max - min;
-		uint32_t result = 0;
-		if (extent.y > extent.x) {
-			result = 1;
-			if (extent.z > extent.y)
-				result = 2;
-		}
-		else if(extent.z > extent.x)
-			result = 2;
-		return result;
-	}
-
-	Vector3 min, max;
-};
-
 // From Fast-BVH
 class BVH
 {
@@ -1371,6 +1354,7 @@ public:
 
 	void query(const AABB &queryAabb, Array<uint32_t> &result) const
 	{
+		result.clear();
 		// Working set
 		uint32_t todo[64];
 		int32_t stackptr = 0;
@@ -1415,7 +1399,6 @@ private:
 	Array<uint32_t> m_objectIds;
 	Array<Node> m_nodes;
 };
-#endif
 
 class Fit
 {
@@ -3008,10 +2991,14 @@ public:
 	void createColocals()
 	{
 		const uint32_t vertexCount = m_positions.size();
-		HashMap<Vector3, uint32_t, Vector3Hash, Vector3AlwaysEqual> positionMap(vertexCount);
+		Array<AABB> aabbs;
+		aabbs.resize(vertexCount);
 		for (uint32_t i = 0; i < m_positions.size(); i++)
-			positionMap.add(m_positions[i], i);
+			aabbs[i] = AABB(m_positions[i], kEpsilon);
+		BVH bvh(aabbs);
 		Array<uint32_t> colocals;
+		Array<uint32_t> potential;
+		m_colocalVertexCount = 0;
 		m_nextColocalVertex.resize(vertexCount, UINT32_MAX);
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			if (m_nextColocalVertex[i] != UINT32_MAX)
@@ -3019,21 +3006,18 @@ public:
 			// Find other vertices colocal to this one.
 			colocals.clear();
 			colocals.push_back(i); // Always add this vertex.
-			uint32_t mapOtherVertex = positionMap.get(m_positions[i]);
-			while (mapOtherVertex != UINT32_MAX) {
-				const uint32_t otherVertex = positionMap.value(mapOtherVertex);
-				// Skip this vertex, since it's already added.
-				// Test equality with this vertex.
-				// Ensure the other vertex isn't already linked.
+			bvh.query(AABB(m_positions[i], kEpsilon), potential);
+			for (uint32_t j = 0; j < potential.size(); j++) {
+				const uint32_t otherVertex = potential[j];
 				if (otherVertex != i && equal(m_positions[i], m_positions[otherVertex]) && m_nextColocalVertex[otherVertex] == UINT32_MAX)
 					colocals.push_back(otherVertex);
-				mapOtherVertex = positionMap.getNext(mapOtherVertex);
 			}
 			if (colocals.size() == 1) {
 				// No colocals for this vertex.
 				m_nextColocalVertex[i] = i;
 				continue; 
 			}
+			m_colocalVertexCount += colocals.size();
 			// Link in ascending order.
 			insertionSort(colocals.data(), colocals.size());
 			for (uint32_t j = 0; j < colocals.size(); j++)
@@ -8107,6 +8091,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 	bool decoded = (meshDecl.indexCount <= 0);
 	uint32_t indexCount = decoded ? meshDecl.vertexCount : meshDecl.indexCount;
 	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", ctx->paramAtlas.meshCount(), meshDecl.vertexCount, indexCount / 3);
+	XA_PROFILE_START(addMesh)
 	// Expecting triangle faces.
 	if ((indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
@@ -8169,11 +8154,21 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 		mesh->addFace(tri[0], tri[1], tri[2], faceFlags);
 	}
 	XA_PRINT("   Creating colocals\n");
+	XA_PROFILE_START(addMeshCreateColocals)
 	mesh->createColocals();
+	XA_PROFILE_END(addMeshCreateColocals)
+	XA_PRINT("      %u colocal vertices\n", mesh->colocalVertexCount());
+	XA_PROFILE_PRINT("      ", addMeshCreateColocals)
 	XA_PRINT("   Creating face groups\n");
+	XA_PROFILE_START(addMeshCreateFaceGroups)
 	mesh->createFaceGroups();
+	XA_PROFILE_END(addMeshCreateFaceGroups)
+	XA_PROFILE_PRINT("      ", addMeshCreateFaceGroups)
 	XA_PRINT("   Creating boundaries\n");
+	XA_PROFILE_START(addMeshCreateBoundaries)
 	mesh->createBoundaries();
+	XA_PROFILE_END(addMeshCreateBoundaries)
+	XA_PROFILE_PRINT("      ", addMeshCreateBoundaries)
 #if XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES
 	char filename[256];
 	sprintf(filename, "debug_mesh_%0.3u.obj", mesh->id());
@@ -8207,6 +8202,14 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 	ctx->paramAtlas.addMesh(mesh);
 	mesh->~Mesh();
 	XA_FREE(mesh);
+	XA_PROFILE_END(addMesh)
+	XA_PROFILE_PRINT("   Total: ", addMesh)
+#if XA_PROFILE
+	internal::s_profile.addMesh = 0;
+	internal::s_profile.addMeshCreateColocals = 0;
+	internal::s_profile.addMeshCreateFaceGroups = 0;
+	internal::s_profile.addMeshCreateBoundaries = 0;
+#endif
 	return AddMeshError::Success;
 }
 
@@ -8382,14 +8385,14 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 		}
 	}
 	XA_PRINT("   %u charts\n", chartCount);
-	XA_PROFILE_PRINT("   ", "Total (concurrent)", computeChartsConcurrent)
-	XA_PROFILE_PRINT("   ", "Total", computeCharts)
-	XA_PROFILE_PRINT("      ", "Atlas builder", atlasBuilder)
-	XA_PROFILE_PRINT("         ", "Init", atlasBuilderInit)
-	XA_PROFILE_PRINT("         ", "Create initial charts", atlasBuilderCreateInitialCharts)
-	XA_PROFILE_PRINT("         ", "Grow charts", atlasBuilderGrowCharts)
-	XA_PROFILE_PRINT("         ", "Merge charts", atlasBuilderMergeCharts)
-	XA_PROFILE_PRINT("      ", "Create chart meshes", createChartMeshes)
+	XA_PROFILE_PRINT("   Total (concurrent): ", computeChartsConcurrent)
+	XA_PROFILE_PRINT("   Total: ", computeCharts)
+	XA_PROFILE_PRINT("      Atlas builder: ", atlasBuilder)
+	XA_PROFILE_PRINT("         Init: ", atlasBuilderInit)
+	XA_PROFILE_PRINT("         Create initial charts: ", atlasBuilderCreateInitialCharts)
+	XA_PROFILE_PRINT("         Grow charts: ", atlasBuilderGrowCharts)
+	XA_PROFILE_PRINT("         Merge charts: ", atlasBuilderMergeCharts)
+	XA_PROFILE_PRINT("      Create chart meshes: ", createChartMeshes)
 }
 
 void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
