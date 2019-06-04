@@ -105,7 +105,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 
-#define XA_CHECK_FACE_OVERLAP 1
+#define XA_CHECK_FACE_OVERLAP 0
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
 
