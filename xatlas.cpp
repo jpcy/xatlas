@@ -2421,7 +2421,8 @@ private:
 		uint32_t version = 0;
 		T element;
 		// Avoid false sharing between threads
-		char padding[SCHED_CACHE_LINE_SIZE];
+		static const size_t PADDING_ADJUSTMENT = (SCHED_CACHE_LINE_SIZE - ((sizeof(state)+sizeof(version)+sizeof(element))%SCHED_CACHE_LINE_SIZE)) % SCHED_CACHE_LINE_SIZE;
+		char padding[PADDING_ADJUSTMENT];
 	};
 
 	D *m_data = nullptr;
@@ -2507,29 +2508,6 @@ public:
 		uint32_t t_ref = createTask(job, sync_obj);
 		m_readyTasks.push(t_ref);
 		wakeUpOneThread();
-	}
-
-	void runAfter(Sync _trigger, const Job &_job, Sync *_sync_obj = nullptr)
-	{
-		XA_DEBUG_ASSERT(m_running);
-		uint32_t trigger = _trigger.hnd;
-		uint32_t t_ref = createTask(_job, _sync_obj);
-		bool valid = m_counters.ref(trigger);
-		if (valid) {
-			Counter *c = &m_counters.get(trigger);
-			for(;;) {
-				uint32_t current = c->task_id.load();
-				if (c->task_id.compare_exchange_strong(current, t_ref)) {
-					Task *task = &m_tasks.get(t_ref);
-					task->next_sibling_task = current;
-					break;
-				}
-			}
-			unrefCounter(trigger);
-		} else {
-			m_readyTasks.push(t_ref);
-			wakeUpOneThread();
-		}
 	}
 
 	void waitFor(Sync s) //< suspend current thread 
@@ -2793,34 +2771,16 @@ class Scheduler
 public:
 	Scheduler() {}
 	~Scheduler() {}
-	void init(const SchedulerParams &params = SchedulerParams())
-	{
-		XA_UNUSED(params);
-	}
-
+	void init(const SchedulerParams &params = SchedulerParams()) { XA_UNUSED(params); }
 	void stop() {}
+
 	void run(const Job &job, Sync *)
 	{
 		Job j(job);
 		j.func(j.userData);
 	}
 
-	void runAfter(Sync, const Job &job, Sync *)
-	{
-		Job j(job);
-		j.func(j.userData);
-	}
-
 	void waitFor(Sync) {}
-	uint32_t numPendingTasks(Sync) { return 0; }
-
-	void getDebugStatus(char *buffer, size_t buffer_size) {
-		if (buffer_size)
-			buffer[0] = 0;
-	}
-
-	void incrementSync(Sync *) {}
-	void decrementSync(Sync *) {}
 	void wakeUpOneThread() {}
 };
 #endif
