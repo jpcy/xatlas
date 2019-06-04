@@ -68,6 +68,10 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #include <time.h>
 #endif
 
+#ifndef XA_MULTITHREADED
+#define XA_MULTITHREADED 1
+#endif
+
 #define XA_STR(x) #x
 #define XA_XSTR(x) XA_STR(x)
 
@@ -78,12 +82,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #ifndef XA_DEBUG_ASSERT
 #define XA_DEBUG_ASSERT(exp) assert(exp)
 #endif
-
-#define XA_ALLOC(type) (type *)internal::Realloc(nullptr, sizeof(type), __FILE__, __LINE__)
-#define XA_ALLOC_ARRAY(type, num) (type *)internal::Realloc(nullptr, sizeof(type) * num, __FILE__, __LINE__)
-#define XA_REALLOC(ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * num, __FILE__, __LINE__)
-#define XA_FREE(ptr) internal::Realloc(ptr, 0, __FILE__, __LINE__)
-#define XA_NEW(type, ...) new (XA_ALLOC(type)) type(__VA_ARGS__)
 
 #ifndef XA_PRINT
 #define XA_PRINT(...) \
@@ -97,22 +95,21 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 		xatlas::internal::s_print(__VA_ARGS__);
 #endif
 
+#define XA_ALLOC(type) (type *)internal::Realloc(nullptr, sizeof(type), __FILE__, __LINE__)
+#define XA_ALLOC_ARRAY(type, num) (type *)internal::Realloc(nullptr, sizeof(type) * num, __FILE__, __LINE__)
+#define XA_REALLOC(ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * num, __FILE__, __LINE__)
+#define XA_FREE(ptr) internal::Realloc(ptr, 0, __FILE__, __LINE__)
+#define XA_NEW(type, ...) new (XA_ALLOC(type)) type(__VA_ARGS__)
+
 #define XA_UNUSED(a) ((void)(a))
 
-#ifndef XA_MULTITHREADED
-#define XA_MULTITHREADED 1
-#endif
-
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
-
 #define XA_CHECK_FACE_OVERLAP 0
+#define XA_RECOMPUTE_CHARTS 1
+#define XA_GROW_CHARTS_COPLANAR 1
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
-
-#ifndef XA_DEBUG_EXPORT_ATLAS_IMAGES
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
-#endif
-
 #define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
@@ -5630,6 +5627,7 @@ struct AtlasBuilder
 		const uint32_t edgeCount = m_mesh->edgeCount();
 		m_edgeLengths.resize(edgeCount, 0.0f);
 		m_faceAreas.resize(m_mesh->faceCount(), 0.0f);
+		m_faceNormals.resize(m_mesh->faceCount());
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_ignoreFaces[f])
 				continue;
@@ -5645,6 +5643,7 @@ struct AtlasBuilder
 			}
 			faceArea *= 0.5f;
 			XA_DEBUG_ASSERT(faceArea > 0.0f);
+			m_faceNormals[f] = m_mesh->triangleNormal(f);
 		}
 		XA_PROFILE_END(atlasBuilderInit)
 	}
@@ -5714,6 +5713,12 @@ struct AtlasBuilder
 			chart->candidates.clear();
 			addFaceToChart(chart, seed);
 		}
+#if XA_GROW_CHARTS_COPLANAR
+		for (uint32_t i = 0; i < chartCount; i++) {
+			ChartBuildData *chart = m_chartArray[i];
+			growChartCoplanar(chart);
+		}
+#endif
 	}
 
 	void updateCandidates(ChartBuildData *chart, uint32_t f)
@@ -5871,6 +5876,9 @@ private:
 		}
 		chart->seeds.push_back(face);
 		addFaceToChart(chart, face, true);
+#if XA_GROW_CHARTS_COPLANAR
+		growChartCoplanar(chart);
+#endif
 		// Grow the chart as much as possible within the given threshold.
 		growChart(chart, threshold, m_facesLeft);
 	}
@@ -5913,6 +5921,31 @@ private:
 			return false;
 		return true;
 	}
+
+#if XA_GROW_CHARTS_COPLANAR
+	void growChartCoplanar(ChartBuildData *chart)
+	{
+		XA_DEBUG_ASSERT(!chart->faces.isEmpty());
+		const Vector3 chartNormal = m_faceNormals[chart->faces[0]];
+		m_growFaces.clear();
+		for (uint32_t f = 0; f < chart->faces.size(); f++)
+			m_growFaces.push_back(chart->faces[f]);
+		for (;;) {
+			if (m_growFaces.isEmpty())
+				break;
+			const uint32_t face = m_growFaces.back();
+			m_growFaces.pop_back();
+			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
+				if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()] || m_faceChartArray[it.oppositeFace()] != -1)
+					continue;
+				if (equal(dot(chartNormal, m_faceNormals[it.oppositeFace()]), 1.0f)) {
+					addFaceToChart(chart, it.oppositeFace());
+					m_growFaces.push_back(it.oppositeFace());
+				}
+			}
+		}
+	}
+#endif
 
 	void updateProxy(ChartBuildData *chart) const
 	{
@@ -5982,7 +6015,7 @@ private:
 			return FLT_MAX;
 		if (m_options.maxBoundaryLength > 0.0f && newBoundaryLength > m_options.maxBoundaryLength)
 			return FLT_MAX;
-		if (dot(m_mesh->triangleNormal(face), chart->planeNormal) < 0.5f)
+		if (dot(m_faceNormals[face], chart->planeNormal) < 0.5f)
 			return FLT_MAX;
 		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
 		// Make sure normal seams are fully respected:
@@ -6010,7 +6043,7 @@ private:
 	// Returns a value in [0-1].
 	float evaluateProxyFitMetric(ChartBuildData *chart, uint32_t f) const
 	{
-		const Vector3 faceNormal = m_mesh->triangleNormal(f);
+		const Vector3 faceNormal = m_faceNormals[f];
 		// Use plane fitting metric for now:
 		return 1 - dot(faceNormal, chart->planeNormal); // @@ normal deviations should be weighted by face area
 	}
@@ -6221,6 +6254,8 @@ private:
 	Array<bool> m_ignoreFaces;
 	Array<float> m_edgeLengths;
 	Array<float> m_faceAreas;
+	Array<Vector3> m_faceNormals;
+	Array<uint32_t> m_growFaces;
 	uint32_t m_facesLeft;
 	Array<int> m_faceChartArray;
 	Array<ChartBuildData *> m_chartArray;
@@ -6797,6 +6832,7 @@ public:
 
 	void parameterizeCharts(ParameterizeFunc func)
 	{
+#if XA_RECOMPUTE_CHARTS
 		Array<Chart *> invalidCharts;
 		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
@@ -6857,6 +6893,13 @@ public:
 			XA_FREE(chart);
 			m_paramDeletedChartsCount++;
 		}
+#else
+		const uint32_t chartCount = m_chartArray.size();
+		for (uint32_t i = 0; i < chartCount; i++) {
+			Chart *chart = m_chartArray[i];
+			parameterizeChart(chart, func);
+		}
+#endif
 	}
 
 private:
