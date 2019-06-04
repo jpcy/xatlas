@@ -3364,6 +3364,8 @@ public:
 
 	void writeObjLinkedBoundaries(FILE *file) const
 	{
+		if (m_oppositeEdges.isEmpty() || m_nextBoundaryEdges.isEmpty())
+			return; // Boundaries haven't been created and/or linked.
 		Array<uint32_t> boundaryLoops;
 		meshGetBoundaryLoops(*this, boundaryLoops);
 		for (uint32_t i = 0; i < boundaryLoops.size(); i++) {
@@ -3614,9 +3616,11 @@ private:
 	Array<uint32_t> m_nextColocalVertex; // In: vertex index. Out: the vertex index of the next colocal position.
 
 	// Populated by createBoundaries
-	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
 	Array<bool> m_boundaryVertices;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
+
+	// Populated by linkBoundaries
+	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
 
 	struct EdgeKey
 	{
