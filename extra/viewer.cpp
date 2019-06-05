@@ -430,7 +430,7 @@ int main(int argc, char **argv)
 	glfwGetWindowSize(g_window, &width, &height);
 	init.resolution.width = (uint32_t)width;
 	init.resolution.height = (uint32_t)height;
-	init.resolution.reset = BGFX_RESET_VSYNC;
+	init.resolution.reset = BGFX_RESET_VSYNC | BGFX_RESET_MSAA_X16;
 	bgfx::init(init);
 	PosVertex::init();
 	WireframeVertex::init();
@@ -460,7 +460,7 @@ int main(int argc, char **argv)
 		int oldWidth = width, oldHeight = height;
 		glfwGetWindowSize(g_window, &width, &height);
 		if (width != oldWidth || height != oldHeight) {
-			bgfx::reset((uint32_t)width, (uint32_t)height, BGFX_RESET_VSYNC);
+			bgfx::reset((uint32_t)width, (uint32_t)height, BGFX_RESET_VSYNC | BGFX_RESET_MSAA_X16);
 			guiResize(width, height);
 			bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);
 		}

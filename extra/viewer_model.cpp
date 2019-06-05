@@ -733,7 +733,7 @@ void modelRender(const float *view, const float *projection)
 			const float color[] = { 0.0f, 0.0f, 0.0f, 0.75f };
 			bgfx::setUniform(s_model.u_color, color);
 			setWireframeThicknessUniform(1.5f);
-			bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LEQUAL | BGFX_STATE_CULL_CW | BGFX_STATE_BLEND_ALPHA);
+			bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LEQUAL | BGFX_STATE_CULL_CW | BGFX_STATE_BLEND_ALPHA | BGFX_STATE_MSAA);
 			bgfx::setTransform(modelMatrix);
 			bgfx::setVertexBuffer(0, s_model.wireframeVb);
 			bgfx::submit(kModelView, getWireframeProgram(), 1);
