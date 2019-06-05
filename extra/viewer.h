@@ -180,17 +180,21 @@ enum class ShaderId
 	fs_color,
 	fs_gui,
 	fs_material,
+	fs_wireframe,
 	vs_chart,
 	vs_chartTexcoordSpace,
 	vs_gui,
 	vs_model,
-	vs_position
+	vs_position,
+	vs_wireframe
 };
 
 bgfx::ShaderHandle loadShader(ShaderId id);
 bgfx::ShaderHandle get_fs_color();
 bgfx::ShaderHandle get_vs_position();
 bgfx::ProgramHandle getColorProgram();
+void setWireframeThicknessUniform(float thickness);
+bgfx::ProgramHandle getWireframeProgram();
 
 struct PosVertex
 {
@@ -203,6 +207,22 @@ struct PosVertex
 			.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
 			.end();
 		assert(decl.getStride() == sizeof(PosVertex));
+	}
+};
+
+struct WireframeVertex
+{
+	bx::Vec3 pos;
+	bx::Vec3 barycentric;
+	static bgfx::VertexDecl decl;
+
+	static void init()
+	{
+		decl.begin()
+			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+			.add(bgfx::Attrib::TexCoord0, 3, bgfx::AttribType::Float)
+			.end();
+		assert(decl.getStride() == sizeof(WireframeVertex));
 	}
 };
 

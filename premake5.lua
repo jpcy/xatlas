@@ -22,11 +22,13 @@ newaction
 			"fs_color",
 			"fs_gui",
 			"fs_material",
+			"fs_wireframe",
 			"vs_chart",
 			"vs_chartTexcoordSpace",
 			"vs_gui",
 			"vs_model",
-			"vs_position"
+			"vs_position",
+			"vs_wireframe"
 		}
 		local renderers = nil
 		if os.ishost("windows") then

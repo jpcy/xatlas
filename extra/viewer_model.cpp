@@ -68,7 +68,8 @@ struct
 	bx::Vec3 centroid = bx::Vec3(0.0f, 0.0f, 0.0f);
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
-	bgfx::IndexBufferHandle wireframeIb = BGFX_INVALID_HANDLE;
+	bgfx::VertexBufferHandle wireframeVb = BGFX_INVALID_HANDLE;
+	std::vector<WireframeVertex> wireframeVertices;
 	float scale = 1.0f;
 	bgfx::ShaderHandle vs_model;
 	bgfx::ShaderHandle fs_material;
@@ -554,6 +555,15 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 			v->texcoord[1] = 1.0f - v->texcoord[1];
 		}
 	}
+	s_model.wireframeVertices.resize(s_model.data->numIndices);
+	for (uint32_t i = 0; i < s_model.data->numIndices / 3; i++) {
+		WireframeVertex *dest = &s_model.wireframeVertices[i * 3];
+		for (uint32_t j = 0; j < 3; j++)
+			dest[j].pos = ((const ModelVertex *)s_model.data->vertices)[((const uint32_t *)s_model.data->indices)[i * 3 + j]].pos;
+		dest[0].barycentric = bx::Vec3(1.0f, 0.0f, 0.0f);
+		dest[1].barycentric = bx::Vec3(0.0f, 1.0f, 0.0f);
+		dest[2].barycentric = bx::Vec3(0.0f, 0.0f, 1.0f);
+	}
 	s_model.diffuseTextures.resize(s_model.data->numMaterials);
 	s_model.emissionTextures.resize(s_model.data->numMaterials);
 	for (uint32_t i = 0; i < s_model.data->numMaterials; i++) {
@@ -585,10 +595,7 @@ void modelFinalize()
 	s_model.centroid = bx::mul(s_model.centroid, 1.0f / s_model.data->numVertices);
 	s_model.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.data->vertices, s_model.data->numVertices * sizeof(ModelVertex)), ModelVertex::decl);
 	s_model.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_model.data->indices, s_model.data->numIndices * sizeof(uint32_t)), BGFX_BUFFER_INDEX32);
-	const uint32_t numWireframeIndices = bgfx::topologyConvert(bgfx::TopologyConvert::TriListToLineList, nullptr, 0, s_model.data->indices, s_model.data->numIndices, true);
-	const bgfx::Memory *wireframeIndices = bgfx::alloc(numWireframeIndices * sizeof(uint32_t));
-	bgfx::topologyConvert(bgfx::TopologyConvert::TriListToLineList, wireframeIndices->data, wireframeIndices->size, s_model.data->indices, s_model.data->numIndices, true);
-	s_model.wireframeIb = bgfx::createIndexBuffer(wireframeIndices, BGFX_BUFFER_INDEX32);
+	s_model.wireframeVb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.wireframeVertices.data(), uint32_t(s_model.wireframeVertices.size() * sizeof(WireframeVertex))), WireframeVertex::decl);
 	resetCamera();
 	g_options.shadeMode = ShadeMode::Flat;
 	g_options.wireframeMode = WireframeMode::Triangles;
@@ -637,10 +644,10 @@ void modelDestroy()
 	if (bgfx::isValid(s_model.vb)) {
 		bgfx::destroy(s_model.vb);
 		bgfx::destroy(s_model.ib);
-		bgfx::destroy(s_model.wireframeIb);
+		bgfx::destroy(s_model.wireframeVb);
 		s_model.vb = BGFX_INVALID_HANDLE;
 		s_model.ib = BGFX_INVALID_HANDLE;
-		s_model.wireframeIb = BGFX_INVALID_HANDLE;
+		s_model.wireframeVb = BGFX_INVALID_HANDLE;
 	}
 	glfwSetWindowTitle(g_window, WINDOW_TITLE);
 	s_model.status.set(ModelStatus::NotLoaded);
@@ -723,13 +730,13 @@ void modelRender(const float *view, const float *projection)
 		atlasRenderCharts(modelMatrix);
 	if (g_options.wireframe) {
 		if (g_options.wireframeMode == WireframeMode::Triangles) {
-			const float color[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+			const float color[] = { 0.0f, 0.0f, 0.0f, 0.75f };
 			bgfx::setUniform(s_model.u_color, color);
-			bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
+			setWireframeThicknessUniform(1.5f);
+			bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LEQUAL | BGFX_STATE_CULL_CW | BGFX_STATE_BLEND_ALPHA);
 			bgfx::setTransform(modelMatrix);
-			bgfx::setIndexBuffer(s_model.wireframeIb);
-			bgfx::setVertexBuffer(0, s_model.vb);
-			bgfx::submit(kModelView, getColorProgram());
+			bgfx::setVertexBuffer(0, s_model.wireframeVb);
+			bgfx::submit(kModelView, getWireframeProgram(), 1);
 		} else {
 			atlasRenderChartsWireframe(modelMatrix);
 		}

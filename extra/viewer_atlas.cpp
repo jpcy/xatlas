@@ -126,7 +126,7 @@ struct
 	std::vector<uint32_t> indices;
 	std::vector<uint32_t> chartIndices;
 	std::vector<bool> boundaryEdges;
-	std::vector<bx::Vec3> chartBoundaryVertices;
+	std::vector<WireframeVertex> chartBoundaryVertices;
 	bgfx::VertexDecl wireVertexDecl;
 	// Chart rendering with checkerboard pattern.
 	bgfx::UniformHandle u_color;
@@ -466,15 +466,27 @@ static void atlasGenerateThread()
 				s_atlas.chartIndices[firstChartIndex + k] = firstVertex + chart.indexArray[k];
 			firstChartIndex += chart.indexCount;
 			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+				bool removeEdge[3];
 				for (int l = 0; l < 3; l++) {
-					if (s_atlas.boundaryEdges[numEdges]) {
-						const xatlas::Vertex &v0 = mesh.vertexArray[chart.indexArray[k + l]];
-						const xatlas::Vertex &v1 = mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]];
-						s_atlas.chartBoundaryVertices.push_back(oldVertices[v0.xref].pos);
-						s_atlas.chartBoundaryVertices.push_back(oldVertices[v1.xref].pos);
-					}
+					removeEdge[l] = !s_atlas.boundaryEdges[numEdges];
 					numEdges++;
 				}
+				if (removeEdge[0] && removeEdge[1] && removeEdge[2])
+					continue;
+				WireframeVertex verts[3];
+				for (int l = 0; l < 3; l++)
+					verts[l].pos = oldVertices[mesh.vertexArray[chart.indexArray[k + l]].xref].pos;
+				verts[0].barycentric = bx::Vec3(1.0f, 0.0f, 0.0f);
+				verts[1].barycentric = bx::Vec3(0.0f, 1.0f, 0.0f);
+				verts[2].barycentric = bx::Vec3(0.0f, 0.0f, 1.0f);
+				if (removeEdge[0])
+					verts[0].barycentric.z = verts[1].barycentric.z = 1.0f;
+				if (removeEdge[1])
+					verts[1].barycentric.x = verts[2].barycentric.x = 1.0f;
+				if (removeEdge[2])
+					verts[2].barycentric.y = verts[0].barycentric.y = 1.0f;
+				for (int l = 0; l < 3; l++)
+					s_atlas.chartBoundaryVertices.push_back(verts[l]);
 			}
 		}
 		for (uint32_t j = 0; j < mesh.vertexCount; j++) {
@@ -610,7 +622,7 @@ void atlasFinalize()
 	s_atlas.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.indices.data(), uint32_t(s_atlas.indices.size() * sizeof(uint32_t))), BGFX_BUFFER_INDEX32);
 	s_atlas.chartIb = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.chartIndices.data(), uint32_t(s_atlas.chartIndices.size() * sizeof(uint32_t))), BGFX_BUFFER_INDEX32);
 	// Chart boundaries.
-	s_atlas.chartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartBoundaryVertices.data(), uint32_t(s_atlas.chartBoundaryVertices.size() * sizeof(bx::Vec3))), s_atlas.wireVertexDecl);
+	s_atlas.chartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartBoundaryVertices.data(), uint32_t(s_atlas.chartBoundaryVertices.size() * sizeof(WireframeVertex))), WireframeVertex::decl);
 	// Create framebuffer/texture for atlas.
 	for (uint32_t i = 0; i < (uint32_t)s_atlas.chartsFrameBuffers.size(); i++) {
 		bgfx::destroy(s_atlas.chartsFrameBuffers[i]);
@@ -663,12 +675,13 @@ void atlasRenderCharts(const float *modelMatrix)
 
 void atlasRenderChartsWireframe(const float *modelMatrix)
 {
-	const float color[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+	const float color[] = { 0.0f, 0.0f, 0.0f, 0.75f };
 	bgfx::setUniform(s_atlas.u_color, color);
-	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
+	setWireframeThicknessUniform(1.5f);
+	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LEQUAL | BGFX_STATE_CULL_CW | BGFX_STATE_BLEND_ALPHA);
 	bgfx::setTransform(modelMatrix);
 	bgfx::setVertexBuffer(0, s_atlas.chartBoundaryVb);
-	bgfx::submit(kModelView, getColorProgram());
+	bgfx::submit(kModelView, getWireframeProgram(), 1);
 }
 
 void atlasShowGuiOptions()

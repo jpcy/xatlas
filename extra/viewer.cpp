@@ -30,6 +30,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #define WINDOW_DEFAULT_HEIGHT 1080
 
 bgfx::VertexDecl PosVertex::decl;
+bgfx::VertexDecl WireframeVertex::decl;
 Options g_options;
 GLFWwindow *g_window;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
@@ -282,11 +283,13 @@ static ShaderSourceBundle s_shaders[] =
 	SHADER_SOURCE_BUNDLE(fs_color),
 	SHADER_SOURCE_BUNDLE(fs_gui),
 	SHADER_SOURCE_BUNDLE(fs_material),
+	SHADER_SOURCE_BUNDLE(fs_wireframe),
 	SHADER_SOURCE_BUNDLE(vs_chart),
 	SHADER_SOURCE_BUNDLE(vs_chartTexcoordSpace),
 	SHADER_SOURCE_BUNDLE(vs_gui),
 	SHADER_SOURCE_BUNDLE(vs_model),
-	SHADER_SOURCE_BUNDLE(vs_position)
+	SHADER_SOURCE_BUNDLE(vs_position),
+	SHADER_SOURCE_BUNDLE(vs_wireframe)
 };
 
 bgfx::ShaderHandle loadShader(ShaderId id)
@@ -319,6 +322,9 @@ struct
 	bgfx::ShaderHandle vs_position;
 	bgfx::ShaderHandle fs_color;
 	bgfx::ProgramHandle colorProgram;
+	bgfx::UniformHandle u_thickness;
+	bgfx::ShaderHandle vs_wireframe, fs_wireframe;
+	bgfx::ProgramHandle wireframeProgram;
 }
 s_commonShaders;
 
@@ -327,6 +333,10 @@ static void commonShadersInit()
 	s_commonShaders.vs_position = loadShader(ShaderId::vs_position);
 	s_commonShaders.fs_color = loadShader(ShaderId::fs_color);
 	s_commonShaders.colorProgram = bgfx::createProgram(s_commonShaders.vs_position, s_commonShaders.fs_color);
+	s_commonShaders.u_thickness = bgfx::createUniform("u_thickness", bgfx::UniformType::Vec4);
+	s_commonShaders.vs_wireframe = loadShader(ShaderId::vs_wireframe);
+	s_commonShaders.fs_wireframe = loadShader(ShaderId::fs_wireframe);
+	s_commonShaders.wireframeProgram = bgfx::createProgram(s_commonShaders.vs_wireframe, s_commonShaders.fs_wireframe, true);
 }
 
 static void commonShadersShutdown()
@@ -334,6 +344,8 @@ static void commonShadersShutdown()
 	bgfx::destroy(s_commonShaders.vs_position);
 	bgfx::destroy(s_commonShaders.fs_color);
 	bgfx::destroy(s_commonShaders.colorProgram);
+	bgfx::destroy(s_commonShaders.u_thickness);
+	bgfx::destroy(s_commonShaders.wireframeProgram);
 }
 
 bgfx::ShaderHandle get_fs_color()
@@ -349,6 +361,17 @@ bgfx::ShaderHandle get_vs_position()
 bgfx::ProgramHandle getColorProgram()
 {
 	return s_commonShaders.colorProgram;
+}
+
+void setWireframeThicknessUniform(float thickness)
+{
+	const float data[] = { thickness, 0.0f, 0.0f, 0.0f };
+	bgfx::setUniform(s_commonShaders.u_thickness, data);
+}
+
+bgfx::ProgramHandle getWireframeProgram()
+{
+	return s_commonShaders.wireframeProgram;
 }
 
 struct BgfxCallback : public bgfx::CallbackI
@@ -410,6 +433,7 @@ int main(int argc, char **argv)
 	init.resolution.reset = BGFX_RESET_VSYNC;
 	bgfx::init(init);
 	PosVertex::init();
+	WireframeVertex::init();
 	commonShadersInit();
 	guiInit();
 	modelInit();
