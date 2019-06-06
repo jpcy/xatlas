@@ -4138,7 +4138,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 	}
 }
 
-static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t> &edgeLoop, bool *duplicatedEdge, bool *areAllPlanar)
+static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t> &edgeLoop, bool *duplicatedEdge, uint32_t *closedPlanarCount, uint32_t *closedNonPlanarCount)
 {
 	const uint32_t vertexCount = edgeLoop.size() - startVertex;
 	XA_DEBUG_ASSERT(vertexCount >= 3);
@@ -4155,6 +4155,8 @@ static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t
 	}
 	const bool isPlanar = Fit::isPlanar(vertexCount, points.data());
 	if (isPlanar) {
+		if (closedPlanarCount)
+			(*closedPlanarCount)++;
 		Array<uint32_t> indices;
 		indices.resize(vertexCount);
 		for (uint32_t i = 0; i < vertexCount; i++) {
@@ -4167,8 +4169,8 @@ static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t
 		}
 	} else {
 		// If the polygon is not planar, we just cross our fingers, and hope this will work:
-		if (areAllPlanar)
-			*areAllPlanar = false;
+		if (closedNonPlanarCount)
+			(*closedNonPlanarCount)++;
 		// Compute boundary centroid:
 		Vector3 centroidPos(0.0f);
 		for (uint32_t i = 0; i < vertexCount; i++)
@@ -4191,12 +4193,14 @@ static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t
 	return true;
 }
 
-static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge, bool *areAllPlanar)
+static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge, uint32_t *closedPlanarCount, uint32_t *closedNonPlanarCount)
 {
 	if (duplicatedEdge)
 		*duplicatedEdge = false;
-	if (areAllPlanar)
-		*areAllPlanar = true;
+	if (closedPlanarCount)
+		*closedPlanarCount = 0;
+	if (closedNonPlanarCount)
+		*closedNonPlanarCount = 0;
 	// Compute lengths.
 	const uint32_t boundaryCount = boundaryLoops.size();
 	Array<float> boundaryLengths;
@@ -4240,7 +4244,7 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 			if (isCrossing) {
 				// Close loop.
 				edgeLoop.insertAt(0, it.edge());
-				meshCloseLoop(mesh, j + 1, edgeLoop, duplicatedEdge, areAllPlanar);
+				meshCloseLoop(mesh, j + 1, edgeLoop, duplicatedEdge, closedPlanarCount, closedNonPlanarCount);
 				// Start over again.
 				vertexLoop.clear();
 				edgeLoop.clear();
@@ -4249,7 +4253,7 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 			vertexLoop.push_back(vertex);
 			edgeLoop.insertAt(0, it.edge());
 		}
-		meshCloseLoop(mesh, 0, edgeLoop, duplicatedEdge, areAllPlanar);
+		meshCloseLoop(mesh, 0, edgeLoop, duplicatedEdge, closedPlanarCount, closedNonPlanarCount);
 	}
 }
 
@@ -6441,7 +6445,7 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_closedPlanarHolesCount(0), m_closedNonPlanarHolesCount(0), m_faceArray(faceArray)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6531,9 +6535,7 @@ public:
 				// - Find cuts that reduce genus.
 				// - Find cuts to connect holes.
 				// - Use minimal spanning trees or seamster.
-				bool areAllPlanar = true;
-				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge, &areAllPlanar);
-				XA_UNUSED(areAllPlanar);
+				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge, &m_closedPlanarHolesCount, &m_closedNonPlanarHolesCount);
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
 				if (duplicatedEdge)
@@ -6547,7 +6549,7 @@ public:
 				}
 #if XA_DEBUG_EXPORT_OBJ_BEFORE_AFTER_CLOSE_HOLES
 				char filename[256];
-				sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_chart_%0.3u_after_close_holes%s.obj", meshId, chartGroupId, chartId, areAllPlanar ? "_planar" : "");
+				sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_chart_%0.3u_after_close_holes%s.obj", meshId, chartGroupId, chartId, m_closedNonPlanarHolesCount == 0 ? "_planar" : "");
 				FILE *file = fopen(filename, "w");
 				if (file) {
 					m_unifiedMesh->writeObjVertices(file);
@@ -6599,6 +6601,8 @@ public:
 	bool isDisk() const { return m_isDisk; }
 	bool isPlanar() const { return m_isPlanar; }
 	uint32_t warningFlags() const { return m_warningFlags; }
+	uint32_t closedPlanarHolesCount() const { return m_closedPlanarHolesCount; }
+	uint32_t closedNonPlanarHolesCount() const { return m_closedNonPlanarHolesCount; }
 	const ParameterizationQuality &paramQuality() const { return m_paramQuality; }
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
@@ -6655,6 +6659,7 @@ private:
 	bool m_isDisk;
 	bool m_isPlanar;
 	uint32_t m_warningFlags;
+	uint32_t m_closedPlanarHolesCount, m_closedNonPlanarHolesCount;
 
 	// List of faces of the original mesh that belong to this chart.
 	Array<uint32_t> m_faceArray;
@@ -8398,7 +8403,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 		return;
 	}
 	XA_PRINT("Computing charts\n");
-	uint32_t chartCount = 0;
+	uint32_t chartCount = 0, chartsWithHolesCount = 0, planarHolesCount = 0, nonPlanarHolesCount = 0;
 	XA_PROFILE_START(computeChartsConcurrent)
 	ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData);
 	XA_PROFILE_END(computeChartsConcurrent)
@@ -8420,10 +8425,15 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 					XA_PRINT_WARNING("   Chart %u: triangulation created non-manifold geometry\n", chartCount);
 				if (!chart->isDisk())
 					XA_PRINT_WARNING("   Chart %u: doesn't have disk topology\n", chartCount);
+				planarHolesCount += chart->closedPlanarHolesCount();
+				nonPlanarHolesCount += chart->closedNonPlanarHolesCount();
+				if (chart->closedPlanarHolesCount() > 0 || chart->closedNonPlanarHolesCount() > 0)
+					chartsWithHolesCount++;
 				chartCount++;
 			}
 		}
 	}
+	XA_PRINT("   Closed %u planar and %u non-planar holes in %u charts\n", planarHolesCount, nonPlanarHolesCount, chartsWithHolesCount);
 	XA_PRINT("   %u charts\n", chartCount);
 	XA_PROFILE_PRINT("   Total (concurrent): ", computeChartsConcurrent)
 	XA_PROFILE_PRINT("   Total: ", computeCharts)
