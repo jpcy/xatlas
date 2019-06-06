@@ -115,6 +115,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES 0
+#define XA_DEBUG_EXPORT_OBJ_BEFORE_AFTER_CLOSE_HOLES 0
 #define XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE 0
 #define XA_DEBUG_EXPORT_OBJ_NOT_DISK 0
@@ -128,6 +129,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
 	|| XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION \
 	|| XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES \
+	|| XA_DEBUG_EXPORT_OBJ_BEFORE_AFTER_CLOSE_HOLES \
 	|| XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES \
 	|| XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE \
 	|| XA_DEBUG_EXPORT_OBJ_NOT_DISK \
@@ -4136,7 +4138,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 	}
 }
 
-static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t> &edgeLoop, bool *duplicatedEdge)
+static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t> &edgeLoop, bool *duplicatedEdge, bool *areAllPlanar)
 {
 	const uint32_t vertexCount = edgeLoop.size() - startVertex;
 	XA_DEBUG_ASSERT(vertexCount >= 3);
@@ -4165,6 +4167,8 @@ static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t
 		}
 	} else {
 		// If the polygon is not planar, we just cross our fingers, and hope this will work:
+		if (areAllPlanar)
+			*areAllPlanar = false;
 		// Compute boundary centroid:
 		Vector3 centroidPos(0.0f);
 		for (uint32_t i = 0; i < vertexCount; i++)
@@ -4187,10 +4191,12 @@ static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t
 	return true;
 }
 
-static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge)
+static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge, bool *areAllPlanar)
 {
 	if (duplicatedEdge)
 		*duplicatedEdge = false;
+	if (areAllPlanar)
+		*areAllPlanar = true;
 	// Compute lengths.
 	const uint32_t boundaryCount = boundaryLoops.size();
 	Array<float> boundaryLengths;
@@ -4234,7 +4240,7 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 			if (isCrossing) {
 				// Close loop.
 				edgeLoop.insertAt(0, it.edge());
-				meshCloseLoop(mesh, j + 1, edgeLoop, duplicatedEdge);
+				meshCloseLoop(mesh, j + 1, edgeLoop, duplicatedEdge, areAllPlanar);
 				// Start over again.
 				vertexLoop.clear();
 				edgeLoop.clear();
@@ -4243,7 +4249,7 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 			vertexLoop.push_back(vertex);
 			edgeLoop.insertAt(0, it.edge());
 		}
-		meshCloseLoop(mesh, 0, edgeLoop, duplicatedEdge);
+		meshCloseLoop(mesh, 0, edgeLoop, duplicatedEdge, areAllPlanar);
 	}
 }
 
@@ -6435,8 +6441,11 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_faceArray(faceArray)
 	{
+		XA_UNUSED(meshId);
+		XA_UNUSED(chartGroupId);
+		XA_UNUSED(chartId);
 		// Copy face indices.
 		m_mesh = XA_NEW(Mesh);
 		m_unifiedMesh = XA_NEW(Mesh);
@@ -6514,12 +6523,17 @@ public:
 #if XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
 				m_unifiedMesh->writeObjFile("debug_before_close_holes.obj");
 #endif
+#if XA_DEBUG_EXPORT_OBJ_BEFORE_AFTER_CLOSE_HOLES
+				const uint32_t faceCountBeforeCloseHoles = m_unifiedMesh->faceCount();
+#endif
 				// Closing the holes is not always the best solution and does not fix all the problems.
 				// We need to do some analysis of the holes and the genus to:
 				// - Find cuts that reduce genus.
 				// - Find cuts to connect holes.
 				// - Use minimal spanning trees or seamster.
-				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge);
+				bool areAllPlanar = true;
+				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge, &areAllPlanar);
+				XA_UNUSED(areAllPlanar);
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
 				if (duplicatedEdge)
@@ -6531,6 +6545,25 @@ public:
 					m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
 #endif
 				}
+#if XA_DEBUG_EXPORT_OBJ_BEFORE_AFTER_CLOSE_HOLES
+				char filename[256];
+				sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_chart_%0.3u_after_close_holes%s.obj", meshId, chartGroupId, chartId, areAllPlanar ? "_planar" : "");
+				FILE *file = fopen(filename, "w");
+				if (file) {
+					m_unifiedMesh->writeObjVertices(file);
+					fprintf(file, "s off\n");
+					fprintf(file, "o object\n");
+					for (uint32_t i = 0; i < faceCountBeforeCloseHoles; i++)
+						m_unifiedMesh->writeObjFace(file, i);
+					fprintf(file, "s off\n");
+					fprintf(file, "o holes\n");
+					for (uint32_t i = faceCountBeforeCloseHoles; i < m_unifiedMesh->faceCount(); i++)
+						m_unifiedMesh->writeObjFace(file, i);
+					m_unifiedMesh->writeObjBoundaryEges(file);
+					m_unifiedMesh->writeObjLinkedBoundaries(file);
+					fclose(file);
+				}
+#endif
 			}
 #if XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE
 			m_unifiedMesh->writeObjFile("debug_before_triangulate.obj");
@@ -6795,7 +6828,7 @@ public:
 		chartFaces.resize(m_mesh->faceCount());
 		for (uint32_t i = 0; i < chartFaces.size(); i++)
 			chartFaces[i] = i;
-		Chart *chart = XA_NEW(Chart, m_mesh, chartFaces);
+		Chart *chart = XA_NEW(Chart, m_mesh, chartFaces, m_sourceId, m_id, 0);
 		m_chartArray.push_back(chart);
 #else
 		XA_PROFILE_START(atlasBuilder)
@@ -6805,7 +6838,7 @@ public:
 		XA_PROFILE_START(createChartMeshes)
 		const uint32_t chartCount = builder.chartCount();
 		for (uint32_t i = 0; i < chartCount; i++) {
-			Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(i));
+			Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(i), m_sourceId, m_id, i);
 			m_chartArray.push_back(chart);
 		}
 		XA_PROFILE_END(createChartMeshes)
@@ -6861,7 +6894,7 @@ public:
 			AtlasBuilder builder(m_mesh, &meshFaces, options);
 			runAtlasBuilder(builder, options);
 			for (uint32_t j = 0; j < builder.chartCount(); j++) {
-				Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(j));
+				Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(j), m_sourceId, m_id, m_chartArray.size());
 				m_chartArray.push_back(chart);
 				m_paramAddedChartsCount++;
 			}
