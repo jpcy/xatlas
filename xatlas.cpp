@@ -115,7 +115,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
 #define XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR 0
-#define XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE 0
 #define XA_DEBUG_EXPORT_OBJ_NOT_DISK 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION 0
 #define XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION 0
@@ -127,7 +126,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
 	|| XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION \
 	|| XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR \
-	|| XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE \
 	|| XA_DEBUG_EXPORT_OBJ_NOT_DISK \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION \
 	|| XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION \
@@ -540,11 +538,6 @@ static float triangleArea(const Vector2 &a, const Vector2 &b, const Vector2 &c)
 	// the triangle.
 	//return ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x)); // * 0.5f;
 	return triangleArea(a - c, b - c);
-}
-
-static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c, float epsilon = 0.00001f)
-{
-	return triangleArea(a, b, p) >= epsilon && triangleArea(b, c, p) >= epsilon && triangleArea(c, a, p) >= epsilon;
 }
 
 static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &b1, const Vector2 &b2)
@@ -3979,109 +3972,6 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 	return mesh;
 }
 
-// This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
-// also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
-static Mesh *meshTriangulate(const Mesh &inputMesh, bool *duplicatedEdge)
-{
-	if (duplicatedEdge)
-		*duplicatedEdge = false;
-	if (inputMesh.faceCount() * 3 == inputMesh.edgeCount())
-		return nullptr;
-	const uint32_t vertexCount = inputMesh.vertexCount();
-	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
-	// Add all vertices.
-	for (uint32_t v = 0; v < vertexCount; v++)
-		mesh->addVertex(inputMesh.position(v), Vector3(0.0f), inputMesh.texcoord(v));
-	Array<uint32_t> polygonVertices;
-	Array<float> polygonAngles;
-	Array<Vector2> polygonPoints;
-	for (uint32_t f = 0; f < faceCount; f++) {
-		const Face *face = inputMesh.faceAt(f);
-		const uint32_t edgeCount = face->nIndices;
-		XA_DEBUG_ASSERT(edgeCount >= 3);
-		polygonVertices.clear();
-		polygonVertices.reserve(edgeCount);
-		if (edgeCount == 3) {
-			// Simple case for triangles.
-			for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
-				polygonVertices.push_back(it.vertex0());
-			if (mesh->addFace(polygonVertices[0], polygonVertices[1], polygonVertices[2]) == Mesh::AddFaceResult::DuplicateEdge) {
-				if (duplicatedEdge)
-					*duplicatedEdge = true;
-			}
-		} else {
-			// Build 2D polygon projecting vertices onto normal plane.
-			// Faces are not necesarily planar, this is for example the case, when the face comes from filling a hole. In such cases
-			// it's much better to use the best fit plane.
-			const Vector3 fn = inputMesh.calculateFaceNormal(f);
-			Basis basis;
-			basis.buildFrameForDirection(fn);
-			polygonPoints.clear();
-			polygonPoints.reserve(edgeCount);
-			polygonAngles.clear();
-			polygonAngles.reserve(edgeCount);
-			for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
-				polygonVertices.push_back(it.vertex0());
-				const Vector3 &pos = it.position0();
-				polygonPoints.push_back(Vector2(dot(basis.tangent, pos), dot(basis.bitangent, pos)));
-			}
-			polygonAngles.resize(edgeCount);
-			while (polygonVertices.size() > 2) {
-				const uint32_t size = polygonVertices.size();
-				// Update polygon angles. @@ Update only those that have changed.
-				float minAngle = kPi2;
-				uint32_t bestEar = 0; // Use first one if none of them is valid.
-				bool bestIsValid = false;
-				for (uint32_t i = 0; i < size; i++) {
-					uint32_t i0 = i;
-					uint32_t i1 = (i + 1) % size; // Use Sean's polygon interation trick.
-					uint32_t i2 = (i + 2) % size;
-					Vector2 p0 = polygonPoints[i0];
-					Vector2 p1 = polygonPoints[i1];
-					Vector2 p2 = polygonPoints[i2];
-					float d = clamp(dot(p0 - p1, p2 - p1) / (length(p0 - p1) * length(p2 - p1)), -1.0f, 1.0f);
-					float angle = acosf(d);
-					float area = triangleArea(p0, p1, p2);
-					if (area < 0.0f)
-						angle = kPi2 - angle;
-					polygonAngles[i1] = angle;
-					if (angle < minAngle || !bestIsValid) {
-						// Make sure this is a valid ear, if not, skip this point.
-						bool valid = true;
-						for (uint32_t j = 0; j < size; j++) {
-							if (j == i0 || j == i1 || j == i2)
-								continue;
-							Vector2 p = polygonPoints[j];
-							if (pointInTriangle(p, p0, p1, p2)) {
-								valid = false;
-								break;
-							}
-						}
-						if (valid || !bestIsValid) {
-							minAngle = angle;
-							bestEar = i1;
-							bestIsValid = valid;
-						}
-					}
-				}
-				// Clip best ear:
-				const uint32_t i0 = (bestEar + size - 1) % size;
-				const uint32_t i1 = (bestEar + 0) % size;
-				const uint32_t i2 = (bestEar + 1) % size;
-				if (mesh->addFace(polygonVertices[i0], polygonVertices[i1], polygonVertices[i2]) == Mesh::AddFaceResult::DuplicateEdge) {
-					if (duplicatedEdge)
-						*duplicatedEdge = true;
-				}
-				polygonVertices.removeAt(i1);
-				polygonPoints.removeAt(i1);
-				polygonAngles.removeAt(i1);
-			}
-		}
-	}
-	return mesh;
-}
-
 static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 {
 	const uint32_t vertexCount = inputMesh.vertexCount();
@@ -6536,19 +6426,6 @@ public:
 					}
 				}
 #endif
-			}
-#if XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE
-			m_unifiedMesh->writeObjFile("debug_before_triangulate.obj");
-#endif
-			Mesh *triangulatedMesh = meshTriangulate(*m_unifiedMesh, &duplicatedEdge);
-			if (triangulatedMesh) {
-				if (duplicatedEdge)
-					m_warningFlags |= ChartWarningFlags::TriangulateDuplicatedEdge;
-				m_unifiedMesh->~Mesh();
-				XA_FREE(m_unifiedMesh);
-				m_unifiedMesh = triangulatedMesh;
-				m_unifiedMesh->createBoundaries();
-				m_unifiedMesh->linkBoundaries();
 			}
 			// Note: MeshTopology needs linked boundaries.
 			MeshTopology topology(m_unifiedMesh);
