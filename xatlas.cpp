@@ -3381,60 +3381,33 @@ public:
 
 	float faceArea(uint32_t face) const
 	{
-		float area = 0;
-		Vector3 firstPos(0.0f);
-		for (FaceEdgeIterator  it(this, face); !it.isDone(); it.advance()) {
-			if (it.relativeEdge() == 0)
-				firstPos = it.position0();
-			else
-				area += length(cross(it.position0() - firstPos, it.position1() - firstPos));
-		}
-		return area * 0.5f;
+		const Vector3 &p0 = m_positions[m_indices[face * 3 + 0]];
+		const Vector3 &p1 = m_positions[m_indices[face * 3 + 1]];
+		const Vector3 &p2 = m_positions[m_indices[face * 3 + 2]];
+		return length(cross(p1 - p0, p2 - p0)) * 0.5f;
 	}
 
 	Vector3 faceCentroid(uint32_t face) const
 	{
 		Vector3 sum(0.0f);
-		uint32_t count = 0;
-		for (FaceEdgeIterator it(this, face); !it.isDone(); it.advance()) {
-			sum += it.position0();
-			count++;
-		}
-		return sum / float(count);
+		for (uint32_t i = 0; i < 3; i++)
+			sum += m_positions[m_indices[face * 3 + i]];
+		return sum / 3.0f;
 	}
 
 	Vector3 calculateFaceNormal(uint32_t face) const
 	{
-		Vector3 n(0.0f);
-		Vector3 p0(0.0f);
-		for (FaceEdgeIterator it(this, face); !it.isDone(); it.advance()) {
-			if (it.relativeEdge() == 0) {
-				p0 = it.position0();
-			} else if (it.position1() != p0) {
-				const Vector3 &p1 = it.position0();
-				const Vector3 &p2 = it.position1();
-				const Vector3 v10 = p1 - p0;
-				const Vector3 v20 = p2 - p0;
-				n += cross(v10, v20);
-			}
-		}
-		return normalizeSafe(n, Vector3(0, 0, 1), 0.0f);
+		return normalizeSafe(triangleNormalAreaScaled(face), Vector3(0, 0, 1), 0.0f);
 	}
 
 	float faceParametricArea(uint32_t face) const
 	{
-		float area = 0;
-		Vector2 firstTexcoord(0.0f);
-		for (FaceEdgeIterator it(this, face); !it.isDone(); it.advance()) {
-			if (it.relativeEdge() == 0)
-				firstTexcoord = it.texcoord0();
-			else
-				area += triangleArea(firstTexcoord, it.texcoord0(), it.texcoord1());
-		}
-		return area * 0.5f;
+		const Vector2 &t0 = m_texcoords[m_indices[face * 3 + 0]];
+		const Vector2 &t1 = m_texcoords[m_indices[face * 3 + 1]];
+		const Vector2 &t2 = m_texcoords[m_indices[face * 3 + 2]];
+		return triangleArea(t0, t1, t2) * 0.5f;
 	}
-
-
+	
 	// Average of the edge midpoints weighted by the edge length.
 	// I want a point inside the triangle, but closer to the cirumcenter.
 	Vector3 triangleCenter(uint32_t face) const
@@ -5279,15 +5252,11 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 	// Fill A:
 	const uint32_t faceCount = mesh->faceCount();
 	for (uint32_t f = 0, t = 0; f < faceCount; f++) {
-		uint32_t vertex0 = UINT32_MAX;
-		for (Mesh::FaceEdgeIterator it(mesh, f); !it.isDone(); it.advance()) {
-			if (vertex0 == UINT32_MAX) {
-				vertex0 = it.vertex0();
-			} else if (it.vertex1() != vertex0) {
-				setup_abf_relations(A, t, vertex0, it.vertex0(), it.vertex1(), mesh->position(vertex0), it.position0(), it.position1());
-				t++;
-			}
-		}
+		const uint32_t vertex0 = mesh->vertexAt(f * 3 + 0);
+		const uint32_t vertex1 = mesh->vertexAt(f * 3 + 1);
+		const uint32_t vertex2 = mesh->vertexAt(f * 3 + 2);
+		setup_abf_relations(A, t, vertex0, vertex1, vertex2, mesh->position(vertex0), mesh->position(vertex1), mesh->position(vertex2));
+		t++;
 	}
 	const uint32_t lockedParameters[] = {
 		2 * v0 + 0,
@@ -5461,18 +5430,12 @@ struct AtlasBuilder
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_ignoreFaces[f])
 				continue;
-			float &faceArea = m_faceAreas[f];
-			Vector3 firstPos(0.0f);
 			for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 				m_edgeLengths[it.edge()] = internal::length(it.position1() - it.position0());
 				XA_DEBUG_ASSERT(m_edgeLengths[it.edge()] > 0.0f);
-				if (it.relativeEdge() == 0)
-					firstPos = it.position0();
-				else
-					faceArea += length(cross(it.position0() - firstPos, it.position1() - firstPos));
 			}
-			faceArea *= 0.5f;
-			XA_DEBUG_ASSERT(faceArea > 0.0f);
+			m_faceAreas[f] = mesh->faceArea(f);
+			XA_DEBUG_ASSERT(m_faceAreas[f] > 0.0f);
 			m_faceNormals[f] = m_mesh->triangleNormal(f);
 		}
 		XA_PROFILE_END(atlasBuilderInit)
@@ -6280,19 +6243,19 @@ public:
 		// Add vertices.
 		const uint32_t faceCount = faceArray.size();
 		for (uint32_t f = 0; f < faceCount; f++) {
-			for (Mesh::FaceEdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance()) {
-				const uint32_t vertex = it.vertex0();
+			for (uint32_t i = 0; i < 3; i++) {
+				const uint32_t vertex = originalMesh->vertexAt(faceArray[f] * 3 + i);
 				const uint32_t unifiedVertex = originalMesh->firstColocal(vertex);
 				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
 					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
-					XA_DEBUG_ASSERT(equal(it.position0(), originalMesh->position(unifiedVertex)));
-					m_unifiedMesh->addVertex(it.position0());
+					XA_DEBUG_ASSERT(equal(originalMesh->position(vertex), originalMesh->position(unifiedVertex)));
+					m_unifiedMesh->addVertex(originalMesh->position(vertex));
 				}
 				if (chartMeshIndices[vertex] == (uint32_t)~0) {
 					chartMeshIndices[vertex] = m_mesh->vertexCount();
 					m_chartToOriginalMap.push_back(vertex);
 					m_chartToUnifiedMap.push_back(unifiedMeshIndices[unifiedVertex]);
-					m_mesh->addVertex(it.position0(), Vector3(0.0f), it.texcoord0());
+					m_mesh->addVertex(originalMesh->position(vertex), Vector3(0.0f), originalMesh->texcoord(vertex));
 				}
 			}
 		}
