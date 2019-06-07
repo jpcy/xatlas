@@ -5776,12 +5776,6 @@ struct AtlasBuilder
 					ChartBuildData *chart2 = m_chartArray[cc];
 					if (chart2 == nullptr)
 						continue;
-					// Merge if chart2 is wholely inside chart1, ignoring seams.
-					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength) {
-						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
-						merged = true;
-						break;
-					}
 					// Compare proxies.
 					if (dot(chart2->planeNormal, chart->planeNormal) < XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION)
 						continue;
@@ -5794,6 +5788,12 @@ struct AtlasBuilder
 					// chart1 must have more than 1 face.
 					// chart2 area must be <= 10% of chart1 area.
 					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && chart->faces.size() > 1 && chart2->faces.size() == 1 && chart2->area <= chart->area * 0.1f) {
+						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
+						merged = true;
+						break;
+					}
+					// Merge if chart2 is wholely inside chart1, ignoring seams.
+					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength) {
 						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
 						merged = true;
 						break;
