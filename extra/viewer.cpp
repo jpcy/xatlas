@@ -11,7 +11,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #include <mutex>
 #include <stdio.h>
-#include <bx/commandline.h>
 #include <bx/os.h>
 #include <bgfx/platform.h>
 #include <GLFW/glfw3.h>
@@ -365,6 +364,8 @@ bgfx::ProgramHandle getColorProgram()
 
 void setWireframeThicknessUniform(float thickness)
 {
+	if (bgfx::getRendererType() == bgfx::RendererType::Direct3D11)
+		thickness *= 0.75f;
 	const float data[] = { thickness, 0.0f, 0.0f, 0.0f };
 	bgfx::setUniform(s_commonShaders.u_thickness, data);
 }
@@ -401,9 +402,8 @@ struct BgfxCallback : public bgfx::CallbackI
 	void captureFrame(const void*, uint32_t) override {}
 };
 
-int main(int argc, char **argv)
+int main(int /*argc*/, char ** /*argv*/)
 {
-	bx::CommandLine commandLine(argc, argv);
 	glfwSetErrorCallback(glfw_errorCallback);
 	if (!glfwInit())
 		return EXIT_FAILURE;
@@ -416,8 +416,6 @@ int main(int argc, char **argv)
 	BgfxCallback bgfxCallback;
 	bgfx::Init init;
 	init.callback = &bgfxCallback;
-	if (commandLine.hasArg("gl"))
-		init.type = bgfx::RendererType::OpenGL;
 #if BX_PLATFORM_LINUX || BX_PLATFORM_BSD
 	init.platformData.ndt = glfwGetX11Display();
 	init.platformData.nwh = (void*)(uintptr_t)glfwGetX11Window(g_window);
