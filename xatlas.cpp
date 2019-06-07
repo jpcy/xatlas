@@ -114,9 +114,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
-#define XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES 0
-#define XA_DEBUG_EXPORT_OBJ_BEFORE_AFTER_CLOSE_HOLES 0
-#define XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES 0
+#define XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE 0
 #define XA_DEBUG_EXPORT_OBJ_NOT_DISK 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION 0
@@ -128,9 +126,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 	|| XA_DEBUG_EXPORT_OBJ_CHART_GROUPS \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
 	|| XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION \
-	|| XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES \
-	|| XA_DEBUG_EXPORT_OBJ_BEFORE_AFTER_CLOSE_HOLES \
-	|| XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES \
+	|| XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR \
 	|| XA_DEBUG_EXPORT_OBJ_BEFORE_TRIANGULATE \
 	|| XA_DEBUG_EXPORT_OBJ_NOT_DISK \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION \
@@ -241,6 +237,7 @@ struct ProfileData
 	std::atomic<clock_t> atlasBuilderGrowCharts;
 	std::atomic<clock_t> atlasBuilderMergeCharts;
 	std::atomic<clock_t> createChartMeshes;
+	std::atomic<clock_t> closeChartMeshHoles;
 };
 
 static ProfileData s_profile;
@@ -1430,19 +1427,6 @@ public:
 			covariance[5] += v.z * v.z;
 		}
 		return centroid;
-	}
-
-	static bool isPlanar(int n, const Vector3 *points, float epsilon = kEpsilon)
-	{
-		// compute the centroid and covariance
-		float matrix[6];
-		computeCovariance(n, points, matrix);
-		float eigenValues[3];
-		Vector3 eigenVectors[3];
-		if (!eigenSolveSymmetric3(matrix, eigenValues, eigenVectors)) {
-			return false;
-		}
-		return eigenValues[2] < epsilon;
 	}
 
 	// Tridiagonal solver from Charles Bloom.
@@ -3294,7 +3278,7 @@ public:
 				const Edge *edge = &m_edges[m_edgeMap.value(mapEdgeIndex)];
 				// Don't find edges of ignored faces.
 				if ((faceGroup == UINT32_MAX || m_faceGroups[edge->face] == faceGroup) && !(m_faceFlags[edge->face] & FaceFlags::Ignore)) {
-					XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && !result)); // duplicate edge - ignore on initial meshes
+					//XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && !result)); // duplicate edge - ignore on initial meshes
 					result = edge;
 #if !XA_DEBUG
 					return result;
@@ -4138,79 +4122,72 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 	}
 }
 
-static bool meshCloseLoop(Mesh *mesh, uint32_t startVertex, const Array<uint32_t> &edgeLoop, bool *duplicatedEdge, uint32_t *closedPlanarCount, uint32_t *closedNonPlanarCount)
+static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool *duplicatedEdge)
 {
-	const uint32_t vertexCount = edgeLoop.size() - startVertex;
-	XA_DEBUG_ASSERT(vertexCount >= 3);
-	if (vertexCount < 3)
-		return false;
-	// If the hole is planar, then we add a single face that will be properly triangulated later.
-	// If the hole is not planar, we add a triangle fan with a vertex at the hole centroid.
-	// This is still a bit of a hack. There surely are better hole filling algorithms out there.
-	Array<Vector3> points;
-	points.resize(vertexCount);
-	for (uint32_t i = 0; i < vertexCount; i++) {
-		const Edge *edge = mesh->edgeAt(edgeLoop[startVertex + i]);
-		points[i] = mesh->position(mesh->vertexAt(edge->index0));
+	uint32_t frontCount = holeVertices.size();
+	Array<uint32_t> frontVertices;
+	Array<Vector3> frontPoints;
+	Array<float> frontAngles;
+	frontVertices.resize(frontCount);
+	frontPoints.resize(frontCount);
+	for (uint32_t i = 0; i < frontCount; i++) {
+		frontVertices[i] = holeVertices[i];
+		frontPoints[i] = mesh->position(frontVertices[i]);
 	}
-	const bool isPlanar = Fit::isPlanar(vertexCount, points.data());
-	if (isPlanar) {
-		if (closedPlanarCount)
-			(*closedPlanarCount)++;
-		Array<uint32_t> indices;
-		indices.resize(vertexCount);
-		for (uint32_t i = 0; i < vertexCount; i++) {
-			const Edge *edge = mesh->edgeAt(edgeLoop[startVertex + i]);
-			indices[i] = mesh->vertexAt(edge->index0);
+	while (frontCount >= 3) {
+		frontAngles.resize(frontCount);
+		float smallestAngle = kPi2;
+		uint32_t smallestAngleIndex = UINT32_MAX;
+		for (uint32_t i = 0; i < frontCount; i++) {
+			const Vector3 &prevPos = frontPoints[i == 0 ? frontCount - 1 : i - 1];
+			const Vector3 &currPos = frontPoints[i];
+			const Vector3 &nextPos = frontPoints[(i + 1) % frontCount];
+			const Vector3 edge1 = prevPos - currPos;
+			const Vector3 edge2 = nextPos - currPos;
+			frontAngles[i] = acosf(dot(edge1, edge2) / (length(edge1) * length(edge2)));
+			const float area = length(cross(currPos - prevPos, nextPos - prevPos));
+			if (area < 0.0f)
+				frontAngles[i] = kPi2 - frontAngles[i];
+			if (frontAngles[i] < smallestAngle) {
+				smallestAngle = frontAngles[i];
+				smallestAngleIndex = i;
+			}
 		}
-		if (mesh->addFace(indices) == Mesh::AddFaceResult::DuplicateEdge) {
+		XA_DEBUG_ASSERT(smallestAngleIndex != UINT32_MAX);
+		XA_DEBUG_ASSERT(smallestAngle >= 0.0f && smallestAngle < kPi);
+		const uint32_t i1 = smallestAngleIndex == 0 ? frontCount - 1 : smallestAngleIndex - 1;
+		const uint32_t i2 = smallestAngleIndex;
+		const uint32_t i3 = (smallestAngleIndex + 1) % frontCount;
+		if (mesh->addFace(frontVertices[i1], frontVertices[i2], frontVertices[i3]) == Mesh::AddFaceResult::DuplicateEdge) {
 			if (duplicatedEdge)
 				*duplicatedEdge = true;
 		}
-	} else {
-		// If the polygon is not planar, we just cross our fingers, and hope this will work:
-		if (closedNonPlanarCount)
-			(*closedNonPlanarCount)++;
-		// Compute boundary centroid:
-		Vector3 centroidPos(0.0f);
-		for (uint32_t i = 0; i < vertexCount; i++)
-			centroidPos += points[i];
-		centroidPos *= (1.0f / vertexCount);
-		const uint32_t centroidVertex = mesh->vertexCount();
-		mesh->addVertex(centroidPos);
-		// Add one pair of edges for each boundary vertex.
-		for (uint32_t j = vertexCount - 1, i = 0; i < vertexCount; j = i++) {
-			const Edge *edge1 = mesh->edgeAt(edgeLoop[startVertex + j]);
-			const Edge *edge2 = mesh->edgeAt(edgeLoop[startVertex + i]);
-			const uint32_t vertex1 = mesh->vertexAt(edge1->index0);
-			const uint32_t vertex2 = mesh->vertexAt(edge2->index0);
-			if (mesh->addFace(centroidVertex, vertex1, vertex2) == Mesh::AddFaceResult::DuplicateEdge) {
-				if (duplicatedEdge)
-					*duplicatedEdge = true;
-			}
-		}
+		frontVertices.removeAt(i2);
+		frontPoints.removeAt(i2);
+		frontCount = frontVertices.size();
 	}
-	return true;
 }
 
-static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge, uint32_t *closedPlanarCount, uint32_t *closedNonPlanarCount)
+static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge, Array<uint32_t> &holeFaceCounts)
 {
+	XA_PROFILE_START(closeChartMeshHoles)
 	if (duplicatedEdge)
 		*duplicatedEdge = false;
-	if (closedPlanarCount)
-		*closedPlanarCount = 0;
-	if (closedNonPlanarCount)
-		*closedNonPlanarCount = 0;
+	holeFaceCounts.clear();
 	// Compute lengths.
 	const uint32_t boundaryCount = boundaryLoops.size();
 	Array<float> boundaryLengths;
+	Array<uint32_t> boundaryEdgeCounts;
+	boundaryEdgeCounts.resize(boundaryCount);
 	for (uint32_t i = 0; i < boundaryCount; i++) {
 		float boundaryLength = 0.0f;
+		boundaryEdgeCounts[i] = 0;
 		for (Mesh::BoundaryEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
 			const Edge *edge = mesh->edgeAt(it.edge());
 			const Vector3 &t0 = mesh->position(mesh->vertexAt(edge->index0));
 			const Vector3 &t1 = mesh->position(mesh->vertexAt(edge->index1));
 			boundaryLength += length(t1 - t0);
+			boundaryEdgeCounts[i]++;
 		}
 		boundaryLengths.push_back(boundaryLength);
 	}
@@ -4224,37 +4201,27 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 		}
 	}
 	// Close holes.
+	Array<uint32_t> holeVertices;
+	Array<Vector3> holePoints;
 	for (uint32_t i = 0; i < boundaryCount; i++) {
-		if (diskBoundary == i) {
-			// Skip disk boundary.
-			continue;
-		}
-		Array<uint32_t> vertexLoop;
-		Array<uint32_t> edgeLoop;
-	startOver:
+		if (diskBoundary == i)
+			continue; // Skip disk boundary.
+		holeVertices.resize(boundaryEdgeCounts[i]);
+		holePoints.resize(boundaryEdgeCounts[i]);
+		// Winding is backwards for internal boundaries.
+		uint32_t e = 0;
 		for (Mesh::BoundaryEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
 			const Edge *edge = mesh->edgeAt(it.edge());
-			const uint32_t vertex = mesh->vertexAt(edge->index1);
-			uint32_t j;
-			for (j = 0; j < vertexLoop.size(); j++) {
-				if (mesh->areColocal(vertex, vertexLoop[j]))
-					break;
-			}
-			bool isCrossing = (j != vertexLoop.size());
-			if (isCrossing) {
-				// Close loop.
-				edgeLoop.insertAt(0, it.edge());
-				meshCloseLoop(mesh, j + 1, edgeLoop, duplicatedEdge, closedPlanarCount, closedNonPlanarCount);
-				// Start over again.
-				vertexLoop.clear();
-				edgeLoop.clear();
-				goto startOver; // HE mesh version is bugged, actually breaks at end of edge iteration instead.
-			}
-			vertexLoop.push_back(vertex);
-			edgeLoop.insertAt(0, it.edge());
+			const uint32_t vertex = mesh->vertexAt(edge->index0);
+			holeVertices[boundaryEdgeCounts[i] - 1 - e] = vertex;
+			holePoints[boundaryEdgeCounts[i] - 1 - e] = mesh->position(vertex);
+			e++;
 		}
-		meshCloseLoop(mesh, 0, edgeLoop, duplicatedEdge, closedPlanarCount, closedNonPlanarCount);
+		const uint32_t oldFaceCount = mesh->faceCount();
+		meshCloseHole(mesh, holeVertices, duplicatedEdge);
+		holeFaceCounts.push_back(mesh->faceCount() - oldFaceCount);
 	}
+	XA_PROFILE_END(closeChartMeshHoles)
 }
 
 class MeshTopology
@@ -6445,7 +6412,7 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_closedPlanarHolesCount(0), m_closedNonPlanarHolesCount(0), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_faceArray(faceArray)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6524,18 +6491,16 @@ public:
 			Array<uint32_t> boundaryLoops;
 			meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 			if (boundaryLoops.size() > 1) {
-#if XA_DEBUG_EXPORT_OBJ_BEFORE_CLOSE_HOLES
-				m_unifiedMesh->writeObjFile("debug_before_close_holes.obj");
-#endif
-#if XA_DEBUG_EXPORT_OBJ_BEFORE_AFTER_CLOSE_HOLES
-				const uint32_t faceCountBeforeCloseHoles = m_unifiedMesh->faceCount();
+#if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
+				const uint32_t faceCountBeforeHolesClosed = m_unifiedMesh->faceCount();
 #endif
 				// Closing the holes is not always the best solution and does not fix all the problems.
 				// We need to do some analysis of the holes and the genus to:
 				// - Find cuts that reduce genus.
 				// - Find cuts to connect holes.
 				// - Use minimal spanning trees or seamster.
-				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge, &m_closedPlanarHolesCount, &m_closedNonPlanarHolesCount);
+				Array<uint32_t> holeFaceCounts;
+				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge, holeFaceCounts);
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
 				if (duplicatedEdge)
@@ -6543,27 +6508,32 @@ public:
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 				if (boundaryLoops.size() > 1) {
 					m_warningFlags |= ChartWarningFlags::CloseHolesFailed;
-#if XA_DEBUG_EXPORT_OBJ_FAILED_CLOSE_HOLES
-					m_unifiedMesh->writeObjFile("debug_failed_close_holes.obj");
-#endif
 				}
-#if XA_DEBUG_EXPORT_OBJ_BEFORE_AFTER_CLOSE_HOLES
-				char filename[256];
-				sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_chart_%0.3u_after_close_holes%s.obj", meshId, chartGroupId, chartId, m_closedNonPlanarHolesCount == 0 ? "_planar" : "");
-				FILE *file = fopen(filename, "w");
-				if (file) {
-					m_unifiedMesh->writeObjVertices(file);
-					fprintf(file, "s off\n");
-					fprintf(file, "o object\n");
-					for (uint32_t i = 0; i < faceCountBeforeCloseHoles; i++)
-						m_unifiedMesh->writeObjFace(file, i);
-					fprintf(file, "s off\n");
-					fprintf(file, "o holes\n");
-					for (uint32_t i = faceCountBeforeCloseHoles; i < m_unifiedMesh->faceCount(); i++)
-						m_unifiedMesh->writeObjFace(file, i);
-					m_unifiedMesh->writeObjBoundaryEges(file);
-					m_unifiedMesh->writeObjLinkedBoundaries(file);
-					fclose(file);
+				m_closedHolesCount = holeFaceCounts.size();
+#if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
+				if (m_warningFlags & (ChartWarningFlags::CloseHolesDuplicatedEdge | ChartWarningFlags::CloseHolesFailed)) {
+					char filename[256];
+					sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_chart_%0.3u_close_holes_error.obj", meshId, chartGroupId, chartId);
+					FILE *file = fopen(filename, "w");
+					if (file) {
+						m_unifiedMesh->writeObjVertices(file);
+						fprintf(file, "s off\n");
+						fprintf(file, "o object\n");
+						for (uint32_t i = 0; i < faceCountBeforeHolesClosed; i++)
+							m_unifiedMesh->writeObjFace(file, i);
+						uint32_t face = faceCountBeforeHolesClosed;
+						for (uint32_t i = 0; i < holeFaceCounts.size(); i++) {
+							fprintf(file, "s off\n");
+							fprintf(file, "o hole%u\n", i);
+							for (uint32_t j = 0; j < holeFaceCounts[i]; j++) {
+								m_unifiedMesh->writeObjFace(file, face);
+								face++;
+							}
+						}
+						m_unifiedMesh->writeObjBoundaryEges(file);
+						m_unifiedMesh->writeObjLinkedBoundaries(file);
+						fclose(file);
+					}
 				}
 #endif
 			}
@@ -6583,6 +6553,13 @@ public:
 			// Note: MeshTopology needs linked boundaries.
 			MeshTopology topology(m_unifiedMesh);
 			m_isDisk = topology.isDisk();
+#if XA_DEBUG_EXPORT_OBJ_NOT_DISK
+			if (!m_isDisk) {
+				char filename[256];
+				sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_chart_%0.3u_not_disk.obj", meshId, chartGroupId, chartId);
+				m_unifiedMesh->writeObjFile(filename);
+			}
+#endif
 		}
 	}
 
@@ -6601,8 +6578,7 @@ public:
 	bool isDisk() const { return m_isDisk; }
 	bool isPlanar() const { return m_isPlanar; }
 	uint32_t warningFlags() const { return m_warningFlags; }
-	uint32_t closedPlanarHolesCount() const { return m_closedPlanarHolesCount; }
-	uint32_t closedNonPlanarHolesCount() const { return m_closedNonPlanarHolesCount; }
+	uint32_t closedHolesCount() const { return m_closedHolesCount; }
 	const ParameterizationQuality &paramQuality() const { return m_paramQuality; }
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
@@ -6659,7 +6635,7 @@ private:
 	bool m_isDisk;
 	bool m_isPlanar;
 	uint32_t m_warningFlags;
-	uint32_t m_closedPlanarHolesCount, m_closedNonPlanarHolesCount;
+	uint32_t m_closedHolesCount;
 
 	// List of faces of the original mesh that belong to this chart.
 	Array<uint32_t> m_faceArray;
@@ -8403,7 +8379,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 		return;
 	}
 	XA_PRINT("Computing charts\n");
-	uint32_t chartCount = 0, chartsWithHolesCount = 0, planarHolesCount = 0, nonPlanarHolesCount = 0;
+	uint32_t chartCount = 0, chartsWithHolesCount = 0, holesCount = 0;
 	XA_PROFILE_START(computeChartsConcurrent)
 	ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData);
 	XA_PROFILE_END(computeChartsConcurrent)
@@ -8416,24 +8392,24 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesDuplicatedEdge)
-					XA_PRINT_WARNING("   Chart %u: closing holes created non-manifold geometry\n", chartCount);
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): closing holes created non-manifold geometry\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesFailed)
-					XA_PRINT_WARNING("   Chart %u: failed to close holes\n", chartCount);
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): failed to close holes\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
-					XA_PRINT_WARNING("   Chart %u: fixing t-junctions created non-manifold geometry\n", chartCount);
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions created non-manifold geometry\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::TriangulateDuplicatedEdge)
-					XA_PRINT_WARNING("   Chart %u: triangulation created non-manifold geometry\n", chartCount);
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): triangulation created non-manifold geometry\n", chartCount, i, j, k);
 				if (!chart->isDisk())
-					XA_PRINT_WARNING("   Chart %u: doesn't have disk topology\n", chartCount);
-				planarHolesCount += chart->closedPlanarHolesCount();
-				nonPlanarHolesCount += chart->closedNonPlanarHolesCount();
-				if (chart->closedPlanarHolesCount() > 0 || chart->closedNonPlanarHolesCount() > 0)
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): doesn't have disk topology\n", chartCount, i, j, k);
+				holesCount += chart->closedHolesCount();
+				if (chart->closedHolesCount() > 0)
 					chartsWithHolesCount++;
 				chartCount++;
 			}
 		}
 	}
-	XA_PRINT("   Closed %u planar and %u non-planar holes in %u charts\n", planarHolesCount, nonPlanarHolesCount, chartsWithHolesCount);
+	if (holesCount > 0)
+		XA_PRINT("   Closed %u holes in %u charts\n", holesCount, chartsWithHolesCount);
 	XA_PRINT("   %u charts\n", chartCount);
 	XA_PROFILE_PRINT("   Total (concurrent): ", computeChartsConcurrent)
 	XA_PROFILE_PRINT("   Total: ", computeCharts)
@@ -8443,6 +8419,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 	XA_PROFILE_PRINT("         Grow charts: ", atlasBuilderGrowCharts)
 	XA_PROFILE_PRINT("         Merge charts: ", atlasBuilderMergeCharts)
 	XA_PROFILE_PRINT("      Create chart meshes: ", createChartMeshes)
+	XA_PROFILE_PRINT("         Close holes: ", closeChartMeshHoles)
 }
 
 void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
@@ -8494,13 +8471,6 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 				const internal::param::ParameterizationQuality &quality = chart->paramQuality();
-#if XA_DEBUG_EXPORT_OBJ_NOT_DISK
-				if (!chart->isDisk()) {
-					char filename[256];
-					sprintf(filename, "debug_chart_%0.3u_not_disk.obj", chartIndex);
-					chart->unifiedMesh()->writeObjFile(filename);
-				}
-#endif
 #if XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION
 				{
 					char filename[256];
