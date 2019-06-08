@@ -73,10 +73,11 @@ static void PrintProgress(const char *name, const char *indent1, const char *ind
 		printf("\n%s%.2f seconds (%g ms) elapsed\n", indent2, stopwatch->elapsed() / 1000.0, stopwatch->elapsed());
 }
 
-static void ProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void *userData)
+static bool ProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void *userData)
 {
 	Stopwatch *stopwatch = (Stopwatch *)userData;
 	PrintProgress(xatlas::StringForEnum(category), "   ", "      ", progress, stopwatch);
+	return true;
 }
 
 static void SetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)

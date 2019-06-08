@@ -2763,16 +2763,20 @@ public:
 
 struct Progress
 {
-	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : value(0), m_category(category), m_func(func), m_userData(userData), m_maxValue(maxValue), m_progress(0)
+	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : value(0), cancel(false), m_category(category), m_func(func), m_userData(userData), m_maxValue(maxValue), m_progress(0)
 	{
-		if (func)
-			func(category, 0, userData);
+		if (m_func) {
+			if (!m_func(category, 0, userData))
+				cancel = true;
+		}
 	}
 
 	~Progress()
 	{
-		if (m_func)
-			m_func(m_category, 100, m_userData);
+		if (m_func) {
+			if (!m_func(m_category, 100, m_userData))
+				cancel = true;
+		}
 	}
 
 	void update()
@@ -2783,12 +2787,14 @@ struct Progress
 		const uint32_t newProgress = uint32_t(ceilf(value.load() / (float)m_maxValue * 100.0f));
 		if (newProgress != m_progress && newProgress < 100) {
 			m_progress = newProgress;
-			m_func(m_category, m_progress, m_userData);
+			if (!m_func(m_category, m_progress, m_userData))
+				cancel = true;
 		}
 		m_mutex.unlock();
 	}
 
 	std::atomic<uint32_t> value;
+	std::atomic<bool> cancel;
 
 private:
 	ProgressCategory::Enum m_category;
@@ -6805,6 +6811,8 @@ struct ComputeChartsJobArgs
 static void runComputeChartsJob(void *userData)
 {
 	ComputeChartsJobArgs *args = (ComputeChartsJobArgs *)userData;
+	if (args->progress->cancel)
+		return;
 	XA_PROFILE_START(computeCharts)
 	args->chartGroup->computeCharts(*args->options);
 	XA_PROFILE_END(computeCharts)
@@ -6822,6 +6830,8 @@ struct ParameterizeChartsJobArgs
 static void runParameterizeChartsJob(void *userData)
 {
 	ParameterizeChartsJobArgs *args = (ParameterizeChartsJobArgs *)userData;
+	if (args->progress->cancel)
+		return;
 	args->chartGroup->parameterizeCharts(args->func);
 	args->progress->value++;
 	args->progress->update();
@@ -6913,7 +6923,7 @@ public:
 		m_meshCount++;
 	}
 
-	void computeCharts(task::Scheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
+	bool computeCharts(task::Scheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
 		m_chartsComputed = false;
 		m_chartsParameterized = false;
@@ -6942,10 +6952,13 @@ public:
 			taskScheduler->run(job, &sync);
 		}
 		taskScheduler->waitFor(sync);
+		if (progress.cancel)
+			return false;
 		m_chartsComputed = true;
+		return true;
 	}
 
-	void parameterizeCharts(task::Scheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
+	bool parameterizeCharts(task::Scheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
 	{
 		m_chartsParameterized = false;
 		uint32_t jobCount = 0;
@@ -6973,6 +6986,8 @@ public:
 			taskScheduler->run(job, &sync);
 		}
 		taskScheduler->waitFor(sync);
+		if (progress.cancel)
+			return false;
 		// Save original texcoords so PackCharts can be called multiple times (packing overwrites the texcoords).
 		const uint32_t nCharts = chartCount();
 		m_originalChartTexcoords.resize(nCharts);
@@ -6983,6 +6998,7 @@ public:
 				m_originalChartTexcoords[i][j] = mesh->texcoord(j);
 		}
 		m_chartsParameterized = true;
+		return true;
 	}
 
 	void restoreOriginalChartTexcoords()
@@ -7264,16 +7280,20 @@ struct AtlasPacker
 	}
 
 	// Pack charts in the smallest possible rectangle.
-	void packCharts(const PackOptions &options, ProgressFunc progressFunc, void *progressUserData)
+	bool packCharts(const PackOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
-		if (progressFunc)
-			progressFunc(ProgressCategory::PackCharts, 0, progressUserData);
+		if (progressFunc) {
+			if (!progressFunc(ProgressCategory::PackCharts, 0, progressUserData))
+				return false;
+		}
 		const uint32_t chartCount = m_charts.size();
 		XA_PRINT("Packing %u charts\n", chartCount);
 		if (chartCount == 0) {
-			if (progressFunc)
-				progressFunc(ProgressCategory::PackCharts, 100, progressUserData);
-			return;
+			if (progressFunc) {
+				if (!progressFunc(ProgressCategory::PackCharts, 100, progressUserData))
+					return false;
+			}
+			return true;
 		}
 		uint32_t resolution = options.resolution;
 		m_texelsPerUnit = options.texelsPerUnit;
@@ -7502,7 +7522,8 @@ struct AtlasPacker
 				const int newProgress = int((i + 1) / (float)chartCount * 100.0f);
 				if (newProgress != progress) {
 					progress = newProgress;
-					progressFunc(ProgressCategory::PackCharts, progress, progressUserData);
+					if (!progressFunc(ProgressCategory::PackCharts, progress, progressUserData))
+						return false;
 				}
 			}
 		}
@@ -7522,8 +7543,11 @@ struct AtlasPacker
 			XA_FREE(debugAtlasImages[i]);
 		}
 #endif
-		if (progressFunc && progress != 100)
-			progressFunc(ProgressCategory::PackCharts, 100, progressUserData);
+		if (progressFunc && progress != 100) {
+			if (!progressFunc(ProgressCategory::PackCharts, 100, progressUserData))
+				return false;
+		}
+		return true;
 	}
 
 	float computeAtlasUtilization(uint32_t atlasIndex) const
@@ -7830,13 +7854,19 @@ static void DestroyOutputMeshes(Context *ctx)
 		return;
 	for (int i = 0; i < (int)ctx->atlas.meshCount; i++) {
 		Mesh &mesh = ctx->atlas.meshes[i];
-		for (uint32_t j = 0; j < mesh.chartCount; j++)
-			XA_FREE(mesh.chartArray[j].indexArray);
-		XA_FREE(mesh.chartArray);
-		XA_FREE(mesh.vertexArray);
-		XA_FREE(mesh.indexArray);
+		for (uint32_t j = 0; j < mesh.chartCount; j++) {
+			if (mesh.chartArray[j].indexArray)
+				XA_FREE(mesh.chartArray[j].indexArray);
+		}
+		if (mesh.chartArray)
+			XA_FREE(mesh.chartArray);
+		if (mesh.vertexArray)
+			XA_FREE(mesh.vertexArray);
+		if (mesh.indexArray)
+			XA_FREE(mesh.indexArray);
 	}
-	XA_FREE(ctx->atlas.meshes);
+	if (ctx->atlas.meshes)
+		XA_FREE(ctx->atlas.meshes);
 	ctx->atlas.meshes = nullptr;
 }
 
@@ -8183,7 +8213,10 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions, ProgressFunc progres
 	XA_PRINT("Computing charts\n");
 	uint32_t chartCount = 0, chartsWithHolesCount = 0, holesCount = 0;
 	XA_PROFILE_START(computeChartsConcurrent)
-	ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData);
+	if (!ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, progressFunc, progressUserData)) {
+		XA_PRINT("   Cancelled by user\n");
+		return;
+	}
 	XA_PROFILE_END(computeChartsConcurrent)
 	// Count charts and print warnings.
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
@@ -8249,7 +8282,10 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func, ProgressFunc progre
 	}
 	DestroyOutputMeshes(ctx);
 	XA_PRINT("Parameterizing charts\n");
-	ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, func, progressFunc, progressUserData);
+	if (!ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, func, progressFunc, progressUserData)) {
+		XA_PRINT("   Cancelled by user\n");
+			return;
+	}
 	uint32_t chartsAddedCount = 0, chartsDeletedCount = 0;
 	for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
@@ -8354,6 +8390,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 		XA_FREE(atlas->utilization);
 		atlas->utilization = nullptr;
 	}
+	atlas->meshCount = 0;
 	// Pack charts.
 	internal::param::AtlasPacker packer;
 	if (!ctx->uvMeshInstances.isEmpty()) {
@@ -8365,7 +8402,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 		for (uint32_t i = 0; i < ctx->paramAtlas.chartCount(); i++)
 			packer.addChart(ctx->paramAtlas.chartAt(i));
 	}
-	packer.packCharts(packOptions, progressFunc, progressUserData);
+	if (!packer.packCharts(packOptions, progressFunc, progressUserData))
+		return;
 	// Populate atlas object with packer results.
 	atlas->atlasCount = packer.getNumAtlases();
 	atlas->chartCount = packer.getChartCount();
@@ -8379,21 +8417,21 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 	}
 	XA_PRINT("Building output meshes\n");
 	int progress = 0;
-	if (progressFunc)
-		progressFunc(ProgressCategory::BuildOutputMeshes, 0, progressUserData);
+	if (progressFunc) {
+		if (!progressFunc(ProgressCategory::BuildOutputMeshes, 0, progressUserData))
+			return;
+	}
 	if (ctx->uvMeshInstances.isEmpty())
 		atlas->meshCount = ctx->paramAtlas.meshCount();
 	else
 		atlas->meshCount = ctx->uvMeshInstances.size();
 	atlas->meshes = XA_ALLOC_ARRAY(Mesh, atlas->meshCount);
+	memset(atlas->meshes, 0, sizeof(Mesh) * atlas->meshCount);
 	if (ctx->uvMeshInstances.isEmpty()) {
 		uint32_t chartIndex = 0;
 		for (uint32_t i = 0; i < ctx->paramAtlas.meshCount(); i++) {
 			Mesh &outputMesh = atlas->meshes[i];
-			// Count and alloc arrays.
-			outputMesh.vertexCount = 0;
-			outputMesh.indexCount = 0;
-			outputMesh.chartCount = 0; // Ignore vertex mapped charts.
+			// Count and alloc arrays. Ignore vertex mapped chart groups in Mesh::chartCount, since they're ignored faces.
 			for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
 				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
 				if (chartGroup->isVertexMap()) {
@@ -8478,7 +8516,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 				const int newProgress = int((i + 1) / (float)atlas->meshCount * 100.0f);
 				if (newProgress != progress) {
 					progress = newProgress;
-					progressFunc(ProgressCategory::BuildOutputMeshes, progress, progressUserData);
+					if (!progressFunc(ProgressCategory::BuildOutputMeshes, progress, progressUserData))
+						return;
 				}
 			}
 		}
@@ -8522,7 +8561,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 				const int newProgress = int((m + 1) / (float)atlas->meshCount * 100.0f);
 				if (newProgress != progress) {
 					progress = newProgress;
-					progressFunc(ProgressCategory::BuildOutputMeshes, progress, progressUserData);
+					if (!progressFunc(ProgressCategory::BuildOutputMeshes, progress, progressUserData))
+						return;
 				}
 			}
 		}

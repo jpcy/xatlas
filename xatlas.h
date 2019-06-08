@@ -150,7 +150,8 @@ struct ProgressCategory
 	};
 };
 
-typedef void (*ProgressFunc)(ProgressCategory::Enum category, int progress, void *userData);
+// May be called from any thread. Return false to cancel.
+typedef bool (*ProgressFunc)(ProgressCategory::Enum category, int progress, void *userData);
 
 struct ChartOptions
 {

@@ -42,6 +42,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "../xatlas.h"
 #include "viewer.h"
 
+namespace std { typedef std::lock_guard<std::mutex> mutex_lock; }
 static const uint8_t kPaletteBlack = 0;
 
 struct AtlasStatus
@@ -57,38 +58,46 @@ struct AtlasStatus
 
 	Enum get()
 	{
-		m_lock.lock();
-		Enum result = m_value;
-		m_lock.unlock();
-		return result;
+		std::mutex_lock lock(m_lock);
+		return m_value;
 	}
 
 	void set(Enum value)
 	{
-		m_lock.lock();
+		std::mutex_lock lock(m_lock);
 		m_value = value;
-		m_lock.unlock();
 	}
 
 	void getProgress(xatlas::ProgressCategory::Enum *category, int *progress)
 	{
-		m_lock.lock();
+		std::mutex_lock lock(m_lock);
 		*category = m_category;
 		*progress = m_progress;
-		m_lock.unlock();
 	}
 
 	void setProgress(xatlas::ProgressCategory::Enum category, int progress)
 	{
-		m_lock.lock();
+		std::mutex_lock lock(m_lock);
 		m_category = category;
 		m_progress = progress;
-		m_lock.unlock();
+	}
+
+	bool getCancel()
+	{
+		std::mutex_lock lock(m_lock);
+		return m_cancel;
+	}
+
+	void setCancel(bool value)
+	{
+		std::mutex_lock lock(m_lock);
+		m_cancel = value;
 	}
 
 private:
 	std::mutex m_lock;
 	Enum m_value = NotGenerated;
+	bool m_cancel = false;
 	xatlas::ProgressCategory::Enum m_category;
 	int m_progress = 0;
 };
@@ -211,9 +220,12 @@ void atlasDestroy()
 	s_atlas.status.set(AtlasStatus::NotGenerated);
 }
 
-static void atlasProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void * /*userData*/)
+static bool atlasProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void * /*userData*/)
 {
 	s_atlas.status.setProgress(category, progress);
+	if (s_atlas.status.getCancel())
+		return false;
+	return true;
 }
 
 static uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
@@ -377,11 +389,25 @@ static void atlasGenerateThread()
 				progress = newProgress;
 				s_atlas.status.setProgress((xatlas::ProgressCategory::Enum)-1, progress);
 			}
+			// Destroy context if cancelled while adding meshes.
+			if (s_atlas.status.getCancel()) {
+				xatlas::Destroy(s_atlas.data);
+				s_atlas.data = nullptr;
+				s_atlas.status.set(AtlasStatus::NotGenerated);
+				s_atlas.status.setCancel(false);
+				return;
+			}
 		}
 	}
 	s_atlas.status.set(AtlasStatus::Generating);
 	if (firstRun || s_atlas.chartOptionsChanged) {
 		xatlas::ComputeCharts(s_atlas.data, s_atlas.chartOptions, atlasProgressCallback);
+		if (s_atlas.status.getCancel()) {
+			s_atlas.chartOptionsChanged = true; // Force ComputeCharts to be called next time.
+			s_atlas.status.set(AtlasStatus::NotGenerated);
+			s_atlas.status.setCancel(false);
+			return;
+		}
 	}
 	if (firstRun || s_atlas.chartOptionsChanged || s_atlas.paramMethodChanged) {
 		xatlas::ParameterizeFunc paramFunc = nullptr;
@@ -390,9 +416,21 @@ static void atlasGenerateThread()
 			paramFunc = atlasParameterizationCallback;
 #endif
 		xatlas::ParameterizeCharts(s_atlas.data, paramFunc, atlasProgressCallback);
+		if (s_atlas.status.getCancel()) {
+			s_atlas.paramMethodChanged = true; // Force ParameterizeCharts to be called next time.
+			s_atlas.status.set(AtlasStatus::NotGenerated);
+			s_atlas.status.setCancel(false);
+			return;
+		}
 	}
 	if (firstRun || s_atlas.chartOptionsChanged || s_atlas.paramMethodChanged || s_atlas.packOptionsChanged) {
 		xatlas::PackCharts(s_atlas.data, s_atlas.packOptions, atlasProgressCallback);
+		if (s_atlas.status.getCancel()) {
+			s_atlas.packOptionsChanged = true; // Force PackCharts to be called next time.
+			s_atlas.status.set(AtlasStatus::NotGenerated);
+			s_atlas.status.setCancel(false);
+			return;
+		}
 	}
 	const double elapsedTime = (clock() - startTime) * 1000.0 / CLOCKS_PER_SEC;
 	printf("Generated atlas in %.2f seconds (%g ms)\n", elapsedTime / 1000.0, elapsedTime);
@@ -781,6 +819,8 @@ void atlasShowGuiWindow(int progressDots)
 				ImGui::Text(i < progressDots ? "." : " ");
 			}
 			ImGui::ProgressBar(progress / 100.0f);
+			if (ImGui::Button("Cancel"))
+				s_atlas.status.setCancel(true);
 			ImGui::End();
 		}
 	} else if (atlasStatus == AtlasStatus::Ready && g_options.showAtlasWindow) {

@@ -38,7 +38,7 @@ Instead of calling `xatlas::Generate`, the following functions can be called in 
 2. `xatlas::ParameterizeCharts`: charts are flattened into 2D parameterizations.
 3. `xatlas::PackCharts`: charts are packed into one or more atlases.
 
-All of these functions take a progress callback.
+All of these functions take a progress callback. Return false to cancel.
 
 You can call any of these functions multiple times, followed by the proceeding functions, to re-generate the atlas. E.g. calling `xatlas::PackCharts` multiple times to tweak options like unit to texel scale and resolution.
 
