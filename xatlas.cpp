@@ -1725,116 +1725,24 @@ static void insertionSort(T *data, uint32_t length)
 	}
 }
 
-/// Mersenne twister random number generator.
-class MTRand
+class KISSRng
 {
 public:
-	enum { N = 624 };       // length of state vector
-	enum { M = 397 };
-
-	/// Constructor that uses the given seed.
-	MTRand(uint32_t s = 845281456u)
+	uint32_t getRange(uint32_t range)
 	{
-		seed(s);
-	}
-
-	// The "next" pointer makes the default copy constructor unsafe, so delete it.
-	MTRand(const MTRand&) = delete;
-	MTRand& operator=(const MTRand&) = delete;
-
-	/// Provide a new seed.
-	void seed( uint32_t s )
-	{
-		initialize(s);
-		reload();
-	}
-
-	/// Get a random number between 0 - 65536.
-	uint32_t get()
-	{
-		// Pull a 32-bit integer from the generator state
-		// Every other access function simply transforms the numbers extracted here
-		if ( left == 0 ) {
-			reload();
-		}
-		left--;
-		uint32_t s1;
-		s1 = *next++;
-		s1 ^= (s1 >> 11);
-		s1 ^= (s1 <<  7) & 0x9d2c5680U;
-		s1 ^= (s1 << 15) & 0xefc60000U;
-		return ( s1 ^ (s1 >> 18) );
-	};
-
-	/// Get a random number on [0, max] interval.
-	uint32_t getRange( uint32_t max )
-	{
-		if (max == 0) return 0;
-		if (max == UINT32_MAX) return get();
-		const uint32_t np2 = nextPowerOfTwo( max + 1 ); // @@ This fails if max == UINT32_MAX
-		const uint32_t mask = np2 - 1;
-		uint32_t n;
-		do {
-			n = get() & mask;
-		} while ( n > max );
-		return n;
+		if (range == 0)
+			return 0;
+		x = 69069 * x + 12345;
+		y ^= (y << 13);
+		y ^= (y >> 17);
+		y ^= (y << 5);
+		uint64_t t = 698769069ULL * z + c;
+		c = (t >> 32);
+		return (x + y + (z = (uint32_t)t)) % range;
 	}
 
 private:
-	void initialize( uint32_t seed )
-	{
-		// Initialize generator state with seed
-		// See Knuth TAOCP Vol 2, 3rd Ed, p.106 for multiplier.
-		// In previous versions, most significant bits (MSBs) of the seed affect
-		// only MSBs of the state array.  Modified 9 Jan 2002 by Makoto Matsumoto.
-		uint32_t *s = state;
-		uint32_t *r = state;
-		int i = 1;
-		*s++ = seed & 0xffffffffUL;
-		for ( ; i < N; ++i ) {
-			*s++ = ( 1812433253UL * ( *r ^ (*r >> 30) ) + i ) & 0xffffffffUL;
-			r++;
-		}
-	}
-
-	void reload()
-	{
-		// Generate N new values in state
-		// Made clearer and faster by Matthew Bellew (matthew.bellew@home.com)
-		uint32_t *p = state;
-		int i;
-		for ( i = N - M; i--; ++p )
-			*p = twist( p[M], p[0], p[1] );
-		for ( i = M; --i; ++p )
-			*p = twist( p[M - N], p[0], p[1] );
-		*p = twist( p[M - N], p[0], state[0] );
-		left = N, next = state;
-	}
-
-	uint32_t hiBit( uint32_t u ) const
-	{
-		return u & 0x80000000U;
-	}
-	uint32_t loBit( uint32_t u ) const
-	{
-		return u & 0x00000001U;
-	}
-	uint32_t loBits( uint32_t u ) const
-	{
-		return u & 0x7fffffffU;
-	}
-	uint32_t mixBits( uint32_t u, uint32_t v ) const
-	{
-		return hiBit(u) | loBits(v);
-	}
-	uint32_t twist( uint32_t m, uint32_t s0, uint32_t s1 ) const
-	{
-		return m ^ (mixBits(s0, s1) >> 1) ^ ((~loBit(s1) + 1) & 0x9908b0dfU);
-	}
-
-	uint32_t state[N];	// internal state
-	uint32_t *next;	// next value to get from state
-	int left;		// number of values left before reload needed
+	uint32_t x = 123456789, y = 362436000, z = 521288629, c = 7654321;
 };
 
 // Based on Pierre Terdiman's and Michael Herf's source code.
@@ -6061,7 +5969,7 @@ private:
 	Array<Candidate> m_candidateArray;
 	Array<uint32_t> m_faceCandidateArray; // Map face index to candidate index.
 	PriorityQueue m_bestTriangles;
-	MTRand m_rand;
+	KISSRng m_rand;
 	ChartOptions m_options;
 };
 
@@ -7818,7 +7726,7 @@ private:
 	uint32_t m_width = 0;
 	uint32_t m_height = 0;
 	float m_texelsPerUnit = 0.0f;
-	MTRand m_rand;
+	KISSRng m_rand;
 };
 
 } // namespace param
