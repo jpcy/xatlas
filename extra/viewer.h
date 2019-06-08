@@ -17,8 +17,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <objzero/objzero.h>
 
 constexpr bgfx::ViewId kModelView = 0;
-constexpr bgfx::ViewId kGuiView = 1;
-constexpr bgfx::ViewId kFirstFreeView = 2;
+constexpr bgfx::ViewId kModelTransparentView = 1;
+constexpr bgfx::ViewId kGuiView = 2;
+constexpr bgfx::ViewId kFirstFreeView = 3;
 
 struct AABB
 {
@@ -127,7 +128,6 @@ void modelShutdown();
 void modelFinalize();
 void modelOpenDialog();
 void modelDestroy();
-void modelSetMaterialTexturesAndUniforms(int32_t materialIndex, uint8_t stageOffset = 0);
 void modelRender(const float *view, const float *projection);
 void modelShowGuiOptions();
 void modelShowGuiWindow(int progressDots);

@@ -351,13 +351,13 @@ static void atlasGenerateThread()
 		for (uint32_t i = 0; i < model->numObjects; i++) {
 			const objzObject &object = model->objects[i];
 			auto v = &((const ModelVertex *)model->vertices)[object.firstVertex];
-			// Ignore faces with an emissive material.
+			// Ignore faces with an emissive or transparent material.
 			ignoreFaces.resize(object.numIndices / 3);
 			memset(ignoreFaces.data(), 0, ignoreFaces.size() * sizeof(uint8_t));
 			for (uint32_t j = 0; j < object.numMeshes; j++) {
 				const objzMesh &mesh = model->meshes[object.firstMesh + j];
 				const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &model->materials[mesh.materialIndex];
-				if (mat && (mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f)) {
+				if (mat && (mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f || mat->opacity < 1.0f)) {
 					for (uint32_t k = 0; k < mesh.numIndices / 3; k++)
 						ignoreFaces[(mesh.firstIndex - object.firstIndex) / 3 + k] = true;
 				}

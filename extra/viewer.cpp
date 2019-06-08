@@ -461,6 +461,7 @@ int main(int /*argc*/, char ** /*argv*/)
 			bgfx::reset((uint32_t)width, (uint32_t)height, BGFX_RESET_VSYNC | BGFX_RESET_MSAA_X16);
 			guiResize(width, height);
 			bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);
+			bgfx::setViewRect(kModelTransparentView, 0, 0, bgfx::BackbufferRatio::Equal);
 		}
 		// Update camera.
 		if (s_camera.mode == CameraMode::FirstPerson && glfwGetInputMode(g_window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) {

@@ -17,23 +17,24 @@ uniform vec4 u_shade_diffuse_emission;
 
 void main()
 {
-	vec3 emission = u_emission.rgb;
+	vec4 emission = u_emission;
 	if (u_emissionType == EMISSION_TEXTURE)
-		emission = texture2D(s_emission, v_texcoord0.xy).rgb;
-	vec3 color = vec3_splat(0.0);
+		emission.rgb = texture2D(s_emission, v_texcoord0.xy).rgb;
+	vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
 	if (emission.r > 0.0 || emission.g > 0.0 || emission.b > 0.0)
 		color = emission;
 	else
 	{
-		vec3 diffuse = u_diffuse.rgb;
+		vec4 diffuse = u_diffuse;
 		if (u_diffuseType == DIFFUSE_TEXTURE)
-			diffuse *= texture2D(s_diffuse, v_texcoord0.xy).rgb;
+			diffuse *= texture2D(s_diffuse, v_texcoord0.xy);
 		if (u_shadeType == SHADE_FLAT)
-			color = diffuse * (dot(v_normal, u_lightDir.xyz) * 0.5 + 0.5); // half lambert
+			color.rgb = diffuse.rgb * (dot(v_normal, u_lightDir.xyz) * 0.5 + 0.5); // half lambert
 		else if (u_shadeType == SHADE_LIGHTMAP)
-			color = diffuse * texture2D(s_lightmap, v_texcoord0.zw).rgb;
+			color.rgb = diffuse.rgb * texture2D(s_lightmap, v_texcoord0.zw).rgb;
 		else if (u_shadeType == SHADE_LIGHTMAP_ONLY)
-			color = texture2D(s_lightmap, v_texcoord0.zw).rgb;
+			color.rgb = texture2D(s_lightmap, v_texcoord0.zw).rgb;
+		color.a = diffuse.a;
 	}
-	gl_FragColor = vec4(color, 1.0);
+	gl_FragColor = color;
 }
