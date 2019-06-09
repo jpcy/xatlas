@@ -1087,29 +1087,6 @@ public:
 		resize(sz);
 	}
 
-	const BitArray &operator=(const BitArray &other)
-	{
-		m_size = other.m_size;
-		m_wordArray = other.m_wordArray;
-		return *this;
-	}
-
-	uint32_t size() const
-	{
-		return m_size;
-	}
-
-	void clear()
-	{
-		resize(0);
-	}
-
-	void destroy()
-	{
-		m_size = 0;
-		m_wordArray.destroy();
-	}
-
 	void resize(uint32_t new_size)
 	{
 		m_size = new_size;
@@ -1130,47 +1107,13 @@ public:
 		m_wordArray[idx >> 5] |=  (1 << (idx & 31));
 	}
 
-	// Toggle a bit.
-	void toggleBitAt(uint32_t idx)
-	{
-		XA_DEBUG_ASSERT(idx < m_size);
-		m_wordArray[idx >> 5] ^= (1 << (idx & 31));
-	}
-
-	// Set a bit to the given value. @@ Rename modifyBitAt?
-	void setBitAt(uint32_t idx, bool b)
-	{
-		XA_DEBUG_ASSERT(idx < m_size);
-		m_wordArray[idx >> 5] = setBits(m_wordArray[idx >> 5], 1 << (idx & 31), b);
-		XA_DEBUG_ASSERT(bitAt(idx) == b);
-	}
-
 	// Clear all the bits.
 	void clearAll()
 	{
-		memset(m_wordArray.data(), 0, m_wordArray.size() * sizeof(uint32_t ));
-	}
-
-	// Set all the bits.
-	void setAll()
-	{
-		memset(m_wordArray.data(), 0xFF, m_wordArray.size() * sizeof(uint32_t ));
-	}
-
-	void moveTo(BitArray &other)
-	{
-		other.destroy();
-		m_wordArray.moveTo(other.m_wordArray);
-		swap(m_size, other.m_size);
+		memset(m_wordArray.data(), 0, m_wordArray.size() * sizeof(uint32_t));
 	}
 
 private:
-	// See "Conditionally set or clear bits without branching" at http://graphics.stanford.edu/~seander/bithacks.html
-	uint32_t setBits(uint32_t w, uint32_t m, bool b)
-	{
-		return (w & ~m) | (-int(b) & m);
-	}
-
 	// Number of bits stored.
 	uint32_t m_size;
 
@@ -1181,75 +1124,85 @@ private:
 class BitImage
 {
 public:
-	BitImage() : m_width(0), m_height(0) {}
-	BitImage(uint32_t w, uint32_t h) : m_width(w), m_height(h), m_bitArray(w * h) {}
+	BitImage() : m_width(0), m_height(0), m_rowStride(0) {}
+
+	BitImage(uint32_t w, uint32_t h) : m_width(w), m_height(h)
+	{
+		m_rowStride = (m_width + 63) >> 6;
+		m_data.resize(m_rowStride * m_height);
+	}
 
 	const BitImage &operator=(const BitImage &other)
 	{
 		m_width = other.m_width;
 		m_height = other.m_height;
-		m_bitArray = other.m_bitArray;
+		m_rowStride = other.m_rowStride;
+		m_data = other.m_data;
 		return *this;
 	}
 
 	uint32_t width() const { return m_width; }
 	uint32_t height() const { return m_height; }
 
-	void resize(uint32_t w, uint32_t h, bool initValue)
+	void resize(uint32_t w, uint32_t h)
 	{
-		BitArray tmp(w * h);
-		if (initValue)
-			tmp.setAll();
-		else
-			tmp.clearAll();
-		// @@ Copying one bit at a time. This could be much faster.
-		for (uint32_t y = 0; y < m_height; y++) {
-			for (uint32_t x = 0; x < m_width; x++) {
-				//tmp.setBitAt(y*w + x, bitAt(x, y));
-				if (bitAt(x, y) != initValue)
-					tmp.toggleBitAt(y * w + x);
-			}
+		Array<uint64_t> tmp;
+		const uint32_t rowStride = (w + 63) >> 6;
+		tmp.resize(rowStride * h);
+		memset(tmp.data(), 0, tmp.size() * sizeof(uint64_t));
+		// If only height has changed, can copy all rows at once.
+		if (rowStride == m_rowStride) {
+			memcpy(tmp.data(), m_data.data(), m_rowStride * min(m_height, h) * sizeof(uint64_t));
+		} else if (m_width > 0 && m_height > 0) {
+			for (uint32_t i = 0; i < h; i++)
+				memcpy(&tmp[i * rowStride], &m_data[i * m_rowStride], min(rowStride, m_rowStride) * sizeof(uint64_t));
 		}
-		tmp.moveTo(m_bitArray);
+		tmp.moveTo(m_data);
 		m_width = w;
 		m_height = h;
+		m_rowStride = rowStride;
 	}
 
 	void destroy()
 	{
-		m_bitArray.destroy();
-		m_width = m_height = 0;
+		m_data.destroy();
+		m_width = m_height = m_rowStride = 0;
 	}
 
 	bool bitAt(uint32_t x, uint32_t y) const
 	{
 		XA_DEBUG_ASSERT(x < m_width && y < m_height);
-		return m_bitArray.bitAt(y * m_width + x);
+		const uint32_t index = (x >> 6) + y * m_rowStride;
+		return (m_data[index] & (UINT64_C(1) << (uint64_t(x) & UINT64_C(63)))) != 0;
 	}
 
 	void setBitAt(uint32_t x, uint32_t y)
 	{
 		XA_DEBUG_ASSERT(x < m_width && y < m_height);
-		m_bitArray.setBitAt(y * m_width + x);
+		const uint32_t index = (x >> 6) + y * m_rowStride;
+		m_data[index] |= UINT64_C(1) << (uint64_t(x) & UINT64_C(63));
+		XA_DEBUG_ASSERT(bitAt(x, y));
 	}
 
 	void clearAll()
 	{
-		m_bitArray.clearAll();
+		memset(m_data.data(), 0, m_data.size() * sizeof(uint64_t));
 	}
 
 	void moveTo(BitImage &other)
 	{
 		other.destroy();
-		m_bitArray.moveTo(other.m_bitArray);
+		m_data.moveTo(other.m_data);
 		swap(m_width, other.m_width);
 		swap(m_height, other.m_height);
+		swap(m_rowStride, other.m_rowStride);
 	}
 
 private:
 	uint32_t m_width;
 	uint32_t m_height;
-	BitArray m_bitArray;
+	uint32_t m_rowStride; // In uint64_t's
+	Array<uint64_t> m_data;
 };
 
 // From Fast-BVH
@@ -7344,12 +7297,12 @@ struct AtlasPacker
 			//    0   1   2
 			if (options.conservative) {
 				// Init all bits to 0.
-				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, false);  // + 2 to add padding on both sides.
+				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding);  // + 2 to add padding on both sides.
 				// Rasterize chart and dilate.
 				drawChartBitImageDilate(chart, &chartBitImage, options.padding);
 			} else {
 				// Init all bits to 0.
-				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1, false);  // Add half a texels on each side.
+				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1);  // Add half a texels on each side.
 				// Rasterize chart and dilate.
 				drawChartBitImage(chart, &chartBitImage, Vector2(1), Vector2(0.5));
 			}
@@ -7364,7 +7317,7 @@ struct AtlasPacker
 					// Chart doesn't fit in the current bitImage, create a new one.
 					BitImage *bi = XA_NEW(BitImage);
 					bi->clearAll();
-					bi->resize(resolution, resolution, false);
+					bi->resize(resolution, resolution);
 					m_bitImages.push_back(bi);
 					firstChartInBitImage = true;
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
@@ -7393,7 +7346,7 @@ struct AtlasPacker
 			if (options.resolution <= 0) {
 				// Resize bitImage if necessary.
 				if (uint32_t(w) > m_bitImages[0]->width() || uint32_t(h) > m_bitImages[0]->height()) {
-					m_bitImages[0]->resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
+					m_bitImages[0]->resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)));
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 					debugAtlasImages[0]->resize(m_bitImages[0]->width(), m_bitImages[0]->height());
 #endif
