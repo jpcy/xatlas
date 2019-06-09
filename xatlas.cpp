@@ -2715,13 +2715,14 @@ private:
 
 } // namespace task
 
-struct Edge
+static uint32_t meshEdgeFace(uint32_t edge) { return edge / 3; }
+static uint32_t meshEdgeIndex0(uint32_t edge) { return edge; }
+
+static uint32_t meshEdgeIndex1(uint32_t edge)
 {
-	uint32_t relativeIndex; // absolute: face.firstIndex + relativeIndex
-	uint32_t face;
-	uint32_t index0;
-	uint32_t index1;
-};
+	const uint32_t faceFirstEdge = edge / 3 * 3;
+	return faceFirstEdge + (edge - faceFirstEdge + 1) % 3;
+}
 
 struct FaceFlags
 {
@@ -2747,7 +2748,6 @@ class Mesh
 public:
 	Mesh(uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_flags(flags), m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3)
 	{
-		m_edges.reserve(approxFaceCount * 3);
 		m_faceFlags.reserve(approxFaceCount);
 		m_faceGroups.reserve(approxFaceCount);
 		m_indices.reserve(approxFaceCount * 3);
@@ -2800,21 +2800,14 @@ public:
 		const uint32_t firstIndex = m_indices.size();
 		for (uint32_t i = 0; i < indexCount; i++)
 			m_indices.push_back(indexArray[i]);
-		for (uint32_t i = 0; i < indexCount; i++) {
-			Edge edge;
-			edge.face = faceCount() - 1;
-			edge.relativeIndex = i;
-			edge.index0 = firstIndex + i;
-			edge.index1 = firstIndex + (i + 1) % 3;
-			m_edges.push_back(edge);
-			if (hashEdge) {
-				const uint32_t vertex0 = m_indices[edge.index0];
-				const uint32_t vertex1 = m_indices[edge.index1];
-				const uint32_t edgeIndex = m_edges.size() - 1;
+		if (hashEdge) {
+			for (uint32_t i = 0; i < indexCount; i++) {
+				const uint32_t vertex0 = m_indices[firstIndex + i];
+				const uint32_t vertex1 = m_indices[firstIndex + (i + 1) % 3];
 				const EdgeKey key(vertex0, vertex1);
 				if (m_edgeMap.get(key) != UINT32_MAX)
 					result = AddFaceResult::DuplicateEdge;
-				m_edgeMap.add(key, edgeIndex);
+				m_edgeMap.add(key, firstIndex + i);
 			}
 		}
 		return result;
@@ -2870,7 +2863,7 @@ public:
 	{
 		for (FaceEdgeIterator edgeIt(this, face); !edgeIt.isDone(); edgeIt.advance()) {
 			for (ColocalEdgeIterator colocalEdgeIt(this, edgeIt.vertex0(), edgeIt.vertex1()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
-				if (m_faceGroups[m_edges[colocalEdgeIt.edge()].face] == group)
+				if (m_faceGroups[meshEdgeFace(colocalEdgeIt.edge())] == group)
 					return true;
 			}
 		}
@@ -2884,14 +2877,14 @@ public:
 	{
 		FaceEdgeIterator edgeIt(this, face);
 		for (ColocalEdgeIterator colocalEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
-			const uint32_t candidateFace = m_edges[colocalEdgeIt.edge()].face;
+			const uint32_t candidateFace = meshEdgeFace(colocalEdgeIt.edge());
 			if (m_faceGroups[candidateFace] == group) {
 				// Found a match for mirrored first edge, try the other edges.
 				bool match = false;
 				for (; !edgeIt.isDone(); edgeIt.advance()) {
 					match = false;
 					for (ColocalEdgeIterator colocalEdgeIt2(this, edgeIt.vertex1(), edgeIt.vertex0()); !colocalEdgeIt2.isDone(); colocalEdgeIt2.advance()) {
-						if (m_edges[colocalEdgeIt2.edge()].face == candidateFace) {
+						if (meshEdgeFace(colocalEdgeIt2.edge()) == candidateFace) {
 							match = true;
 							break;
 						}
@@ -2998,27 +2991,28 @@ public:
 					bool alreadyAssignedToThisGroup = false;
 					uint32_t bestConnectedFace = UINT32_MAX;
 					for (ColocalEdgeIterator oppositeEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
-						const Edge &oppositeEdge = m_edges[oppositeEdgeIt.edge()];
-						if (m_faceFlags[oppositeEdge.face] & FaceFlags::Ignore)
+						const uint32_t oppositeEdge = oppositeEdgeIt.edge();
+						const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
+						if (m_faceFlags[oppositeFace] & FaceFlags::Ignore)
 							continue; // Don't add ignored faces to group.
-						if (m_faceGroups[oppositeEdge.face] == group) {
+						if (m_faceGroups[oppositeFace] == group) {
 							alreadyAssignedToThisGroup = true;
 							break;
 						}
-						if (m_faceGroups[oppositeEdge.face] != UINT32_MAX)
+						if (m_faceGroups[oppositeFace] != UINT32_MAX)
 							continue; // Connected face is already assigned to another group.
-						if (faceDuplicatesGroupEdge(group, oppositeEdge.face))
+						if (faceDuplicatesGroupEdge(group, oppositeFace))
 							continue; // Don't want duplicate edges in a group.
-						if (faceMirrorsGroupFace(group, oppositeEdge.face))
+						if (faceMirrorsGroupFace(group, oppositeFace))
 							continue; // Don't want two-sided faces in a group.
 #if XA_CHECK_FACE_OVERLAP
 						if (faceOverlapsGroupFace(edgeAabbs, edgeBvh, group, oppositeEdge.face))
 							continue; // Don't want overlapping geometry.
 #endif
-						const uint32_t oppositeVertex0 = m_indices[oppositeEdge.index0];
-						const uint32_t oppositeVertex1 = m_indices[oppositeEdge.index1];
+						const uint32_t oppositeVertex0 = m_indices[meshEdgeIndex0(oppositeEdge)];
+						const uint32_t oppositeVertex1 = m_indices[meshEdgeIndex1(oppositeEdge)];
 						if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
-							bestConnectedFace = oppositeEdge.face;
+							bestConnectedFace = oppositeFace;
 					}
 					if (!alreadyAssignedToThisGroup && bestConnectedFace != UINT32_MAX) {
 						m_faceGroups[bestConnectedFace] = group;
@@ -3033,7 +3027,7 @@ public:
 
 	void createBoundaries()
 	{
-		const uint32_t edgeCount = m_edges.size();
+		const uint32_t edgeCount = m_indices.size();
 		const uint32_t vertexCount = m_positions.size();
 		m_oppositeEdges.resize(edgeCount);
 		m_boundaryVertices.resize(vertexCount);
@@ -3048,11 +3042,11 @@ public:
 				const uint32_t vertex0 = m_indices[i * 3 + j];
 				const uint32_t vertex1 = m_indices[i * 3 + (j + 1) % 3];
 				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
-				const Edge *oppositeEdge = findEdge(m_faceGroups[i], vertex1, vertex0);
-				if (oppositeEdge) {
-					XA_DEBUG_ASSERT(m_faceGroups[oppositeEdge->face] == m_faceGroups[i]);
-					XA_DEBUG_ASSERT(!(m_faceFlags[oppositeEdge->face] & FaceFlags::Ignore));
-					m_oppositeEdges[i * 3 + j] = oppositeEdge->face * 3 + oppositeEdge->relativeIndex;
+				const uint32_t oppositeEdge = findEdge(m_faceGroups[i], vertex1, vertex0);
+				if (oppositeEdge != UINT32_MAX) {
+					XA_DEBUG_ASSERT(m_faceGroups[meshEdgeFace(oppositeEdge)] == m_faceGroups[i]);
+					XA_DEBUG_ASSERT(!(m_faceFlags[meshEdgeFace(oppositeEdge)] & FaceFlags::Ignore));
+					m_oppositeEdges[i * 3 + j] = oppositeEdge;
 				} else {
 					m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
 				}
@@ -3062,12 +3056,11 @@ public:
 
 	void linkBoundaries()
 	{
-		const uint32_t edgeCount = m_edges.size();
+		const uint32_t edgeCount = m_indices.size();
 		HashMap<uint32_t, uint32_t> vertexToEdgeMap(edgeCount);
 		for (uint32_t i = 0; i < edgeCount; i++) {
-			const Edge &edge = m_edges[i];
-			const uint32_t vertex0 = m_indices[edge.index0];
-			const uint32_t vertex1 = m_indices[edge.index1];
+			const uint32_t vertex0 = m_indices[meshEdgeIndex0(i)];
+			const uint32_t vertex1 = m_indices[meshEdgeIndex1(i)];
 			vertexToEdgeMap.add(vertex0, i);
 			vertexToEdgeMap.add(vertex1, i);
 		}
@@ -3090,31 +3083,29 @@ public:
 				break;
 			uint32_t currentEdge = firstEdge;
 			for (;;) {
-				const Edge &edge = m_edges[currentEdge];
 				// Find the next boundary edge. The first vertex will be the same as (or colocal to) the current edge second vertex.
-				const uint32_t startVertex = m_indices[edge.index1];
+				const uint32_t startVertex = m_indices[meshEdgeIndex1(currentEdge)];
 				uint32_t bestNextEdge = UINT32_MAX;
 				for (ColocalVertexIterator it(this, startVertex); !it.isDone(); it.advance()) {
-					uint32_t mapEdgeIndex = vertexToEdgeMap.get(it.vertex());
-					while (mapEdgeIndex != UINT32_MAX) {
-						const uint32_t mapEdge = vertexToEdgeMap.value(mapEdgeIndex);
-						const Edge &otherEdge = m_edges[mapEdge];
-						if (m_oppositeEdges[mapEdge] != UINT32_MAX)
+					uint32_t mapOtherEdgeIndex = vertexToEdgeMap.get(it.vertex());
+					while (mapOtherEdgeIndex != UINT32_MAX) {
+						const uint32_t otherEdge = vertexToEdgeMap.value(mapOtherEdgeIndex);
+						if (m_oppositeEdges[otherEdge] != UINT32_MAX)
 							goto next; // Not a boundary edge.
-						if (linkedEdges.bitAt(mapEdge))
+						if (linkedEdges.bitAt(otherEdge))
 							goto next; // Already linked.
-						if (m_faceGroups[edge.face] != m_faceGroups[otherEdge.face])
+						if (m_faceGroups[meshEdgeFace(currentEdge)] != m_faceGroups[meshEdgeFace(otherEdge)])
 							goto next; // Don't cross face groups.
-						if (m_faceFlags[otherEdge.face] & FaceFlags::Ignore)
+						if (m_faceFlags[meshEdgeFace(otherEdge)] & FaceFlags::Ignore)
 							goto next; // Face is ignored.
-						if (m_indices[otherEdge.index0] != it.vertex())
+						if (m_indices[meshEdgeIndex0(otherEdge)] != it.vertex())
 							goto next; // Edge contains the vertex, but it's the wrong one.
 						// First edge (closing the boundary loop) has the highest priority.
 						// Non-colocal vertex has the next highest.
 						if (bestNextEdge != firstEdge && (bestNextEdge == UINT32_MAX || it.vertex() == startVertex))
-							bestNextEdge = mapEdge;
+							bestNextEdge = otherEdge;
 					next:
-						mapEdgeIndex = vertexToEdgeMap.getNext(mapEdgeIndex);
+						mapOtherEdgeIndex = vertexToEdgeMap.getNext(mapOtherEdgeIndex);
 					}
 				}
 				if (bestNextEdge == UINT32_MAX) {
@@ -3149,7 +3140,7 @@ public:
 					const uint32_t e2 = it2.edge();
 					if (e1 == e2 || !isBoundaryEdge(e2) || linkedEdges.bitAt(e2))
 						continue;
-					if (!areColocal(m_indices[m_edges[e1].index1], m_indices[m_edges[e2].index1]))
+					if (!areColocal(m_indices[meshEdgeIndex1(e1)], m_indices[meshEdgeIndex1(e2)]))
 						continue;
 					swap(m_nextBoundaryEdges[e1], m_nextBoundaryEdges[e2]);
 					linkedEdges.setBitAt(e1);
@@ -3161,17 +3152,17 @@ public:
 	}
 
 	/// Find edge, test all colocals.
-	const Edge *findEdge(uint32_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
+	uint32_t findEdge(uint32_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
 	{
-		const Edge *result = nullptr;
+		uint32_t result = UINT32_MAX;
 		if (m_nextColocalVertex.isEmpty()) {
 			EdgeKey key(vertex0, vertex1);
 			uint32_t mapEdgeIndex = m_edgeMap.get(key);
 			while (mapEdgeIndex != UINT32_MAX) {
-				const Edge *edge = &m_edges[m_edgeMap.value(mapEdgeIndex)];
+				const uint32_t edge = m_edgeMap.value(mapEdgeIndex);
 				// Don't find edges of ignored faces.
-				if ((faceGroup == UINT32_MAX || m_faceGroups[edge->face] == faceGroup) && !(m_faceFlags[edge->face] & FaceFlags::Ignore)) {
-					//XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && !result)); // duplicate edge - ignore on initial meshes
+				if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !(m_faceFlags[meshEdgeFace(edge)] & FaceFlags::Ignore)) {
+					//XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 					result = edge;
 #if !XA_DEBUG
 					return result;
@@ -3185,10 +3176,10 @@ public:
 					EdgeKey key(it0.vertex(), it1.vertex());
 					uint32_t mapEdgeIndex = m_edgeMap.get(key);
 					while (mapEdgeIndex != UINT32_MAX) {
-						const Edge *edge = &m_edges[m_edgeMap.value(mapEdgeIndex)];
+						const uint32_t edge = m_edgeMap.value(mapEdgeIndex);
 						// Don't find edges of ignored faces.
-						if ((faceGroup == UINT32_MAX || m_faceGroups[edge->face] == faceGroup) && !(m_faceFlags[edge->face] & FaceFlags::Ignore)) {
-							XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && !result)); // duplicate edge - ignore on initial meshes
+						if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !(m_faceFlags[meshEdgeFace(edge)] & FaceFlags::Ignore)) {
+							XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 							result = edge;
 #if !XA_DEBUG
 							return result;
@@ -3360,9 +3351,11 @@ public:
 		const uint32_t oppositeEdge = m_oppositeEdges[edge];
 		if (oppositeEdge == UINT32_MAX)
 			return false; // boundary edge
-		const Edge &e = m_edges[edge];
-		const Edge &oe = m_edges[oppositeEdge];
-		return m_indices[e.index0] != m_indices[oe.index1] || m_indices[e.index1] != m_indices[oe.index0];
+		const uint32_t e0 = meshEdgeIndex0(edge);
+		const uint32_t e1 = meshEdgeIndex1(edge);
+		const uint32_t oe0 = meshEdgeIndex0(oppositeEdge);
+		const uint32_t oe1 = meshEdgeIndex1(oppositeEdge);
+		return m_indices[e0] != m_indices[oe1] || m_indices[e1] != m_indices[oe0];
 	}
 
 	bool isNormalSeam(uint32_t edge) const
@@ -3370,12 +3363,15 @@ public:
 		const uint32_t oppositeEdge = m_oppositeEdges[edge];
 		if (oppositeEdge == UINT32_MAX)
 			return false; // boundary edge
-		const Edge &e = m_edges[edge];
-		const Edge &oe = m_edges[oppositeEdge];
-		if (m_flags & MeshFlags::HasNormals)
-			return m_normals[m_indices[e.index0]] != m_normals[m_indices[oe.index1]] || m_normals[m_indices[e.index1]] != m_normals[m_indices[oe.index0]];
+		if (m_flags & MeshFlags::HasNormals) {
+			const uint32_t e0 = meshEdgeIndex0(edge);
+			const uint32_t e1 = meshEdgeIndex1(edge);
+			const uint32_t oe0 = meshEdgeIndex0(oppositeEdge);
+			const uint32_t oe1 = meshEdgeIndex1(oppositeEdge);
+			return m_normals[m_indices[e0]] != m_normals[m_indices[oe1]] || m_normals[m_indices[e1]] != m_normals[m_indices[oe0]];
+		}
 		XA_DEBUG_ASSERT(!m_faceNormals.isEmpty());
-		return m_faceNormals[e.face] != m_faceNormals[oe.face];
+		return m_faceNormals[meshEdgeFace(edge)] != m_faceNormals[meshEdgeFace(oppositeEdge)];
 	}
 
 	bool isTextureSeam(uint32_t edge) const
@@ -3383,9 +3379,11 @@ public:
 		const uint32_t oppositeEdge = m_oppositeEdges[edge];
 		if (oppositeEdge == UINT32_MAX)
 			return false; // boundary edge
-		const Edge &e = m_edges[edge];
-		const Edge &oe = m_edges[oppositeEdge];
-		return m_texcoords[m_indices[e.index0]] != m_texcoords[m_indices[oe.index1]] || m_texcoords[m_indices[e.index1]] != m_texcoords[m_indices[oe.index0]];
+		const uint32_t e0 = meshEdgeIndex0(edge);
+		const uint32_t e1 = meshEdgeIndex1(edge);
+		const uint32_t oe0 = meshEdgeIndex0(oppositeEdge);
+		const uint32_t oe1 = meshEdgeIndex1(oppositeEdge);
+		return m_texcoords[m_indices[e0]] != m_texcoords[m_indices[oe1]] || m_texcoords[m_indices[e1]] != m_texcoords[m_indices[oe0]];
 	}
 
 	uint32_t firstColocal(uint32_t vertex) const
@@ -3410,8 +3408,7 @@ public:
 		return false;
 	}
 
-	uint32_t edgeCount() const { return m_edges.size(); }
-	const Edge *edgeAt(uint32_t edge) const { return &m_edges[edge]; }
+	uint32_t edgeCount() const { return m_indices.size(); }
 	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
 	bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
 	bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
@@ -3432,9 +3429,9 @@ public:
 	uint32_t indexCount() const { return m_indices.size(); }
 
 private:
+
 	uint32_t m_flags;
 	uint32_t m_id;
-	Array<Edge> m_edges;
 	Array<uint32_t> m_faceFlags;
 	Array<uint32_t> m_faceGroups;
 	Array<Vector3> m_faceNormals;
@@ -3613,8 +3610,8 @@ public:
 
 		bool isIgnoredFace() const
 		{
-			const Edge *edge = &m_mesh->m_edges[m_mesh->m_edgeMap.value(m_mapEdgeIndex)];
-			return (m_mesh->m_faceFlags[edge->face] & FaceFlags::Ignore) != 0;
+			const uint32_t edge = m_mesh->m_edgeMap.value(m_mapEdgeIndex);
+			return (m_mesh->m_faceFlags[meshEdgeFace(edge)] & FaceFlags::Ignore) != 0;
 		}
 
 		const Mesh *m_mesh;
@@ -3658,7 +3655,7 @@ public:
 			const uint32_t oedge = m_mesh->m_oppositeEdges[m_edge];
 			if (oedge == UINT32_MAX)
 				return UINT32_MAX;
-			return m_mesh->m_edges[oedge].face;
+			return meshEdgeFace(oedge);
 		}
 
 		uint32_t vertex0() const
@@ -3755,9 +3752,8 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 		for (uint32_t e = 0; e < edgeCount; e++) {
 			if (!inputMesh.isBoundaryEdge(e))
 				continue;
-			const Edge *edge = inputMesh.edgeAt(e);
-			const Vector3 &x1 = inputMesh.position(inputMesh.vertexAt(edge->index0));
-			const Vector3 &x2 = inputMesh.position(inputMesh.vertexAt(edge->index1));
+			const Vector3 &x1 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex0(e)));
+			const Vector3 &x2 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex1(e)));
 			if (x1 == x0 || x2 == x0)
 				continue; // Vertex lies on either edge vertex.
 			const Vector3 v01 = x0 - x1;
@@ -3786,11 +3782,12 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 		mesh->addVertex(inputMesh.position(v), Vector3(0.0f), inputMesh.texcoord(v));
 	for (uint32_t se = 0; se < splitEdges.size(); se++) {
 		const SplitEdge &splitEdge = splitEdges[se];
-		const Edge *edge = inputMesh.edgeAt(splitEdge.edge);
+		const uint32_t vertex0 = inputMesh.vertexAt(meshEdgeIndex0(splitEdge.edge));
+		const uint32_t vertex1 = inputMesh.vertexAt(meshEdgeIndex1(splitEdge.edge));
 		Vector3 normal(0.0f);
 		if (inputMesh.flags() & MeshFlags::HasNormals)
-			normal = lerp(inputMesh.normal(inputMesh.vertexAt(edge->index0)), inputMesh.normal(inputMesh.vertexAt(edge->index1)), splitEdge.t);
-		const Vector2 texcoord = lerp(inputMesh.texcoord(inputMesh.vertexAt(edge->index0)), inputMesh.texcoord(inputMesh.vertexAt(edge->index1)), splitEdge.t);
+			normal = lerp(inputMesh.normal(vertex0), inputMesh.normal(vertex1), splitEdge.t);
+		const Vector2 texcoord = lerp(inputMesh.texcoord(vertex0), inputMesh.texcoord(vertex1), splitEdge.t);
 		mesh->addVertex(inputMesh.position(splitEdge.vertex), normal, texcoord);
 	}
 	Array<uint32_t> indexArray;
@@ -3801,7 +3798,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 		// Find t-junctions in this face.
 		faceSplitEdges.clear();
 		for (uint32_t i = 0; i < splitEdges.size(); i++) {
-			if (inputMesh.edgeAt(splitEdges[i].edge)->face == f)
+			if (meshEdgeFace(splitEdges[i].edge) == f)
 				faceSplitEdges.push_back(splitEdges[i]);
 		}
 		// Need to split edges in winding order when a single edge has multiple t-junctions.
@@ -3926,9 +3923,8 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 		float boundaryLength = 0.0f;
 		boundaryEdgeCounts[i] = 0;
 		for (Mesh::BoundaryEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
-			const Edge *edge = mesh->edgeAt(it.edge());
-			const Vector3 &t0 = mesh->position(mesh->vertexAt(edge->index0));
-			const Vector3 &t1 = mesh->position(mesh->vertexAt(edge->index1));
+			const Vector3 &t0 = mesh->position(mesh->vertexAt(meshEdgeIndex0(it.edge())));
+			const Vector3 &t1 = mesh->position(mesh->vertexAt(meshEdgeIndex1(it.edge())));
 			boundaryLength += length(t1 - t0);
 			boundaryEdgeCounts[i]++;
 		}
@@ -3954,8 +3950,7 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 		// Winding is backwards for internal boundaries.
 		uint32_t e = 0;
 		for (Mesh::BoundaryEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
-			const Edge *edge = mesh->edgeAt(it.edge());
-			const uint32_t vertex = mesh->vertexAt(edge->index0);
+			const uint32_t vertex = mesh->vertexAt(meshEdgeIndex0(it.edge()));
 			holeVertices[boundaryEdgeCounts[i] - 1 - e] = vertex;
 			holePoints[boundaryEdgeCounts[i] - 1 - e] = mesh->position(vertex);
 			e++;
@@ -5803,18 +5798,17 @@ private:
 				continue;
 			// Make sure it's a normal seam.
 			if (it.isNormalSeam()) {
-				const Edge *oedge = m_mesh->edgeAt(it.oppositeEdge());
 				float d;
 				if (m_mesh->flags() & MeshFlags::HasNormals) {
 					const Vector3 &n0 = m_mesh->normal(it.vertex0());
 					const Vector3 &n1 = m_mesh->normal(it.vertex1());
-					const Vector3 &on0 = m_mesh->normal(m_mesh->vertexAt(oedge->index0));
-					const Vector3 &on1 = m_mesh->normal(m_mesh->vertexAt(oedge->index1));
+					const Vector3 &on0 = m_mesh->normal(m_mesh->vertexAt(meshEdgeIndex0(it.oppositeEdge())));
+					const Vector3 &on1 = m_mesh->normal(m_mesh->vertexAt(meshEdgeIndex1(it.oppositeEdge())));
 					const float d0 = clamp(dot(n0, on1), 0.0f, 1.0f);
 					const float d1 = clamp(dot(n1, on0), 0.0f, 1.0f);
 					d = (d0 + d1) * 0.5f;
 				} else {
-					d = clamp(dot(m_mesh->faceNormalAt(f), m_mesh->faceNormalAt(oedge->face)), 0.0f, 1.0f);
+					d = clamp(dot(m_mesh->faceNormalAt(f), m_mesh->faceNormalAt(meshEdgeFace(it.oppositeEdge()))), 0.0f, 1.0f);
 				}
 				l *= 1 - d;
 				seamFactor += l;
@@ -6007,10 +6001,10 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 			// Skip self and edges directly connected to edge1.
 			if (edge1 == edge2 || it1.nextEdge() == edge2 || it2.nextEdge() == edge1)
 				continue;
-			const Vector2 &a1 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge1)->index0));
-			const Vector2 &a2 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge1)->index1));
-			const Vector2 &b1 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge2)->index0));
-			const Vector2 &b2 = mesh->texcoord(mesh->vertexAt(mesh->edgeAt(edge2)->index1));
+			const Vector2 &a1 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex0(edge1)));
+			const Vector2 &a2 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex1(edge1)));
+			const Vector2 &b1 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex0(edge2)));
+			const Vector2 &b2 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex1(edge2)));
 			if (linesIntersect(a1, a2, b1, b2)) {
 				quality.boundaryIntersection = true;
 				break;
