@@ -236,6 +236,9 @@ struct ProfileData
 	std::atomic<clock_t> atlasBuilderMergeCharts;
 	std::atomic<clock_t> createChartMeshes;
 	std::atomic<clock_t> closeChartMeshHoles;
+	clock_t packCharts;
+	clock_t packChartsRasterize;
+	clock_t packChartsFindLocation;
 };
 
 static ProfileData s_profile;
@@ -7285,6 +7288,7 @@ struct AtlasPacker
 			//   \ / \ / \ /
 			//    V   V   V
 			//    0   1   2
+			XA_PROFILE_START(packChartsRasterize)
 			if (options.conservative) {
 				// Init all bits to 0.
 				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, true);  // + 2 to add padding on both sides.
@@ -7296,6 +7300,7 @@ struct AtlasPacker
 				// Rasterize chart and dilate.
 				drawChartBitImage(chart, &chartBitImage, Vector2(1), Vector2(0.5));
 			}
+			XA_PROFILE_END(packChartsRasterize)
 			uint32_t currentBitImageIndex = 0;
 			int best_x = 0, best_y = 0;
 			int best_cw = 0, best_ch = 0;   // Includes padding now.
@@ -7314,7 +7319,9 @@ struct AtlasPacker
 					debugAtlasImages.push_back(di);
 #endif
 				}
+				XA_PROFILE_START(packChartsFindLocation)
 				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, options.resolution <= 0, chart->allowRotate);
+				XA_PROFILE_END(packChartsFindLocation)
 				if (firstChartInBitImage && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitImage. texelsPerUnit must be too large for the resolution.
 					XA_ASSERT(true && "chart doesn't fit");
@@ -8246,8 +8253,10 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 		for (uint32_t i = 0; i < ctx->paramAtlas.chartCount(); i++)
 			packer.addChart(ctx->paramAtlas.chartAt(i));
 	}
+	XA_PROFILE_START(packCharts)
 	if (!packer.packCharts(packOptions, progressFunc, progressUserData))
 		return;
+	XA_PROFILE_END(packCharts)
 	// Populate atlas object with packer results.
 	atlas->atlasCount = packer.getNumAtlases();
 	atlas->chartCount = packer.getChartCount();
@@ -8259,6 +8268,14 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 		for (uint32_t i = 0; i < atlas->atlasCount; i++)
 			atlas->utilization[i] = packer.computeAtlasUtilization(i);
 	}
+	XA_PROFILE_PRINT("   Total: ", packCharts)
+	XA_PROFILE_PRINT("      Rasterize: ", packChartsRasterize)
+	XA_PROFILE_PRINT("      Find location: ", packChartsFindLocation)
+#if XA_PROFILE
+	internal::s_profile.packCharts = 0;
+	internal::s_profile.packChartsRasterize = 0;
+	internal::s_profile.packChartsFindLocation = 0;
+#endif
 	XA_PRINT("Building output meshes\n");
 	int progress = 0;
 	if (progressFunc) {
