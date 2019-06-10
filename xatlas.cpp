@@ -1144,20 +1144,25 @@ public:
 	uint32_t width() const { return m_width; }
 	uint32_t height() const { return m_height; }
 
-	void resize(uint32_t w, uint32_t h)
+	void resize(uint32_t w, uint32_t h, bool discard)
 	{
-		Array<uint64_t> tmp;
 		const uint32_t rowStride = (w + 63) >> 6;
-		tmp.resize(rowStride * h);
-		memset(tmp.data(), 0, tmp.size() * sizeof(uint64_t));
-		// If only height has changed, can copy all rows at once.
-		if (rowStride == m_rowStride) {
-			memcpy(tmp.data(), m_data.data(), m_rowStride * min(m_height, h) * sizeof(uint64_t));
-		} else if (m_width > 0 && m_height > 0) {
-			for (uint32_t i = 0; i < h; i++)
-				memcpy(&tmp[i * rowStride], &m_data[i * m_rowStride], min(rowStride, m_rowStride) * sizeof(uint64_t));
+		if (discard) {
+			m_data.resize(rowStride * h);
+			memset(m_data.data(), 0, m_data.size() * sizeof(uint64_t));
+		} else {
+			Array<uint64_t> tmp;
+			tmp.resize(rowStride * h);
+			memset(tmp.data(), 0, tmp.size() * sizeof(uint64_t));
+			// If only height has changed, can copy all rows at once.
+			if (rowStride == m_rowStride) {
+				memcpy(tmp.data(), m_data.data(), m_rowStride * min(m_height, h) * sizeof(uint64_t));
+			} else if (m_width > 0 && m_height > 0) {
+				for (uint32_t i = 0; i < h; i++)
+					memcpy(&tmp[i * rowStride], &m_data[i * m_rowStride], min(rowStride, m_rowStride) * sizeof(uint64_t));
+			}
+			tmp.moveTo(m_data);
 		}
-		tmp.moveTo(m_data);
 		m_width = w;
 		m_height = h;
 		m_rowStride = rowStride;
@@ -7262,12 +7267,12 @@ struct AtlasPacker
 		Array<DebugAtlasImage *> debugAtlasImages;
 #endif
 		// Add sorted charts to bitImage.
+		BitImage chartBitImage;
 		int w = 0, h = 0;
 		int progress = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 			AtlasPackerChart *chart = m_charts[c];
-			BitImage chartBitImage;
 			// @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
 			// @@ We could also have a special case for chart quads. If the quad surface <= 4 texels, align vertices with texel centers and do not add padding. May be very useful for foliage.
 			// @@ In general we could reduce the padding of all charts by one texel by using a rasterizer that takes into account the 2-texel footprint of the tent bilinear filter. For example,
@@ -7282,12 +7287,12 @@ struct AtlasPacker
 			//    0   1   2
 			if (options.conservative) {
 				// Init all bits to 0.
-				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding);  // + 2 to add padding on both sides.
+				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, true);  // + 2 to add padding on both sides.
 				// Rasterize chart and dilate.
 				drawChartBitImageDilate(chart, &chartBitImage, options.padding);
 			} else {
 				// Init all bits to 0.
-				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1);  // Add half a texels on each side.
+				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1, true);  // Add half a texels on each side.
 				// Rasterize chart and dilate.
 				drawChartBitImage(chart, &chartBitImage, Vector2(1), Vector2(0.5));
 			}
@@ -7301,8 +7306,7 @@ struct AtlasPacker
 				if (currentBitImageIndex + 1 > m_bitImages.size()) {
 					// Chart doesn't fit in the current bitImage, create a new one.
 					BitImage *bi = XA_NEW(BitImage);
-					bi->clearAll();
-					bi->resize(resolution, resolution);
+					bi->resize(resolution, resolution, true);
 					m_bitImages.push_back(bi);
 					firstChartInBitImage = true;
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
@@ -7331,7 +7335,7 @@ struct AtlasPacker
 			if (options.resolution <= 0) {
 				// Resize bitImage if necessary.
 				if (uint32_t(w) > m_bitImages[0]->width() || uint32_t(h) > m_bitImages[0]->height()) {
-					m_bitImages[0]->resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)));
+					m_bitImages[0]->resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 					debugAtlasImages[0]->resize(m_bitImages[0]->width(), m_bitImages[0]->height());
 #endif
