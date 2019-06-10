@@ -1163,12 +1163,6 @@ public:
 		m_rowStride = rowStride;
 	}
 
-	void destroy()
-	{
-		m_data.destroy();
-		m_width = m_height = m_rowStride = 0;
-	}
-
 	bool bitAt(uint32_t x, uint32_t y) const
 	{
 		XA_DEBUG_ASSERT(x < m_width && y < m_height);
@@ -1187,15 +1181,6 @@ public:
 	void clearAll()
 	{
 		memset(m_data.data(), 0, m_data.size() * sizeof(uint64_t));
-	}
-
-	void moveTo(BitImage &other)
-	{
-		other.destroy();
-		m_data.moveTo(other.m_data);
-		swap(m_width, other.m_width);
-		swap(m_height, other.m_height);
-		swap(m_rowStride, other.m_rowStride);
 	}
 
 private:
