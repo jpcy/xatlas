@@ -532,8 +532,14 @@ int main(int /*argc*/, char ** /*argv*/)
 							ImGui::SameLine();
 							ImGui::RadioButton("Lightmap only", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapOnly);
 						}
-						if (g_options.shadeMode == ShadeMode::Charts)
+						if (g_options.shadeMode == ShadeMode::Charts) {
+							ImGui::Text("Chart color mode");
+							ImGui::SameLine();
+							ImGui::RadioButton("Individual", (int *)&g_options.chartColorMode, (int)ChartColorMode::Individual);
+							ImGui::SameLine();
+							ImGui::RadioButton("Invalid", (int *)&g_options.chartColorMode, (int)ChartColorMode::Invalid);
 							ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
+						}
 						if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly)
 							ImGui::Checkbox("Lightmap point sampling", &g_options.lightmapPointSampling);
 					}

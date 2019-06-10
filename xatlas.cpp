@@ -8353,6 +8353,9 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 						const int32_t atlasIndex = packer.getChart(chartIndex)->atlasIndex;
 						XA_DEBUG_ASSERT(atlasIndex >= 0);
 						outputChart->atlasIndex = (uint32_t)atlasIndex;
+						outputChart->flags = 0;
+						if (chart->paramQuality().boundaryIntersection || chart->paramQuality().flippedTriangleCount > 0)
+							outputChart->flags |= ChartFlags::Invalid;
 						outputChart->indexCount = mesh->faceCount() * 3;
 						outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
 						for (uint32_t f = 0; f < mesh->faceCount(); f++) {

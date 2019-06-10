@@ -35,10 +35,19 @@ Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
 
 namespace xatlas {
 
+struct ChartFlags
+{
+	enum
+	{
+		Invalid = 1 << 0
+	};
+};
+
 // A group of connected faces, belonging to a single atlas.
 struct Chart
 {
 	uint32_t atlasIndex; // Sub-atlas index.
+	uint32_t flags;
 	uint32_t *indexArray;
 	uint32_t indexCount;
 };

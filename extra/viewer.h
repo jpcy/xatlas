@@ -154,12 +154,19 @@ enum class WireframeMode
 	Triangles
 };
 
+enum class ChartColorMode
+{
+	Individual,
+	Invalid
+};
+
 struct Options
 {
 	bool gui = true;
 	bool wireframe = true;
 	ShadeMode shadeMode = ShadeMode::Flat;
 	WireframeMode wireframeMode = WireframeMode::Triangles;
+	ChartColorMode chartColorMode = ChartColorMode::Individual;
 	int chartCellSize = 1;
 	bool lightmapPointSampling = false;
 	bool showAtlasWindow = true;

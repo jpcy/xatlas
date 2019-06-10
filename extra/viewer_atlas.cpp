@@ -676,6 +676,7 @@ void atlasFinalize()
 	s_atlas.currentTexture = 0;
 	g_options.shadeMode = ShadeMode::Charts;
 	g_options.wireframeMode = WireframeMode::Charts;
+	g_options.chartColorMode = ChartColorMode::Individual;
 	s_atlas.status.set(AtlasStatus::Ready);
 }
 
@@ -687,13 +688,17 @@ void atlasRenderCharts(const float *modelMatrix)
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
+			float color[4];
 			uint8_t bcolor[3];
 			randomRGB(bcolor);
-			float color[4];
 			color[0] = bcolor[0] / 255.0f;
 			color[1] = bcolor[1] / 255.0f;
 			color[2] = bcolor[2] / 255.0f;
 			color[3] = 1.0f;
+			if (g_options.chartColorMode == ChartColorMode::Invalid) {
+				if (!(chart.flags & xatlas::ChartFlags::Invalid))
+					color[0] = color[1] = color[2] = 0.75f;
+			}
 			bgfx::setUniform(s_atlas.u_color, color);
 			float textureSize_cellSize[4];
 			textureSize_cellSize[0] = (float)s_atlas.data->width;
