@@ -209,10 +209,7 @@ struct PackOptions
 	// Align charts to 4x4 blocks. 
 	bool blockAlign = false;
 
-	// Pack charts with extra padding.
-	bool conservative = false;
-
-	// Number of pixels to pad. conservative must be true.
+	// Number of pixels to pad charts with.
 	uint32_t padding = 0;
 };
 

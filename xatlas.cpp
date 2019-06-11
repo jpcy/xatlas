@@ -336,11 +336,6 @@ static int ftoi_ceil(float val)
 	return (int)ceilf(val);
 }
 
-static int ftoi_round(float f)
-{
-	return int(floorf(f + 0.5f));
-}
-
 static bool isZero(const float f, const float epsilon = kEpsilon)
 {
 	return fabs(f) <= epsilon;
@@ -461,10 +456,10 @@ static Vector2 operator*(const Vector2 &v, float s)
 	return Vector2(v.x * s, v.y * s);
 }
 
-static Vector2 operator*(const Vector2 &v1, const Vector2 &v2)
+/*static Vector2 operator*(const Vector2 &v1, const Vector2 &v2)
 {
 	return Vector2(v1.x * v2.x, v1.y * v2.y);
-}
+}*/
 
 static Vector2 lerp(const Vector2 &v1, const Vector2 &v2, float t)
 {
@@ -4188,137 +4183,6 @@ struct Triangle
 		return true;
 	}
 
-	bool draw(const Vector2 &extents, bool enableScissors, SamplingCallback cb, void *param)
-	{
-		// 28.4 fixed-point coordinates
-		const int Y1 = ftoi_round(16.0f * v1.y);
-		const int Y2 = ftoi_round(16.0f * v2.y);
-		const int Y3 = ftoi_round(16.0f * v3.y);
-		const int X1 = ftoi_round(16.0f * v1.x);
-		const int X2 = ftoi_round(16.0f * v2.x);
-		const int X3 = ftoi_round(16.0f * v3.x);
-		// Deltas
-		const int DX12 = X1 - X2;
-		const int DX23 = X2 - X3;
-		const int DX31 = X3 - X1;
-		const int DY12 = Y1 - Y2;
-		const int DY23 = Y2 - Y3;
-		const int DY31 = Y3 - Y1;
-		// Fixed-point deltas
-		const int FDX12 = DX12 << 4;
-		const int FDX23 = DX23 << 4;
-		const int FDX31 = DX31 << 4;
-		const int FDY12 = DY12 << 4;
-		const int FDY23 = DY23 << 4;
-		const int FDY31 = DY31 << 4;
-		int minx, miny, maxx, maxy;
-		if (enableScissors) {
-			int frustumX0 =  0 << 4;
-			int frustumY0 =  0 << 4;
-			int frustumX1 =  (int)extents.x << 4;
-			int frustumY1 =  (int)extents.y << 4;
-			// Bounding rectangle
-			minx = (max(min3(X1, X2, X3), frustumX0) + 0xF) >> 4;
-			miny = (max(min3(Y1, Y2, Y3), frustumY0) + 0xF) >> 4;
-			maxx = (min(max3(X1, X2, X3), frustumX1) + 0xF) >> 4;
-			maxy = (min(max3(Y1, Y2, Y3), frustumY1) + 0xF) >> 4;
-		} else {
-			// Bounding rectangle
-			minx = (min3(X1, X2, X3) + 0xF) >> 4;
-			miny = (min3(Y1, Y2, Y3) + 0xF) >> 4;
-			maxx = (max3(X1, X2, X3) + 0xF) >> 4;
-			maxy = (max3(Y1, Y2, Y3) + 0xF) >> 4;
-		}
-		// Block size, standard 8x8 (must be power of two)
-		const int q = 8;
-		// @@ This won't work when minx,miny are negative. This code path is not used. Leaving as is for now.
-		XA_ASSERT(minx >= 0);
-		XA_ASSERT(miny >= 0);
-		// Start in corner of 8x8 block
-		minx &= ~(q - 1);
-		miny &= ~(q - 1);
-		// Half-edge constants
-		int C1 = DY12 * X1 - DX12 * Y1;
-		int C2 = DY23 * X2 - DX23 * Y2;
-		int C3 = DY31 * X3 - DX31 * Y3;
-		// Correct for fill convention
-		if (DY12 < 0 || (DY12 == 0 && DX12 > 0)) C1++;
-		if (DY23 < 0 || (DY23 == 0 && DX23 > 0)) C2++;
-		if (DY31 < 0 || (DY31 == 0 && DX31 > 0)) C3++;
-		// Loop through blocks
-		for (int y = miny; y < maxy; y += q) {
-			for (int x = minx; x < maxx; x += q) {
-				// Corners of block
-				int x0 = x << 4;
-				int x1 = (x + q - 1) << 4;
-				int y0 = y << 4;
-				int y1 = (y + q - 1) << 4;
-				// Evaluate half-space functions
-				bool a00 = C1 + DX12 * y0 - DY12 * x0 > 0;
-				bool a10 = C1 + DX12 * y0 - DY12 * x1 > 0;
-				bool a01 = C1 + DX12 * y1 - DY12 * x0 > 0;
-				bool a11 = C1 + DX12 * y1 - DY12 * x1 > 0;
-				int a = (a00 << 0) | (a10 << 1) | (a01 << 2) | (a11 << 3);
-				bool b00 = C2 + DX23 * y0 - DY23 * x0 > 0;
-				bool b10 = C2 + DX23 * y0 - DY23 * x1 > 0;
-				bool b01 = C2 + DX23 * y1 - DY23 * x0 > 0;
-				bool b11 = C2 + DX23 * y1 - DY23 * x1 > 0;
-				int b = (b00 << 0) | (b10 << 1) | (b01 << 2) | (b11 << 3);
-				bool c00 = C3 + DX31 * y0 - DY31 * x0 > 0;
-				bool c10 = C3 + DX31 * y0 - DY31 * x1 > 0;
-				bool c01 = C3 + DX31 * y1 - DY31 * x0 > 0;
-				bool c11 = C3 + DX31 * y1 - DY31 * x1 > 0;
-				int c = (c00 << 0) | (c10 << 1) | (c01 << 2) | (c11 << 3);
-				// Skip block when outside an edge
-				if (a == 0x0 || b == 0x0 || c == 0x0) continue;
-				// Accept whole block when totally covered
-				if (a == 0xF && b == 0xF && c == 0xF) {
-					Vector3 texRow = t1 + dy * (y0 - v1.y) + dx * (x0 - v1.x);
-					for (int iy = y; iy < y + q; iy++) {
-						Vector3 tex = texRow;
-						for (int ix = x; ix < x + q; ix++) {
-							//Vector3 tex = t1 + dx * (ix - v1.x) + dy * (iy - v1.y);
-							if (!cb(param, ix, iy, tex, dx, dy, 1.0)) {
-								// early out.
-								return false;
-							}
-							tex += dx;
-						}
-						texRow += dy;
-					}
-				} else { // Partially covered block
-					int CY1 = C1 + DX12 * y0 - DY12 * x0;
-					int CY2 = C2 + DX23 * y0 - DY23 * x0;
-					int CY3 = C3 + DX31 * y0 - DY31 * x0;
-					Vector3 texRow = t1 + dy * (y0 - v1.y) + dx * (x0 - v1.x);
-					for (int iy = y; iy < y + q; iy++) {
-						int CX1 = CY1;
-						int CX2 = CY2;
-						int CX3 = CY3;
-						Vector3 tex = texRow;
-						for (int ix = x; ix < x + q; ix++) {
-							if (CX1 > 0 && CX2 > 0 && CX3 > 0) {
-								if (!cb(param, ix, iy, tex, dx, dy, 1.0)) {
-									// early out.
-									return false;
-								}
-							}
-							CX1 -= FDY12;
-							CX2 -= FDY23;
-							CX3 -= FDY31;
-							tex += dx;
-						}
-						CY1 += FDX12;
-						CY2 += FDX23;
-						CY3 += FDX31;
-						texRow += dy;
-					}
-				}
-			}
-		}
-		return true;
-	}
-
 	// extents has to be multiple of BK_SIZE!!
 	bool drawAA(const Vector2 &extents, bool enableScissors, SamplingCallback cb, void *param)
 	{
@@ -4469,26 +4333,14 @@ struct Triangle
 	bool valid;
 };
 
-enum Mode
-{
-	Mode_Nearest,
-	Mode_Antialiased
-};
-
 // Process the given triangle. Returns false if rasterization was interrupted by the callback.
-static bool drawTriangle(Mode mode, const Vector2 &extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void *param)
+static bool drawTriangle(const Vector2 &extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void *param)
 {
 	Triangle tri(v[0], v[1], v[2], Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1));
 	// @@ It would be nice to have a conservative drawing mode that enlarges the triangle extents by one texel and is able to handle degenerate triangles.
 	// @@ Maybe the simplest thing to do would be raster triangle edges.
-	if (tri.valid) {
-		if (mode == Mode_Antialiased) {
-			return tri.drawAA(extents, enableScissors, cb, param);
-		}
-		if (mode == Mode_Nearest) {
-			return tri.draw(extents, enableScissors, cb, param);
-		}
-	}
+	if (tri.valid)
+		return tri.drawAA(extents, enableScissors, cb, param);
 	return true;
 }
 
@@ -7223,11 +7075,7 @@ struct AtlasPacker
 				int cw = ftoi_ceil(extents.x);
 				if (options.blockAlign) {
 					// Align all chart extents to 4x4 blocks, but taking padding into account.
-					if (options.conservative) {
-						cw = align(cw + 2, 4) - 2;
-					} else {
-						cw = align(cw + 1, 4) - 1;
-					}
+					cw = align(cw + 2, 4) - 2;
 				}
 				scale_x = (float(cw) - kEpsilon);
 				divide_x = extents.x;
@@ -7237,11 +7085,7 @@ struct AtlasPacker
 				int ch = ftoi_ceil(extents.y);
 				if (options.blockAlign) {
 					// Align all chart extents to 4x4 blocks, but taking padding into account.
-					if (options.conservative) {
-						ch = align(ch + 2, 4) - 2;
-					} else {
-						ch = align(ch + 1, 4) - 1;
-					}
+					ch = align(ch + 2, 4) - 2;
 				}
 				scale_y = (float(ch) - kEpsilon);
 				divide_y = extents.y;
@@ -7289,17 +7133,10 @@ struct AtlasPacker
 			//    V   V   V
 			//    0   1   2
 			XA_PROFILE_START(packChartsRasterize)
-			if (options.conservative) {
-				// Init all bits to 0.
-				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, true);  // + 2 to add padding on both sides.
-				// Rasterize chart and dilate.
-				drawChartBitImageDilate(chart, &chartBitImage, options.padding);
-			} else {
-				// Init all bits to 0.
-				chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1, ftoi_ceil(chartExtents[c].y) + 1, true);  // Add half a texels on each side.
-				// Rasterize chart and dilate.
-				drawChartBitImage(chart, &chartBitImage, Vector2(1), Vector2(0.5));
-			}
+			// Init all bits to 0.
+			chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, true);  // + 2 to add padding on both sides.
+			// Rasterize chart and dilate.
+			drawChartBitImageDilate(chart, &chartBitImage, options.padding);
 			XA_PROFILE_END(packChartsRasterize)
 			uint32_t currentBitImageIndex = 0;
 			int best_x = 0, best_y = 0;
@@ -7555,89 +7392,36 @@ private:
 				XA_ASSERT(ftoi_ceil(vertices[i].x) <= (int)w);
 				XA_ASSERT(ftoi_ceil(vertices[i].y) <= (int)h);
 			}
-			raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitImage);
+			raster::drawTriangle(extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitImage);
 		}
 		// Expand chart by padding pixels. (dilation)
-		BitImage tmp(w, h);
-		for (uint32_t i = 0; i < padding; i++) {
-			tmp.clearAll();
-			for (uint32_t y = 0; y < h; y++) {
-				for (uint32_t x = 0; x < w; x++) {
-					bool b = bitImage->bitAt(x, y);
-					if (!b) {
-						if (x > 0) {
-							b |= bitImage->bitAt(x - 1, y);
-							if (y > 0) b |= bitImage->bitAt(x - 1, y - 1);
-							if (y < h - 1) b |= bitImage->bitAt(x - 1, y + 1);
+		if (padding > 0) {
+			BitImage tmp(w, h);
+			for (uint32_t i = 0; i < padding; i++) {
+				tmp.clearAll();
+				for (uint32_t y = 0; y < h; y++) {
+					for (uint32_t x = 0; x < w; x++) {
+						bool b = bitImage->bitAt(x, y);
+						if (!b) {
+							if (x > 0) {
+								b |= bitImage->bitAt(x - 1, y);
+								if (y > 0) b |= bitImage->bitAt(x - 1, y - 1);
+								if (y < h - 1) b |= bitImage->bitAt(x - 1, y + 1);
+							}
+							if (y > 0) b |= bitImage->bitAt(x, y - 1);
+							if (y < h - 1) b |= bitImage->bitAt(x, y + 1);
+							if (x < w - 1) {
+								b |= bitImage->bitAt(x + 1, y);
+								if (y > 0) b |= bitImage->bitAt(x + 1, y - 1);
+								if (y < h - 1) b |= bitImage->bitAt(x + 1, y + 1);
+							}
 						}
-						if (y > 0) b |= bitImage->bitAt(x, y - 1);
-						if (y < h - 1) b |= bitImage->bitAt(x, y + 1);
-						if (x < w - 1) {
-							b |= bitImage->bitAt(x + 1, y);
-							if (y > 0) b |= bitImage->bitAt(x + 1, y - 1);
-							if (y < h - 1) b |= bitImage->bitAt(x + 1, y + 1);
-						}
-					}
-					if (b) tmp.setBitAt(x, y);
-				}
-			}
-			swap(tmp, *bitImage);
-		}
-	}
-
-	void drawChartBitImage(const AtlasPackerChart *chart, BitImage *bitImage, const Vector2 &scale, const Vector2 &offset)
-	{
-		const int w = bitImage->width();
-		const int h = bitImage->height();
-		const Vector2 extents = Vector2(float(w), float(h));
-		static const Vector2 pad[4] = {
-			Vector2(-0.5, -0.5),
-			Vector2(0.5, -0.5),
-			Vector2(-0.5, 0.5),
-			Vector2(0.5, 0.5)
-		};
-		// Rasterize 4 times to add proper padding.
-		for (int i = 0; i < 4; i++) {
-			// Rasterize chart faces, check that all bits are not set.
-			const uint32_t faceCount = chart->indexCount / 3;
-			for (uint32_t f = 0; f < faceCount; f++) {
-				Vector2 vertices[3];
-				for (uint32_t v = 0; v < 3; v++)
-					vertices[v] = chart->vertices[chart->indices[f * 3 + v]];
-				for (uint32_t v = 0; v < 3; v++) {
-					vertices[v] = vertices[v] * scale + offset + pad[i];
-					XA_ASSERT(ftoi_ceil(vertices[v].x) >= 0);
-					XA_ASSERT(ftoi_ceil(vertices[v].y) >= 0);
-					XA_ASSERT(ftoi_ceil(vertices[v].x) <= (int)w);
-					XA_ASSERT(ftoi_ceil(vertices[v].y) <= (int)h);
-					raster::drawTriangle(raster::Mode_Antialiased, extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitImage);
-				}
-			}
-		}
-		// Expand chart by padding pixels. (dilation)
-		BitImage tmp(w, h);
-		tmp.clearAll();
-		for (int y = 0; y < h; y++) {
-			for (int x = 0; x < w; x++) {
-				bool b = bitImage->bitAt(x, y);
-				if (!b) {
-					if (x > 0) {
-						b |= bitImage->bitAt(x - 1, y);
-						if (y > 0) b |= bitImage->bitAt(x - 1, y - 1);
-						if (y < h - 1) b |= bitImage->bitAt(x - 1, y + 1);
-					}
-					if (y > 0) b |= bitImage->bitAt(x, y - 1);
-					if (y < h - 1) b |= bitImage->bitAt(x, y + 1);
-					if (x < w - 1) {
-						b |= bitImage->bitAt(x + 1, y);
-						if (y > 0) b |= bitImage->bitAt(x + 1, y - 1);
-						if (y < h - 1) b |= bitImage->bitAt(x + 1, y + 1);
+						if (b) tmp.setBitAt(x, y);
 					}
 				}
-				if (b) tmp.setBitAt(x, y);
+				swap(tmp, *bitImage);
 			}
 		}
-		swap(tmp, *bitImage);
 	}
 
 	bool canAddChart(const BitImage *atlasBitImage, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)

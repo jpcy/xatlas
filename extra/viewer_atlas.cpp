@@ -152,7 +152,6 @@ static void clearPackOptions()
 {
 	s_atlas.packOptions = xatlas::PackOptions();
 	// Baking needs 1 pixel padding for dilate filter.
-	s_atlas.packOptions.conservative = true;
 	s_atlas.packOptions.padding = 1;
 }
 
@@ -789,8 +788,6 @@ void atlasShowGuiOptions()
 		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
 		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
 		changed |= ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
-		ImGui::SameLine();
-		changed |= ImGui::Checkbox("Conservative", &s_atlas.packOptions.conservative);
 		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.packOptions.padding, 0, 8);
 		if (ImGui::Button("Reset to default", buttonSize)) {
 			clearPackOptions();
