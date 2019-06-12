@@ -7183,7 +7183,7 @@ struct AtlasPacker
 			//    0   1   2
 			XA_PROFILE_START(packChartsRasterize)
 			// Leave room for padding.
-			chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + options.padding * 2, ftoi_ceil(chartExtents[c].y) + options.padding * 2, true);
+			chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding * 2, ftoi_ceil(chartExtents[c].y) + 1 + options.padding * 2, true);
 			if (chart->allowRotate)
 				chartBitImageRotated.resize(chartBitImage.height(), chartBitImage.width(), true);
 			// Rasterize chart faces.
@@ -7192,7 +7192,7 @@ struct AtlasPacker
 				// Offset vertices by padding.
 				Vector2 vertices[3];
 				for (uint32_t v = 0; v < 3; v++)
-					vertices[v] = chart->vertices[chart->indices[f * 3 + v]] + Vector2(float(options.padding));
+					vertices[v] = chart->vertices[chart->indices[f * 3 + v]] + Vector2(0.5f) + Vector2(float(options.padding));
 				DrawTriangleCallbackArgs args;
 				args.chartBitImage = &chartBitImage;
 				args.chartBitImageRotated = chart->allowRotate ? &chartBitImageRotated : nullptr;
