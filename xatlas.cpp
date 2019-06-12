@@ -7127,6 +7127,7 @@ struct AtlasPacker
 		// Add sorted charts to bitImage.
 		BitImage chartBitImage;
 		int atlasWidth = 0, atlasHeight = 0;
+		const bool resizableAtlas = !(options.resolution > 0 && options.texelsPerUnit > 0.0f);
 		int progress = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
@@ -7211,14 +7212,14 @@ struct AtlasPacker
 #endif
 				}
 				XA_PROFILE_START(packChartsFindLocation)
-				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], atlasWidth, atlasHeight, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, options.resolution <= 0, chart->allowRotate);
+				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], atlasWidth, atlasHeight, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, resizableAtlas, chart->allowRotate);
 				XA_PROFILE_END(packChartsFindLocation)
 				if (firstChartInBitImage && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitImage. texelsPerUnit must be too large for the resolution.
 					XA_ASSERT(true && "chart doesn't fit");
 					break;
 				}
-				if (options.resolution <= 0) {
+				if (resizableAtlas) {
 					XA_DEBUG_ASSERT(foundLocation);
 					break;
 				}
@@ -7230,7 +7231,7 @@ struct AtlasPacker
 			// Update parametric extents.
 			atlasWidth = max(atlasWidth, best_x + best_cw);
 			atlasHeight = max(atlasHeight, best_y + best_ch);
-			if (options.resolution <= 0) {
+			if (resizableAtlas) {
 				// Resize bitImage if necessary.
 				if (uint32_t(atlasWidth) > m_bitImages[0]->width() || uint32_t(atlasHeight) > m_bitImages[0]->height()) {
 					m_bitImages[0]->resize(nextPowerOfTwo(uint32_t(atlasWidth)), nextPowerOfTwo(uint32_t(atlasHeight)), false);
@@ -7271,10 +7272,12 @@ struct AtlasPacker
 				}
 			}
 		}
-		m_width = max(0, atlasWidth);
-		m_height = max(0, atlasHeight);
-		if (options.resolution > 0)
+		if (resizableAtlas) {
+			m_width = max(0, atlasWidth);
+			m_height = max(0, atlasHeight);
+		} else {
 			m_width = m_height = options.resolution;
+		}
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 		for (uint32_t i = 0; i < debugAtlasImages.size(); i++) {
