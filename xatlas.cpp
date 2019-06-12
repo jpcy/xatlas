@@ -238,6 +238,7 @@ struct ProfileData
 	std::atomic<clock_t> closeChartMeshHoles;
 	clock_t packCharts;
 	clock_t packChartsRasterize;
+	clock_t packChartsDilate;
 	clock_t packChartsFindLocation;
 };
 
@@ -1193,6 +1194,36 @@ public:
 	void clearAll()
 	{
 		memset(m_data.data(), 0, m_data.size() * sizeof(uint64_t));
+	}
+
+	void dilate(uint32_t padding)
+	{
+		BitImage tmp(m_width, m_height);
+		for (uint32_t p = 0; p < padding; p++) {
+			tmp.clearAll();
+			for (uint32_t y = 0; y < m_height; y++) {
+				for (uint32_t x = 0; x < m_width; x++) {
+					bool b = bitAt(x, y);
+					if (!b) {
+						if (x > 0) {
+							b |= bitAt(x - 1, y);
+							if (y > 0) b |= bitAt(x - 1, y - 1);
+							if (y < m_height - 1) b |= bitAt(x - 1, y + 1);
+						}
+						if (y > 0) b |= bitAt(x, y - 1);
+						if (y < m_height - 1) b |= bitAt(x, y + 1);
+						if (x < m_width - 1) {
+							b |= bitAt(x + 1, y);
+							if (y > 0) b |= bitAt(x + 1, y - 1);
+							if (y < m_height - 1) b |= bitAt(x + 1, y + 1);
+						}
+					}
+					if (b)
+						tmp.setBitAt(x, y);
+				}
+			}
+			swap(m_data, tmp.m_data);
+		}
 	}
 
 private:
@@ -6729,42 +6760,24 @@ private:
 	Array<Array<Vector2> > m_originalChartTexcoords;
 };
 
-#define XA_OVERLAP_CHARTS(body)                                 \
-	const int w = chartBitImage->width();                       \
-	const int h = chartBitImage->height();                      \
-	if (r == 0) {                                               \
-		for (int y = 0; y < h; y++) {                           \
-			int yy = y + offset_y;                              \
-			if (yy >= 0) {                                      \
-				for (int x = 0; x < w; x++) {                   \
-					int xx = x + offset_x;                      \
-					if (xx >= 0) {                              \
-						if (chartBitImage->bitAt(x, y)) {       \
-							if (xx < atlas_w && yy < atlas_h) { \
-								body                            \
-							}                                   \
-						}                                       \
-					}                                           \
-				}                                               \
-			}                                                   \
-		}                                                       \
-	}                                                           \
-	else if (r == 1) {                                          \
-		for (int y = 0; y < h; y++) {                           \
-			int xx = y + offset_x;                              \
-			if (xx >= 0) {                                      \
-				for (int x = 0; x < w; x++) {                   \
-					int yy = x + offset_y;                      \
-					if (yy >= 0) {                              \
-						if (chartBitImage->bitAt(x, y)) {       \
-							if (xx < atlas_w && yy < atlas_h) { \
-								body                            \
-							}                                   \
-						}                                       \
-					}                                           \
-				}                                               \
-			}                                                   \
-		}                                                       \
+#define XA_OVERLAP_CHARTS(body)                                      \
+	const BitImage *image = r == 0 ? chartBitImage : chartBitImageRotated; \
+	const int w = image->width();                                    \
+	const int h = image->height();                                   \
+	for (int y = 0; y < h; y++) {                                    \
+		int yy = y + offset_y;                                       \
+		if (yy >= 0) {                                               \
+			for (int x = 0; x < w; x++) {                            \
+				int xx = x + offset_x;                               \
+				if (xx >= 0) {                                       \
+					if (image->bitAt(x, y)) {                        \
+						if (xx < atlas_w && yy < atlas_h) {          \
+							body                                     \
+						}                                            \
+					}                                                \
+				}                                                    \
+			}                                                        \
+		}                                                            \
 	}
 
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
@@ -6811,7 +6824,7 @@ public:
 		swap(m_data, data);
 	}
 
-	void addChart(uint32_t chartIndex, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	void addChart(uint32_t chartIndex, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
 		uint8_t color[3];
 		const int mix = 192;
@@ -7125,7 +7138,7 @@ struct AtlasPacker
 		Array<DebugAtlasImage *> debugAtlasImagesNoPadding;
 #endif
 		// Add sorted charts to bitImage.
-		BitImage chartBitImage;
+		BitImage chartBitImage, chartBitImageRotated;
 		int atlasWidth = 0, atlasHeight = 0;
 		const bool resizableAtlas = !(options.resolution > 0 && options.texelsPerUnit > 0.0f);
 		int progress = 0;
@@ -7147,6 +7160,8 @@ struct AtlasPacker
 			XA_PROFILE_START(packChartsRasterize)
 			// Leave room for padding.
 			chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + options.padding * 2, ftoi_ceil(chartExtents[c].y) + options.padding * 2, true);
+			if (chart->allowRotate)
+				chartBitImageRotated.resize(chartBitImage.height(), chartBitImage.width(), true);
 			// Rasterize chart faces.
 			const uint32_t faceCount = chart->indexCount / 3;
 			for (uint32_t f = 0; f < faceCount; f++) {
@@ -7154,46 +7169,26 @@ struct AtlasPacker
 				Vector2 vertices[3];
 				for (uint32_t v = 0; v < 3; v++)
 					vertices[v] = chart->vertices[chart->indices[f * 3 + v]] + Vector2(float(options.padding));
-				raster::drawTriangle(Vector2((float)chartBitImage.width(), (float)chartBitImage.height()), /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, &chartBitImage);
+				DrawTriangleCallbackArgs args;
+				args.chartBitImage = &chartBitImage;
+				args.chartBitImageRotated = chart->allowRotate ? &chartBitImageRotated : nullptr;
+				raster::drawTriangle(Vector2((float)chartBitImage.width(), (float)chartBitImage.height()), /*enableScissors=*/true, vertices, AtlasPacker::drawTriangleCallback, &args);
 			}
 			// Expand chart by padding pixels. (dilation)
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
-			BitImage chartBitImageNoPadding(chartBitImage);
+			BitImage chartBitImageNoPadding(chartBitImage), chartBitImageNoPaddingRotated(chartBitImageRotated);
 #endif
 			if (options.padding > 0) {
-				const uint32_t w = chartBitImage.width();
-				const uint32_t h = chartBitImage.height();
-				BitImage tmp(w, h);
-				for (uint32_t p = 0; p < options.padding; p++) {
-					tmp.clearAll();
-					for (uint32_t y = 0; y < h; y++) {
-						for (uint32_t x = 0; x < w; x++) {
-							bool b = chartBitImage.bitAt(x, y);
-							if (!b) {
-								if (x > 0) {
-									b |= chartBitImage.bitAt(x - 1, y);
-									if (y > 0) b |= chartBitImage.bitAt(x - 1, y - 1);
-									if (y < h - 1) b |= chartBitImage.bitAt(x - 1, y + 1);
-								}
-								if (y > 0) b |= chartBitImage.bitAt(x, y - 1);
-								if (y < h - 1) b |= chartBitImage.bitAt(x, y + 1);
-								if (x < w - 1) {
-									b |= chartBitImage.bitAt(x + 1, y);
-									if (y > 0) b |= chartBitImage.bitAt(x + 1, y - 1);
-									if (y < h - 1) b |= chartBitImage.bitAt(x + 1, y + 1);
-								}
-							}
-							if (b)
-								tmp.setBitAt(x, y);
-						}
-					}
-					swap(tmp, chartBitImage);
-				}
+				XA_PROFILE_START(packChartsDilate)
+				chartBitImage.dilate(options.padding);
+				if (chart->allowRotate)
+					chartBitImageRotated.dilate(options.padding);
+				XA_PROFILE_END(packChartsDilate)
 			}
 			XA_PROFILE_END(packChartsRasterize)
 			uint32_t currentBitImageIndex = 0;
 			int best_x = 0, best_y = 0;
-			int best_cw = 0, best_ch = 0;   // Includes padding now.
+			int best_cw = 0, best_ch = 0;
 			int best_r = 0;
 			for (;;)
 			{
@@ -7212,7 +7207,7 @@ struct AtlasPacker
 #endif
 				}
 				XA_PROFILE_START(packChartsFindLocation)
-				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], atlasWidth, atlasHeight, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, resizableAtlas, chart->allowRotate);
+				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, &chartBitImageRotated, chartExtents[c], atlasWidth, atlasHeight, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, resizableAtlas, chart->allowRotate);
 				XA_PROFILE_END(packChartsFindLocation)
 				if (firstChartInBitImage && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitImage. texelsPerUnit must be too large for the resolution.
@@ -7244,10 +7239,10 @@ struct AtlasPacker
 				atlasWidth = min((int)options.resolution, atlasWidth);
 				atlasHeight = min((int)options.resolution, atlasHeight);
 			}
-			addChart(m_bitImages[currentBitImageIndex], &chartBitImage, atlasWidth, atlasHeight, best_x, best_y, best_r);
+			addChart(m_bitImages[currentBitImageIndex], &chartBitImage, &chartBitImageRotated, atlasWidth, atlasHeight, best_x, best_y, best_r);
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
-			debugAtlasImages[currentBitImageIndex]->addChart(i, &chartBitImage, atlasWidth, atlasHeight, best_x, best_y, best_r);
-			debugAtlasImagesNoPadding[currentBitImageIndex]->addChart(i, &chartBitImageNoPadding, atlasWidth, atlasHeight, best_x, best_y, best_r);
+			debugAtlasImages[currentBitImageIndex]->addChart(i, &chartBitImage, &chartBitImageRotated, atlasWidth, atlasHeight, best_x, best_y, best_r);
+			debugAtlasImagesNoPadding[currentBitImageIndex]->addChart(i, &chartBitImageNoPadding, &chartBitImageNoPaddingRotated, atlasWidth, atlasHeight, best_x, best_y, best_r);
 #endif
 			chart->atlasIndex = (int32_t)currentBitImageIndex;
 			// Translate and rotate chart texture coordinates.
@@ -7320,14 +7315,14 @@ private:
 	// is occupied at this point. At the end we have many small charts and a large atlas with sparse holes. Finding those holes randomly is slow. A better approach would be to
 	// start stacking large charts as if they were tetris pieces. Once charts get small try to place them randomly. It may be interesting to try a intermediate strategy, first try
 	// along one axis and then try exhaustively along that axis.
-	bool findChartLocation(int attempts, const BitImage *atlasBitImage, const BitImage *chartBitImage, const Vector2 &extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
+	bool findChartLocation(int attempts, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, const Vector2 &extents, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
 	{
 		if (attempts <= 0 || attempts >= w * h)
-			return findChartLocation_bruteForce(atlasBitImage, chartBitImage, extents, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, resizableAtlas, allowRotate);
-		return findChartLocation_random(atlasBitImage, chartBitImage, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned, resizableAtlas, allowRotate);
+			return findChartLocation_bruteForce(atlasBitImage, chartBitImage, chartBitImageRotated, extents, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, resizableAtlas, allowRotate);
+		return findChartLocation_random(atlasBitImage, chartBitImage, chartBitImageRotated, extents, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned, resizableAtlas, allowRotate);
 	}
 
-	bool findChartLocation_bruteForce(const BitImage *atlasBitImage, const BitImage *chartBitImage, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
+	bool findChartLocation_bruteForce(const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
@@ -7359,7 +7354,7 @@ private:
 						// If metric is the same, pick the one closest to the origin.
 						continue;
 					}
-					if (canAddChart(atlasBitImage, chartBitImage, w, h, x, y, r)) {
+					if (canAddChart(atlasBitImage, r == 1 ? chartBitImageRotated : chartBitImage, chartBitImageRotated, w, h, x, y, r)) {
 						result = true;
 						best_metric = metric;
 						*best_x = x;
@@ -7380,7 +7375,7 @@ private:
 		return result;
 	}
 
-	bool findChartLocation_random(const BitImage *atlasBitImage, const BitImage *chartBitImage, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned, bool resizableAtlas, bool allowRotate)
+	bool findChartLocation_random(const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, const Vector2 &/*extents*/, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned, bool resizableAtlas, bool allowRotate)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
@@ -7418,7 +7413,7 @@ private:
 				// If metric is the same, pick the one closest to the origin.
 				continue;
 			}
-			if (canAddChart(atlasBitImage, chartBitImage, w, h, x, y, r)) {
+			if (canAddChart(atlasBitImage, r == 1 ? chartBitImageRotated : chartBitImage, chartBitImageRotated, w, h, x, y, r)) {
 				result = true;
 				best_metric = metric;
 				*best_x = x;
@@ -7435,24 +7430,32 @@ private:
 		return result;
 	}
 
-	bool canAddChart(const BitImage *atlasBitImage, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	bool canAddChart(const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
 		XA_OVERLAP_CHARTS(if (atlasBitImage->bitAt(xx, yy)) return false;);
 		return true;
 	}
 
-	void addChart(BitImage *atlasBitImage, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	void addChart(BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
 		XA_OVERLAP_CHARTS(XA_DEBUG_ASSERT(atlasBitImage->bitAt(xx, yy) == false); atlasBitImage->setBitAt(xx, yy););
 	}
 
-	static bool setBitsCallback(void *param, int x, int y, const Vector3 &, const Vector3 &, const Vector3 &, float area)
+	struct DrawTriangleCallbackArgs
 	{
-		BitImage *bitImage = (BitImage * )param;
+		BitImage *chartBitImage;
+		BitImage *chartBitImageRotated;
+	};
+
+	static bool drawTriangleCallback(void *param, int x, int y, const Vector3 &, const Vector3 &, const Vector3 &, float area)
+	{
+		auto args = (DrawTriangleCallbackArgs *)param;
 		if (area > 0.0) {
-			bitImage->setBitAt(x, y);
+			args->chartBitImage->setBitAt(x, y);
+			if (args->chartBitImageRotated)
+				args->chartBitImageRotated->setBitAt(y, x);
 		}
 		return true;
 	}
@@ -8065,10 +8068,12 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 	}
 	XA_PROFILE_PRINT("   Total: ", packCharts)
 	XA_PROFILE_PRINT("      Rasterize: ", packChartsRasterize)
+	XA_PROFILE_PRINT("      Dilate (padding): ", packChartsDilate)
 	XA_PROFILE_PRINT("      Find location: ", packChartsFindLocation)
 #if XA_PROFILE
 	internal::s_profile.packCharts = 0;
 	internal::s_profile.packChartsRasterize = 0;
+	internal::s_profile.packChartsDilate = 0;
 	internal::s_profile.packChartsFindLocation = 0;
 #endif
 	XA_PRINT("Building output meshes\n");
