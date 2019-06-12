@@ -211,7 +211,11 @@ int main(int argc, char *argv[])
 	printf("   %u total triangles\n", totalFaces);
 	// Generate atlas.
 	printf("Generating atlas\n");
-	xatlas::Generate(atlas, xatlas::ChartOptions(), NULL, xatlas::PackOptions(), ProgressCallback, &stopwatch);
+	xatlas::PackOptions packOptions;
+	packOptions.padding = 1;
+	packOptions.attempts = 0;
+	packOptions.blockAlign = true;
+	xatlas::Generate(atlas, xatlas::ChartOptions(), NULL, packOptions, ProgressCallback, &stopwatch);
 	printf("   %d charts\n", atlas->chartCount);
 	printf("   %d atlases\n", atlas->atlasCount);
 	for (uint32_t i = 0; i < atlas->atlasCount; i++)

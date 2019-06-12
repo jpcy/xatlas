@@ -1130,6 +1130,15 @@ public:
 		m_data.resize(m_rowStride * m_height);
 	}
 
+	BitImage(const BitImage &other)
+	{
+		m_width = other.m_width;
+		m_height = other.m_height;
+		m_rowStride = other.m_rowStride;
+		m_data.resize(m_rowStride * m_height);
+		memcpy(m_data.data(), other.m_data.data(), m_rowStride * m_height * sizeof(uint64_t));
+	}
+
 	const BitImage &operator=(const BitImage &other)
 	{
 		m_width = other.m_width;
@@ -6802,10 +6811,11 @@ public:
 		swap(m_data, data);
 	}
 
-	void addChart(const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	void addChart(uint32_t chartIndex, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
 		uint8_t color[3];
 		const int mix = 192;
+		srand((unsigned int)chartIndex);
 		color[0] = uint8_t((rand() % 255 + mix) * 0.5f);
 		color[1] = uint8_t((rand() % 255 + mix) * 0.5f);
 		color[2] = uint8_t((rand() % 255 + mix) * 0.5f);
@@ -7112,10 +7122,11 @@ struct AtlasPacker
 		const uint32_t *ranks = m_radix.ranks();
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 		Array<DebugAtlasImage *> debugAtlasImages;
+		Array<DebugAtlasImage *> debugAtlasImagesNoPadding;
 #endif
 		// Add sorted charts to bitImage.
 		BitImage chartBitImage;
-		int w = 0, h = 0;
+		int atlasWidth = 0, atlasHeight = 0;
 		int progress = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
@@ -7133,10 +7144,51 @@ struct AtlasPacker
 			//    V   V   V
 			//    0   1   2
 			XA_PROFILE_START(packChartsRasterize)
-			// Init all bits to 0.
-			chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding, ftoi_ceil(chartExtents[c].y) + 1 + options.padding, true);  // + 2 to add padding on both sides.
-			// Rasterize chart and dilate.
-			drawChartBitImageDilate(chart, &chartBitImage, options.padding);
+			// Leave room for padding.
+			chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + options.padding * 2, ftoi_ceil(chartExtents[c].y) + options.padding * 2, true);
+			// Rasterize chart faces.
+			const uint32_t faceCount = chart->indexCount / 3;
+			for (uint32_t f = 0; f < faceCount; f++) {
+				// Offset vertices by padding.
+				Vector2 vertices[3];
+				for (uint32_t v = 0; v < 3; v++)
+					vertices[v] = chart->vertices[chart->indices[f * 3 + v]] + Vector2(float(options.padding));
+				raster::drawTriangle(Vector2((float)chartBitImage.width(), (float)chartBitImage.height()), /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, &chartBitImage);
+			}
+			// Expand chart by padding pixels. (dilation)
+#if XA_DEBUG_EXPORT_ATLAS_IMAGES
+			BitImage chartBitImageNoPadding(chartBitImage);
+#endif
+			if (options.padding > 0) {
+				const uint32_t w = chartBitImage.width();
+				const uint32_t h = chartBitImage.height();
+				BitImage tmp(w, h);
+				for (uint32_t p = 0; p < options.padding; p++) {
+					tmp.clearAll();
+					for (uint32_t y = 0; y < h; y++) {
+						for (uint32_t x = 0; x < w; x++) {
+							bool b = chartBitImage.bitAt(x, y);
+							if (!b) {
+								if (x > 0) {
+									b |= chartBitImage.bitAt(x - 1, y);
+									if (y > 0) b |= chartBitImage.bitAt(x - 1, y - 1);
+									if (y < h - 1) b |= chartBitImage.bitAt(x - 1, y + 1);
+								}
+								if (y > 0) b |= chartBitImage.bitAt(x, y - 1);
+								if (y < h - 1) b |= chartBitImage.bitAt(x, y + 1);
+								if (x < w - 1) {
+									b |= chartBitImage.bitAt(x + 1, y);
+									if (y > 0) b |= chartBitImage.bitAt(x + 1, y - 1);
+									if (y < h - 1) b |= chartBitImage.bitAt(x + 1, y + 1);
+								}
+							}
+							if (b)
+								tmp.setBitAt(x, y);
+						}
+					}
+					swap(tmp, chartBitImage);
+				}
+			}
 			XA_PROFILE_END(packChartsRasterize)
 			uint32_t currentBitImageIndex = 0;
 			int best_x = 0, best_y = 0;
@@ -7154,10 +7206,12 @@ struct AtlasPacker
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 					DebugAtlasImage *di = XA_NEW(DebugAtlasImage, resolution, resolution);
 					debugAtlasImages.push_back(di);
+					di = XA_NEW(DebugAtlasImage, resolution, resolution);
+					debugAtlasImagesNoPadding.push_back(di);
 #endif
 				}
 				XA_PROFILE_START(packChartsFindLocation)
-				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], w, h, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, options.resolution <= 0, chart->allowRotate);
+				const bool foundLocation = findChartLocation(options.attempts, m_bitImages[currentBitImageIndex], &chartBitImage, chartExtents[c], atlasWidth, atlasHeight, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, options.resolution <= 0, chart->allowRotate);
 				XA_PROFILE_END(packChartsFindLocation)
 				if (firstChartInBitImage && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitImage. texelsPerUnit must be too large for the resolution.
@@ -7174,23 +7228,25 @@ struct AtlasPacker
 				currentBitImageIndex++;
 			}
 			// Update parametric extents.
-			w = max(w, best_x + best_cw);
-			h = max(h, best_y + best_ch);
+			atlasWidth = max(atlasWidth, best_x + best_cw);
+			atlasHeight = max(atlasHeight, best_y + best_ch);
 			if (options.resolution <= 0) {
 				// Resize bitImage if necessary.
-				if (uint32_t(w) > m_bitImages[0]->width() || uint32_t(h) > m_bitImages[0]->height()) {
-					m_bitImages[0]->resize(nextPowerOfTwo(uint32_t(w)), nextPowerOfTwo(uint32_t(h)), false);
+				if (uint32_t(atlasWidth) > m_bitImages[0]->width() || uint32_t(atlasHeight) > m_bitImages[0]->height()) {
+					m_bitImages[0]->resize(nextPowerOfTwo(uint32_t(atlasWidth)), nextPowerOfTwo(uint32_t(atlasHeight)), false);
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 					debugAtlasImages[0]->resize(m_bitImages[0]->width(), m_bitImages[0]->height());
+					debugAtlasImagesNoPadding[0]->resize(m_bitImages[0]->width(), m_bitImages[0]->height());
 #endif
 				}
 			} else {
-				w = min((int)options.resolution, w);
-				h = min((int)options.resolution, h);
+				atlasWidth = min((int)options.resolution, atlasWidth);
+				atlasHeight = min((int)options.resolution, atlasHeight);
 			}
-			addChart(m_bitImages[currentBitImageIndex], &chartBitImage, w, h, best_x, best_y, best_r);
+			addChart(m_bitImages[currentBitImageIndex], &chartBitImage, atlasWidth, atlasHeight, best_x, best_y, best_r);
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
-			debugAtlasImages[currentBitImageIndex]->addChart(&chartBitImage, w, h, best_x, best_y, best_r);
+			debugAtlasImages[currentBitImageIndex]->addChart(i, &chartBitImage, atlasWidth, atlasHeight, best_x, best_y, best_r);
+			debugAtlasImagesNoPadding[currentBitImageIndex]->addChart(i, &chartBitImageNoPadding, atlasWidth, atlasHeight, best_x, best_y, best_r);
 #endif
 			chart->atlasIndex = (int32_t)currentBitImageIndex;
 			// Translate and rotate chart texture coordinates.
@@ -7215,10 +7271,8 @@ struct AtlasPacker
 				}
 			}
 		}
-		//w -= padding - 1; // Leave one pixel border!
-		//h -= padding - 1;
-		m_width = max(0, w);
-		m_height = max(0, h);
+		m_width = max(0, atlasWidth);
+		m_height = max(0, atlasHeight);
 		if (options.resolution > 0)
 			m_width = m_height = options.resolution;
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
@@ -7229,6 +7283,10 @@ struct AtlasPacker
 			debugAtlasImages[i]->writeTga(filename, m_width, m_height);
 			debugAtlasImages[i]->~DebugAtlasImage();
 			XA_FREE(debugAtlasImages[i]);
+			sprintf(filename, "debug_atlas_no_padding_%0.2u.tga", i);
+			debugAtlasImagesNoPadding[i]->writeTga(filename, m_width, m_height);
+			debugAtlasImagesNoPadding[i]->~DebugAtlasImage();
+			XA_FREE(debugAtlasImagesNoPadding[i]);
 		}
 #endif
 		if (progressFunc && progress != 100) {
@@ -7372,56 +7430,6 @@ private:
 			}
 		}
 		return result;
-	}
-
-	void drawChartBitImageDilate(const AtlasPackerChart *chart, BitImage *bitImage, uint32_t padding)
-	{
-		const uint32_t w = bitImage->width();
-		const uint32_t h = bitImage->height();
-		const Vector2 extents = Vector2(float(w), float(h));
-		// Rasterize chart faces, check that all bits are not set.
-		const uint32_t faceCount = chart->indexCount / 3;
-		for (uint32_t f = 0; f < faceCount; f++) {
-			Vector2 vertices[3];
-			for (uint32_t i = 0; i < 3; i++)
-				vertices[i] = chart->vertices[chart->indices[f * 3 + i]];
-			for (uint32_t i = 0; i < 3; i++) {
-				vertices[i] += Vector2(0.5f) + Vector2(float(padding));
-				XA_ASSERT(ftoi_ceil(vertices[i].x) >= 0);
-				XA_ASSERT(ftoi_ceil(vertices[i].y) >= 0);
-				XA_ASSERT(ftoi_ceil(vertices[i].x) <= (int)w);
-				XA_ASSERT(ftoi_ceil(vertices[i].y) <= (int)h);
-			}
-			raster::drawTriangle(extents, /*enableScissors=*/true, vertices, AtlasPacker::setBitsCallback, bitImage);
-		}
-		// Expand chart by padding pixels. (dilation)
-		if (padding > 0) {
-			BitImage tmp(w, h);
-			for (uint32_t i = 0; i < padding; i++) {
-				tmp.clearAll();
-				for (uint32_t y = 0; y < h; y++) {
-					for (uint32_t x = 0; x < w; x++) {
-						bool b = bitImage->bitAt(x, y);
-						if (!b) {
-							if (x > 0) {
-								b |= bitImage->bitAt(x - 1, y);
-								if (y > 0) b |= bitImage->bitAt(x - 1, y - 1);
-								if (y < h - 1) b |= bitImage->bitAt(x - 1, y + 1);
-							}
-							if (y > 0) b |= bitImage->bitAt(x, y - 1);
-							if (y < h - 1) b |= bitImage->bitAt(x, y + 1);
-							if (x < w - 1) {
-								b |= bitImage->bitAt(x + 1, y);
-								if (y > 0) b |= bitImage->bitAt(x + 1, y - 1);
-								if (y < h - 1) b |= bitImage->bitAt(x + 1, y + 1);
-							}
-						}
-						if (b) tmp.setBitAt(x, y);
-					}
-				}
-				swap(tmp, *bitImage);
-			}
-		}
 	}
 
 	bool canAddChart(const BitImage *atlasBitImage, const BitImage *chartBitImage, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
