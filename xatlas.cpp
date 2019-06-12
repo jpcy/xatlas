@@ -1196,6 +1196,31 @@ public:
 		memset(m_data.data(), 0, m_data.size() * sizeof(uint64_t));
 	}
 
+	bool canBlit(const BitImage &image, uint32_t offsetX, uint32_t offsetY) const
+	{
+		for (uint32_t y = 0; y < image.m_height; y++) {
+			const uint32_t thisY = y + offsetY;
+			if (thisY >= m_height)
+				continue;
+			uint32_t x = 0;
+			for (;;) {
+				const uint32_t thisX = x + offsetX;
+				if (thisX >= m_width)
+					break;
+				const uint32_t thisBlockShift = thisX % 64;
+				const uint64_t thisBlock = m_data[(thisX >> 6) + thisY * m_rowStride] >> thisBlockShift;
+				const uint32_t blockShift = x % 64;
+				const uint64_t block = image.m_data[(x >> 6) + y * image.m_rowStride] >> blockShift;
+				if ((thisBlock & block) != 0)
+					return false;
+				x += 64 - max(thisBlockShift, blockShift);
+				if (x >= image.m_width)
+					break;
+			}
+		}
+		return true;
+	}
+
 	void dilate(uint32_t padding)
 	{
 		BitImage tmp(m_width, m_height);
@@ -7354,7 +7379,7 @@ private:
 						// If metric is the same, pick the one closest to the origin.
 						continue;
 					}
-					if (canAddChart(atlasBitImage, r == 1 ? chartBitImageRotated : chartBitImage, chartBitImageRotated, w, h, x, y, r)) {
+					if (atlasBitImage->canBlit(r == 1 ? *chartBitImageRotated : *chartBitImage, x, y)) {
 						result = true;
 						best_metric = metric;
 						*best_x = x;
@@ -7413,7 +7438,7 @@ private:
 				// If metric is the same, pick the one closest to the origin.
 				continue;
 			}
-			if (canAddChart(atlasBitImage, r == 1 ? chartBitImageRotated : chartBitImage, chartBitImageRotated, w, h, x, y, r)) {
+			if (atlasBitImage->canBlit(r == 1 ? *chartBitImageRotated : *chartBitImage, x, y)) {
 				result = true;
 				best_metric = metric;
 				*best_x = x;
@@ -7428,13 +7453,6 @@ private:
 			}
 		}
 		return result;
-	}
-
-	bool canAddChart(const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
-	{
-		XA_DEBUG_ASSERT(r == 0 || r == 1);
-		XA_OVERLAP_CHARTS(if (atlasBitImage->bitAt(xx, yy)) return false;);
-		return true;
 	}
 
 	void addChart(BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
