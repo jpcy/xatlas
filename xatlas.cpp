@@ -4095,16 +4095,6 @@ public:
 		m_vertexBuffers[1] = m_verticesB;
 	}
 
-	uint32_t vertexCount()
-	{
-		return m_numVertices;
-	}
-
-	const Vector2 *vertices()
-	{
-		return m_vertexBuffers[m_activeVertexBuffer];
-	}
-
 	void clipHorizontalPlane(float offset, float clipdirection)
 	{
 		Vector2 *v  = m_vertexBuffers[m_activeVertexBuffer];
@@ -4153,7 +4143,7 @@ public:
 		m_numVertices = p;
 	}
 
-	void computeAreaCentroid()
+	void computeArea()
 	{
 		Vector2 *v  = m_vertexBuffers[m_activeVertexBuffer];
 		v[m_numVertices] = v[0];
@@ -4167,25 +4157,15 @@ public:
 			centroidy += f * (v[k].y + v[k + 1].y);
 		}
 		m_area = 0.5f * fabsf(m_area);
-		if (m_area == 0) {
-			m_centroid = Vector2(0.0f);
-		} else {
-			m_centroid = Vector2(centroidx / (6 * m_area), centroidy / (6 * m_area));
-		}
 	}
 
 	void clipAABox(float x0, float y0, float x1, float y1)
 	{
-		clipVerticalPlane  ( x0, -1);
-		clipHorizontalPlane( y0, -1);
-		clipVerticalPlane  ( x1,  1);
-		clipHorizontalPlane( y1,  1);
-		computeAreaCentroid();
-	}
-
-	Vector2 centroid()
-	{
-		return m_centroid;
+		clipVerticalPlane(x0, -1);
+		clipHorizontalPlane(y0, -1);
+		clipVerticalPlane(x1, 1);
+		clipHorizontalPlane(y1, 1);
+		computeArea();
 	}
 
 	float area()
@@ -4197,81 +4177,50 @@ private:
 	Vector2 m_verticesA[7 + 1];
 	Vector2 m_verticesB[7 + 1];
 	Vector2 *m_vertexBuffers[2];
-	uint32_t    m_numVertices;
-	uint32_t    m_activeVertexBuffer;
-	float   m_area;
-	Vector2 m_centroid;
+	uint32_t m_numVertices;
+	uint32_t m_activeVertexBuffer;
+	float m_area;
 };
 
 /// A callback to sample the environment. Return false to terminate rasterization.
-typedef bool (* SamplingCallback)(void *param, int x, int y, const Vector3 &bar, const Vector3 &dx, const Vector3 &dy, float coverage);
+typedef bool (*SamplingCallback)(void *param, int x, int y);
 
 /// A triangle for rasterization.
 struct Triangle
 {
-	Triangle(const Vector2 &v0, const Vector2 &v1, const Vector2 &v2, const Vector3 &t0, const Vector3 &t1, const Vector3 &t2)
+	Triangle(const Vector2 &v0, const Vector2 &v1, const Vector2 &v2)
 	{
 		// Init vertices.
 		this->v1 = v0;
 		this->v2 = v2;
 		this->v3 = v1;
-		// Set barycentric coordinates.
-		this->t1 = t0;
-		this->t2 = t2;
-		this->t3 = t1;
 		// make sure every triangle is front facing.
 		flipBackface();
 		// Compute deltas.
-		valid = computeDeltas();
 		computeUnitInwardNormals();
 	}
 
-	/// Compute texture space deltas.
-	/// This method takes two edge vectors that form a basis, determines the
-	/// coordinates of the canonic vectors in that basis, and computes the
-	/// texture gradient that corresponds to those vectors.
-	bool computeDeltas()
+	bool isValid()
 	{
-		Vector2 e0 = v3 - v1;
-		Vector2 e1 = v2 - v1;
-		Vector3 de0 = t3 - t1;
-		Vector3 de1 = t2 - t1;
-		float denom = 1.0f / (e0.y * e1.x - e1.y * e0.x);
-		if (!isFinite(denom)) {
-			return false;
-		}
-		float lambda1 = - e1.y * denom;
-		float lambda2 = e0.y * denom;
-		float lambda3 = e1.x * denom;
-		float lambda4 = - e0.x * denom;
-		dx = de0 * lambda1 + de1 * lambda2;
-		dy = de0 * lambda3 + de1 * lambda4;
-		return true;
+		const Vector2 e0 = v3 - v1;
+		const Vector2 e1 = v2 - v1;
+		const float denom = 1.0f / (e0.y * e1.x - e1.y * e0.x);
+		return isFinite(denom);
 	}
 
 	// extents has to be multiple of BK_SIZE!!
-	bool drawAA(const Vector2 &extents, bool enableScissors, SamplingCallback cb, void *param)
+	bool drawAA(const Vector2 &extents, SamplingCallback cb, void *param)
 	{
 		const float PX_INSIDE = 1.0f/sqrtf(2.0f);
 		const float PX_OUTSIDE = -1.0f/sqrtf(2.0f);
 		const float BK_SIZE = 8;
 		const float BK_INSIDE = sqrtf(BK_SIZE*BK_SIZE/2.0f);
 		const float BK_OUTSIDE = -sqrtf(BK_SIZE*BK_SIZE/2.0f);
-
-		float minx, miny, maxx, maxy;
-		if (enableScissors) {
-			// Bounding rectangle
-			minx = floorf(max(min3(v1.x, v2.x, v3.x), 0.0f));
-			miny = floorf(max(min3(v1.y, v2.y, v3.y), 0.0f));
-			maxx = ceilf( min(max3(v1.x, v2.x, v3.x), extents.x - 1.0f));
-			maxy = ceilf( min(max3(v1.y, v2.y, v3.y), extents.y - 1.0f));
-		} else {
-			// Bounding rectangle
-			minx = floorf(min3(v1.x, v2.x, v3.x));
-			miny = floorf(min3(v1.y, v2.y, v3.y));
-			maxx = ceilf( max3(v1.x, v2.x, v3.x));
-			maxy = ceilf( max3(v1.y, v2.y, v3.y));
-		}
+		// Bounding rectangle
+		float minx = floorf(max(min3(v1.x, v2.x, v3.x), 0.0f));
+		float miny = floorf(max(min3(v1.y, v2.y, v3.y), 0.0f));
+		float maxx = ceilf( min(max3(v1.x, v2.x, v3.x), extents.x - 1.0f));
+		float maxy = ceilf( min(max3(v1.y, v2.y, v3.y), extents.y - 1.0f));
 		// There's no reason to align the blocks to the viewport, instead we align them to the origin of the triangle bounds.
 		minx = floorf(minx);
 		miny = floorf(miny);
@@ -4299,47 +4248,32 @@ struct Triangle
 				if ( (aC <= BK_OUTSIDE) || (bC <= BK_OUTSIDE) || (cC <= BK_OUTSIDE) ) continue;
 				// Accept whole block when totally covered
 				if ( (aC >= BK_INSIDE) && (bC >= BK_INSIDE) && (cC >= BK_INSIDE) ) {
-					Vector3 texRow = t1 + dy * (y0 - v1.y) + dx * (x0 - v1.x);
 					for (float y = y0; y < y0 + BK_SIZE; y++) {
-						Vector3 tex = texRow;
 						for (float x = x0; x < x0 + BK_SIZE; x++) {
-							if (!cb(param, (int)x, (int)y, tex, dx, dy, 1.0f)) {
+							if (!cb(param, (int)x, (int)y)) {
 								return false;
 							}
-							tex += dx;
 						}
-						texRow += dy;
 					}
 				} else { // Partially covered block
 					float CY1 = C1 + n1.x * x0 + n1.y * y0;
 					float CY2 = C2 + n2.x * x0 + n2.y * y0;
 					float CY3 = C3 + n3.x * x0 + n3.y * y0;
-					Vector3 texRow = t1 + dy * (y0 - v1.y) + dx * (x0 - v1.x);
 					for (float y = y0; y < y0 + BK_SIZE; y++) { // @@ This is not clipping to scissor rectangle correctly.
 						float CX1 = CY1;
 						float CX2 = CY2;
 						float CX3 = CY3;
-						Vector3 tex = texRow;
 						for (float x = x0; x < x0 + BK_SIZE; x++) { // @@ This is not clipping to scissor rectangle correctly.
 							if (CX1 >= PX_INSIDE && CX2 >= PX_INSIDE && CX3 >= PX_INSIDE) {
-								// pixel completely covered
-								Vector3 tex2 = t1 + dx * (x - v1.x) + dy * (y - v1.y);
-								if (!cb(param, (int)x, (int)y, tex2, dx, dy, 1.0f)) {
+								if (!cb(param, (int)x, (int)y)) {
 									return false;
 								}
 							} else if ((CX1 >= PX_OUTSIDE) && (CX2 >= PX_OUTSIDE) && (CX3 >= PX_OUTSIDE)) {
 								// triangle partially covers pixel. do clipping.
 								ClippedTriangle ct(v1 - Vector2(x, y), v2 - Vector2(x, y), v3 - Vector2(x, y));
 								ct.clipAABox(-0.5, -0.5, 0.5, 0.5);
-								Vector2 centroid = ct.centroid();
-								float area = ct.area();
-								if (area > 0.0f) {
-									Vector3 texCent = tex - dx * centroid.x - dy * centroid.y;
-									//XA_ASSERT(texCent.x >= -0.1f && texCent.x <= 1.1f); // @@ Centroid is not very exact...
-									//XA_ASSERT(texCent.y >= -0.1f && texCent.y <= 1.1f);
-									//XA_ASSERT(texCent.z >= -0.1f && texCent.z <= 1.1f);
-									//Vector3 texCent2 = t1 + dx * (x - v1.x) + dy * (y - v1.y);
-									if (!cb(param, (int)x, (int)y, texCent, dx, dy, area)) {
+								if (ct.area() > 0.0f) {
+									if (!cb(param, (int)x, (int)y)) {
 										return false;
 									}
 								}
@@ -4347,12 +4281,10 @@ struct Triangle
 							CX1 += n1.x;
 							CX2 += n2.x;
 							CX3 += n3.x;
-							tex += dx;
 						}
 						CY1 += n1.y;
 						CY2 += n2.y;
 						CY3 += n3.y;
-						texRow += dy;
 					}
 				}
 			}
@@ -4367,9 +4299,6 @@ struct Triangle
 			Vector2 hv = v1;
 			v1 = v2;
 			v2 = hv; // swap pos
-			Vector3 ht = t1;
-			t1 = t2;
-			t2 = ht; // swap tex
 		}
 	}
 
@@ -4390,23 +4319,16 @@ struct Triangle
 	// Vertices.
 	Vector2 v1, v2, v3;
 	Vector2 n1, n2, n3; // unit inward normals
-	Vector3 t1, t2, t3;
-
-	// Deltas.
-	Vector3 dx, dy;
-
-	float sign;
-	bool valid;
 };
 
 // Process the given triangle. Returns false if rasterization was interrupted by the callback.
-static bool drawTriangle(const Vector2 &extents, bool enableScissors, const Vector2 v[3], SamplingCallback cb, void *param)
+static bool drawTriangle(const Vector2 &extents, const Vector2 v[3], SamplingCallback cb, void *param)
 {
-	Triangle tri(v[0], v[1], v[2], Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1));
+	Triangle tri(v[0], v[1], v[2]);
 	// @@ It would be nice to have a conservative drawing mode that enlarges the triangle extents by one texel and is able to handle degenerate triangles.
 	// @@ Maybe the simplest thing to do would be raster triangle edges.
-	if (tri.valid)
-		return tri.drawAA(extents, enableScissors, cb, param);
+	if (tri.isValid())
+		return tri.drawAA(extents, cb, param);
 	return true;
 }
 
@@ -7196,7 +7118,7 @@ struct AtlasPacker
 				DrawTriangleCallbackArgs args;
 				args.chartBitImage = &chartBitImage;
 				args.chartBitImageRotated = chart->allowRotate ? &chartBitImageRotated : nullptr;
-				raster::drawTriangle(Vector2((float)chartBitImage.width(), (float)chartBitImage.height()), /*enableScissors=*/true, vertices, AtlasPacker::drawTriangleCallback, &args);
+				raster::drawTriangle(Vector2((float)chartBitImage.width(), (float)chartBitImage.height()), vertices, AtlasPacker::drawTriangleCallback, &args);
 			}
 			// Expand chart by padding pixels. (dilation)
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
@@ -7486,14 +7408,12 @@ private:
 		BitImage *chartBitImageRotated;
 	};
 
-	static bool drawTriangleCallback(void *param, int x, int y, const Vector3 &, const Vector3 &, const Vector3 &, float area)
+	static bool drawTriangleCallback(void *param, int x, int y)
 	{
 		auto args = (DrawTriangleCallbackArgs *)param;
-		if (area > 0.0) {
-			args->chartBitImage->setBitAt(x, y);
-			if (args->chartBitImageRotated)
-				args->chartBitImageRotated->setBitAt(y, x);
-		}
+		args->chartBitImage->setBitAt(x, y);
+		if (args->chartBitImageRotated)
+			args->chartBitImageRotated->setBitAt(y, x);
 		return true;
 	}
 
