@@ -240,6 +240,7 @@ struct ProfileData
 	clock_t packChartsRasterize;
 	clock_t packChartsDilate;
 	clock_t packChartsFindLocation;
+	clock_t packChartsBlit;
 };
 
 static ProfileData s_profile;
@@ -6785,26 +6786,6 @@ private:
 	Array<Array<Vector2> > m_originalChartTexcoords;
 };
 
-#define XA_OVERLAP_CHARTS(body)                                      \
-	const BitImage *image = r == 0 ? chartBitImage : chartBitImageRotated; \
-	const int w = image->width();                                    \
-	const int h = image->height();                                   \
-	for (int y = 0; y < h; y++) {                                    \
-		int yy = y + offset_y;                                       \
-		if (yy >= 0) {                                               \
-			for (int x = 0; x < w; x++) {                            \
-				int xx = x + offset_x;                               \
-				if (xx >= 0) {                                       \
-					if (image->bitAt(x, y)) {                        \
-						if (xx < atlas_w && yy < atlas_h) {          \
-							body                                     \
-						}                                            \
-					}                                                \
-				}                                                    \
-			}                                                        \
-		}                                                            \
-	}
-
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 const uint8_t TGA_TYPE_RGB = 2;
 const uint8_t TGA_ORIGIN_UPPER = 0x20;
@@ -6857,7 +6838,25 @@ public:
 		color[0] = uint8_t((rand() % 255 + mix) * 0.5f);
 		color[1] = uint8_t((rand() % 255 + mix) * 0.5f);
 		color[2] = uint8_t((rand() % 255 + mix) * 0.5f);
-		XA_OVERLAP_CHARTS(uint8_t *pixel = &m_data[(xx + yy * m_width) * 3]; for (int i = 0; i < 3; i++) pixel[i] = color[i];);
+		const BitImage *image = r == 0 ? chartBitImage : chartBitImageRotated;
+		const int w = image->width();
+		const int h = image->height();
+		for (int y = 0; y < h; y++) {
+			int yy = y + offset_y;
+			if (yy >= 0) {
+				for (int x = 0; x < w; x++) {
+					int xx = x + offset_x;
+					if (xx >= 0) {
+						if (image->bitAt(x, y)) {
+							if (xx < atlas_w && yy < atlas_h) {
+								for (int i = 0; i < 3; i++)
+									m_data[(xx + yy * m_width) * 3 + i] = color[i];
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	void writeTga(const char *filename, uint32_t width, uint32_t height) const
@@ -7264,7 +7263,9 @@ struct AtlasPacker
 				atlasWidth = min((int)options.resolution, atlasWidth);
 				atlasHeight = min((int)options.resolution, atlasHeight);
 			}
+			XA_PROFILE_START(packChartsBlit)
 			addChart(m_bitImages[currentBitImageIndex], &chartBitImage, &chartBitImageRotated, atlasWidth, atlasHeight, best_x, best_y, best_r);
+			XA_PROFILE_END(packChartsBlit)
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 			debugAtlasImages[currentBitImageIndex]->addChart(i, &chartBitImage, &chartBitImageRotated, atlasWidth, atlasHeight, best_x, best_y, best_r);
 			debugAtlasImagesNoPadding[currentBitImageIndex]->addChart(i, &chartBitImageNoPadding, &chartBitImageNoPaddingRotated, atlasWidth, atlasHeight, best_x, best_y, best_r);
@@ -7458,7 +7459,25 @@ private:
 	void addChart(BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
 	{
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
-		XA_OVERLAP_CHARTS(XA_DEBUG_ASSERT(atlasBitImage->bitAt(xx, yy) == false); atlasBitImage->setBitAt(xx, yy););
+		const BitImage *image = r == 0 ? chartBitImage : chartBitImageRotated;
+		const int w = image->width();
+		const int h = image->height();
+		for (int y = 0; y < h; y++) {
+			int yy = y + offset_y;
+			if (yy >= 0) {
+				for (int x = 0; x < w; x++) {
+					int xx = x + offset_x;
+					if (xx >= 0) {
+						if (image->bitAt(x, y)) {
+							if (xx < atlas_w && yy < atlas_h) {
+								XA_DEBUG_ASSERT(atlasBitImage->bitAt(xx, yy) == false);
+								atlasBitImage->setBitAt(xx, yy);
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	struct DrawTriangleCallbackArgs
@@ -8088,11 +8107,13 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 	XA_PROFILE_PRINT("      Rasterize: ", packChartsRasterize)
 	XA_PROFILE_PRINT("      Dilate (padding): ", packChartsDilate)
 	XA_PROFILE_PRINT("      Find location: ", packChartsFindLocation)
+	XA_PROFILE_PRINT("      Blit: ", packChartsBlit)
 #if XA_PROFILE
 	internal::s_profile.packCharts = 0;
 	internal::s_profile.packChartsRasterize = 0;
 	internal::s_profile.packChartsDilate = 0;
 	internal::s_profile.packChartsFindLocation = 0;
+	internal::s_profile.packChartsBlit = 0;
 #endif
 	XA_PRINT("Building output meshes\n");
 	int progress = 0;
