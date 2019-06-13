@@ -7252,8 +7252,8 @@ struct AtlasPacker
 			}
 		}
 		if (resizableAtlas) {
-			m_width = max(0, atlasWidth);
-			m_height = max(0, atlasHeight);
+			m_width = max(0, atlasWidth - (int)options.padding * 2);
+			m_height = max(0, atlasHeight - (int)options.padding * 2);
 		} else {
 			m_width = m_height = options.resolution;
 		}
