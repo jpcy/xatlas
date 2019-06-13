@@ -6860,6 +6860,7 @@ struct AtlasPacker
 	float getTexelsPerUnit() const { return m_texelsPerUnit; }
 	const AtlasPackerChart *getChart(uint32_t index) const { return m_charts[index]; }
 	uint32_t getChartCount() const { return m_charts.size(); }
+	float getUtilization(uint32_t atlas) const { return m_utilization[atlas]; }
 
 	void addChart(Chart *chart)
 	{
@@ -7257,6 +7258,21 @@ struct AtlasPacker
 			m_width = m_height = options.resolution;
 		}
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
+		m_utilization.resize(m_bitImages.size());
+		for (uint32_t i = 0; i < m_utilization.size(); i++) {
+			uint32_t count = 0;
+			for (uint32_t y = 0; y < m_height; y++) {
+				for (uint32_t x = 0; x < m_width; x++)
+					count += m_bitImages[i]->bitAt(x, y);
+			}
+			m_utilization[i] = float(count) / (m_width * m_height);
+			if (m_utilization.size() > 1) {
+				XA_PRINT("   %u: %f%% utilization\n", i, m_utilization[i] * 100.0f);
+			}
+			else {
+				XA_PRINT("   %f%% utilization\n", m_utilization[i] * 100.0f);
+			}
+		}
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 		for (uint32_t i = 0; i < debugAtlasImages.size(); i++) {
 			char filename[256];
@@ -7275,22 +7291,6 @@ struct AtlasPacker
 				return false;
 		}
 		return true;
-	}
-
-	float computeAtlasUtilization(uint32_t atlasIndex) const
-	{
-		const uint32_t w = m_width;
-		const uint32_t h = m_height;
-		BitImage *bm = m_bitImages[atlasIndex];
-		XA_DEBUG_ASSERT(w <= bm->width());
-		XA_DEBUG_ASSERT(h <= bm->height());
-		uint32_t count = 0;
-		for (uint32_t y = 0; y < h; y++) {
-			for (uint32_t x = 0; x < w; x++) {
-				count += bm->bitAt(x, y);
-			}
-		}
-		return float(count) / (w * h);
 	}
 
 private:
@@ -7452,6 +7452,7 @@ private:
 		return true;
 	}
 
+	Array<float> m_utilization;
 	Array<BitImage *> m_bitImages;
 	BoundingBox2D m_boundingBox;
 	Array<AtlasPackerChart *> m_charts;
@@ -8056,7 +8057,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions, ProgressFunc progressFunc
 	if (atlas->atlasCount > 0) {
 		atlas->utilization = XA_ALLOC_ARRAY(float, atlas->atlasCount);
 		for (uint32_t i = 0; i < atlas->atlasCount; i++)
-			atlas->utilization[i] = packer.computeAtlasUtilization(i);
+			atlas->utilization[i] = packer.getUtilization(i);
 	}
 	XA_PROFILE_PRINT("   Total: ", packCharts)
 	XA_PROFILE_PRINT("      Rasterize: ", packChartsRasterize)
