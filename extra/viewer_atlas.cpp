@@ -573,13 +573,33 @@ static void atlasRenderChartsTextures()
 		bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height);
 		bgfx::setViewFrameBuffer(viewId, s_atlas.chartsFrameBuffers[i]);
 		bgfx::setViewTransform(viewId, nullptr, projection);
-		// Render charts with checkerboard outline.
+		// Render charts.
+		std::vector<PosVertex> boundaryVertices;
 		srand(s_atlas.chartColorSeed);
 		uint32_t firstIndex = 0;
+		int edge = 0;
 		for (uint32_t mi = 0; mi < s_atlas.data->meshCount; mi++) {
 			const xatlas::Mesh &mesh = s_atlas.data->meshes[mi];
 			for (uint32_t ci = 0; ci < mesh.chartCount; ci++) {
 				const xatlas::Chart &chart = mesh.chartArray[ci];
+				// Get boundary vertices for this chart.
+				boundaryVertices.clear();
+				for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+					for (int l = 0; l < 3; l++) {
+						if (chart.atlasIndex == i && s_atlas.boundaryEdges[edge]) {
+							const xatlas::Vertex &v0 = mesh.vertexArray[chart.indexArray[k + l]];
+							const xatlas::Vertex &v1 = mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]];
+							PosVertex p;
+							p.pos[0] = v0.uv[0];
+							p.pos[1] = v0.uv[1];
+							boundaryVertices.push_back(p);
+							p.pos[0] = v1.uv[0];
+							p.pos[1] = v1.uv[1];
+							boundaryVertices.push_back(p);
+						}
+						edge++;
+					}
+				}
 				if (chart.atlasIndex == i) {
 					uint8_t bcolor[3];
 					randomRGB(bcolor);
@@ -588,6 +608,7 @@ static void atlasRenderChartsTextures()
 					color[1] = bcolor[1] / 255.0f;
 					color[2] = bcolor[2] / 255.0f;
 					color[3] = 1.0f;
+					// Render chart.
 					bgfx::setUniform(s_atlas.u_color, color);
 					float textureSize_cellSize[4];
 					textureSize_cellSize[0] = (float)s_atlas.data->width;
@@ -599,45 +620,21 @@ static void atlasRenderChartsTextures()
 					bgfx::setIndexBuffer(s_atlas.chartIb, firstIndex, chart.indexCount);
 					bgfx::setVertexBuffer(0, s_atlas.vb);
 					bgfx::submit(viewId, s_atlas.chartTexcoordSpaceProgram);
-				}
-				firstIndex += chart.indexCount;
-			}
-		}
-		if (s_atlas.wireframe) {
-			// Render chart boundary lines.
-			std::vector<PosVertex> boundaryVertices;
-			int edge = 0;
-			for (uint32_t mi = 0; mi < s_atlas.data->meshCount; mi++) {
-				const xatlas::Mesh &mesh = s_atlas.data->meshes[mi];
-				for (uint32_t ci = 0; ci < mesh.chartCount; ci++) {
-					const xatlas::Chart &chart = mesh.chartArray[ci];
-					for (uint32_t k = 0; k < chart.indexCount; k += 3) {
-						for (int l = 0; l < 3; l++) {
-							if (chart.atlasIndex == i && s_atlas.boundaryEdges[edge]) {
-								const xatlas::Vertex &v0 = mesh.vertexArray[chart.indexArray[k + l]];
-								const xatlas::Vertex &v1 = mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]];
-								PosVertex p;
-								p.pos[0] = v0.uv[0];
-								p.pos[1] = v0.uv[1];
-								boundaryVertices.push_back(p);
-								p.pos[0] = v1.uv[0];
-								p.pos[1] = v1.uv[1];
-								boundaryVertices.push_back(p);
-							}
-							edge++;
-						}
+					// Render chart boundary lines.
+					// If wireframe is off, still render the lines to emulate conservative rasterization.
+					if (!boundaryVertices.empty() && bgfx::getAvailTransientVertexBuffer((uint32_t)boundaryVertices.size(), PosVertex::decl) == (uint32_t)boundaryVertices.size()) {
+						bgfx::TransientVertexBuffer vb;
+						bgfx::allocTransientVertexBuffer(&vb, (uint32_t)boundaryVertices.size(), PosVertex::decl);
+						memcpy(vb.data, boundaryVertices.data(), boundaryVertices.size() * sizeof(PosVertex));
+						bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
+						bgfx::setVertexBuffer(0, &vb);
+						if (s_atlas.wireframe)
+							color[0] = color[1] = color[2] = 1.0f;
+						bgfx::setUniform(s_atlas.u_color, color);
+						bgfx::submit(viewId, getColorProgram(), 1);
 					}
 				}
-			}
-			if (!boundaryVertices.empty() && bgfx::getAvailTransientVertexBuffer((uint32_t)boundaryVertices.size(), PosVertex::decl) == (uint32_t)boundaryVertices.size()) {
-				bgfx::TransientVertexBuffer vb;
-				bgfx::allocTransientVertexBuffer(&vb, (uint32_t)boundaryVertices.size(), PosVertex::decl);
-				memcpy(vb.data, boundaryVertices.data(), boundaryVertices.size() * sizeof(PosVertex));
-				bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES | BGFX_STATE_BLEND_ALPHA);
-				bgfx::setVertexBuffer(0, &vb);
-				const float color[] = { 1.0f, 1.0f, 1.0f, 1.0f };
-				bgfx::setUniform(s_atlas.u_color, color);
-				bgfx::submit(viewId, getColorProgram(), 1);
+				firstIndex += chart.indexCount;
 			}
 		}
 		viewId++;
