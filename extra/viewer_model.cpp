@@ -395,7 +395,7 @@ static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *f
 			// Create mesh.
 			assert(currentMesh < model->numMeshes);
 			objzMesh &mesh = model->meshes[currentMesh];
-			mesh.materialIndex = uint32_t(primitive.material - firstMaterial);
+			mesh.materialIndex = primitive.material ? int32_t(primitive.material - firstMaterial) : -1;
 			mesh.firstIndex = firstMeshIndex;
 			mesh.numIndices = (uint32_t)aindices->count;
 			currentMesh++;
