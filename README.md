@@ -55,11 +55,8 @@ See the [viewer](https://github.com/jpcy/xatlas/tree/master/extra) for example c
 ## TODO
 
 * Adding meshes: check for overlapping and intersecting geometry
-* Charting: simplified/faster code path for dealing with co-planar connected faces
 * Parameterization: use a better hole filling argorithm for non-planar holes
-* Packing: allow packing of existing parameterizations
 * Packing: bilinear-aware rasterization
-* Packing: faster brute-force packing
 * Viewer: bake lightmaps with simple path tracer
 * Viewer: chart picking in scene and texture views
 

@@ -190,9 +190,8 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = nullptr, ProgressF
 
 struct PackOptions
 {
-	// The number of attempts to find a suitable random chart location.
-	// 0 is brute force - very slow, but best results. Faster if blockAlign is true;
-	int attempts = 4096;
+	// Slower, but gives the best result. If false, use random chart placement.
+	bool bruteForce = false;
 
 	// Unit to texel scale. e.g. a 1x1 quad with texelsPerUnit of 32 will take up approximately 32x32 texels in the atlas.
 	// If 0, an estimated value will be calculated to approximately match the given resolution.
@@ -200,13 +199,14 @@ struct PackOptions
 	float texelsPerUnit = 0.0f;
 
 	// If 0, generate a single atlas with texelsPerUnit determining the final resolution.
-	// If not 0, generate 1 or more atlases with that exact resolution.
+	// If not 0, and texelsPerUnit is not 0, generate one or more atlases with that exact resolution.
+	// If not 0, and texelsPerUnit is 0, texelsPerUnit is estimated to approximately match the resolution.
 	uint32_t resolution = 0;
 
 	// Charts larger than this will be scaled down.
 	uint32_t maxChartSize = 1024;
 
-	// Align charts to 4x4 blocks. 
+	// Align charts to 4x4 blocks. Also improves packing speed, since there are fewer possible chart locations to consider.
 	bool blockAlign = false;
 
 	// Number of pixels to pad charts with.

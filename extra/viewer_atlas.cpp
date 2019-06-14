@@ -780,12 +780,12 @@ void atlasShowGuiOptions()
 #endif
 	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding)) {
 		bool changed = false;
-		changed |= ImGui::SliderInt("Attempts", &s_atlas.packOptions.attempts, 0, 4096);
+		changed |= ImGui::Checkbox("Brute force", &s_atlas.packOptions.bruteForce);
+		changed |= ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
 		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
 		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
-		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
-		changed |= ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
 		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.packOptions.padding, 0, 8);
+		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
 		if (ImGui::Button("Reset to default", buttonSize)) {
 			clearPackOptions();
 			changed = true;
