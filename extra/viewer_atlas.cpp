@@ -745,6 +745,12 @@ void atlasShowGuiOptions()
 		ImGui::Text("%u vertices", numVertices);
 		ImGui::Text("%u triangles", numIndices / 3);
 		ImGui::Text("%g texels per unit", s_atlas.data->texelsPerUnit);
+		if (s_atlas.data->atlasCount == 1)
+			ImGui::Text("%g%% utilization", s_atlas.data->utilization[0] * 100.0f);
+		else {
+			for (uint32_t i = 0; i < s_atlas.data->atlasCount; i++)
+				ImGui::Text("%u: %g%% utilization", i, s_atlas.data->utilization[i]);
+		}
 	}
 	if (ImGui::TreeNodeEx("Chart options", ImGuiTreeNodeFlags_FramePadding)) {
 		bool changed = false;
