@@ -175,8 +175,10 @@ int main(int argc, char *argv[])
 	// Create atlas.
 	xatlas::SetPrint(Print, s_verbose);
 	xatlas::Atlas *atlas = xatlas::Create();
-	// Add meshes to atlas.
+	// Set progress callback.
 	Stopwatch globalStopwatch, stopwatch;
+	xatlas::SetProgressCallback(atlas, ProgressCallback, &stopwatch);
+	// Add meshes to atlas.
 	int progress = 0;
 	PrintProgress("Adding meshes", "", "   ", 0, &stopwatch);
 	uint32_t totalVertices = 0, totalFaces = 0;
@@ -213,7 +215,7 @@ int main(int argc, char *argv[])
 	printf("   %u total triangles\n", totalFaces);
 	// Pack charts.
 	printf("Packing charts\n");
-	xatlas::PackCharts(atlas, xatlas::PackOptions(), ProgressCallback, &stopwatch);
+	xatlas::PackCharts(atlas);
 	printf("   %d charts\n", atlas->chartCount);
 	printf("   %d atlases\n", atlas->atlasCount);
 	for (uint32_t i = 0; i < atlas->atlasCount; i++)

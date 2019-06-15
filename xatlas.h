@@ -147,21 +147,6 @@ struct UvMeshDecl
 
 AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl);
 
-// Progress tracking.
-struct ProgressCategory
-{
-	enum Enum
-	{
-		ComputeCharts,
-		ParameterizeCharts,
-		PackCharts,
-		BuildOutputMeshes
-	};
-};
-
-// May be called from any thread. Return false to cancel.
-typedef bool (*ProgressFunc)(ProgressCategory::Enum category, int progress, void *userData);
-
 struct ChartOptions
 {
 	float maxChartArea = 0.0f; // Don't grow charts to be larger than this. 0 means no limit.
@@ -180,13 +165,13 @@ struct ChartOptions
 };
 
 // Call after all AddMesh calls. Can be called multiple times to recompute charts with different options.
-void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
+void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions());
 
 // Custom parameterization function. texcoords initial values are an orthogonal parameterization.
 typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount, bool isPlanar);
 
 // Call after ComputeCharts. Can be called multiple times to re-parameterize charts with a different ParameterizeFunc.
-void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = nullptr, ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
+void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = nullptr);
 
 struct PackOptions
 {
@@ -214,10 +199,28 @@ struct PackOptions
 };
 
 // Call after ParameterizeCharts. Can be called multiple times to re-pack charts with different options.
-void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
+void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions());
 
 // Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence. Can be called multiple times to regenerate with different options.
-void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeFunc paramFunc = nullptr, PackOptions packOptions = PackOptions(), ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
+void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeFunc paramFunc = nullptr, PackOptions packOptions = PackOptions());
+
+// Progress tracking.
+struct ProgressCategory
+{
+	enum Enum
+	{
+		AddMesh,
+		ComputeCharts,
+		ParameterizeCharts,
+		PackCharts,
+		BuildOutputMeshes
+	};
+};
+
+// May be called from any thread. Return false to cancel.
+typedef bool (*ProgressFunc)(ProgressCategory::Enum category, int progress, void *userData);
+
+void SetProgressCallback(Atlas *atlas, ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
 
 // Custom memory allocation.
 typedef void *(*ReallocFunc)(void *, size_t);

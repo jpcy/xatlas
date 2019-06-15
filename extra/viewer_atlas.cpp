@@ -50,7 +50,6 @@ struct AtlasStatus
 	enum Enum
 	{
 		NotGenerated,
-		AddingMeshes,
 		Generating,
 		Finalizing,
 		Ready
@@ -340,12 +339,12 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 static void atlasGenerateThread()
 {
 	const objzModel *model = modelGetData();
-	int progress = 0;
 	const bool firstRun = !s_atlas.data;
 	const clock_t startTime = clock();
 	if (firstRun) {
 		// Create xatlas context on first run only.
 		s_atlas.data = xatlas::Create();
+		xatlas::SetProgressCallback(s_atlas.data, atlasProgressCallback);
 		std::vector<uint8_t> ignoreFaces; // Should be bool, workaround stupid C++ specialization.
 		for (uint32_t i = 0; i < model->numObjects; i++) {
 			const objzObject &object = model->objects[i];
@@ -383,11 +382,6 @@ static void atlasGenerateThread()
 				s_atlas.status.set(AtlasStatus::NotGenerated);
 				return;
 			}
-			const int newProgress = int((i + 1) / (float)model->numObjects * 100.0f);
-			if (newProgress != progress) {
-				progress = newProgress;
-				s_atlas.status.setProgress((xatlas::ProgressCategory::Enum)-1, progress);
-			}
 			// Destroy context if cancelled while adding meshes.
 			if (s_atlas.status.getCancel()) {
 				xatlas::Destroy(s_atlas.data);
@@ -398,9 +392,8 @@ static void atlasGenerateThread()
 			}
 		}
 	}
-	s_atlas.status.set(AtlasStatus::Generating);
 	if (firstRun || s_atlas.chartOptionsChanged) {
-		xatlas::ComputeCharts(s_atlas.data, s_atlas.chartOptions, atlasProgressCallback);
+		xatlas::ComputeCharts(s_atlas.data, s_atlas.chartOptions);
 		if (s_atlas.status.getCancel()) {
 			s_atlas.chartOptionsChanged = true; // Force ComputeCharts to be called next time.
 			s_atlas.status.set(AtlasStatus::NotGenerated);
@@ -414,7 +407,7 @@ static void atlasGenerateThread()
 		if (s_atlas.paramMethod != ParamMethod::LSCM)
 			paramFunc = atlasParameterizationCallback;
 #endif
-		xatlas::ParameterizeCharts(s_atlas.data, paramFunc, atlasProgressCallback);
+		xatlas::ParameterizeCharts(s_atlas.data, paramFunc);
 		if (s_atlas.status.getCancel()) {
 			s_atlas.paramMethodChanged = true; // Force ParameterizeCharts to be called next time.
 			s_atlas.status.set(AtlasStatus::NotGenerated);
@@ -423,7 +416,7 @@ static void atlasGenerateThread()
 		}
 	}
 	if (firstRun || s_atlas.chartOptionsChanged || s_atlas.paramMethodChanged || s_atlas.packOptionsChanged) {
-		xatlas::PackCharts(s_atlas.data, s_atlas.packOptions, atlasProgressCallback);
+		xatlas::PackCharts(s_atlas.data, s_atlas.packOptions);
 		if (s_atlas.status.getCancel()) {
 			s_atlas.packOptionsChanged = true; // Force PackCharts to be called next time.
 			s_atlas.status.set(AtlasStatus::NotGenerated);
@@ -554,7 +547,7 @@ void atlasGenerate()
 	xatlas::SetPrint(printf, true);
 	g_options.shadeMode = ShadeMode::Flat;
 	g_options.wireframeMode = WireframeMode::Triangles;
-	s_atlas.status.set(AtlasStatus::AddingMeshes);
+	s_atlas.status.set(AtlasStatus::Generating);
 	s_atlas.thread = new std::thread(atlasGenerateThread);
 }
 
@@ -808,17 +801,14 @@ void atlasShowGuiWindow(int progressDots)
 	const float margin = 4.0f;
 	const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 	const AtlasStatus::Enum atlasStatus = s_atlas.status.get();
-	if (atlasStatus == AtlasStatus::AddingMeshes || atlasStatus == AtlasStatus::Generating) {
+	if (atlasStatus == AtlasStatus::Generating) {
 		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - margin, margin), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
 		ImGui::SetNextWindowSize(ImVec2(300.0f, -1.0f), ImGuiCond_Always);
 		if (ImGui::Begin("##atlasProgress", nullptr, progressWindowFlags)) {
 			int progress;
 			xatlas::ProgressCategory::Enum category;
 			s_atlas.status.getProgress(&category, &progress);
-			if (atlasStatus == AtlasStatus::AddingMeshes)
-				ImGui::Text("Adding meshes");
-			else
-				ImGui::Text("%s", xatlas::StringForEnum(category));
+			ImGui::Text("%s", xatlas::StringForEnum(category));
 			for (int i = 0; i < 3; i++) {
 				ImGui::SameLine();
 				ImGui::Text(i < progressDots ? "." : " ");

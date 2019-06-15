@@ -168,10 +168,10 @@ int main(int argc, char *argv[])
 	// Create atlas.
 	xatlas::SetPrint(Print, s_verbose);
 	xatlas::Atlas *atlas = xatlas::Create();
-	// Add meshes to atlas.
+	// Set progress callback.
 	Stopwatch globalStopwatch, stopwatch;
-	int progress = 0;
-	PrintProgress("Adding meshes", "", "   ", 0, &stopwatch);
+	xatlas::SetProgressCallback(atlas, ProgressCallback, &stopwatch);
+	// Add meshes to atlas.
 	uint32_t totalVertices = 0, totalFaces = 0;
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
@@ -198,20 +198,12 @@ int main(int argc, char *argv[])
 		}
 		totalVertices += meshDecl.vertexCount;
 		totalFaces += meshDecl.indexCount / 3;
-		const int newProgress = int((i + 1) / (float)shapes.size() * 100.0f);
-		if (newProgress != progress)
-		{
-			progress = newProgress;
-			PrintProgress("Adding meshes", "", "   ", progress, &stopwatch);
-		}
 	}
-	if (progress != 100)
-		PrintProgress("Adding meshes", "", "   ", 100, &stopwatch);
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
 	// Generate atlas.
 	printf("Generating atlas\n");
-	xatlas::Generate(atlas, xatlas::ChartOptions(), NULL, xatlas::PackOptions(), ProgressCallback, &stopwatch);
+	xatlas::Generate(atlas);
 	printf("   %d charts\n", atlas->chartCount);
 	printf("   %d atlases\n", atlas->atlasCount);
 	for (uint32_t i = 0; i < atlas->atlasCount; i++)
