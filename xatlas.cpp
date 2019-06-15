@@ -131,6 +131,14 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 	|| XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION \
 	|| XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS)
 
+#ifdef _MSC_VER
+#define XA_FOPEN(_file, _filename, _mode) { if (fopen_s(&_file, _filename, _mode) != 0) _file = NULL; }
+#define XA_SPRINTF(_buffer, _size, _format, ...) sprintf_s(_buffer, _size, _format, __VA_ARGS__)
+#else
+#define XA_FOPEN(_file, _filename, _mode) _file = fopen(_filename, _mode)
+#define XA_SPRINTF(_buffer, _size, _format, ...) sprintf(_buffer, _format, __VA_ARGS__)
+#endif
+
 namespace xatlas {
 namespace internal {
 
@@ -3242,11 +3250,10 @@ public:
 		if (m_oppositeEdges.isEmpty())
 			return; // Boundaries haven't been created.
 		fprintf(file, "o boundary_edges\n");
-		for (uint32_t i = 0; i < m_edges.size(); i++) {
+		for (uint32_t i = 0; i < edgeCount(); i++) {
 			if (m_oppositeEdges[i] != UINT32_MAX)
 				continue;
-			const Edge &edge = m_edges[i];
-			fprintf(file, "l %d %d\n", m_indices[edge.index0] + 1, m_indices[edge.index1] + 1); // 1-indexed
+			fprintf(file, "l %d %d\n", m_indices[meshEdgeIndex0(i)] + 1, m_indices[meshEdgeIndex1(i)] + 1); // 1-indexed
 		}
 	}
 
@@ -3258,11 +3265,11 @@ public:
 		meshGetBoundaryLoops(*this, boundaryLoops);
 		for (uint32_t i = 0; i < boundaryLoops.size(); i++) {
 			uint32_t edge = boundaryLoops[i];
-			fprintf(file, "o boundary_%0.4d\n", i);
+			fprintf(file, "o boundary_%04d\n", i);
 			fprintf(file, "l");
 			for (;;) {
-				const uint32_t vertex0 = m_indices[m_edges[edge].index0];
-				const uint32_t vertex1 = m_indices[m_edges[edge].index1];
+				const uint32_t vertex0 = m_indices[meshEdgeIndex0(edge)];
+				const uint32_t vertex1 = m_indices[meshEdgeIndex1(edge)];
 				fprintf(file, " %d", vertex0 + 1); // 1-indexed
 				edge = m_nextBoundaryEdges[edge];
 				if (edge == boundaryLoops[i] || edge == UINT32_MAX) {
@@ -3275,7 +3282,8 @@ public:
 
 	void writeObjFile(const char *filename) const
 	{
-		FILE *file = fopen(filename, "w");
+		FILE *file;
+		XA_FOPEN(file, filename, "w");
 		if (!file)
 			return;
 		writeObjVertices(file);
@@ -6038,8 +6046,9 @@ public:
 #if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
 				if (m_warningFlags & (ChartWarningFlags::CloseHolesDuplicatedEdge | ChartWarningFlags::CloseHolesFailed)) {
 					char filename[256];
-					sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_chart_%0.3u_close_holes_error.obj", meshId, chartGroupId, chartId);
-					FILE *file = fopen(filename, "w");
+					XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_chart_%03u_close_holes_error.obj", meshId, chartGroupId, chartId);
+					FILE *file;
+					XA_FOPEN(file, filename, "w");
 					if (file) {
 						m_unifiedMesh->writeObjVertices(file);
 						fprintf(file, "s off\n");
@@ -6068,7 +6077,7 @@ public:
 #if XA_DEBUG_EXPORT_OBJ_NOT_DISK
 			if (!m_isDisk) {
 				char filename[256];
-				sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_chart_%0.3u_not_disk.obj", meshId, chartGroupId, chartId);
+				XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_chart_%03u_not_disk.obj", meshId, chartGroupId, chartId);
 				m_unifiedMesh->writeObjFile(filename);
 			}
 #endif
@@ -6220,7 +6229,7 @@ public:
 		}
 #if XA_DEBUG_EXPORT_OBJ_CHART_GROUPS
 		char filename[256];
-		sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u.obj", m_sourceId, m_id);
+		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u.obj", m_sourceId, m_id);
 		m_mesh->writeObjFile(filename);
 #else
 		XA_UNUSED(m_id);
@@ -6337,12 +6346,13 @@ public:
 #endif
 #if XA_DEBUG_EXPORT_OBJ_CHARTS
 		char filename[256];
-		sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_charts.obj", m_sourceId, m_id);
-		FILE *file = fopen(filename, "w");
+		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_charts.obj", m_sourceId, m_id);
+		FILE *file;
+		XA_FOPEN(file, filename, "w");
 		if (file) {
 			m_mesh->writeObjVertices(file);
 			for (uint32_t i = 0; i < chartCount; i++) {
-				fprintf(file, "o chart_%0.4d\n", i);
+				fprintf(file, "o chart_%04d\n", i);
 				fprintf(file, "s off\n");
 				const Array<uint32_t> &faces = builder.chartFaces(i);
 				for (uint32_t f = 0; f < faces.size(); f++)
@@ -6392,12 +6402,13 @@ public:
 			}
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
 			char filename[256];
-			sprintf(filename, "debug_mesh_%0.3u_chartgroup_%0.3u_recomputed_chart_%u.obj", m_sourceId, m_id, i);
-			FILE *file = fopen(filename, "w");
+			XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_recomputed_chart_%u.obj", m_sourceId, m_id, i);
+			FILE *file;
+			XA_FOPEN(file, filename, "w");
 			if (file) {
 				m_mesh->writeObjVertices(file);
 				for (uint32_t j = 0; j < builder.chartCount(); j++) {
-					fprintf(file, "o chart_%0.4d\n", j);
+					fprintf(file, "o chart_%04d\n", j);
 					fprintf(file, "s off\n");
 					const Array<uint32_t> &faces = builder.chartFaces(j);
 					for (uint32_t f = 0; f < faces.size(); f++)
@@ -6803,7 +6814,8 @@ public:
 	void writeTga(const char *filename, uint32_t width, uint32_t height) const
 	{
 		XA_DEBUG_ASSERT(sizeof(TgaHeader) == TgaHeader::Size);
-		FILE *f = fopen(filename, "wb");
+		FILE *f;
+		XA_FOPEN(f, filename, "wb");
 		if (!f)
 			return;
 		TgaHeader tga;
@@ -7288,11 +7300,11 @@ struct AtlasPacker
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
 		for (uint32_t i = 0; i < debugAtlasImages.size(); i++) {
 			char filename[256];
-			sprintf(filename, "debug_atlas%0.2u.tga", i);
+			XA_SPRINTF(filename, sizeof(filename), "debug_atlas%02u.tga", i);
 			debugAtlasImages[i]->writeTga(filename, m_width, m_height);
 			debugAtlasImages[i]->~DebugAtlasImage();
 			XA_FREE(debugAtlasImages[i]);
-			sprintf(filename, "debug_atlas_no_padding_%0.2u.tga", i);
+			XA_SPRINTF(filename, sizeof(filename), "debug_atlas_no_padding_%02u.tga", i);
 			debugAtlasImagesNoPadding[i]->writeTga(filename, m_width, m_height);
 			debugAtlasImagesNoPadding[i]->~DebugAtlasImage();
 			XA_FREE(debugAtlasImagesNoPadding[i]);
@@ -7607,9 +7619,10 @@ static void runAddMeshJob(void *userData)
 	if (progress->cancel)
 		goto cleanup;
 #if XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES
-		char filename[256];
-	sprintf(filename, "debug_mesh_%0.3u.obj", mesh->id());
-	FILE *file = fopen(filename, "w");
+	char filename[256];
+	XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u.obj", mesh->id());
+	FILE *file;
+	XA_FOPEN(file, filename, "w");
 	if (file) {
 		mesh->writeObjVertices(file);
 		// groups
@@ -7619,7 +7632,7 @@ static void runAddMeshJob(void *userData)
 				numGroups = internal::max(numGroups, mesh->faceGroupAt(i) + 1);
 		}
 		for (uint32_t i = 0; i < numGroups; i++) {
-			fprintf(file, "o group_%0.4d\n", i);
+			fprintf(file, "o group_%04d\n", i);
 			fprintf(file, "s off\n");
 			for (uint32_t f = 0; f < mesh->faceGroupCount(); f++) {
 				if (mesh->faceGroupAt(f) == i)
@@ -8005,7 +8018,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 #if XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION
 				{
 					char filename[256];
-					sprintf(filename, "debug_chart_%0.3u_after_parameterization.obj", chartIndex);
+					XA_SPRINTF(filename, sizeof(filename), "debug_chart_%03u_after_parameterization.obj", chartIndex);
 					chart->unifiedMesh()->writeObjFile(filename);
 				}
 #endif
@@ -8023,9 +8036,10 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 				if (invalid) {
 					char filename[256];
-					sprintf(filename, "debug_chart_%0.3u_invalid_parameterization.obj", chartIndex);
+					XA_SPRINTF(filename, sizeof(filename), "debug_chart_%03u_invalid_parameterization.obj", chartIndex);
 					const internal::Mesh *mesh = chart->unifiedMesh();
-					FILE *file = fopen(filename, "w");
+					FILE *file;
+					XA_FOPEN(file, filename, "w");
 					if (file) {
 						mesh->writeObjVertices(file);
 						fprintf(file, "s off\n");
