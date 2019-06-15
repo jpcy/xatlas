@@ -1,10 +1,9 @@
 /*
 https://github.com/jpcy/objzero
 
-Copyright (c) 2018 Jonathan Young
-Copyright (c) 2012-2018 Syoyo Fujita and many contributors.
+MIT License
 
-The MIT License (MIT)
+Copyright (c) 2018-2019 Jonathan Young
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -13,16 +12,21 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+/*
+Ear clipping triangulation from tinyobjloader, also under MIT license.
+https://github.com/syoyo/tinyobjloader
+Copyright (c) 2012-2018 Syoyo Fujita and many contributors.
 */
 #include <float.h>
 #include <math.h>
@@ -863,6 +867,7 @@ void objz_setVertexFormat(size_t _stride, size_t _positionOffset, size_t _texcoo
 }
 
 objzModel *objz_load(const char *_filename) {
+	s_error[0] = 0;
 	File file;
 	if (!fileOpen(&file, _filename)) {
 		appendError("Failed to read file '%s'", _filename);
@@ -951,15 +956,20 @@ objzModel *objz_load(const char *_filename) {
 				object->numFaces += faces.length - prevFacesLength;
 			}
 		} else if (OBJZ_STRICMP(token.text, "g") == 0 || OBJZ_STRICMP(token.text, "o") == 0) {
+			const bool isGroup = OBJZ_STRICMP(token.text, "g") == 0;
 			tokenize(&lexer, &token, true);
-			if (token.text[0] == 0) {
-				appendError("(%u:%u) Expected name after 'g'/'o'", token.line, token.column);
-				goto error;
+			if (isGroup) {
+				// Empty group names are permitted.
+				if (token.text[0] != 0)
+					strCopy(currentGroupName, sizeof(currentGroupName), token.text, strLength(token.text, sizeof(token.text)));
 			}
-			if (OBJZ_STRICMP(token.text, "g") == 0)
-				strCopy(currentGroupName, sizeof(currentGroupName), token.text, strLength(token.text, sizeof(token.text)));
-			else
+			else {
+				if (token.text[0] == 0) {
+					appendError("(%u:%u) Expected name after 'o'", token.line, token.column);
+					goto error;
+				}
 				strCopy(currentObjectName, sizeof(currentObjectName), token.text, strLength(token.text, sizeof(token.text)));
+			}
 			TempObject o;
 			o.name[0] = 0;
 			if (currentGroupName[0] != 0)
