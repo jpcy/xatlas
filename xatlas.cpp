@@ -109,6 +109,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_GROW_CHARTS_COPLANAR 1
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
+#define XA_DEBUG_MERGE_CHARTS 1
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
 #define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
@@ -5271,6 +5272,7 @@ struct AtlasBuilder
 			createRandomChart(threshold);
 	}
 
+#if XA_DEBUG_MERGE_CHARTS
 	void mergeCharts()
 	{
 		XA_PROFILE_START(atlasBuilderMergeCharts)
@@ -5332,7 +5334,7 @@ struct AtlasBuilder
 						break;
 					}
 					// Merge if chart2 is wholely inside chart1, ignoring seams.
-					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && sharedBoundaryLengthsNoSeams[cc] >= chart2->boundaryLength) {
+					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && equal(sharedBoundaryLengthsNoSeams[cc], chart2->boundaryLength)) {
 						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
 						merged = true;
 						break;
@@ -5377,6 +5379,7 @@ struct AtlasBuilder
 		}
 		XA_PROFILE_END(atlasBuilderMergeCharts)
 	}
+#endif
 
 private:
 	void createRandomChart(float threshold)
@@ -6468,7 +6471,9 @@ private:
 				// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
 				builder.fillHoles(options.maxThreshold * 0.5f);
 				builder.updateProxies();
+#if XA_DEBUG_MERGE_CHARTS
 				builder.mergeCharts();
+#endif
 				if (++iteration == options.maxIterations)
 					break;
 				if (!builder.relocateSeeds())
