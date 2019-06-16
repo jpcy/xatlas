@@ -2725,10 +2725,10 @@ struct Progress
 		m_mutex.unlock();
 	}
 
-	void incrementMaxValue()
+	void setMaxValue(uint32_t maxValue)
 	{
 		m_mutex.lock();
-		m_maxValue++;
+		m_maxValue = maxValue;
 		m_mutex.unlock();
 	}
 
@@ -7693,7 +7693,7 @@ static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, int
 	return uint32_t((int32_t)((const uint32_t *)indexData)[i] + offset);
 }
 
-AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
+AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountHint)
 {
 	XA_DEBUG_ASSERT(atlas);
 	if (!atlas) {
@@ -7712,8 +7712,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl)
 		internal::s_profile.addMeshConcurrent = clock();
 #endif
 	}
-	else
-		ctx->addMeshProgress->incrementMaxValue();
+	else {
+		ctx->addMeshProgress->setMaxValue(internal::max(ctx->meshCount + 1, meshCountHint));
+	}
 	bool decoded = (meshDecl.indexCount <= 0);
 	uint32_t indexCount = decoded ? meshDecl.vertexCount : meshDecl.indexCount;
 	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", ctx->meshCount, meshDecl.vertexCount, indexCount / 3);

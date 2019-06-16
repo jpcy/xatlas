@@ -190,7 +190,7 @@ int main(int argc, char *argv[])
 		meshDecl.indexCount = (int)objMesh.indices.size();
 		meshDecl.indexData = objMesh.indices.data();
 		meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
-		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, meshDecl);
+		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, meshDecl, (uint32_t)shapes.size());
 		if (error != xatlas::AddMeshError::Success) {
 			xatlas::Destroy(atlas);
 			printf("\rError adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));

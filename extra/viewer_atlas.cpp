@@ -373,7 +373,7 @@ static void atlasGenerateThread()
 			meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
 			meshDecl.indexOffset = -(int32_t)object.firstVertex;
 			meshDecl.faceIgnoreData = (const bool *)ignoreFaces.data();
-			xatlas::AddMeshError::Enum error = xatlas::AddMesh(s_atlas.data, meshDecl);
+			xatlas::AddMeshError::Enum error = xatlas::AddMesh(s_atlas.data, meshDecl, model->numObjects);
 			if (error != xatlas::AddMeshError::Success) {
 				fprintf(stderr, "Error adding mesh: %s\n", xatlas::StringForEnum(error));
 				setErrorMessage("Error adding mesh: %s", xatlas::StringForEnum(error));

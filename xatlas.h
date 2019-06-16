@@ -131,7 +131,7 @@ struct AddMeshError
 };
 
 // Add a mesh to the atlas. MeshDecl data is copied, so it can be freed after AddMesh returns.
-AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl);
+AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountHint = 0);
 
 struct UvMeshDecl
 {
