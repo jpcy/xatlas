@@ -246,6 +246,11 @@ struct ProfileData
 	std::atomic<clock_t> atlasBuilderMergeCharts;
 	std::atomic<clock_t> createChartMeshes;
 	std::atomic<clock_t> closeChartMeshHoles;
+	clock_t parameterizeChartsConcurrent;
+	std::atomic<clock_t> parameterizeCharts;
+	std::atomic<clock_t> parameterizeChartsOrthogonal;
+	std::atomic<clock_t> parameterizeChartsLSCM;
+	std::atomic<clock_t> parameterizeChartsEvaluateQuality;
 	clock_t packCharts;
 	clock_t packChartsRasterize;
 	clock_t packChartsDilate;
@@ -6481,15 +6486,20 @@ private:
 		if (mesh->faceCount() == 1) {
 			computeSingleFaceMap(mesh);
 		} else {
+			XA_PROFILE_START(parameterizeChartsOrthogonal)
 			computeOrthogonalProjectionMap(mesh);
-			if (func) {
+			XA_PROFILE_END(parameterizeChartsOrthogonal)
+			XA_PROFILE_START(parameterizeChartsLSCM)
+			if (func)
 				func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount(), chart->isPlanar());
-			} else if (chart->isDisk() && !chart->isPlanar()) {
+			else if (chart->isDisk() && !chart->isPlanar())
 				computeLeastSquaresConformalMap(mesh);
-			}
+			XA_PROFILE_END(parameterizeChartsLSCM)
 		}
 		// @@ Check that parameterization quality is above a certain threshold.
+		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
 		chart->evaluateParameterizationQuality();
+		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 		// Transfer parameterization from unified mesh to chart mesh.
 		chart->transferParameterization();
 	}
@@ -6546,7 +6556,9 @@ static void runParameterizeChartsJob(void *userData)
 	ParameterizeChartsJobArgs *args = (ParameterizeChartsJobArgs *)userData;
 	if (args->progress->cancel)
 		return;
+	XA_PROFILE_START(parameterizeCharts)
 	args->chartGroup->parameterizeCharts(args->func);
+	XA_PROFILE_END(parameterizeCharts)
 	args->progress->value++;
 	args->progress->update();
 }
@@ -7989,10 +8001,12 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	}
 	DestroyOutputMeshes(ctx);
 	XA_PRINT("Parameterizing charts\n");
+	XA_PROFILE_START(parameterizeChartsConcurrent)
 	if (!ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, func, ctx->progressFunc, ctx->progressUserData)) {
 		XA_PRINT("   Cancelled by user\n");
 			return;
 	}
+	XA_PROFILE_END(parameterizeChartsConcurrent)
 	uint32_t chartsAddedCount = 0, chartsDeletedCount = 0;
 	for (uint32_t i = 0; i < ctx->meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
@@ -8064,6 +8078,11 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	}
 	if (invalidParamCount > 0)
 		XA_PRINT_WARNING("   %u charts with invalid parameterizations\n", invalidParamCount);
+	XA_PROFILE_PRINT("   Total (concurrent): ", parameterizeChartsConcurrent)
+	XA_PROFILE_PRINT("   Total: ", parameterizeCharts)
+	XA_PROFILE_PRINT("      Orthogonal: ", parameterizeChartsOrthogonal)
+	XA_PROFILE_PRINT("      LSCM: ", parameterizeChartsLSCM)
+	XA_PROFILE_PRINT("      Evaluate quality: ", parameterizeChartsEvaluateQuality)
 }
 
 void PackCharts(Atlas *atlas, PackOptions packOptions)
