@@ -5278,6 +5278,7 @@ struct AtlasBuilder
 		XA_PROFILE_START(atlasBuilderMergeCharts)
 		Array<float> sharedBoundaryLengths;
 		Array<float> sharedBoundaryLengthsNoSeams;
+		Array<uint32_t> sharedBoundaryEdgeCountNoSeams;
 		const uint32_t chartCount = m_chartArray.size();
 		// Merge charts progressively until there's none left to merge.
 		for (;;) {
@@ -5291,6 +5292,8 @@ struct AtlasBuilder
 				sharedBoundaryLengths.resize(chartCount, 0.0f);
 				sharedBoundaryLengthsNoSeams.clear();
 				sharedBoundaryLengthsNoSeams.resize(chartCount, 0.0f);
+				sharedBoundaryEdgeCountNoSeams.clear();
+				sharedBoundaryEdgeCountNoSeams.resize(chartCount, 0u);
 				const uint32_t faceCount = chart->faces.size();
 				for (uint32_t i = 0; i < faceCount; i++) {
 					const uint32_t f = chart->faces[i];
@@ -5307,6 +5310,7 @@ struct AtlasBuilder
 									sharedBoundaryLengths[neighborChart] += l;
 								}
 								sharedBoundaryLengthsNoSeams[neighborChart] += l;
+								sharedBoundaryEdgeCountNoSeams[neighborChart]++;
 							}
 						}
 					}
@@ -5329,6 +5333,12 @@ struct AtlasBuilder
 					// chart1 must have more than 1 face.
 					// chart2 area must be <= 10% of chart1 area.
 					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && chart->faces.size() > 1 && chart2->faces.size() == 1 && chart2->area <= chart->area * 0.1f) {
+						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
+						merged = true;
+						break;
+					}
+					// Merge if chart2 has two faces (probably a quad), and chart1 bounds at least 2 of its edges.
+					if (chart2->faces.size() == 2 && sharedBoundaryEdgeCountNoSeams[cc] >= 2) {
 						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
 						merged = true;
 						break;
