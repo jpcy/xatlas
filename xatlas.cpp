@@ -3925,13 +3925,20 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 			const Vector3 edge1 = prevPos - currPos;
 			const Vector3 edge2 = nextPos - currPos;
 			frontAngles[i] = acosf(dot(edge1, edge2) / (length(edge1) * length(edge2)));
-			const float area = length(cross(currPos - prevPos, nextPos - prevPos));
-			if (area < 0.0f)
-				frontAngles[i] = kPi2 - frontAngles[i];
-			if (frontAngles[i] < smallestAngle) {
-				smallestAngle = frontAngles[i];
-				smallestAngleIndex = i;
-			}
+			if (frontAngles[i] > smallestAngle)
+				continue;
+			// Don't duplicate edges.
+			const uint32_t i1 = i == 0 ? frontCount - 1 : i - 1;
+			const uint32_t i2 = i;
+			const uint32_t i3 = (i + 1) % frontCount;
+			if (mesh->findEdge(UINT32_MAX, frontVertices[i1], frontVertices[i2]) != UINT32_MAX)
+				continue;
+			if (mesh->findEdge(UINT32_MAX, frontVertices[i2], frontVertices[i3]) != UINT32_MAX)
+				continue;
+			if (mesh->findEdge(UINT32_MAX, frontVertices[i3], frontVertices[i1]) != UINT32_MAX)
+				continue;
+			smallestAngle = frontAngles[i];
+			smallestAngleIndex = i;
 		}
 		XA_DEBUG_ASSERT(smallestAngleIndex != UINT32_MAX);
 		XA_DEBUG_ASSERT(smallestAngle >= 0.0f && smallestAngle < kPi);
