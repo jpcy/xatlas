@@ -2830,25 +2830,20 @@ public:
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
-		return addFace(indexArray, 3, flags, hashEdge);
+		return addFace(indexArray, flags, hashEdge);
 	}
 
-	AddFaceResult::Enum addFace(const Array<uint32_t> &indexArray, uint32_t flags = 0, bool hashEdge = true)
-	{
-		return addFace(indexArray.data(), indexArray.size(), flags, hashEdge);
-	}
-
-	AddFaceResult::Enum addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0, bool hashEdge = true)
+		AddFaceResult::Enum addFace(const uint32_t *indices, uint32_t flags = 0, bool hashEdge = true)
 	{
 		XA_DEBUG_ASSERT(indexCount == 3);
 		AddFaceResult::Enum result = AddFaceResult::OK;
 		m_faceFlags.push_back(flags);
 		m_faceGroups.push_back(UINT32_MAX);
 		const uint32_t firstIndex = m_indices.size();
-		for (uint32_t i = 0; i < indexCount; i++)
-			m_indices.push_back(indexArray[i]);
+		for (uint32_t i = 0; i < 3; i++)
+			m_indices.push_back(indices[i]);
 		if (hashEdge) {
-			for (uint32_t i = 0; i < indexCount; i++) {
+			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex0 = m_indices[firstIndex + i];
 				const uint32_t vertex1 = m_indices[firstIndex + (i + 1) % 3];
 				const EdgeKey key(vertex0, vertex1);
@@ -3881,13 +3876,12 @@ static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 		if (inputMesh.firstColocal(v) == v)
 			mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
 	}
-	Array<uint32_t> indexArray;
 	// Add new faces pointing to first colocals.
 	for (uint32_t f = 0; f < faceCount; f++) {
-		indexArray.clear();
-		for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance())
-			indexArray.push_back(inputMesh.firstColocal(it.vertex0()));
-		Mesh::AddFaceResult::Enum result = mesh->addFace(indexArray);
+		uint32_t indices[3];
+		for (uint32_t i = 0; i < 3; i++)
+			indices[i] = inputMesh.firstColocal(inputMesh.vertexAt(f * 3 + i));
+		Mesh::AddFaceResult::Enum result = mesh->addFace(indices);
 		XA_UNUSED(result);
 		XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 	}
@@ -6086,24 +6080,18 @@ public:
 				}
 			}
 		}
-		Array<uint32_t> faceIndices;
-		faceIndices.reserve(7);
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
-			faceIndices.clear();
-			for (Mesh::FaceEdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance())
-				faceIndices.push_back(chartMeshIndices[it.vertex0()]);
-			Mesh::AddFaceResult::Enum result = m_mesh->addFace(faceIndices);
+			uint32_t indices[3], unifiedIndices[3];
+			for (uint32_t i = 0; i < 3; i++) {
+				const uint32_t vertex = originalMesh->vertexAt(faceArray[f] * 3 + i);
+				indices[i] = chartMeshIndices[vertex];
+				unifiedIndices[i] = unifiedMeshIndices[originalMesh->firstColocal(vertex)];
+			}
+			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
-			faceIndices.clear();
-			for (Mesh::FaceEdgeIterator it(originalMesh, faceArray[f]); !it.isDone(); it.advance()) {
-				uint32_t unifiedVertex = originalMesh->firstColocal(it.vertex0());
-				if (unifiedVertex == UINT32_MAX)
-					unifiedVertex = it.vertex0();
-				faceIndices.push_back(unifiedMeshIndices[unifiedVertex]);
-			}
-			result = m_unifiedMesh->addFace(faceIndices);
+			result = m_unifiedMesh->addFace(unifiedIndices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
@@ -6314,19 +6302,17 @@ public:
 			}
 		}
 		// Add faces.
-		Array<uint32_t> faceIndices;
-		faceIndices.reserve(7);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const uint32_t face = m_faceToSourceFaceMap[f];
-			faceIndices.clear();
+			uint32_t indices[3];
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = sourceMesh->vertexAt(face * 3 + i);
 				XA_DEBUG_ASSERT(meshIndices[vertex] != (uint32_t)~0);
-				faceIndices.push_back(meshIndices[vertex]);
+				indices[i] = meshIndices[vertex];
 			}
 			// Don't copy flags, it doesn't matter if a face is ignored after this point. All ignored faces get their own vertex map (m_isVertexMap) ChartGroup.
 			// Don't hash edges if m_isVertexMap, they may be degenerate.
-			Mesh::AddFaceResult::Enum result = m_mesh->addFace(faceIndices, 0, !m_isVertexMap);
+			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices, 0, !m_isVertexMap);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
