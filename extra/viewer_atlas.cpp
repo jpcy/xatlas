@@ -275,10 +275,8 @@ struct EdgeKeyEqual
 };
 
 #if USE_LIBIGL
-static void atlasParameterizationCallback(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount, bool isPlanar)
+static void atlasParameterizationCallback(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount)
 {
-	if (isPlanar)
-		return;
 	Eigen::MatrixXd V(vertexCount, 3);
 	for (uint32_t i = 0; i < vertexCount; i++) {
 		V(i, 0) = positions[i * 3 + 0];

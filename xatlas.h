@@ -168,7 +168,7 @@ struct ChartOptions
 void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions());
 
 // Custom parameterization function. texcoords initial values are an orthogonal parameterization.
-typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount, bool isPlanar);
+typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount);
 
 // Call after ComputeCharts. Can be called multiple times to re-parameterize charts with a different ParameterizeFunc.
 void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = nullptr);

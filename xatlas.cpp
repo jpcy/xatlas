@@ -6018,7 +6018,7 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 	XA_DEBUG_ASSERT(isFinite(quality.maxStretchMetric));
 	XA_DEBUG_ASSERT(isFinite(quality.conformalMetric));
 	XA_DEBUG_ASSERT(isFinite(quality.authalicMetric));
-	if (quality.geometricArea == 0.0f) {
+	if (quality.geometricArea <= 0.0f) {
 		quality.stretchMetric = 0.0f;
 		quality.maxStretchMetric = 0.0f;
 		quality.conformalMetric = 0.0f;
@@ -6048,7 +6048,7 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_faceArray(faceArray)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6198,6 +6198,7 @@ public:
 	}
 
 	bool isDisk() const { return m_isDisk; }
+	bool isOrtho() const { return m_isOrtho; }
 	bool isPlanar() const { return m_isPlanar; }
 	uint32_t warningFlags() const { return m_warningFlags; }
 	uint32_t closedHolesCount() const { return m_closedHolesCount; }
@@ -6212,13 +6213,25 @@ public:
 	Mesh *unifiedMesh() { return m_unifiedMesh; }
 	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const { return m_chartToOriginalMap[i]; }
 
+	void evaluateOrthoParameterizationQuality()
+	{
+		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
+		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, nullptr);
+		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
+		// Use orthogonal parameterization if quality is acceptable.
+		if (!m_paramQuality.boundaryIntersection && m_paramQuality.geometricArea > 0.0f && m_paramQuality.stretchMetric <= 1.1f && m_paramQuality.maxStretchMetric <= 1.25f)
+			m_isOrtho = true;
+	}
+
 	void evaluateParameterizationQuality()
 	{
+		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, &m_paramFlippedFaces);
 #else
 		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, nullptr);
 #endif
+		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 	}
 
 	// Transfer parameterization from unified mesh to chart mesh.
@@ -6254,8 +6267,7 @@ public:
 private:
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
-	bool m_isDisk;
-	bool m_isPlanar;
+	bool m_isDisk, m_isOrtho, m_isPlanar;
 	uint32_t m_warningFlags;
 	uint32_t m_closedHolesCount;
 
@@ -6620,21 +6632,23 @@ private:
 		Mesh *mesh = chart->unifiedMesh();
 		if (mesh->faceCount() == 1) {
 			computeSingleFaceMap(mesh);
+			chart->evaluateParameterizationQuality();
 		} else {
 			XA_PROFILE_START(parameterizeChartsOrthogonal)
 			computeOrthogonalProjectionMap(mesh);
 			XA_PROFILE_END(parameterizeChartsOrthogonal)
-			XA_PROFILE_START(parameterizeChartsLSCM)
-			if (func)
-				func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount(), chart->isPlanar());
-			else if (chart->isDisk() && !chart->isPlanar())
-				computeLeastSquaresConformalMap(mesh);
-			XA_PROFILE_END(parameterizeChartsLSCM)
+			chart->evaluateOrthoParameterizationQuality();
+			if (!chart->isOrtho() && !chart->isPlanar()) {
+				XA_PROFILE_START(parameterizeChartsLSCM)
+				if (func)
+					func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
+				else if (chart->isDisk())
+					computeLeastSquaresConformalMap(mesh);
+				XA_PROFILE_END(parameterizeChartsLSCM)
+				chart->evaluateParameterizationQuality();
+			}
 		}
 		// @@ Check that parameterization quality is above a certain threshold.
-		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
-		chart->evaluateParameterizationQuality();
-		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 		// Transfer parameterization from unified mesh to chart mesh.
 		chart->transferParameterization();
 	}
@@ -8147,16 +8161,25 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 			return;
 	}
 	XA_PROFILE_END(parameterizeChartsConcurrent)
-	uint32_t chartsAddedCount = 0, chartsDeletedCount = 0;
+	uint32_t chartCount = 0, orthoChartsCount = 0, planarChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
 	for (uint32_t i = 0; i < ctx->meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
 			if (chartGroup->isVertexMap())
 				continue;
+			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
+				const internal::param::Chart *chart = chartGroup->chartAt(k);
+				if (chart->isPlanar())
+					planarChartsCount++;
+				else if (chart->isOrtho())
+					orthoChartsCount++;
+			}
+			chartCount += chartGroup->chartCount();
 			chartsAddedCount += chartGroup->paramAddedChartsCount();
 			chartsDeletedCount += chartGroup->paramDeletedChartsCount();
 		}
 	}
+	XA_PRINT("   %u planar charts, %u ortho charts, %u other\n", planarChartsCount, orthoChartsCount, chartCount - (planarChartsCount + orthoChartsCount));
 	if (chartsDeletedCount > 0) {
 		XA_PRINT("   %u charts deleted due to invalid parameterizations, %u new charts added\n", chartsDeletedCount, chartsAddedCount);
 		XA_PRINT("   %u charts\n", ctx->paramAtlas.chartCount());
