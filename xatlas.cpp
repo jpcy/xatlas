@@ -345,6 +345,11 @@ static bool isFinite(float f)
 	return fu.u != 0x7F800000u && fu.u != 0x7F800001u;
 }
 
+static bool isNan(float f)
+{
+	return f != f;
+}
+
 // Robust floating point comparisons:
 // http://realtimecollisiondetection.net/blog/?p=89
 static bool equal(const float f0, const float f1, const float epsilon = kEpsilon)
@@ -3925,7 +3930,7 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 			const Vector3 edge1 = prevPos - currPos;
 			const Vector3 edge2 = nextPos - currPos;
 			frontAngles[i] = acosf(dot(edge1, edge2) / (length(edge1) * length(edge2)));
-			if (frontAngles[i] > smallestAngle)
+			if (frontAngles[i] > smallestAngle || isNan(frontAngles[i]))
 				continue;
 			// Don't duplicate edges.
 			const uint32_t i1 = i == 0 ? frontCount - 1 : i - 1;
