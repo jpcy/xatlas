@@ -250,6 +250,7 @@ struct ProfileData
 	std::atomic<clock_t> atlasBuilderGrowCharts;
 	std::atomic<clock_t> atlasBuilderMergeCharts;
 	std::atomic<clock_t> createChartMeshes;
+	std::atomic<clock_t> fixChartMeshTJunctions;
 	std::atomic<clock_t> closeChartMeshHoles;
 	clock_t parameterizeChartsConcurrent;
 	std::atomic<clock_t> parameterizeCharts;
@@ -3960,7 +3961,6 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 
 static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge, Array<uint32_t> &holeFaceCounts)
 {
-	XA_PROFILE_START(closeChartMeshHoles)
 	if (duplicatedEdge)
 		*duplicatedEdge = false;
 	holeFaceCounts.clear();
@@ -4009,7 +4009,6 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 		meshCloseHole(mesh, holeVertices, duplicatedEdge);
 		holeFaceCounts.push_back(mesh->faceCount() - oldFaceCount);
 	}
-	XA_PROFILE_END(closeChartMeshHoles)
 }
 
 class MeshTopology
@@ -6106,7 +6105,9 @@ public:
 			m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
 #endif
 			bool duplicatedEdge = false;
+			XA_PROFILE_START(fixChartMeshTJunctions)
 			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh, &duplicatedEdge);
+			XA_PROFILE_END(fixChartMeshTJunctions)
 			if (fixedUnifiedMesh) {
 				if (duplicatedEdge)
 					m_warningFlags |= ChartWarningFlags::FixTJunctionsDuplicatedEdge;
@@ -6131,7 +6132,9 @@ public:
 				// - Find cuts to connect holes.
 				// - Use minimal spanning trees or seamster.
 				Array<uint32_t> holeFaceCounts;
+				XA_PROFILE_START(closeChartMeshHoles)
 				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge, holeFaceCounts);
+				XA_PROFILE_END(closeChartMeshHoles)
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
 				if (duplicatedEdge)
@@ -8109,6 +8112,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT("         Grow charts: ", atlasBuilderGrowCharts)
 	XA_PROFILE_PRINT("         Merge charts: ", atlasBuilderMergeCharts)
 	XA_PROFILE_PRINT("      Create chart meshes: ", createChartMeshes)
+	XA_PROFILE_PRINT("         Fix t-junctions: ", fixChartMeshTJunctions);
 	XA_PROFILE_PRINT("         Close holes: ", closeChartMeshHoles)
 }
 
