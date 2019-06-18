@@ -1200,7 +1200,8 @@ public:
 			if (rowStride == m_rowStride) {
 				memcpy(tmp.data(), m_data.data(), m_rowStride * min(m_height, h) * sizeof(uint64_t));
 			} else if (m_width > 0 && m_height > 0) {
-				for (uint32_t i = 0; i < h; i++)
+				const uint32_t height = min(m_height, h);
+				for (uint32_t i = 0; i < height; i++)
 					memcpy(&tmp[i * rowStride], &m_data[i * m_rowStride], min(rowStride, m_rowStride) * sizeof(uint64_t));
 			}
 			tmp.moveTo(m_data);
