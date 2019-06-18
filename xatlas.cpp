@@ -2840,6 +2840,7 @@ public:
 
 	AddFaceResult::Enum addFace(const uint32_t *indexArray, uint32_t indexCount, uint32_t flags = 0, bool hashEdge = true)
 	{
+		XA_DEBUG_ASSERT(indexCount == 3);
 		AddFaceResult::Enum result = AddFaceResult::OK;
 		m_faceFlags.push_back(flags);
 		m_faceGroups.push_back(UINT32_MAX);
@@ -3858,9 +3859,12 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
 					indexArray.push_back(vertexCount + faceSplitEdges[se].index);
 			}
 		}
-		if (mesh->addFace(indexArray) == Mesh::AddFaceResult::DuplicateEdge) {
-			if (duplicatedEdge)
-				*duplicatedEdge = true;
+		// Add faces as a triangle fan.
+		for (uint32_t i = 0; i < indexArray.size() - 2; i++) {
+			if (mesh->addFace(indexArray[0], indexArray[i + 1], indexArray[i + 2]) == Mesh::AddFaceResult::DuplicateEdge) {
+				if (duplicatedEdge)
+					*duplicatedEdge = true;
+			}
 		}
 	}
 	mesh->createColocals(); // Added new vertices, some may be colocal with existing vertices.
