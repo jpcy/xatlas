@@ -3733,6 +3733,13 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 		frontPoints[i] = mesh->position(frontVertices[i]);
 	}
 	while (frontCount >= 3) {
+		if (frontCount == 3) {
+			if (mesh->addFace(frontVertices[0], frontVertices[1], frontVertices[2]) == Mesh::AddFaceResult::DuplicateEdge) {
+				if (duplicatedEdge)
+					*duplicatedEdge = true;
+			}
+			break;
+		}
 		frontAngles.resize(frontCount);
 		float smallestAngle = kPi2;
 		uint32_t smallestAngleIndex = UINT32_MAX;
