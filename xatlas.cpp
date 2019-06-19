@@ -649,11 +649,6 @@ public:
 	float x, y, z;
 };
 
-static bool operator==(const Vector3 &a, const Vector3 &b)
-{
-	return a.x == b.x && a.y == b.y && a.z == b.z;
-}
-
 static bool operator!=(const Vector3 &a, const Vector3 &b)
 {
 	return a.x != b.x || a.y != b.y || a.z != b.z;
@@ -2835,9 +2830,8 @@ public:
 		return addFace(indexArray, flags, hashEdge);
 	}
 
-		AddFaceResult::Enum addFace(const uint32_t *indices, uint32_t flags = 0, bool hashEdge = true)
+	AddFaceResult::Enum addFace(const uint32_t *indices, uint32_t flags = 0, bool hashEdge = true)
 	{
-		XA_DEBUG_ASSERT(indexCount == 3);
 		AddFaceResult::Enum result = AddFaceResult::OK;
 		m_faceFlags.push_back(flags);
 		m_faceGroups.push_back(UINT32_MAX);
@@ -3726,187 +3720,6 @@ public:
 	};
 };
 
-static bool meshIsPlanar(const Mesh &mesh)
-{
-	const Vector3 p1 = mesh.position(mesh.vertexAt(0));
-	const Vector3 p2 = mesh.position(mesh.vertexAt(1));
-	const Vector3 p3 = mesh.position(mesh.vertexAt(2));
-	Vector3 planeNormal = cross(p2 - p1, p3 - p1);
-	float planeDist = dot(planeNormal, p1);
-	const float len = length(planeNormal);
-	if (len > 0.0f) {
-		const float il = 1.0f / len;
-		planeNormal *= il;
-		planeDist *= il;
-	}
-	const uint32_t vertexCount = mesh.vertexCount();
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		const float d = dot(planeNormal, mesh.position(v)) - planeDist;
-		if (!equal(d, 0.0f))
-			return false;
-	}
-	return true;
-}
-
-/*
-Fixing T-junctions.
-
-- Find T-junctions. Find  vertices that are on an edge.
-- This test is approximate.
-- Insert edges on a spatial index to speedup queries.
-- Consider only open edges, that is edges that have no pairs.
-- Consider only vertices on boundaries.
-- Close T-junction.
-- Split edge.
-
-*/
-struct SplitEdge
-{
-	uint32_t index;
-	uint32_t edge;
-	float t;
-	uint32_t vertex;
-
-	bool operator<(const SplitEdge &other) const
-	{
-		if (edge < other.edge)
-			return true;
-		else if (edge == other.edge) {
-			if (t < other.t)
-				return true;
-		}
-		return false;
-	}
-};
-
-// Returns nullptr if there were no t-junctions to fix.
-static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge)
-{
-	if (duplicatedEdge)
-		*duplicatedEdge = false;
-	Array<SplitEdge> splitEdges;
-	const uint32_t vertexCount = inputMesh.vertexCount();
-	const uint32_t edgeCount = inputMesh.edgeCount();
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		if (!inputMesh.isBoundaryVertex(v))
-			continue;
-		// Find edges that this vertex overlaps with.
-		const Vector3 &x0 = inputMesh.position(v);
-		for (uint32_t e = 0; e < edgeCount; e++) {
-			if (!inputMesh.isBoundaryEdge(e))
-				continue;
-			const Vector3 &x1 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex0(e)));
-			const Vector3 &x2 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex1(e)));
-			if (x1 == x0 || x2 == x0)
-				continue; // Vertex lies on either edge vertex.
-			const Vector3 v01 = x0 - x1;
-			const Vector3 v21 = x2 - x1;
-			const float l = length(v21);
-			const float d = length(cross(v01, v21)) / l;
-			if (!isZero(d))
-				continue;
-			float t = dot(v01, v21) / (l * l);
-			if (t < kEpsilon || t > 1.0f - kEpsilon)
-				continue;
-			//XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
-			SplitEdge splitEdge;
-			splitEdge.index = splitEdges.size();
-			splitEdge.edge = e;
-			splitEdge.t = t;
-			splitEdge.vertex = v;
-			splitEdges.push_back(splitEdge);
-		}
-	}
-	if (splitEdges.isEmpty())
-		return nullptr;
-	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount + splitEdges.size(), faceCount);
-	for (uint32_t v = 0; v < vertexCount; v++)
-		mesh->addVertex(inputMesh.position(v), Vector3(0.0f), inputMesh.texcoord(v));
-	for (uint32_t se = 0; se < splitEdges.size(); se++) {
-		const SplitEdge &splitEdge = splitEdges[se];
-		const uint32_t vertex0 = inputMesh.vertexAt(meshEdgeIndex0(splitEdge.edge));
-		const uint32_t vertex1 = inputMesh.vertexAt(meshEdgeIndex1(splitEdge.edge));
-		Vector3 normal(0.0f);
-		if (inputMesh.flags() & MeshFlags::HasNormals)
-			normal = lerp(inputMesh.normal(vertex0), inputMesh.normal(vertex1), splitEdge.t);
-		const Vector2 texcoord = lerp(inputMesh.texcoord(vertex0), inputMesh.texcoord(vertex1), splitEdge.t);
-		mesh->addVertex(inputMesh.position(splitEdge.vertex), normal, texcoord);
-	}
-	Array<uint32_t> indexArray;
-	indexArray.reserve(4);
-	Array<SplitEdge> faceSplitEdges;
-	faceSplitEdges.reserve(4);
-	for (uint32_t f = 0; f < faceCount; f++) {
-		// Find t-junctions in this face.
-		faceSplitEdges.clear();
-		for (uint32_t i = 0; i < splitEdges.size(); i++) {
-			if (meshEdgeFace(splitEdges[i].edge) == f)
-				faceSplitEdges.push_back(splitEdges[i]);
-		}
-		// Need to split edges in winding order when a single edge has multiple t-junctions.
-		if (!faceSplitEdges.isEmpty())
-			insertionSort(faceSplitEdges.data(), faceSplitEdges.size());
-		indexArray.clear();
-		for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
-			indexArray.push_back(it.vertex0());
-			for (uint32_t se = 0; se < faceSplitEdges.size(); se++) {
-				const SplitEdge &splitEdge = faceSplitEdges[se];
-				if (splitEdge.edge == it.edge())
-					indexArray.push_back(vertexCount + faceSplitEdges[se].index);
-			}
-		}
-		// Add faces as a triangle fan.
-		for (uint32_t i = 0; i < indexArray.size() - 2; i++) {
-			if (mesh->addFace(indexArray[0], indexArray[i + 1], indexArray[i + 2]) == Mesh::AddFaceResult::DuplicateEdge) {
-				if (duplicatedEdge)
-					*duplicatedEdge = true;
-			}
-		}
-	}
-	mesh->createColocals(); // Added new vertices, some may be colocal with existing vertices.
-	return mesh;
-}
-
-static Mesh *meshUnifyVertices(const Mesh &inputMesh)
-{
-	const uint32_t vertexCount = inputMesh.vertexCount();
-	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
-	// Only add the first colocal.
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		if (inputMesh.firstColocal(v) == v)
-			mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
-	}
-	// Add new faces pointing to first colocals.
-	for (uint32_t f = 0; f < faceCount; f++) {
-		uint32_t indices[3];
-		for (uint32_t i = 0; i < 3; i++)
-			indices[i] = inputMesh.firstColocal(inputMesh.vertexAt(f * 3 + i));
-		Mesh::AddFaceResult::Enum result = mesh->addFace(indices);
-		XA_UNUSED(result);
-		XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
-	}
-	return mesh;
-}
-
-// boundaryLoops are the first edges for each boundary loop.
-static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoops)
-{
-	const uint32_t edgeCount = mesh.edgeCount();
-	BitArray bitFlags(edgeCount);
-	bitFlags.clearAll();
-	boundaryLoops.clear();
-	// Search for boundary edges. Mark all the edges that belong to the same boundary.
-	for (uint32_t e = 0; e < edgeCount; e++) {
-		if (bitFlags.bitAt(e) || !mesh.isBoundaryEdge(e))
-			continue;
-		for (Mesh::BoundaryEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
-			bitFlags.setBitAt(it.edge());
-		boundaryLoops.push_back(e);
-	}
-}
-
 static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool *duplicatedEdge)
 {
 	uint32_t frontCount = holeVertices.size();
@@ -4009,6 +3822,190 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 		const uint32_t oldFaceCount = mesh->faceCount();
 		meshCloseHole(mesh, holeVertices, duplicatedEdge);
 		holeFaceCounts.push_back(mesh->faceCount() - oldFaceCount);
+	}
+}
+
+static bool meshIsPlanar(const Mesh &mesh)
+{
+	const Vector3 p1 = mesh.position(mesh.vertexAt(0));
+	const Vector3 p2 = mesh.position(mesh.vertexAt(1));
+	const Vector3 p3 = mesh.position(mesh.vertexAt(2));
+	Vector3 planeNormal = cross(p2 - p1, p3 - p1);
+	float planeDist = dot(planeNormal, p1);
+	const float len = length(planeNormal);
+	if (len > 0.0f) {
+		const float il = 1.0f / len;
+		planeNormal *= il;
+		planeDist *= il;
+	}
+	const uint32_t vertexCount = mesh.vertexCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		const float d = dot(planeNormal, mesh.position(v)) - planeDist;
+		if (!equal(d, 0.0f))
+			return false;
+	}
+	return true;
+}
+
+/*
+Fixing T-junctions.
+
+- Find T-junctions. Find  vertices that are on an edge.
+- This test is approximate.
+- Insert edges on a spatial index to speedup queries.
+- Consider only open edges, that is edges that have no pairs.
+- Consider only vertices on boundaries.
+- Close T-junction.
+- Split edge.
+
+*/
+struct SplitEdge
+{
+	uint32_t index;
+	uint32_t edge;
+	float t;
+	uint32_t vertex;
+
+	bool operator<(const SplitEdge &other) const
+	{
+		if (edge < other.edge)
+			return true;
+		else if (edge == other.edge) {
+			if (t < other.t)
+				return true;
+		}
+		return false;
+	}
+};
+
+// Returns nullptr if there were no t-junctions to fix.
+static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, uint32_t *fixedTJunctionsCount)
+{
+	if (duplicatedEdge)
+		*duplicatedEdge = false;
+	Array<SplitEdge> splitEdges;
+	const uint32_t vertexCount = inputMesh.vertexCount();
+	const uint32_t edgeCount = inputMesh.edgeCount();
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		if (!inputMesh.isBoundaryVertex(v))
+			continue;
+		// Find edges that this vertex overlaps with.
+		const Vector3 &x0 = inputMesh.position(v);
+		for (uint32_t e = 0; e < edgeCount; e++) {
+			if (!inputMesh.isBoundaryEdge(e))
+				continue;
+			const Vector3 &x1 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex0(e)));
+			const Vector3 &x2 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex1(e)));
+			if (equal(x1, x0) || equal(x2, x0))
+				continue; // Vertex lies on either edge vertex.
+			const Vector3 v01 = x0 - x1;
+			const Vector3 v21 = x2 - x1;
+			const float l = length(v21);
+			const float d = length(cross(v01, v21)) / l;
+			if (!isZero(d))
+				continue;
+			float t = dot(v01, v21) / (l * l);
+			if (t < kEpsilon || t > 1.0f - kEpsilon)
+				continue;
+			//XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
+			SplitEdge splitEdge;
+			splitEdge.index = splitEdges.size();
+			splitEdge.edge = e;
+			splitEdge.t = t;
+			splitEdge.vertex = v;
+			splitEdges.push_back(splitEdge);
+		}
+	}
+	if (splitEdges.isEmpty())
+		return nullptr;
+	const uint32_t faceCount = inputMesh.faceCount();
+	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount + splitEdges.size(), faceCount);
+	for (uint32_t v = 0; v < vertexCount; v++)
+		mesh->addVertex(inputMesh.position(v), Vector3(0.0f), inputMesh.texcoord(v));
+	for (uint32_t se = 0; se < splitEdges.size(); se++) {
+		const SplitEdge &splitEdge = splitEdges[se];
+		const uint32_t vertex0 = inputMesh.vertexAt(meshEdgeIndex0(splitEdge.edge));
+		const uint32_t vertex1 = inputMesh.vertexAt(meshEdgeIndex1(splitEdge.edge));
+		Vector3 normal(0.0f);
+		if (inputMesh.flags() & MeshFlags::HasNormals)
+			normal = lerp(inputMesh.normal(vertex0), inputMesh.normal(vertex1), splitEdge.t);
+		const Vector2 texcoord = lerp(inputMesh.texcoord(vertex0), inputMesh.texcoord(vertex1), splitEdge.t);
+		mesh->addVertex(inputMesh.position(splitEdge.vertex), normal, texcoord);
+	}
+	Array<uint32_t> indexArray;
+	indexArray.reserve(4);
+	Array<SplitEdge> faceSplitEdges;
+	faceSplitEdges.reserve(4);
+	for (uint32_t f = 0; f < faceCount; f++) {
+		// Find t-junctions in this face.
+		faceSplitEdges.clear();
+		for (uint32_t i = 0; i < splitEdges.size(); i++) {
+			if (meshEdgeFace(splitEdges[i].edge) == f)
+				faceSplitEdges.push_back(splitEdges[i]);
+		}
+		if (!faceSplitEdges.isEmpty()) {
+			// Need to split edges in winding order when a single edge has multiple t-junctions.
+			insertionSort(faceSplitEdges.data(), faceSplitEdges.size());
+			indexArray.clear();
+			for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
+				indexArray.push_back(it.vertex0());
+				for (uint32_t se = 0; se < faceSplitEdges.size(); se++) {
+					const SplitEdge &splitEdge = faceSplitEdges[se];
+					if (splitEdge.edge == it.edge())
+						indexArray.push_back(vertexCount + faceSplitEdges[se].index);
+				}
+			}
+			meshCloseHole(mesh, indexArray, duplicatedEdge);
+		} else {
+			// No t-junctions in this face. Copy from input mesh.
+			if (mesh->addFace(&inputMesh.indices()[f * 3]) == Mesh::AddFaceResult::DuplicateEdge) {
+				if (duplicatedEdge)
+					*duplicatedEdge = true;
+			}
+		}
+	}
+	mesh->createColocals(); // Added new vertices, some may be colocal with existing vertices.
+	if (fixedTJunctionsCount)
+		*fixedTJunctionsCount = splitEdges.size();
+	return mesh;
+}
+
+static Mesh *meshUnifyVertices(const Mesh &inputMesh)
+{
+	const uint32_t vertexCount = inputMesh.vertexCount();
+	const uint32_t faceCount = inputMesh.faceCount();
+	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
+	// Only add the first colocal.
+	for (uint32_t v = 0; v < vertexCount; v++) {
+		if (inputMesh.firstColocal(v) == v)
+			mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
+	}
+	// Add new faces pointing to first colocals.
+	for (uint32_t f = 0; f < faceCount; f++) {
+		uint32_t indices[3];
+		for (uint32_t i = 0; i < 3; i++)
+			indices[i] = inputMesh.firstColocal(inputMesh.vertexAt(f * 3 + i));
+		Mesh::AddFaceResult::Enum result = mesh->addFace(indices);
+		XA_UNUSED(result);
+		XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
+	}
+	return mesh;
+}
+
+// boundaryLoops are the first edges for each boundary loop.
+static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoops)
+{
+	const uint32_t edgeCount = mesh.edgeCount();
+	BitArray bitFlags(edgeCount);
+	bitFlags.clearAll();
+	boundaryLoops.clear();
+	// Search for boundary edges. Mark all the edges that belong to the same boundary.
+	for (uint32_t e = 0; e < edgeCount; e++) {
+		if (bitFlags.bitAt(e) || !mesh.isBoundaryEdge(e))
+			continue;
+		for (Mesh::BoundaryEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
+			bitFlags.setBitAt(it.edge());
+		boundaryLoops.push_back(e);
 	}
 }
 
@@ -6049,7 +6046,7 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_faceArray(faceArray)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6107,7 +6104,7 @@ public:
 #endif
 			bool duplicatedEdge = false;
 			XA_PROFILE_START(fixChartMeshTJunctions)
-			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh, &duplicatedEdge);
+			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh, &duplicatedEdge, &m_fixedTJunctionsCount);
 			XA_PROFILE_END(fixChartMeshTJunctions)
 			if (fixedUnifiedMesh) {
 				if (duplicatedEdge)
@@ -6203,6 +6200,7 @@ public:
 	bool isPlanar() const { return m_isPlanar; }
 	uint32_t warningFlags() const { return m_warningFlags; }
 	uint32_t closedHolesCount() const { return m_closedHolesCount; }
+	uint32_t fixedTJunctionsCount() const { return m_fixedTJunctionsCount; }
 	const ParameterizationQuality &paramQuality() const { return m_paramQuality; }
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
@@ -6270,7 +6268,7 @@ private:
 	Mesh *m_unifiedMesh;
 	bool m_isDisk, m_isOrtho, m_isPlanar;
 	uint32_t m_warningFlags;
-	uint32_t m_closedHolesCount;
+	uint32_t m_closedHolesCount, m_fixedTJunctionsCount;
 
 	// List of faces of the original mesh that belong to this chart.
 	Array<uint32_t> m_faceArray;
@@ -8084,7 +8082,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 		return;
 	}
 	XA_PRINT("Computing charts\n");
-	uint32_t chartCount = 0, chartsWithHolesCount = 0, holesCount = 0;
+	uint32_t chartCount = 0, chartsWithHolesCount = 0, holesCount = 0, chartsWithTJunctionsCount = 0, tJunctionsCount = 0;
 	XA_PROFILE_START(computeChartsConcurrent)
 	if (!ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, ctx->progressFunc, ctx->progressUserData)) {
 		XA_PRINT("   Cancelled by user\n");
@@ -8112,12 +8110,17 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 				holesCount += chart->closedHolesCount();
 				if (chart->closedHolesCount() > 0)
 					chartsWithHolesCount++;
+				tJunctionsCount += chart->fixedTJunctionsCount();
+				if (chart->fixedTJunctionsCount() > 0)
+					chartsWithTJunctionsCount++;
 				chartCount++;
 			}
 		}
 	}
 	if (holesCount > 0)
 		XA_PRINT("   Closed %u holes in %u charts\n", holesCount, chartsWithHolesCount);
+	if (tJunctionsCount > 0)
+		XA_PRINT("   Fixed %u t-junctions in %u charts\n", tJunctionsCount, chartsWithTJunctionsCount);
 	XA_PRINT("   %u charts\n", chartCount);
 	XA_PROFILE_PRINT("   Total (concurrent): ", computeChartsConcurrent)
 	XA_PROFILE_PRINT("   Total: ", computeCharts)
