@@ -5028,28 +5028,6 @@ static bool computeOrthogonalProjectionMap(Mesh *mesh)
 	return true;
 }
 
-static void computeSingleFaceMap(Mesh *mesh)
-{
-	XA_DEBUG_ASSERT(mesh != nullptr);
-	XA_DEBUG_ASSERT(mesh->faceCount() == 1);
-	const Vector3 &p0 = mesh->position(mesh->vertexAt(0));
-	const Vector3 &p1 = mesh->position(mesh->vertexAt(1));
-	Vector3 X = normalizeSafe(p1 - p0, Vector3(0.0f), 0.0f);
-	Vector3 Z = mesh->calculateFaceNormal(0);
-	Vector3 Y = normalizeSafe(cross(Z, X), Vector3(0.0f), 0.0f);
-	uint32_t i = 0;
-	for (Mesh::FaceEdgeIterator it(mesh, 0); !it.isDone(); it.advance(), i++) {
-		if (i == 0) {
-			mesh->texcoord(it.vertex0()) = Vector2(0);
-		} else {
-			Vector3 pn = it.position0();
-			const float xn = dot((pn - p0), X);
-			const float yn = dot((pn - p0), Y);
-			mesh->texcoord(it.vertex0()) = Vector2(xn, yn);
-		}
-	}
-}
-
 // Dummy implementation of a priority queue using sort at insertion.
 // - Insertion is o(n)
 // - Smallest element goes at the end, so that popping it is o(1).
@@ -6629,23 +6607,18 @@ private:
 	void parameterizeChart(Chart *chart, ParameterizeFunc func)
 	{
 		Mesh *mesh = chart->unifiedMesh();
-		if (mesh->faceCount() == 1) {
-			computeSingleFaceMap(mesh);
+		XA_PROFILE_START(parameterizeChartsOrthogonal)
+		computeOrthogonalProjectionMap(mesh);
+		XA_PROFILE_END(parameterizeChartsOrthogonal)
+		chart->evaluateOrthoParameterizationQuality();
+		if (!chart->isOrtho() && !chart->isPlanar()) {
+			XA_PROFILE_START(parameterizeChartsLSCM)
+			if (func)
+				func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
+			else if (chart->isDisk())
+				computeLeastSquaresConformalMap(mesh);
+			XA_PROFILE_END(parameterizeChartsLSCM)
 			chart->evaluateParameterizationQuality();
-		} else {
-			XA_PROFILE_START(parameterizeChartsOrthogonal)
-			computeOrthogonalProjectionMap(mesh);
-			XA_PROFILE_END(parameterizeChartsOrthogonal)
-			chart->evaluateOrthoParameterizationQuality();
-			if (!chart->isOrtho() && !chart->isPlanar()) {
-				XA_PROFILE_START(parameterizeChartsLSCM)
-				if (func)
-					func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
-				else if (chart->isDisk())
-					computeLeastSquaresConformalMap(mesh);
-				XA_PROFILE_END(parameterizeChartsLSCM)
-				chart->evaluateParameterizationQuality();
-			}
 		}
 		// @@ Check that parameterization quality is above a certain threshold.
 		// Transfer parameterization from unified mesh to chart mesh.
