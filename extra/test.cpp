@@ -9,6 +9,10 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
+#ifdef _MSC_VER
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#endif
 #include <stdio.h>
 #include <time.h>
 
@@ -30,25 +34,23 @@ struct AtlasResult {
 	uint32_t chartCount;
 };
 
-bool generateAtlas(const char *name, AtlasResult *result)
+bool generateAtlas(const char *filename, AtlasResult *result)
 {
-	char filename[256];
-	snprintf(filename, sizeof(filename), MODEL_PATH "%s.obj", name);
-	printf("%s", name);
+	printf("%s\n", filename);
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
 	std::string err;
 	if (!tinyobj::LoadObj(shapes, materials, err, filename, NULL, tinyobj::triangulation)) {
-		printf("\n[FAILED]: %s\n", err.c_str());
+		printf("   [FAILED]: %s\n", err.c_str());
 		return false;
 	}
 	if (shapes.size() == 0) {
-		printf("\n[FAILED]: no shapes in obj file\n");
+		printf("   [FAILED]: no shapes in obj file\n");
 		return false;
 	}
 	const clock_t start = clock();
 	xatlas::Atlas *atlas = xatlas::Create();
-	uint32_t totalVertices = 0, totalFaces = 0;
+	uint32_t totalFaces = 0;
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
 		xatlas::MeshDecl meshDecl;
@@ -69,52 +71,95 @@ bool generateAtlas(const char *name, AtlasResult *result)
 		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, meshDecl);
 		if (error != xatlas::AddMeshError::Success) {
 			xatlas::Destroy(atlas);
-			printf("\n[FAILED]: Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
+			printf("   [FAILED]: Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
 			return false;
 		}
-		totalVertices += meshDecl.vertexCount;
 		totalFaces += meshDecl.indexCount / 3;
 	}
 	xatlas::Generate(atlas);
 	const clock_t end = clock();
-	printf(" [%g ms]\n", (end - start) * 1000.0 / (double)CLOCKS_PER_SEC);
-	uint32_t atlasTotalVertices = 0, atlasTotalFaces = 0;
+	printf("   %g ms\n", (end - start) * 1000.0 / (double)CLOCKS_PER_SEC);
+	uint32_t atlasTotalFaces = 0;
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
 		const xatlas::Mesh &mesh = atlas->meshes[i];
-		atlasTotalVertices += mesh.vertexCount;
 		atlasTotalFaces += mesh.indexCount / 3;
 	}
-	ASSERT(atlasTotalVertices == totalVertices);
 	ASSERT(atlasTotalFaces == totalFaces);
-	result->chartCount = atlas->chartCount;
+	if (result)
+		result->chartCount = atlas->chartCount;
 	xatlas::Destroy(atlas);
 	return true;
 }
 
-int main(int /*argc*/, char ** /*argv*/)
+#ifdef _MSC_VER
+void processFilesRecursive(const char *path)
 {
-	AtlasResult result;
-	if (generateAtlas("cube", &result)) {
-		ASSERT(result.chartCount == 6);
+	WIN32_FIND_DATAA ffd;
+	const char lastChar = path[strlen(path) - 1];
+	char cleanPath[256];
+	sprintf_s(cleanPath, sizeof(cleanPath), "%s%s", path, lastChar == '/' || lastChar == '\\' ? "" : "/");
+	char findPath[256];
+	sprintf_s(findPath, sizeof(findPath), "%s*", cleanPath);
+	HANDLE hFind = FindFirstFileA(findPath, &ffd);
+	if (hFind != INVALID_HANDLE_VALUE) {
+		do {
+			if (strcmp(ffd.cFileName, ".") == 0 || strcmp(ffd.cFileName, "..") == 0)
+				continue;
+			if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+				char childPath[256];
+				sprintf_s(childPath, sizeof(childPath), "%s%s/", cleanPath, ffd.cFileName);
+				processFilesRecursive(childPath);
+			} else {
+				const char *dot = strrchr(ffd.cFileName, (int)'.');
+				if (!dot)
+					continue;
+				if (_strcmpi(dot + 1, "obj") != 0)
+					continue;
+				char filename[256];
+				sprintf_s(filename, sizeof(filename), "%s%s", cleanPath, ffd.cFileName);
+				if (!generateAtlas(filename, nullptr))
+					exit(1);
+			}
+		}
+		while (FindNextFileA(hFind, &ffd) != 0);
+		FindClose(hFind);
 	}
-	if (generateAtlas("degenerate_edge", &result)) {
-		ASSERT(result.chartCount == 1);
-	}
-	// double sided quad
-	if (generateAtlas("double_sided", &result)) {
-		ASSERT(result.chartCount == 2);
-	}
-	if (generateAtlas("duplicate_edge", &result)) {
-		ASSERT(result.chartCount == 2);
-	}
-	if (generateAtlas("gazebo", &result)) {
-		ASSERT(result.chartCount == 333);
-	}
-	if (generateAtlas("zero_area_face", &result)) {
-		ASSERT(result.chartCount == 0);
-	}
-	if (generateAtlas("zero_length_edge", &result)) {
-		ASSERT(result.chartCount == 1);
+}
+#endif
+
+int main(int argc, char **argv)
+{
+	if (argc > 1) {
+		printf("Search path is '%s'\n", argv[1]);
+#ifdef _MSC_VER
+		processFilesRecursive(argv[1]);
+#else
+		printf("not implemented\n");
+#endif
+	} else {
+		AtlasResult result;
+		if (generateAtlas(MODEL_PATH "cube.obj", &result)) {
+			ASSERT(result.chartCount == 6);
+		}
+		if (generateAtlas(MODEL_PATH "degenerate_edge.obj", &result)) {
+			ASSERT(result.chartCount == 1);
+		}
+		// double sided quad
+		if (generateAtlas(MODEL_PATH "double_sided.obj", &result)) {
+			ASSERT(result.chartCount == 2);
+		}
+		if (generateAtlas(MODEL_PATH "duplicate_edge.obj", &result)) {
+			ASSERT(result.chartCount == 2);
+		}
+		if (generateAtlas(MODEL_PATH "gazebo.obj", &result)) {
+			ASSERT(result.chartCount == 333);
+		}
+		if (generateAtlas(MODEL_PATH "zero_area_face.obj", &result)) {
+			ASSERT(result.chartCount == 0);
+		}
+		if (generateAtlas(MODEL_PATH "zero_length_edge.obj", &result)) {
+			ASSERT(result.chartCount == 1);
+		}
 	}
 	return 0;
 }
