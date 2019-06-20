@@ -14,6 +14,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <Windows.h>
 #endif
 #include <stdio.h>
+#include <stdarg.h>
 #include <time.h>
 
 #ifdef _MSC_VER
@@ -28,7 +29,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "../xatlas.h"
 
 #define MODEL_PATH "../../models/"
-#define ASSERT(_condition) if (!(_condition)) printf("[FAILED] '%s' %s %d\n", #_condition, __FILE__, __LINE__);
+#define ASSERT(_condition) if (!(_condition)) logf("[FAILED] '%s' %s %d\n", #_condition, __FILE__, __LINE__);
+
+static FILE *logFile = nullptr;
+
+int logf(const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	char buffer[2048];
+	vsnprintf(buffer, sizeof(buffer), format, args);
+	va_end(args);
+	if (logFile) {
+		fprintf(logFile, "%s", buffer);
+		fflush(logFile);
+	}
+	return printf("%s", buffer);
+}
 
 struct AtlasResult {
 	uint32_t chartCount;
@@ -36,16 +53,16 @@ struct AtlasResult {
 
 bool generateAtlas(const char *filename, AtlasResult *result)
 {
-	printf("%s\n", filename);
+	logf("%s\n", filename);
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
 	std::string err;
 	if (!tinyobj::LoadObj(shapes, materials, err, filename, NULL, tinyobj::triangulation)) {
-		printf("   [FAILED]: %s\n", err.c_str());
+		logf("   [FAILED]: %s\n", err.c_str());
 		return false;
 	}
 	if (shapes.size() == 0) {
-		printf("   [FAILED]: no shapes in obj file\n");
+		logf("   [FAILED]: no shapes in obj file\n");
 		return false;
 	}
 	const clock_t start = clock();
@@ -71,14 +88,14 @@ bool generateAtlas(const char *filename, AtlasResult *result)
 		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, meshDecl);
 		if (error != xatlas::AddMeshError::Success) {
 			xatlas::Destroy(atlas);
-			printf("   [FAILED]: Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
+			logf("   [FAILED]: Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
 			return false;
 		}
 		totalFaces += meshDecl.indexCount / 3;
 	}
 	xatlas::Generate(atlas);
 	const clock_t end = clock();
-	printf("   %g ms\n", (end - start) * 1000.0 / (double)CLOCKS_PER_SEC);
+	logf("   %g ms\n", (end - start) * 1000.0 / (double)CLOCKS_PER_SEC);
 	uint32_t atlasTotalFaces = 0;
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
 		const xatlas::Mesh &mesh = atlas->meshes[i];
@@ -129,12 +146,19 @@ void processFilesRecursive(const char *path)
 
 int main(int argc, char **argv)
 {
+#ifdef _MSC_VER
+	if (fopen_s(&logFile, "test.log", "w") != 0)
+		logFile = nullptr;
+#else
+	logFile = fopen("test.log", "w");
+#endif
+	xatlas::SetPrint(logf, false);
 	if (argc > 1) {
-		printf("Search path is '%s'\n", argv[1]);
+		logf("Search path is '%s'\n", argv[1]);
 #ifdef _MSC_VER
 		processFilesRecursive(argv[1]);
 #else
-		printf("not implemented\n");
+		logf("not implemented\n");
 #endif
 	} else {
 		AtlasResult result;
