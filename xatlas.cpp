@@ -3987,6 +3987,14 @@ static Mesh *meshUnifyVertices(const Mesh &inputMesh)
 		uint32_t indices[3];
 		for (uint32_t i = 0; i < 3; i++)
 			indices[i] = inputMesh.firstColocal(inputMesh.vertexAt(f * 3 + i));
+#if XA_DEBUG
+		// Unifying colocals may create degenerate edges. e.g. if two triangle vertices are colocal.
+		for (int i = 0; i < 3; i++) {
+			const uint32_t index1 = indices[i];
+			const uint32_t index2 = indices[(i + 1) % 3];
+			XA_DEBUG_ASSERT(index1 != index2);
+		}
+#endif
 		Mesh::AddFaceResult::Enum result = mesh->addFace(indices);
 		XA_UNUSED(result);
 		XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
@@ -6068,6 +6076,14 @@ public:
 			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
+#if XA_DEBUG
+			// Unifying colocals may create degenerate edges. e.g. if two triangle vertices are colocal.
+			for (int i = 0; i < 3; i++) {
+				const uint32_t index1 = unifiedIndices[i];
+				const uint32_t index2 = unifiedIndices[(i + 1) % 3];
+				XA_DEBUG_ASSERT(index1 != index2);
+			}
+#endif
 			result = m_unifiedMesh->addFace(unifiedIndices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
