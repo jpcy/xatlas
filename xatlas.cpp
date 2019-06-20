@@ -3767,6 +3767,8 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 		}
 		XA_DEBUG_ASSERT(smallestAngleIndex != UINT32_MAX);
 		XA_DEBUG_ASSERT(smallestAngle >= 0.0f && smallestAngle < kPi);
+		if (smallestAngleIndex == UINT32_MAX)
+			smallestAngleIndex = 0;
 		const uint32_t i1 = smallestAngleIndex == 0 ? frontCount - 1 : smallestAngleIndex - 1;
 		const uint32_t i2 = smallestAngleIndex;
 		const uint32_t i3 = (smallestAngleIndex + 1) % frontCount;
