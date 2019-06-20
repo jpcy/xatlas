@@ -117,6 +117,9 @@ struct MeshDecl
 	// Optional. indexCount / 3 (triangle count) in length.
 	// Don't atlas faces set to true. Ignored faces still exist in the output meshes, Vertex uv is set to (0, 0) and Vertex atlasIndex to -1.
 	const bool *faceIgnoreData = nullptr;
+
+	// Vertex positions within epsilon distance of each other are considered colocal.
+	float epsilon = 1.192092896e-07F;
 };
 
 struct AddMeshError

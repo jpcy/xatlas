@@ -284,6 +284,7 @@ static double clockToSeconds(clock_t c)
 static constexpr float kPi = 3.14159265358979323846f;
 static constexpr float kPi2 = 6.28318530717958647692f;
 static constexpr float kEpsilon = 0.0001f;
+static constexpr float kAreaEpsilon = FLT_EPSILON;
 static constexpr float kNormalEpsilon = 0.001f;
 
 static int align(int x, int a)
@@ -353,7 +354,7 @@ static bool isNan(float f)
 
 // Robust floating point comparisons:
 // http://realtimecollisiondetection.net/blog/?p=89
-static bool equal(const float f0, const float f1, const float epsilon = kEpsilon)
+static bool equal(const float f0, const float f1, const float epsilon)
 {
 	//return fabs(f0-f1) <= epsilon;
 	return fabs(f0 - f1) <= epsilon * max3(1.0f, fabsf(f0), fabsf(f1));
@@ -364,7 +365,7 @@ static int ftoi_ceil(float val)
 	return (int)ceilf(val);
 }
 
-static bool isZero(const float f, const float epsilon = kEpsilon)
+static bool isZero(const float f, const float epsilon)
 {
 	return fabs(f) <= epsilon;
 }
@@ -517,7 +518,7 @@ static bool isNormalized(const Vector2 &v, float epsilon = kNormalEpsilon)
 }
 #endif
 
-static Vector2 normalize(const Vector2 &v, float epsilon = kEpsilon)
+static Vector2 normalize(const Vector2 &v, float epsilon)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
@@ -527,7 +528,7 @@ static Vector2 normalize(const Vector2 &v, float epsilon = kEpsilon)
 	return n;
 }
 
-static bool equal(const Vector2 &v1, const Vector2 &v2, float epsilon = kEpsilon)
+static bool equal(const Vector2 &v1, const Vector2 &v2, float epsilon)
 {
 	return equal(v1.x, v2.x, epsilon) && equal(v1.y, v2.y, epsilon);
 }
@@ -566,12 +567,12 @@ static float triangleArea(const Vector2 &a, const Vector2 &b, const Vector2 &c)
 	return triangleArea(a - c, b - c);
 }
 
-static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &b1, const Vector2 &b2, float epsilon = kEpsilon)
+static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &b1, const Vector2 &b2, float epsilon)
 {
 	const Vector2 v0 = a2 - a1;
 	const Vector2 v1 = b2 - b1;
 	const float denom = -v1.x * v0.y + v0.x * v1.y;
-	if (equal(denom, 0.0f))
+	if (equal(denom, 0.0f, epsilon))
 		return false;
 	const float s = (-v0.y * (a1.x - b1.x) + v0.x * (a1.y - b1.y)) / denom;
 	const float t = ( v1.x * (a1.y - b1.y) - v1.y * (a1.x - b1.x)) / denom;
@@ -720,7 +721,7 @@ static bool isNormalized(const Vector3 &v, float epsilon = kNormalEpsilon)
 	return equal(length(v), 1, epsilon);
 }
 
-static Vector3 normalize(const Vector3 &v, float epsilon = kEpsilon)
+static Vector3 normalize(const Vector3 &v, float epsilon)
 {
 	float l = length(v);
 	XA_DEBUG_ASSERT(!isZero(l, epsilon));
@@ -730,7 +731,7 @@ static Vector3 normalize(const Vector3 &v, float epsilon = kEpsilon)
 	return n;
 }
 
-static Vector3 normalizeSafe(const Vector3 &v, const Vector3 &fallback, float epsilon = kEpsilon)
+static Vector3 normalizeSafe(const Vector3 &v, const Vector3 &fallback, float epsilon)
 {
 	float l = length(v);
 	if (isZero(l, epsilon)) {
@@ -739,7 +740,7 @@ static Vector3 normalizeSafe(const Vector3 &v, const Vector3 &fallback, float ep
 	return v * (1.0f / l);
 }
 
-static bool equal(const Vector3 &v0, const Vector3 &v1, float epsilon = kEpsilon)
+static bool equal(const Vector3 &v0, const Vector3 &v1, float epsilon)
 {
 	return fabs(v0.x - v1.x) <= epsilon && fabs(v0.y - v1.y) <= epsilon && fabs(v0.z - v1.z) <= epsilon;
 }
@@ -1087,7 +1088,7 @@ struct Basis
 		}
 		// Ortogonalize
 		tangent -= normal * dot(normal, tangent);
-		tangent = normalize(tangent);
+		tangent = normalize(tangent, kEpsilon);
 		bitangent = cross(normal, tangent);
 		// Rotate frame around normal according to angle.
 		if (angle != 0.0f) {
@@ -1983,9 +1984,8 @@ public:
 		Vector2 best_axis(0);
 		const uint32_t hullCount = m_hull.size();
 		for (uint32_t i = 0, j = hullCount - 1; i < hullCount; j = i, i++) {
-			if (equal(m_hull[i], m_hull[j])) {
+			if (equal(m_hull[i], m_hull[j], kEpsilon))
 				continue;
-			}
 			Vector2 axis = normalize(m_hull[i] - m_hull[j], 0.0f);
 			XA_DEBUG_ASSERT(isFinite(axis));
 			// Compute bounding box.
@@ -2789,7 +2789,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_flags(flags), m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3)
 	{
 		m_faceFlags.reserve(approxFaceCount);
 		m_faceGroups.reserve(approxFaceCount);
@@ -2864,7 +2864,7 @@ public:
 		Array<AABB> aabbs;
 		aabbs.resize(vertexCount);
 		for (uint32_t i = 0; i < m_positions.size(); i++)
-			aabbs[i] = AABB(m_positions[i], kEpsilon);
+			aabbs[i] = AABB(m_positions[i], m_epsilon);
 		BVH bvh(aabbs);
 		Array<uint32_t> colocals;
 		Array<uint32_t> potential;
@@ -2876,10 +2876,10 @@ public:
 			// Find other vertices colocal to this one.
 			colocals.clear();
 			colocals.push_back(i); // Always add this vertex.
-			bvh.query(AABB(m_positions[i], kEpsilon), potential);
+			bvh.query(AABB(m_positions[i], m_epsilon), potential);
 			for (uint32_t j = 0; j < potential.size(); j++) {
 				const uint32_t otherVertex = potential[j];
-				if (otherVertex != i && equal(m_positions[i], m_positions[otherVertex]) && m_nextColocalVertex[otherVertex] == UINT32_MAX)
+				if (otherVertex != i && equal(m_positions[i], m_positions[otherVertex], m_epsilon) && m_nextColocalVertex[otherVertex] == UINT32_MAX)
 					colocals.push_back(otherVertex);
 			}
 			if (colocals.size() == 1) {
@@ -2998,7 +2998,7 @@ public:
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			edgeAabbs[i].expandToInclude(m_positions[m_indices[m_edges[i].index0]]);
 			edgeAabbs[i].expandToInclude(m_positions[m_indices[m_edges[i].index1]]);
-			edgeAabbs[i].expand(kEpsilon);
+			edgeAabbs[i].expand(m_epsilon);
 		}
 		BVH edgeBvh(edgeAabbs);
 #endif
@@ -3445,6 +3445,7 @@ public:
 		return false;
 	}
 
+	float epsilon() const { return m_epsilon; }
 	uint32_t edgeCount() const { return m_indices.size(); }
 	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
 	bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
@@ -3466,7 +3467,7 @@ public:
 	uint32_t indexCount() const { return m_indices.size(); }
 
 private:
-
+	float m_epsilon;
 	uint32_t m_flags;
 	uint32_t m_id;
 	Array<uint32_t> m_faceFlags;
@@ -3850,7 +3851,7 @@ static bool meshIsPlanar(const Mesh &mesh)
 	const uint32_t vertexCount = mesh.vertexCount();
 	for (uint32_t v = 0; v < vertexCount; v++) {
 		const float d = dot(planeNormal, mesh.position(v)) - planeDist;
-		if (!equal(d, 0.0f))
+		if (!isZero(d, mesh.epsilon()))
 			return false;
 	}
 	return true;
@@ -3905,13 +3906,13 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, uint
 				continue;
 			const Vector3 &x1 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex0(e)));
 			const Vector3 &x2 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex1(e)));
-			if (equal(x1, x0) || equal(x2, x0))
+			if (equal(x1, x0, inputMesh.epsilon()) || equal(x2, x0, inputMesh.epsilon()))
 				continue; // Vertex lies on either edge vertex.
 			const Vector3 v01 = x0 - x1;
 			const Vector3 v21 = x2 - x1;
 			const float l = length(v21);
 			const float d = length(cross(v01, v21)) / l;
-			if (!isZero(d))
+			if (!isZero(d, inputMesh.epsilon()))
 				continue;
 			float t = dot(v01, v21) / (l * l);
 			if (t < kEpsilon || t > 1.0f - kEpsilon)
@@ -5029,8 +5030,8 @@ static bool computeOrthogonalProjectionMap(Mesh *mesh)
 	if (!Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors))
 		return false;
 	Vector3 axis[2];
-	axis[0] = normalize(eigenVectors[0]);
-	axis[1] = normalize(eigenVectors[1]);
+	axis[0] = normalize(eigenVectors[0], kEpsilon);
+	axis[1] = normalize(eigenVectors[1], kEpsilon);
 	// Project vertices to plane.
 	for (uint32_t i = 0; i < vertexCount; i++)
 		mesh->texcoord(i) = Vector2(dot(axis[0], mesh->position(i)), dot(axis[1], mesh->position(i)));
@@ -5360,7 +5361,7 @@ struct AtlasBuilder
 						break;
 					}
 					// Merge if chart2 is wholely inside chart1, ignoring seams.
-					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && equal(sharedBoundaryLengthsNoSeams[cc], chart2->boundaryLength)) {
+					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && equal(sharedBoundaryLengthsNoSeams[cc], chart2->boundaryLength, kEpsilon)) {
 						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
 						merged = true;
 						break;
@@ -5531,7 +5532,7 @@ private:
 			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
 				if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()] || m_faceChartArray[it.oppositeFace()] != -1)
 					continue;
-				if (equal(dot(chartNormal, m_faceNormals[it.oppositeFace()]), 1.0f)) {
+				if (equal(dot(chartNormal, m_faceNormals[it.oppositeFace()]), 1.0f, kEpsilon)) {
 #if XA_CHECK_CHART_FACE_OVERLAP
 					createFaceTexcoords(chart, it.oppositeFace());
 #endif
@@ -5902,7 +5903,7 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 			const Vector2 &a2 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex1(edge1)));
 			const Vector2 &b1 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex0(edge2)));
 			const Vector2 &b2 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex1(edge2)));
-			if (linesIntersect(a1, a2, b1, b2)) {
+			if (linesIntersect(a1, a2, b1, b2, mesh->epsilon())) {
 				quality.boundaryIntersection = true;
 				break;
 			}
@@ -5931,7 +5932,7 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 		const float t3 = texcoord[2].x;
 		const float s3 = texcoord[2].y;
 		float parametricArea = ((s2 - s1) * (t3 - t1) - (s3 - s1) * (t2 - t1)) / 2;
-		if (isZero(parametricArea)) {
+		if (isZero(parametricArea, kAreaEpsilon)) {
 			quality.zeroAreaTriangleCount++;
 			continue;
 		}
@@ -5948,10 +5949,10 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 		const float a = dot(Ss, Ss); // E
 		const float b = dot(Ss, St); // F
 		const float c = dot(St, St); // G
-			// Compute eigen-values of the first fundamental form:
+		// Compute eigen-values of the first fundamental form:
 		const float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
 		const float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
-		XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2));
+		XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2, kEpsilon));
 		// isometric: sigma1 = sigma2 = 1
 		// conformal: sigma1 / sigma2 = 1
 		// authalic: sigma1 * sigma2 = 1
@@ -6039,8 +6040,8 @@ public:
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
 		// Copy face indices.
-		m_mesh = XA_NEW(Mesh);
-		m_unifiedMesh = XA_NEW(Mesh);
+		m_mesh = XA_NEW(Mesh, originalMesh->epsilon());
+		m_unifiedMesh = XA_NEW(Mesh, originalMesh->epsilon());
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(originalMesh->vertexCount(), (uint32_t)~0);
 		Array<uint32_t> unifiedMeshIndices;
@@ -6053,7 +6054,7 @@ public:
 				const uint32_t unifiedVertex = originalMesh->firstColocal(vertex);
 				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
 					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
-					XA_DEBUG_ASSERT(equal(originalMesh->position(vertex), originalMesh->position(unifiedVertex)));
+					XA_DEBUG_ASSERT(equal(originalMesh->position(vertex), originalMesh->position(unifiedVertex), originalMesh->epsilon()));
 					m_unifiedMesh->addVertex(originalMesh->position(vertex));
 				}
 				if (chartMeshIndices[vertex] == (uint32_t)~0) {
@@ -6283,7 +6284,7 @@ public:
 			if (sourceMesh->faceGroupAt(f) == faceGroup)
 				m_faceToSourceFaceMap.push_back(f);
 		}
-		m_mesh = XA_NEW(Mesh, sourceMesh->flags());
+		m_mesh = XA_NEW(Mesh, sourceMesh->epsilon(), sourceMesh->flags());
 		const uint32_t faceCount = m_faceToSourceFaceMap.size();
 		XA_DEBUG_ASSERT(faceCount > 0);
 		Array<uint32_t> meshIndices;
@@ -7040,7 +7041,7 @@ struct Atlas
 		chart->indexCount = mesh->indexCount();
 		chart->indices = mesh->indices();
 		chart->parametricArea = paramChart->computeParametricArea();
-		if (chart->parametricArea < kEpsilon) {
+		if (chart->parametricArea < kAreaEpsilon) {
 			// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
 			const Vector2 bounds = paramChart->computeParametricBounds();
 			chart->parametricArea = bounds.x * bounds.y;
@@ -7099,7 +7100,7 @@ struct Atlas
 			}
 			chart->parametricArea *= 0.5f;
 			chart->surfaceArea = chart->parametricArea; // Identical for UV meshes.
-			if (chart->parametricArea < kEpsilon) {
+			if (chart->parametricArea < kAreaEpsilon) {
 				// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
 				Vector2 minCorner(FLT_MAX, FLT_MAX);
 				Vector2 maxCorner(-FLT_MAX, -FLT_MAX);
@@ -7173,7 +7174,7 @@ struct Atlas
 			//chartOrderArray[c] = chart.surfaceArea;
 			// Compute chart scale
 			float scale = (chart->surfaceArea / chart->parametricArea) * m_texelsPerUnit;
-			if (chart->parametricArea == 0) { // < kEpsilon)
+			if (chart->parametricArea == 0) { // < kAreaEpsilon)
 				scale = 0;
 			}
 			XA_ASSERT(isFinite(scale));
@@ -7879,7 +7880,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	uint32_t meshFlags = 0;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
-	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshFlags, meshDecl.vertexCount, indexCount / 3, ctx->meshCount);
+	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.epsilon, meshFlags, meshDecl.vertexCount, indexCount / 3, ctx->meshCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0.0f);
 		internal::Vector2 texcoord(0.0f);
@@ -7911,15 +7912,22 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 				break;
 			}
 		}
+		const internal::Vector3 &a = mesh->position(tri[0]);
+		const internal::Vector3 &b = mesh->position(tri[1]);
+		const internal::Vector3 &c = mesh->position(tri[2]);
 		// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
+		float area = 0.0f;
 		if (!(faceFlags & internal::FaceFlags::Ignore)) {
-			const internal::Vector3 &a = mesh->position(tri[0]);
-			const internal::Vector3 &b = mesh->position(tri[1]);
-			const internal::Vector3 &c = mesh->position(tri[2]);
-			const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
-			if (area <= FLT_EPSILON) {
+			area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
+			if (area <= internal::kAreaEpsilon) {
 				faceFlags |= internal::FaceFlags::Ignore;
 				XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", i, tri[0], tri[1], tri[2], area);
+			}
+		}
+		if (!(faceFlags & internal::FaceFlags::Ignore)) {
+			if (internal::equal(a, b, meshDecl.epsilon) || internal::equal(a, c, meshDecl.epsilon) || internal::equal(b, c, meshDecl.epsilon)) {
+				faceFlags |= internal::FaceFlags::Ignore;
+				XA_PRINT("   Degenerate face: %d, area is %f\n", i, area);
 			}
 		}
 		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
