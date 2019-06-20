@@ -2767,14 +2767,6 @@ static uint32_t meshEdgeIndex1(uint32_t edge)
 	return faceFirstEdge + (edge - faceFirstEdge + 1) % 3;
 }
 
-struct FaceFlags
-{
-	enum
-	{
-		Ignore = 1<<0
-	};
-};
-
 struct MeshFlags
 {
 	enum
@@ -2791,8 +2783,8 @@ class Mesh
 public:
 	Mesh(float epsilon, uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3)
 	{
-		m_faceFlags.reserve(approxFaceCount);
 		m_faceGroups.reserve(approxFaceCount);
+		m_faceIgnore.reserve(approxFaceCount);
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
 		m_texcoords.reserve(approxVertexCount);
@@ -2821,20 +2813,20 @@ public:
 		};
 	};
 
-	AddFaceResult::Enum addFace(uint32_t v0, uint32_t v1, uint32_t v2, uint32_t flags = 0, bool hashEdge = true)
+	AddFaceResult::Enum addFace(uint32_t v0, uint32_t v1, uint32_t v2, bool ignore = false, bool hashEdge = true)
 	{
 		uint32_t indexArray[3];
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
-		return addFace(indexArray, flags, hashEdge);
+		return addFace(indexArray, ignore, hashEdge);
 	}
 
-	AddFaceResult::Enum addFace(const uint32_t *indices, uint32_t flags = 0, bool hashEdge = true)
+	AddFaceResult::Enum addFace(const uint32_t *indices, bool ignore = false, bool hashEdge = true)
 	{
 		AddFaceResult::Enum result = AddFaceResult::OK;
-		m_faceFlags.push_back(flags);
 		m_faceGroups.push_back(UINT32_MAX);
+		m_faceIgnore.push_back(ignore);
 		const uint32_t firstIndex = m_indices.size();
 		for (uint32_t i = 0; i < 3; i++)
 			m_indices.push_back(indices[i]);
@@ -3006,7 +2998,7 @@ public:
 			// Find an unassigned face.
 			uint32_t face = UINT32_MAX;
 			for (uint32_t f = 0; f < faceCount(); f++) {
-				if (m_faceGroups[f] == UINT32_MAX && !(m_faceFlags[f] & FaceFlags::Ignore)) {
+				if (m_faceGroups[f] == UINT32_MAX && !m_faceIgnore[f]) {
 					face = f;
 					break;
 				}
@@ -3031,7 +3023,7 @@ public:
 					for (ColocalEdgeIterator oppositeEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
 						const uint32_t oppositeEdge = oppositeEdgeIt.edge();
 						const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
-						if (m_faceFlags[oppositeFace] & FaceFlags::Ignore)
+						if (m_faceIgnore[oppositeFace])
 							continue; // Don't add ignored faces to group.
 						if (m_faceGroups[oppositeFace] == group) {
 							alreadyAssignedToThisGroup = true;
@@ -3073,7 +3065,7 @@ public:
 		for (uint32_t i = 0; i < vertexCount; i++)
 			m_boundaryVertices[i] = false;
 		for (uint32_t i = 0; i < faceCount(); i++) {
-			if (m_faceFlags[i] & FaceFlags::Ignore)
+			if (m_faceIgnore[i])
 				continue;
 			for (uint32_t j = 0; j < 3; j++) {
 				const uint32_t vertex0 = m_indices[i * 3 + j];
@@ -3082,7 +3074,7 @@ public:
 				const uint32_t oppositeEdge = findEdge(m_faceGroups[i], vertex1, vertex0);
 				if (oppositeEdge != UINT32_MAX) {
 					XA_DEBUG_ASSERT(m_faceGroups[meshEdgeFace(oppositeEdge)] == m_faceGroups[i]);
-					XA_DEBUG_ASSERT(!(m_faceFlags[meshEdgeFace(oppositeEdge)] & FaceFlags::Ignore));
+					XA_DEBUG_ASSERT(!m_faceIgnore[meshEdgeFace(oppositeEdge)]);
 					m_oppositeEdges[i * 3 + j] = oppositeEdge;
 				} else {
 					m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
@@ -3133,7 +3125,7 @@ public:
 							goto next; // Already linked.
 						if (m_faceGroups[meshEdgeFace(currentEdge)] != m_faceGroups[meshEdgeFace(otherEdge)])
 							goto next; // Don't cross face groups.
-						if (m_faceFlags[meshEdgeFace(otherEdge)] & FaceFlags::Ignore)
+						if (m_faceIgnore[meshEdgeFace(otherEdge)])
 							goto next; // Face is ignored.
 						if (m_indices[meshEdgeIndex0(otherEdge)] != it.vertex())
 							goto next; // Edge contains the vertex, but it's the wrong one.
@@ -3198,7 +3190,7 @@ public:
 			while (mapEdgeIndex != UINT32_MAX) {
 				const uint32_t edge = m_edgeMap.value(mapEdgeIndex);
 				// Don't find edges of ignored faces.
-				if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !(m_faceFlags[meshEdgeFace(edge)] & FaceFlags::Ignore)) {
+				if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !m_faceIgnore[meshEdgeFace(edge)]) {
 					//XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 					result = edge;
 #if !XA_DEBUG
@@ -3215,7 +3207,7 @@ public:
 					while (mapEdgeIndex != UINT32_MAX) {
 						const uint32_t edge = m_edgeMap.value(mapEdgeIndex);
 						// Don't find edges of ignored faces.
-						if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !(m_faceFlags[meshEdgeFace(edge)] & FaceFlags::Ignore)) {
+						if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !m_faceIgnore[meshEdgeFace(edge)]) {
 							XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 							result = edge;
 #if !XA_DEBUG
@@ -3459,9 +3451,9 @@ public:
 	Vector2 &texcoord(uint32_t vertex) { return m_texcoords[vertex]; }
 	Vector2 *texcoords() { return m_texcoords.data(); }
 	uint32_t faceCount() const { return m_indices.size() / 3; }
-	uint32_t faceFlagsAt(uint32_t i) const { return m_faceFlags[i]; }
 	uint32_t faceGroupCount() const { return m_faceGroups.size(); }
 	uint32_t faceGroupAt(uint32_t face) const { return m_faceGroups[face]; }
+	bool faceIgnore(uint32_t i) const { return m_faceIgnore[i]; }
 	const Vector3 &faceNormalAt(uint32_t face) const { return m_faceNormals[face]; }
 	const uint32_t *indices() const { return m_indices.data(); }
 	uint32_t indexCount() const { return m_indices.size(); }
@@ -3470,7 +3462,7 @@ private:
 	float m_epsilon;
 	uint32_t m_flags;
 	uint32_t m_id;
-	Array<uint32_t> m_faceFlags;
+	Array<bool> m_faceIgnore;
 	Array<uint32_t> m_faceGroups;
 	Array<Vector3> m_faceNormals;
 	Array<uint32_t> m_indices;
@@ -3649,7 +3641,7 @@ public:
 		bool isIgnoredFace() const
 		{
 			const uint32_t edge = m_mesh->m_edgeMap.value(m_mapEdgeIndex);
-			return (m_mesh->m_faceFlags[meshEdgeFace(edge)] & FaceFlags::Ignore) != 0;
+			return m_mesh->m_faceIgnore[meshEdgeFace(edge)];
 		}
 
 		const Mesh *m_mesh;
@@ -6314,7 +6306,7 @@ public:
 			}
 			// Don't copy flags, it doesn't matter if a face is ignored after this point. All ignored faces get their own vertex map (m_isVertexMap) ChartGroup.
 			// Don't hash edges if m_isVertexMap, they may be degenerate.
-			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices, 0, !m_isVertexMap);
+			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices, false, !m_isVertexMap);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
@@ -7894,20 +7886,20 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
 			tri[j] = decoded ? i * 3 + j : DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
-		uint32_t faceFlags = 0;
+		bool ignore = false;
 		// Check for degenerate or zero length edges.
 		for (int j = 0; j < 3; j++) {
 			const uint32_t index1 = tri[j];
 			const uint32_t index2 = tri[(j + 1) % 3];
 			if (index1 == index2) {
-				faceFlags |= internal::FaceFlags::Ignore;
+				ignore = true;
 				XA_PRINT("   Degenerate edge: index %d, index %d\n", index1, index2);
 				break;
 			}
 			const internal::Vector3 &pos1 = mesh->position(index1);
 			const internal::Vector3 &pos2 = mesh->position(index2);
 			if (internal::length(pos2 - pos1) <= 0.0f) {
-				faceFlags |= internal::FaceFlags::Ignore;
+				ignore = true;
 				XA_PRINT("   Zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
 				break;
 			}
@@ -7917,22 +7909,22 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 		const internal::Vector3 &c = mesh->position(tri[2]);
 		// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
 		float area = 0.0f;
-		if (!(faceFlags & internal::FaceFlags::Ignore)) {
+		if (!ignore) {
 			area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
 			if (area <= internal::kAreaEpsilon) {
-				faceFlags |= internal::FaceFlags::Ignore;
+				ignore = true;
 				XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", i, tri[0], tri[1], tri[2], area);
 			}
 		}
-		if (!(faceFlags & internal::FaceFlags::Ignore)) {
+		if (!ignore) {
 			if (internal::equal(a, b, meshDecl.epsilon) || internal::equal(a, c, meshDecl.epsilon) || internal::equal(b, c, meshDecl.epsilon)) {
-				faceFlags |= internal::FaceFlags::Ignore;
+				ignore = true;
 				XA_PRINT("   Degenerate face: %d, area is %f\n", i, area);
 			}
 		}
 		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
-			faceFlags |= internal::FaceFlags::Ignore;
-		mesh->addFace(tri[0], tri[1], tri[2], faceFlags);
+			ignore = true;
+		mesh->addFace(tri[0], tri[1], tri[2], ignore);
 	}
 	AddMeshJobArgs *jobArgs = XA_NEW(AddMeshJobArgs); // The job frees this.
 	jobArgs->ctx = ctx;
