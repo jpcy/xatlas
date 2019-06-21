@@ -485,17 +485,6 @@ static Vector2 operator*(const Vector2 &v, float s)
 	return Vector2(v.x * s, v.y * s);
 }
 
-/*static Vector2 operator*(const Vector2 &v1, const Vector2 &v2)
-{
-	return Vector2(v1.x * v2.x, v1.y * v2.y);
-}*/
-
-static Vector2 lerp(const Vector2 &v1, const Vector2 &v2, float t)
-{
-	const float s = 1.0f - t;
-	return Vector2(v1.x * s + t * v2.x, v1.y * s + t * v2.y);
-}
-
 static float dot(const Vector2 &a, const Vector2 &b)
 {
 	return a.x * b.x + a.y * b.y;
@@ -695,12 +684,6 @@ static Vector3 operator/(const Vector3 &v, float s)
 	return v * (1.0f / s);
 }
 
-static Vector3 lerp(const Vector3 &v1, const Vector3 &v2, float t)
-{
-	const float s = 1.0f - t;
-	return Vector3(v1.x * s + t * v2.x, v1.y * s + t * v2.y, v1.z * s + t * v2.z);
-}
-
 static float dot(const Vector3 &a, const Vector3 &b)
 {
 	return a.x * b.x + a.y * b.y + a.z * b.z;
@@ -761,6 +744,24 @@ bool isFinite(const Vector3 &v)
 	return isFinite(v.x) && isFinite(v.y) && isFinite(v.z);
 }
 #endif
+
+static bool lineIntersectsPoint(const Vector3 &point, const Vector3 &lineStart, const Vector3 &lineEnd, float *t, float epsilon)
+{
+	float tt;
+	if (!t)
+		t = &tt;
+	*t = 0.0f;
+	if (equal(lineStart, point, epsilon) || equal(lineEnd, point, epsilon))
+		return false; // Vertex lies on either line vertices.
+	const Vector3 v01 = point - lineStart;
+	const Vector3 v21 = lineEnd - lineStart;
+	const float l = length(v21);
+	const float d = length(cross(v01, v21)) / l;
+	if (!isZero(d, epsilon))
+		return false;
+	*t = dot(v01, v21) / (l * l);
+	return *t > kEpsilon && *t < 1.0f - kEpsilon;
+}
 
 // From Fast-BVH
 struct AABB
@@ -3755,6 +3756,29 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 				continue;
 			if (mesh->findEdge(UINT32_MAX, frontVertices[i3], frontVertices[i1]) != UINT32_MAX)
 				continue;
+			/*
+			Make sure he new edge that would be formed by (i3, i1) doesn't intersect any vertices. This often happens when fixing t-junctions.
+
+			       i2
+			       *
+			      / \
+			     /   \
+			 i1 *--*--* i3
+			     \ | /
+				  \|/
+				   *
+			*/
+			bool intersection = false;
+			for (uint32_t j = 0; j < frontCount; j++) {
+				if (j == i1 || j == i2 || j == i3)
+					continue;
+				if (lineIntersectsPoint(frontPoints[j], frontPoints[i3], frontPoints[i1], nullptr, mesh->epsilon())) {
+					intersection = true;
+					break;
+				}
+			}
+			if (intersection)
+				continue;
 			smallestAngle = frontAngles[i];
 			smallestAngleIndex = i;
 		}
@@ -3863,7 +3887,6 @@ Fixing T-junctions.
 */
 struct SplitEdge
 {
-	uint32_t index;
 	uint32_t edge;
 	float t;
 	uint32_t vertex;
@@ -3892,26 +3915,16 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, uint
 		if (!inputMesh.isBoundaryVertex(v))
 			continue;
 		// Find edges that this vertex overlaps with.
-		const Vector3 &x0 = inputMesh.position(v);
+		const Vector3 &pos = inputMesh.position(v);
 		for (uint32_t e = 0; e < edgeCount; e++) {
 			if (!inputMesh.isBoundaryEdge(e))
 				continue;
-			const Vector3 &x1 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex0(e)));
-			const Vector3 &x2 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex1(e)));
-			if (equal(x1, x0, inputMesh.epsilon()) || equal(x2, x0, inputMesh.epsilon()))
-				continue; // Vertex lies on either edge vertex.
-			const Vector3 v01 = x0 - x1;
-			const Vector3 v21 = x2 - x1;
-			const float l = length(v21);
-			const float d = length(cross(v01, v21)) / l;
-			if (!isZero(d, inputMesh.epsilon()))
+			const Vector3 &edgePos1 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex0(e)));
+			const Vector3 &edgePos2 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex1(e)));
+			float t;
+			if (!lineIntersectsPoint(pos, edgePos1, edgePos2, &t, inputMesh.epsilon()))
 				continue;
-			float t = dot(v01, v21) / (l * l);
-			if (t < kEpsilon || t > 1.0f - kEpsilon)
-				continue;
-			//XA_DEBUG_ASSERT(lerp(x1, x2, t) == x0);
 			SplitEdge splitEdge;
-			splitEdge.index = splitEdges.size();
 			splitEdge.edge = e;
 			splitEdge.t = t;
 			splitEdge.vertex = v;
@@ -3923,17 +3936,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, uint
 	const uint32_t faceCount = inputMesh.faceCount();
 	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount + splitEdges.size(), faceCount);
 	for (uint32_t v = 0; v < vertexCount; v++)
-		mesh->addVertex(inputMesh.position(v), Vector3(0.0f), inputMesh.texcoord(v));
-	for (uint32_t se = 0; se < splitEdges.size(); se++) {
-		const SplitEdge &splitEdge = splitEdges[se];
-		const uint32_t vertex0 = inputMesh.vertexAt(meshEdgeIndex0(splitEdge.edge));
-		const uint32_t vertex1 = inputMesh.vertexAt(meshEdgeIndex1(splitEdge.edge));
-		Vector3 normal(0.0f);
-		if (inputMesh.flags() & MeshFlags::HasNormals)
-			normal = lerp(inputMesh.normal(vertex0), inputMesh.normal(vertex1), splitEdge.t);
-		const Vector2 texcoord = lerp(inputMesh.texcoord(vertex0), inputMesh.texcoord(vertex1), splitEdge.t);
-		mesh->addVertex(inputMesh.position(splitEdge.vertex), normal, texcoord);
-	}
+		mesh->addVertex(inputMesh.position(v));
 	Array<uint32_t> indexArray;
 	indexArray.reserve(4);
 	Array<SplitEdge> faceSplitEdges;
@@ -3954,7 +3957,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, uint
 				for (uint32_t se = 0; se < faceSplitEdges.size(); se++) {
 					const SplitEdge &splitEdge = faceSplitEdges[se];
 					if (splitEdge.edge == it.edge())
-						indexArray.push_back(vertexCount + faceSplitEdges[se].index);
+						indexArray.push_back(splitEdge.vertex);
 				}
 			}
 			meshCloseHole(mesh, indexArray, duplicatedEdge);
@@ -3966,39 +3969,8 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, uint
 			}
 		}
 	}
-	mesh->createColocals(); // Added new vertices, some may be colocal with existing vertices.
 	if (fixedTJunctionsCount)
 		*fixedTJunctionsCount = splitEdges.size();
-	return mesh;
-}
-
-static Mesh *meshUnifyVertices(const Mesh &inputMesh)
-{
-	const uint32_t vertexCount = inputMesh.vertexCount();
-	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount, faceCount);
-	// Only add the first colocal.
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		if (inputMesh.firstColocal(v) == v)
-			mesh->addVertex(inputMesh.position(v), Vector3(), inputMesh.texcoord(v));
-	}
-	// Add new faces pointing to first colocals.
-	for (uint32_t f = 0; f < faceCount; f++) {
-		uint32_t indices[3];
-		for (uint32_t i = 0; i < 3; i++)
-			indices[i] = inputMesh.firstColocal(inputMesh.vertexAt(f * 3 + i));
-#if XA_DEBUG
-		// Unifying colocals may create degenerate edges. e.g. if two triangle vertices are colocal.
-		for (int i = 0; i < 3; i++) {
-			const uint32_t index1 = indices[i];
-			const uint32_t index2 = indices[(i + 1) % 3];
-			XA_DEBUG_ASSERT(index1 != index2);
-		}
-#endif
-		Mesh::AddFaceResult::Enum result = mesh->addFace(indices);
-		XA_UNUSED(result);
-		XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
-	}
 	return mesh;
 }
 
@@ -6107,9 +6079,7 @@ public:
 					m_warningFlags |= ChartWarningFlags::FixTJunctionsDuplicatedEdge;
 				m_unifiedMesh->~Mesh();
 				XA_FREE(m_unifiedMesh);
-				m_unifiedMesh = meshUnifyVertices(*fixedUnifiedMesh);
-				fixedUnifiedMesh->~Mesh();
-				XA_FREE(fixedUnifiedMesh);
+				m_unifiedMesh = fixedUnifiedMesh;
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
 			}
