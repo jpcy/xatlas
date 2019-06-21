@@ -19,6 +19,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <nativefiledialog/nfd.h>
 #include <stb_image.h>
 #include <stb_image_resize.h>
+#define STL_READER_NO_EXCEPTIONS
+#include <stl_reader.h>
 #include "shaders/shared.h"
 #include "viewer.h"
 
@@ -56,12 +58,19 @@ private:
 	Enum m_value = NotLoaded;
 };
 
+enum class ModelFormat
+{
+	Gltf,
+	Obj,
+	Stl
+};
+
 struct
 {
 	ModelStatus status;
 	std::thread *thread = nullptr;
 	objzModel *data = nullptr;
-	bool isGltf = false;
+	void (*destroyModelData)(objzModel *) = nullptr;
 	std::vector<uint32_t> diffuseTextures;
 	std::vector<uint32_t> emissionTextures;
 	AABB aabb;
@@ -499,13 +508,68 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 	return model;
 }
 
-void gltfDestroy(objzModel *model)
+static void gltfDestroy(objzModel *model)
 {
 	delete [] (uint32_t *)model->indices;
 	delete [] model->meshes;
 	delete [] model->objects;
 	delete [] (ModelVertex *)model->vertices;
 	delete [] model->materials;
+	delete model;
+}
+
+static objzModel *stlLoad(const char *filename, const char * /*basePath*/) 
+{
+	std::vector<float> coords, normals;
+	std::vector<unsigned int> tris, solids;
+	if (!stl_reader::ReadStlFile(filename, coords, normals, tris, solids))
+		return nullptr;
+	objzModel *model = new objzModel();
+	model->numIndices = (uint32_t)tris.size();
+	model->numMaterials = 0;
+	model->numMeshes = (uint32_t)solids.size() - 1;
+	model->numObjects = (uint32_t)solids.size() - 1;
+	model->numVertices = (uint32_t)coords.size() / 3;
+	model->indices = new uint32_t[model->numIndices];
+	model->materials = nullptr;
+	model->meshes = new objzMesh[model->numMeshes];
+	model->objects = new objzObject[model->numObjects];
+	model->vertices = new ModelVertex[model->numVertices];
+	for (uint32_t i = 0; i < model->numObjects; i++) {
+		objzObject &object = model->objects[i];
+		object.name[0] = 0;
+		object.firstMesh = i;
+		object.numMeshes = 1;
+		object.firstIndex = solids[i] * 3;
+		object.numIndices = solids[i + 1] * 3;
+		object.firstVertex = 0;
+		object.numVertices = model->numVertices;
+		objzMesh &mesh = model->meshes[i];
+		mesh.materialIndex = -1;
+		mesh.firstIndex = object.firstIndex;
+		mesh.numIndices = object.numIndices;
+	}
+	auto vertices = (ModelVertex *)model->vertices;
+	for (uint32_t i = 0; i < model->numVertices; i++) {
+		ModelVertex &v = vertices[i];
+		v.pos.x = coords[i * 3 + 0];
+		v.pos.y = coords[i * 3 + 1];
+		v.pos.z = coords[i * 3 + 2];
+		v.normal.x = normals[i * 3 + 0];
+		v.normal.y = normals[i * 3 + 1];
+		v.normal.z = normals[i * 3 + 2];
+		v.texcoord[0] = v.texcoord[1] = v.texcoord[2] = v.texcoord[3] = 0.0f;
+	}
+	memcpy(model->indices, tris.data(), sizeof(uint32_t) * model->numIndices);
+	return model;
+}
+
+static void stlDestroy(objzModel *model)
+{
+	delete [] (uint32_t *)model->indices;
+	delete [] model->meshes;
+	delete [] model->objects;
+	delete [] (ModelVertex *)model->vertices;
 	delete model;
 }
 
@@ -517,7 +581,6 @@ struct ModelLoadThreadArgs
 static void modelLoadThread(ModelLoadThreadArgs args)
 {
 	s_model.data = nullptr;
-	s_model.isGltf = false;
 	char basePath[256] = { 0 };
 	const char *lastSlash = strrchr(args.filename, '/');
 	if (!lastSlash)
@@ -539,8 +602,8 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 			return;
 		}
 		s_model.data = model;
-		s_model.isGltf = true;
-	} else {
+		s_model.destroyModelData = gltfDestroy;
+	} else if (bx::strCmpI(ext, ".obj") == 0) {
 		objz_setIndexFormat(OBJZ_INDEX_FORMAT_U32);
 		objz_setVertexFormat(sizeof(ModelVertex), offsetof(ModelVertex, pos), offsetof(ModelVertex, texcoord), offsetof(ModelVertex, normal));
 		objzModel *model = objz_load(args.filename);
@@ -553,10 +616,23 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		if (objz_getError()) // Print warnings.
 			printf("%s\n", objz_getError());
 		s_model.data = model;
+		s_model.destroyModelData = objz_destroy;
 		for (uint32_t i = 0; i < model->numVertices; i++) {
 			auto v = &((ModelVertex *)model->vertices)[i];
 			v->texcoord[1] = 1.0f - v->texcoord[1];
 		}
+	} else if (bx::strCmpI(ext, ".stl") == 0) {
+		objzModel *model = stlLoad(args.filename, basePath);
+		if (!model) {
+			fprintf(stderr, "Error loading '%s'\n", args.filename);
+			setErrorMessage("Error loading '%s'\n", args.filename);
+			s_model.status.set(ModelStatus::NotLoaded);
+			return;
+		}
+		s_model.data = model;
+		s_model.destroyModelData = stlDestroy;
+	} else {
+		abort();
 	}
 	uint32_t numWireframeVertices = 0;
 	for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
@@ -628,7 +704,7 @@ void modelOpenDialog()
 	if (!(atlasIsNotGenerated() || atlasIsReady()))
 		return;
 	nfdchar_t *filename = nullptr;
-	nfdresult_t result = NFD_OpenDialog("glb,gltf,obj", nullptr, &filename);
+	nfdresult_t result = NFD_OpenDialog("glb,gltf,obj,stl", nullptr, &filename);
 	if (result != NFD_OKAY)
 		return;
 	modelDestroy();
@@ -654,10 +730,7 @@ void modelDestroy()
 		s_model.thread = nullptr;
 	}
 	if (s_model.data) {
-		if (s_model.isGltf)
-			gltfDestroy(s_model.data);
-		else
-			objz_destroy(s_model.data);
+		s_model.destroyModelData(s_model.data);
 		s_model.data = nullptr;
 	}
 	if (bgfx::isValid(s_model.vb)) {
