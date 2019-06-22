@@ -1992,8 +1992,9 @@ public:
 			// Compute bounding box.
 			Vector2 box_min(FLT_MAX, FLT_MAX);
 			Vector2 box_max(-FLT_MAX, -FLT_MAX);
-			for (uint32_t v = 0; v < hullCount; v++) {
-				Vector2 point = m_hull[v];
+			// Consider all points, not only boundary points, in case the input chart is malformed.
+			for (uint32_t v = 0; v < vertexCount; v++) {
+				const Vector2 &point = vertices[v];
 				const float x = dot(axis, point);
 				const float y = dot(Vector2(-axis.y, axis.x), point);
 				box_min.x = min(box_min.x, x);
@@ -2009,16 +2010,6 @@ public:
 				best_max = box_max;
 				best_axis = axis;
 			}
-		}
-		// Consider all points, not only boundary points, in case the input chart is malformed.
-		for (uint32_t i = 0; i < vertexCount; i++) {
-			const Vector2 &point = vertices[i];
-			const float x = dot(best_axis, point);
-			const float y = dot(Vector2(-best_axis.y, best_axis.x), point);
-			best_min.x = min(best_min.x, x);
-			best_max.x = max(best_max.x, x);
-			best_min.y = min(best_min.y, y);
-			best_max.y = max(best_max.y, y);
 		}
 		m_majorAxis = best_axis;
 		m_minorAxis = Vector2(-best_axis.y, best_axis.x);
