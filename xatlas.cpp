@@ -3705,7 +3705,7 @@ public:
 	};
 };
 
-static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool *duplicatedEdge)
+static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool *duplicatedEdge, bool *failed)
 {
 	uint32_t frontCount = holeVertices.size();
 	Array<uint32_t> frontVertices;
@@ -3773,10 +3773,11 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 			smallestAngle = frontAngles[i];
 			smallestAngleIndex = i;
 		}
-		XA_DEBUG_ASSERT(smallestAngleIndex != UINT32_MAX);
-		XA_DEBUG_ASSERT(smallestAngle >= 0.0f && smallestAngle < kPi);
-		if (smallestAngleIndex == UINT32_MAX)
-			smallestAngleIndex = 0;
+		if (smallestAngleIndex == UINT32_MAX || smallestAngle <= 0.0f || smallestAngle >= kPi) {
+			if (failed)
+				*failed = true;
+			return;
+		}
 		const uint32_t i1 = smallestAngleIndex == 0 ? frontCount - 1 : smallestAngleIndex - 1;
 		const uint32_t i2 = smallestAngleIndex;
 		const uint32_t i3 = (smallestAngleIndex + 1) % frontCount;
@@ -3790,10 +3791,12 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 	}
 }
 
-static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge, Array<uint32_t> &holeFaceCounts)
+static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge, bool *failed, Array<uint32_t> &holeFaceCounts)
 {
 	if (duplicatedEdge)
 		*duplicatedEdge = false;
+	if (failed)
+		*failed = false;
 	holeFaceCounts.clear();
 	// Compute lengths.
 	const uint32_t boundaryCount = boundaryLoops.size();
@@ -3837,7 +3840,7 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 			e++;
 		}
 		const uint32_t oldFaceCount = mesh->faceCount();
-		meshCloseHole(mesh, holeVertices, duplicatedEdge);
+		meshCloseHole(mesh, holeVertices, duplicatedEdge, failed);
 		holeFaceCounts.push_back(mesh->faceCount() - oldFaceCount);
 	}
 }
@@ -3895,10 +3898,12 @@ struct SplitEdge
 };
 
 // Returns nullptr if there were no t-junctions to fix.
-static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, uint32_t *fixedTJunctionsCount)
+static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, bool *failed, uint32_t *fixedTJunctionsCount)
 {
 	if (duplicatedEdge)
 		*duplicatedEdge = false;
+	if (failed)
+		*failed = false;
 	Array<SplitEdge> splitEdges;
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t edgeCount = inputMesh.edgeCount();
@@ -3951,7 +3956,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, uint
 						indexArray.push_back(splitEdge.vertex);
 				}
 			}
-			meshCloseHole(mesh, indexArray, duplicatedEdge);
+			meshCloseHole(mesh, indexArray, duplicatedEdge, failed);
 		} else {
 			// No t-junctions in this face. Copy from input mesh.
 			if (mesh->addFace(&inputMesh.indices()[f * 3]) == Mesh::AddFaceResult::DuplicateEdge) {
@@ -5989,7 +5994,8 @@ struct ChartWarningFlags
 		CloseHolesDuplicatedEdge = 1<<0,
 		CloseHolesFailed = 1<<1,
 		FixTJunctionsDuplicatedEdge = 1<<2,
-		TriangulateDuplicatedEdge = 1<<3,
+		FixTJunctionsFailed = 1<<3,
+		TriangulateDuplicatedEdge = 1<<4,
 	};
 };
 
@@ -6061,13 +6067,15 @@ public:
 #if XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
 			m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
 #endif
-			bool duplicatedEdge = false;
+			bool duplicatedEdge = false, failed = false;
 			XA_PROFILE_START(fixChartMeshTJunctions)
-			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh, &duplicatedEdge, &m_fixedTJunctionsCount);
+			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh, &duplicatedEdge, &failed, &m_fixedTJunctionsCount);
 			XA_PROFILE_END(fixChartMeshTJunctions)
 			if (fixedUnifiedMesh) {
 				if (duplicatedEdge)
 					m_warningFlags |= ChartWarningFlags::FixTJunctionsDuplicatedEdge;
+				if (failed)
+					m_warningFlags |= ChartWarningFlags::FixTJunctionsFailed;
 				m_unifiedMesh->~Mesh();
 				XA_FREE(m_unifiedMesh);
 				m_unifiedMesh = fixedUnifiedMesh;
@@ -6088,16 +6096,15 @@ public:
 				// - Use minimal spanning trees or seamster.
 				Array<uint32_t> holeFaceCounts;
 				XA_PROFILE_START(closeChartMeshHoles)
-				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge, holeFaceCounts);
+				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge, &failed, holeFaceCounts);
 				XA_PROFILE_END(closeChartMeshHoles)
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
 				if (duplicatedEdge)
 					m_warningFlags |= ChartWarningFlags::CloseHolesDuplicatedEdge;
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
-				if (boundaryLoops.size() > 1) {
+				if (failed || boundaryLoops.size() > 1)
 					m_warningFlags |= ChartWarningFlags::CloseHolesFailed;
-				}
 				m_closedHolesCount = holeFaceCounts.size();
 #if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
 				if (m_warningFlags & (ChartWarningFlags::CloseHolesDuplicatedEdge | ChartWarningFlags::CloseHolesFailed)) {
@@ -8062,6 +8069,8 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): failed to close holes\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions created non-manifold geometry\n", chartCount, i, j, k);
+				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsFailed)
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::TriangulateDuplicatedEdge)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): triangulation created non-manifold geometry\n", chartCount, i, j, k);
 				if (!chart->isDisk())
