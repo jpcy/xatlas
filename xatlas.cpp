@@ -2763,7 +2763,8 @@ struct MeshFlags
 {
 	enum
 	{
-		HasNormals = 1<<0,
+		HasFaceGroups = 1<<0,
+		HasNormals = 1<<1,
 	};
 };
 
@@ -2775,7 +2776,8 @@ class Mesh
 public:
 	Mesh(float epsilon, uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3)
 	{
-		m_faceGroups.reserve(approxFaceCount);
+		if (m_flags & MeshFlags::HasFaceGroups)
+			m_faceGroups.reserve(approxFaceCount);
 		m_faceIgnore.reserve(approxFaceCount);
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -2817,7 +2819,8 @@ public:
 	AddFaceResult::Enum addFace(const uint32_t *indices, bool ignore = false, bool hashEdge = true)
 	{
 		AddFaceResult::Enum result = AddFaceResult::OK;
-		m_faceGroups.push_back(UINT32_MAX);
+		if (m_flags & MeshFlags::HasFaceGroups)
+			m_faceGroups.push_back(UINT32_MAX);
 		m_faceIgnore.push_back(ignore);
 		const uint32_t firstIndex = m_indices.size();
 		for (uint32_t i = 0; i < 3; i++)
@@ -3049,6 +3052,7 @@ public:
 			m_oppositeEdges[i] = UINT32_MAX;
 		for (uint32_t i = 0; i < vertexCount; i++)
 			m_boundaryVertices[i] = false;
+		const bool hasFaceGroups = m_flags & MeshFlags::HasFaceGroups;
 		for (uint32_t i = 0; i < faceCount(); i++) {
 			if (m_faceIgnore[i])
 				continue;
@@ -3056,9 +3060,12 @@ public:
 				const uint32_t vertex0 = m_indices[i * 3 + j];
 				const uint32_t vertex1 = m_indices[i * 3 + (j + 1) % 3];
 				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
-				const uint32_t oppositeEdge = findEdge(m_faceGroups[i], vertex1, vertex0);
+				const uint32_t oppositeEdge = findEdge(hasFaceGroups ? m_faceGroups[i] : UINT32_MAX, vertex1, vertex0);
 				if (oppositeEdge != UINT32_MAX) {
-					XA_DEBUG_ASSERT(m_faceGroups[meshEdgeFace(oppositeEdge)] == m_faceGroups[i]);
+#if XA_DEBUG
+					if (hasFaceGroups)
+						XA_DEBUG_ASSERT(m_faceGroups[meshEdgeFace(oppositeEdge)] == m_faceGroups[i]);
+#endif
 					XA_DEBUG_ASSERT(!m_faceIgnore[meshEdgeFace(oppositeEdge)]);
 					m_oppositeEdges[i * 3 + j] = oppositeEdge;
 				} else {
@@ -3108,7 +3115,7 @@ public:
 							goto next; // Not a boundary edge.
 						if (linkedEdges.bitAt(otherEdge))
 							goto next; // Already linked.
-						if (m_faceGroups[meshEdgeFace(currentEdge)] != m_faceGroups[meshEdgeFace(otherEdge)])
+						if (m_flags & MeshFlags::HasFaceGroups && m_faceGroups[meshEdgeFace(currentEdge)] != m_faceGroups[meshEdgeFace(otherEdge)])
 							goto next; // Don't cross face groups.
 						if (m_faceIgnore[meshEdgeFace(otherEdge)])
 							goto next; // Face is ignored.
@@ -3420,8 +3427,8 @@ public:
 	Vector2 &texcoord(uint32_t vertex) { return m_texcoords[vertex]; }
 	Vector2 *texcoords() { return m_texcoords.data(); }
 	uint32_t faceCount() const { return m_indices.size() / 3; }
-	uint32_t faceGroupCount() const { return m_faceGroups.size(); }
-	uint32_t faceGroupAt(uint32_t face) const { return m_faceGroups[face]; }
+	uint32_t faceGroupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups.size(); }
+	uint32_t faceGroupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups[face]; }
 	bool faceIgnore(uint32_t i) const { return m_faceIgnore[i]; }
 	const uint32_t *indices() const { return m_indices.data(); }
 	uint32_t indexCount() const { return m_indices.size(); }
@@ -6249,7 +6256,8 @@ public:
 			if (sourceMesh->faceGroupAt(f) == faceGroup)
 				m_faceToSourceFaceMap.push_back(f);
 		}
-		m_mesh = XA_NEW(Mesh, sourceMesh->epsilon(), sourceMesh->flags());
+		// Only initial meshes have face groups.
+		m_mesh = XA_NEW(Mesh, sourceMesh->epsilon(), sourceMesh->flags() | ~MeshFlags::HasFaceGroups);
 		const uint32_t faceCount = m_faceToSourceFaceMap.size();
 		XA_DEBUG_ASSERT(faceCount > 0);
 		Array<uint32_t> meshIndices;
@@ -7840,7 +7848,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 				return AddMeshError::IndexOutOfRange;
 		}
 	}
-	uint32_t meshFlags = 0;
+	uint32_t meshFlags = internal::MeshFlags::HasFaceGroups;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
 	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.epsilon, meshFlags, meshDecl.vertexCount, indexCount / 3, ctx->meshCount);
