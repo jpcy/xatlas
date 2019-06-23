@@ -2835,13 +2835,6 @@ public:
 		return result;
 	}
 
-	void createFaceNormals()
-	{
-		m_faceNormals.resize(faceCount());
-		for (uint32_t i = 0; i < faceCount(); i++)
-			m_faceNormals[i] = calculateFaceNormal(i);
-	}
-
 	void createColocals()
 	{
 		const uint32_t vertexCount = m_positions.size();
@@ -3379,22 +3372,6 @@ public:
 		return m_indices[e0] != m_indices[oe1] || m_indices[e1] != m_indices[oe0];
 	}
 
-	bool isNormalSeam(uint32_t edge) const
-	{
-		const uint32_t oppositeEdge = m_oppositeEdges[edge];
-		if (oppositeEdge == UINT32_MAX)
-			return false; // boundary edge
-		if (m_flags & MeshFlags::HasNormals) {
-			const uint32_t e0 = meshEdgeIndex0(edge);
-			const uint32_t e1 = meshEdgeIndex1(edge);
-			const uint32_t oe0 = meshEdgeIndex0(oppositeEdge);
-			const uint32_t oe1 = meshEdgeIndex1(oppositeEdge);
-			return m_normals[m_indices[e0]] != m_normals[m_indices[oe1]] || m_normals[m_indices[e1]] != m_normals[m_indices[oe0]];
-		}
-		XA_DEBUG_ASSERT(!m_faceNormals.isEmpty());
-		return m_faceNormals[meshEdgeFace(edge)] != m_faceNormals[meshEdgeFace(oppositeEdge)];
-	}
-
 	bool isTextureSeam(uint32_t edge) const
 	{
 		const uint32_t oppositeEdge = m_oppositeEdges[edge];
@@ -3446,7 +3423,6 @@ public:
 	uint32_t faceGroupCount() const { return m_faceGroups.size(); }
 	uint32_t faceGroupAt(uint32_t face) const { return m_faceGroups[face]; }
 	bool faceIgnore(uint32_t i) const { return m_faceIgnore[i]; }
-	const Vector3 &faceNormalAt(uint32_t face) const { return m_faceNormals[face]; }
 	const uint32_t *indices() const { return m_indices.data(); }
 	uint32_t indexCount() const { return m_indices.size(); }
 
@@ -3456,7 +3432,6 @@ private:
 	uint32_t m_id;
 	Array<bool> m_faceIgnore;
 	Array<uint32_t> m_faceGroups;
-	Array<Vector3> m_faceNormals;
 	Array<uint32_t> m_indices;
 	Array<Vector3> m_positions;
 	Array<Vector3> m_normals;
@@ -3665,7 +3640,6 @@ public:
 
 		bool isBoundary() const { return m_mesh->m_oppositeEdges[m_edge] == UINT32_MAX; }
 		bool isSeam() const { return m_mesh->isSeam(m_edge); }
-		bool isNormalSeam() const { return m_mesh->isNormalSeam(m_edge); }
 		bool isTextureSeam() const { return m_mesh->isTextureSeam(m_edge); }
 		uint32_t edge() const { return m_edge; }
 		uint32_t relativeEdge() const { return m_relativeEdge; }
@@ -5289,7 +5263,7 @@ struct AtlasBuilder
 						} else {
 							const int neighborChart = m_faceChartArray[it.oppositeFace()];
 							if (m_chartArray[neighborChart] != chart) {
-								if ((it.isSeam() && (it.isNormalSeam() || it.isTextureSeam()))) {
+								if ((it.isSeam() && (isNormalSeam(it.edge()) || it.isTextureSeam()))) {
 									externalBoundaryLength += l;
 								} else {
 									sharedBoundaryLengths[neighborChart] += l;
@@ -5646,6 +5620,21 @@ private:
 		return min(ratio, 0.0f); // Only use the straightness metric to close gaps.
 	}
 
+	bool isNormalSeam(uint32_t edge) const
+	{
+		const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
+		if (oppositeEdge == UINT32_MAX)
+			return false; // boundary edge
+		if (m_mesh->flags() & MeshFlags::HasNormals) {
+			const uint32_t v0 = m_mesh->vertexAt(meshEdgeIndex0(edge));
+			const uint32_t v1 = m_mesh->vertexAt(meshEdgeIndex1(edge));
+			const uint32_t ov0 = m_mesh->vertexAt(meshEdgeIndex0(oppositeEdge));
+			const uint32_t ov1 = m_mesh->vertexAt(meshEdgeIndex1(oppositeEdge));
+			return m_mesh->normal(v0) != m_mesh->normal(ov1) || m_mesh->normal(v1) != m_mesh->normal(ov0);
+		}
+		return m_faceNormals[meshEdgeFace(edge)] != m_faceNormals[meshEdgeFace(oppositeEdge)];
+	}
+
 	float evaluateNormalSeamMetric(ChartBuildData *chart, uint32_t f) const
 	{
 		float seamFactor = 0.0f;
@@ -5660,7 +5649,7 @@ private:
 			if (!it.isSeam())
 				continue;
 			// Make sure it's a normal seam.
-			if (it.isNormalSeam()) {
+			if (isNormalSeam(it.edge())) {
 				float d;
 				if (m_mesh->flags() & MeshFlags::HasNormals) {
 					const Vector3 &n0 = m_mesh->normal(it.vertex0());
@@ -5671,7 +5660,7 @@ private:
 					const float d1 = clamp(dot(n1, on0), 0.0f, 1.0f);
 					d = (d0 + d1) * 0.5f;
 				} else {
-					d = clamp(dot(m_mesh->faceNormalAt(f), m_mesh->faceNormalAt(meshEdgeFace(it.oppositeEdge()))), 0.0f, 1.0f);
+					d = clamp(dot(m_faceNormals[f], m_faceNormals[meshEdgeFace(it.oppositeEdge())]), 0.0f, 1.0f);
 				}
 				l *= 1 - d;
 				seamFactor += l;
@@ -6296,8 +6285,6 @@ public:
 		}
 		if (!m_isVertexMap) {
 			m_mesh->createColocals();
-			if (!(sourceMesh->flags() & MeshFlags::HasNormals))
-				m_mesh->createFaceNormals(); // For isNormalSeam.
 			m_mesh->createBoundaries();
 			m_mesh->linkBoundaries();
 		}
