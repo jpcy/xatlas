@@ -157,12 +157,14 @@ struct AllocHeader
 	size_t size;
 	const char *file;
 	int line;
+	bool free;
 	AllocHeader *prev, *next;
 };
 
 static AllocHeader *s_allocRoot = nullptr;
 static size_t s_allocTotalSize = 0;
 static size_t s_allocPeakSize = 0;
+static constexpr uint32_t kAllocRedzone = 0x12345678;
 
 static void *Realloc(void *ptr, size_t size, const char *file, int line)
 {
@@ -174,9 +176,9 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 		realPtr = ((uint8_t *)ptr) - sizeof(AllocHeader);
 		header = (AllocHeader *)realPtr;
 	}
-	if (!size || realPtr) {
-		// free or realloc, either way, remove.
+	if (realPtr && size) {
 		s_allocTotalSize -= header->size;
+		// realloc, remove.
 		if (header->prev)
 			header->prev->next = header->next;
 		else
@@ -184,9 +186,13 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 		if (header->next)
 			header->next->prev = header->prev;
 	}
-	if (!size)
-		return s_realloc(realPtr, 0); // free
-	size += sizeof(AllocHeader);
+	if (!size) {
+		s_allocTotalSize -= header->size;
+		XA_ASSERT(!header->free); // double free
+		header->free = true;
+		return nullptr;
+	}
+	size += sizeof(AllocHeader) + sizeof(kAllocRedzone);
 	uint8_t *newPtr = (uint8_t *)s_realloc(realPtr, size);
 	if (!newPtr)
 		return nullptr;
@@ -194,6 +200,7 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 	header->size = size;
 	header->file = file;
 	header->line = line;
+	header->free = false;
 	if (!s_allocRoot) {
 		s_allocRoot = header;
 		header->prev = header->next = 0;
@@ -206,18 +213,38 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 	s_allocTotalSize += size;
 	if (s_allocTotalSize > s_allocPeakSize)
 		s_allocPeakSize = s_allocTotalSize;
+	auto redzone = (uint32_t *)(newPtr + size - sizeof(kAllocRedzone));
+	*redzone = kAllocRedzone;
 	return newPtr + sizeof(AllocHeader);
 }
 
-static void ReportAllocs()
+static void ReportLeaks()
 {
+	bool anyLeaks = false;
 	AllocHeader *header = s_allocRoot;
 	while (header) {
-		printf("Leak: %d bytes %s %d\n", header->size, header->file, header->line);
+		if (!header->free) {
+			printf("Leak: %zu bytes %s %d\n", header->size, header->file, header->line);
+			anyLeaks = true;
+		}
+		auto redzone = (const uint32_t *)((const uint8_t *)header + header->size - sizeof(kAllocRedzone));
+		if (*redzone != kAllocRedzone)
+			printf("Redzone corrupted: %zu bytes %s %d\n", header->size, header->file, header->line);
 		header = header->next;
 	}
-	printf("%0.2fMB peak memory usage\n", s_allocPeakSize / 1024.0f / 1024.0f);
+	if (!anyLeaks)
+		printf("No memory leaks\n");
+	header = s_allocRoot;
+	while (header) {
+		AllocHeader *destroy = header;
+		header = header->next;
+		s_realloc(destroy, 0);
+	}
+	s_allocRoot = nullptr;
+	s_allocTotalSize = s_allocPeakSize = 0;
 }
+
+#define XA_PRINT_MEM_USAGE XA_PRINT("Memory usage: %0.2fMB current, %0.2fMB peak\n", internal::s_allocTotalSize / 1024.0f / 1024.0f, internal::s_allocPeakSize / 1024.0f / 1024.0f);
 #else
 static void *Realloc(void *ptr, size_t size, const char * /*file*/, int /*line*/)
 {
@@ -227,6 +254,7 @@ static void *Realloc(void *ptr, size_t size, const char * /*file*/, int /*line*/
 	}
 	return mem;
 }
+#define XA_PRINT_MEM_USAGE
 #endif
 
 #if XA_PROFILE
@@ -7671,6 +7699,7 @@ static void addMeshJoin(Context *ctx)
 		XA_PROFILE_PRINT("      Create face groups: ", addMeshCreateFaceGroups)
 		XA_PROFILE_PRINT("      Create boundaries: ", addMeshCreateBoundaries)
 		XA_PROFILE_PRINT("      Create chart groups: ", addMeshCreateChartGroups)
+	XA_PRINT_MEM_USAGE
 }
 
 void Destroy(Atlas *atlas)
@@ -7703,7 +7732,7 @@ void Destroy(Atlas *atlas)
 	ctx->~Context();
 	XA_FREE(ctx);
 #if XA_DEBUG_HEAP
-	internal::ReportAllocs();
+	internal::ReportLeaks();
 #endif
 }
 
@@ -8095,6 +8124,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT("      Create chart meshes: ", createChartMeshes)
 	XA_PROFILE_PRINT("         Fix t-junctions: ", fixChartMeshTJunctions);
 	XA_PROFILE_PRINT("         Close holes: ", closeChartMeshHoles)
+	XA_PRINT_MEM_USAGE
 }
 
 void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
@@ -8213,6 +8243,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	XA_PROFILE_PRINT("      Orthogonal: ", parameterizeChartsOrthogonal)
 	XA_PROFILE_PRINT("      LSCM: ", parameterizeChartsLSCM)
 	XA_PROFILE_PRINT("      Evaluate quality: ", parameterizeChartsEvaluateQuality)
+	XA_PRINT_MEM_USAGE
 }
 
 void PackCharts(Atlas *atlas, PackOptions packOptions)
@@ -8279,6 +8310,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	XA_PROFILE_PRINT("      Dilate (padding): ", packChartsDilate)
 	XA_PROFILE_PRINT("      Find location: ", packChartsFindLocation)
 	XA_PROFILE_PRINT("      Blit: ", packChartsBlit)
+	XA_PRINT_MEM_USAGE
 #if XA_PROFILE
 	internal::s_profile.packCharts = 0;
 	internal::s_profile.packChartsRasterize = 0;
