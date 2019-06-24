@@ -8030,6 +8030,8 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		for (uint32_t i = 0; i < indexCount; i++)
 			mesh->indices[i] = decoded ? i : DecodeIndex(decl.indexFormat, decl.indexData, decl.indexOffset, i);
 		mesh->vertexToChartMap.resize(decl.vertexCount);
+		for (uint32_t i = 0; i < mesh->vertexToChartMap.size(); i++)
+			mesh->vertexToChartMap[i] = UINT32_MAX;
 		// Calculate charts (incident faces).
 		internal::HashMap<internal::Vector2, uint32_t> vertexToFaceMap;
 		const uint32_t faceCount = indexCount / 3;
@@ -8443,12 +8445,18 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 			// Copy mesh data.
 			// Vertices.
 			for (uint32_t v = 0; v < mesh->texcoords.size(); v++) {
-				const internal::pack::Chart *chart = packAtlas.getChart(chartIndex + mesh->mesh->vertexToChartMap[v]);
 				Vertex &vertex = outputMesh.vertexArray[v];
-				vertex.atlasIndex = chart->atlasIndex;
 				vertex.uv[0] = mesh->texcoords[v].x;
 				vertex.uv[1] = mesh->texcoords[v].y;
 				vertex.xref = v;
+				const uint32_t meshChartIndex = mesh->mesh->vertexToChartMap[v];
+				if (meshChartIndex == UINT32_MAX) {
+					// Vertex doesn't exist in any chart.
+					vertex.atlasIndex = -1;
+				} else {
+					const internal::pack::Chart *chart = packAtlas.getChart(chartIndex + meshChartIndex);
+					vertex.atlasIndex = chart->atlasIndex;
+				}
 			}
 			// Indices.
 			memcpy(outputMesh.indexArray, mesh->mesh->indices.data(), mesh->mesh->indices.size() * sizeof(uint32_t));
