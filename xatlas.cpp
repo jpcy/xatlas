@@ -2792,7 +2792,8 @@ struct MeshFlags
 	enum
 	{
 		HasFaceGroups = 1<<0,
-		HasNormals = 1<<1,
+		HasIgnoredFaces = 1<<1,
+		HasNormals = 1<<2
 	};
 };
 
@@ -2804,12 +2805,13 @@ class Mesh
 public:
 	Mesh(float epsilon, uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3)
 	{
-		if (m_flags & MeshFlags::HasFaceGroups)
-			m_faceGroups.reserve(approxFaceCount);
-		m_faceIgnore.reserve(approxFaceCount);
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
 		m_texcoords.reserve(approxVertexCount);
+		if (m_flags & MeshFlags::HasFaceGroups)
+			m_faceGroups.reserve(approxFaceCount);
+		if (m_flags & MeshFlags::HasIgnoredFaces)
+			m_faceIgnore.reserve(approxFaceCount);
 		if (m_flags & MeshFlags::HasNormals)
 			m_normals.reserve(approxVertexCount);
 	}
@@ -2849,7 +2851,8 @@ public:
 		AddFaceResult::Enum result = AddFaceResult::OK;
 		if (m_flags & MeshFlags::HasFaceGroups)
 			m_faceGroups.push_back(UINT32_MAX);
-		m_faceIgnore.push_back(ignore);
+		if (m_flags & MeshFlags::HasIgnoredFaces)
+			m_faceIgnore.push_back(ignore);
 		const uint32_t firstIndex = m_indices.size();
 		for (uint32_t i = 0; i < 3; i++)
 			m_indices.push_back(indices[i]);
@@ -3014,7 +3017,7 @@ public:
 			// Find an unassigned face.
 			uint32_t face = UINT32_MAX;
 			for (uint32_t f = 0; f < faceCount(); f++) {
-				if (m_faceGroups[f] == UINT32_MAX && !m_faceIgnore[f]) {
+				if (m_faceGroups[f] == UINT32_MAX && !isFaceIgnored(f)) {
 					face = f;
 					break;
 				}
@@ -3039,7 +3042,7 @@ public:
 					for (ColocalEdgeIterator oppositeEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
 						const uint32_t oppositeEdge = oppositeEdgeIt.edge();
 						const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
-						if (m_faceIgnore[oppositeFace])
+						if (isFaceIgnored(oppositeFace))
 							continue; // Don't add ignored faces to group.
 						if (m_faceGroups[oppositeFace] == group) {
 							alreadyAssignedToThisGroup = true;
@@ -3082,7 +3085,7 @@ public:
 			m_boundaryVertices[i] = false;
 		const bool hasFaceGroups = m_flags & MeshFlags::HasFaceGroups;
 		for (uint32_t i = 0; i < faceCount(); i++) {
-			if (m_faceIgnore[i])
+			if (isFaceIgnored(i))
 				continue;
 			for (uint32_t j = 0; j < 3; j++) {
 				const uint32_t vertex0 = m_indices[i * 3 + j];
@@ -3094,7 +3097,7 @@ public:
 					if (hasFaceGroups)
 						XA_DEBUG_ASSERT(m_faceGroups[meshEdgeFace(oppositeEdge)] == m_faceGroups[i]);
 #endif
-					XA_DEBUG_ASSERT(!m_faceIgnore[meshEdgeFace(oppositeEdge)]);
+					XA_DEBUG_ASSERT(!isFaceIgnored(meshEdgeFace(oppositeEdge)));
 					m_oppositeEdges[i * 3 + j] = oppositeEdge;
 				} else {
 					m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
@@ -3145,7 +3148,7 @@ public:
 							goto next; // Already linked.
 						if (m_flags & MeshFlags::HasFaceGroups && m_faceGroups[meshEdgeFace(currentEdge)] != m_faceGroups[meshEdgeFace(otherEdge)])
 							goto next; // Don't cross face groups.
-						if (m_faceIgnore[meshEdgeFace(otherEdge)])
+						if (isFaceIgnored(meshEdgeFace(otherEdge)))
 							goto next; // Face is ignored.
 						if (m_indices[meshEdgeIndex0(otherEdge)] != it.vertex())
 							goto next; // Edge contains the vertex, but it's the wrong one.
@@ -3210,7 +3213,7 @@ public:
 			while (mapEdgeIndex != UINT32_MAX) {
 				const uint32_t edge = m_edgeMap.value(mapEdgeIndex);
 				// Don't find edges of ignored faces.
-				if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !m_faceIgnore[meshEdgeFace(edge)]) {
+				if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
 					//XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 					result = edge;
 #if !XA_DEBUG
@@ -3227,7 +3230,7 @@ public:
 					while (mapEdgeIndex != UINT32_MAX) {
 						const uint32_t edge = m_edgeMap.value(mapEdgeIndex);
 						// Don't find edges of ignored faces.
-						if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !m_faceIgnore[meshEdgeFace(edge)]) {
+						if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
 							XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 							result = edge;
 #if !XA_DEBUG
@@ -3457,11 +3460,12 @@ public:
 	uint32_t faceCount() const { return m_indices.size() / 3; }
 	uint32_t faceGroupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups.size(); }
 	uint32_t faceGroupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups[face]; }
-	bool faceIgnore(uint32_t i) const { return m_faceIgnore[i]; }
 	const uint32_t *indices() const { return m_indices.data(); }
 	uint32_t indexCount() const { return m_indices.size(); }
 
 private:
+	bool isFaceIgnored(uint32_t face) const { return (m_flags & MeshFlags::HasIgnoredFaces) && m_faceIgnore[face]; }
+
 	float m_epsilon;
 	uint32_t m_flags;
 	uint32_t m_id;
@@ -6284,8 +6288,8 @@ public:
 			if (sourceMesh->faceGroupAt(f) == faceGroup)
 				m_faceToSourceFaceMap.push_back(f);
 		}
-		// Only initial meshes have face groups.
-		m_mesh = XA_NEW(Mesh, sourceMesh->epsilon(), sourceMesh->flags() | ~MeshFlags::HasFaceGroups);
+		// Only initial meshes have face groups and ignored faces. The only flag we care about is HasNormals.
+		m_mesh = XA_NEW(Mesh, sourceMesh->epsilon(), sourceMesh->flags() & MeshFlags::HasNormals);
 		const uint32_t faceCount = m_faceToSourceFaceMap.size();
 		XA_DEBUG_ASSERT(faceCount > 0);
 		Array<uint32_t> meshIndices;
@@ -7877,7 +7881,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 				return AddMeshError::IndexOutOfRange;
 		}
 	}
-	uint32_t meshFlags = internal::MeshFlags::HasFaceGroups;
+	uint32_t meshFlags = internal::MeshFlags::HasFaceGroups | internal::MeshFlags::HasIgnoredFaces;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
 	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.epsilon, meshFlags, meshDecl.vertexCount, indexCount / 3, ctx->meshCount);
