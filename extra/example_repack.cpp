@@ -38,6 +38,7 @@ Uses AddUvMesh and PackCharts to repack existing UVs into a single atlas. Textur
 #define STRICMP _stricmp
 #else
 #define FOPEN(_file, _filename, _mode) _file = fopen(_filename, _mode)
+#include <string.h>
 #include <strings.h>
 #define STRCAT(_dest, _size, _src) strcat(_dest, _src);
 #define STRCPY(_dest, _size, _src) strcpy(_dest, _src);
