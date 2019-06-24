@@ -672,24 +672,14 @@ static bool operator!=(const Vector3 &a, const Vector3 &b)
 	return a.x != b.x || a.y != b.y || a.z != b.z;
 }
 
-static Vector3 add(const Vector3 &a, const Vector3 &b)
+static Vector3 operator+(const Vector3 &a, const Vector3 &b)
 {
 	return Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
 }
 
-static Vector3 operator+(const Vector3 &a, const Vector3 &b)
-{
-	return add(a, b);
-}
-
-static Vector3 sub(const Vector3 &a, const Vector3 &b)
-{
-	return Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
 static Vector3 operator-(const Vector3 &a, const Vector3 &b)
 {
-	return sub(a, b);
+	return Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
 static Vector3 cross(const Vector3 &a, const Vector3 &b)
