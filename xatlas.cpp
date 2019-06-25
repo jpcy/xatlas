@@ -95,11 +95,11 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 		xatlas::internal::s_print(__VA_ARGS__);
 #endif
 
-#define XA_ALLOC(type) (type *)internal::Realloc(nullptr, sizeof(type), __FILE__, __LINE__)
-#define XA_ALLOC_ARRAY(type, num) (type *)internal::Realloc(nullptr, sizeof(type) * num, __FILE__, __LINE__)
-#define XA_REALLOC(ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * num, __FILE__, __LINE__)
-#define XA_FREE(ptr) internal::Realloc(ptr, 0, __FILE__, __LINE__)
-#define XA_NEW(type, ...) new (XA_ALLOC(type)) type(__VA_ARGS__)
+#define XA_ALLOC(tag, type) (type *)internal::Realloc(nullptr, sizeof(type), tag, __FILE__, __LINE__)
+#define XA_ALLOC_ARRAY(tag, type, num) (type *)internal::Realloc(nullptr, sizeof(type) * num, tag, __FILE__, __LINE__)
+#define XA_REALLOC(tag, ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * num, tag, __FILE__, __LINE__)
+#define XA_FREE(ptr) internal::Realloc(ptr, 0, internal::MemTag::Default, __FILE__, __LINE__)
+#define XA_NEW(tag, type, ...) new (XA_ALLOC(tag, type)) type(__VA_ARGS__)
 
 #define XA_UNUSED(a) ((void)(a))
 
@@ -151,23 +151,35 @@ static ReallocFunc s_realloc = realloc;
 static PrintFunc s_print = printf;
 static bool s_printVerbose = false;
 
+struct MemTag
+{
+	enum
+	{
+		Default,
+		Mesh,
+		Count
+	};
+};
+
 #if XA_DEBUG_HEAP
 struct AllocHeader
 {
 	size_t size;
 	const char *file;
 	int line;
-	bool free;
+	int tag;
 	AllocHeader *prev, *next;
+	bool free;
 };
 
+static std::mutex s_allocMutex;
 static AllocHeader *s_allocRoot = nullptr;
-static size_t s_allocTotalSize = 0;
-static size_t s_allocPeakSize = 0;
+static size_t s_allocTotalSize = 0, s_allocPeakSize = 0, s_allocTotalTagSize[MemTag::Count] = { 0 }, s_allocPeakTagSize[MemTag::Count] = { 0 };
 static constexpr uint32_t kAllocRedzone = 0x12345678;
 
-static void *Realloc(void *ptr, size_t size, const char *file, int line)
+static void *Realloc(void *ptr, size_t size, int tag, const char *file, int line)
 {
+	std::unique_lock<std::mutex> lock(s_allocMutex);
 	if (!size && !ptr)
 		return nullptr;
 	uint8_t *realPtr = nullptr;
@@ -178,6 +190,7 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 	}
 	if (realPtr && size) {
 		s_allocTotalSize -= header->size;
+		s_allocTotalTagSize[header->tag] -= header->size;
 		// realloc, remove.
 		if (header->prev)
 			header->prev->next = header->next;
@@ -188,6 +201,7 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 	}
 	if (!size) {
 		s_allocTotalSize -= header->size;
+		s_allocTotalTagSize[header->tag] -= header->size;
 		XA_ASSERT(!header->free); // double free
 		header->free = true;
 		return nullptr;
@@ -200,6 +214,7 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 	header->size = size;
 	header->file = file;
 	header->line = line;
+	header->tag = tag;
 	header->free = false;
 	if (!s_allocRoot) {
 		s_allocRoot = header;
@@ -213,6 +228,9 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 	s_allocTotalSize += size;
 	if (s_allocTotalSize > s_allocPeakSize)
 		s_allocPeakSize = s_allocTotalSize;
+	s_allocTotalTagSize[tag] += size;
+	if (s_allocTotalTagSize[tag] > s_allocPeakTagSize[tag])
+		s_allocPeakTagSize[tag] = s_allocTotalTagSize[tag];
 	auto redzone = (uint32_t *)(newPtr + size - sizeof(kAllocRedzone));
 	*redzone = kAllocRedzone;
 	return newPtr + sizeof(AllocHeader);
@@ -220,20 +238,21 @@ static void *Realloc(void *ptr, size_t size, const char *file, int line)
 
 static void ReportLeaks()
 {
+	printf("Checking for memory leaks...\n");
 	bool anyLeaks = false;
 	AllocHeader *header = s_allocRoot;
 	while (header) {
 		if (!header->free) {
-			printf("Leak: %zu bytes %s %d\n", header->size, header->file, header->line);
+			printf("   Leak: %zu bytes %s %d\n", header->size, header->file, header->line);
 			anyLeaks = true;
 		}
 		auto redzone = (const uint32_t *)((const uint8_t *)header + header->size - sizeof(kAllocRedzone));
 		if (*redzone != kAllocRedzone)
-			printf("Redzone corrupted: %zu bytes %s %d\n", header->size, header->file, header->line);
+			printf("   Redzone corrupted: %zu bytes %s %d\n", header->size, header->file, header->line);
 		header = header->next;
 	}
 	if (!anyLeaks)
-		printf("No memory leaks\n");
+		printf("   No memory leaks\n");
 	header = s_allocRoot;
 	while (header) {
 		AllocHeader *destroy = header;
@@ -242,11 +261,22 @@ static void ReportLeaks()
 	}
 	s_allocRoot = nullptr;
 	s_allocTotalSize = s_allocPeakSize = 0;
+	for (int i = 0; i < MemTag::Count; i++)
+		s_allocTotalTagSize[i] = s_allocPeakTagSize[i] = 0;
 }
 
-#define XA_PRINT_MEM_USAGE XA_PRINT("Memory usage: %0.2fMB current, %0.2fMB peak\n", internal::s_allocTotalSize / 1024.0f / 1024.0f, internal::s_allocPeakSize / 1024.0f / 1024.0f);
+static void PrintMemoryUsage()
+{
+	XA_PRINT("Memory usage: %0.2fMB current, %0.2fMB peak\n", internal::s_allocTotalSize / 1024.0f / 1024.0f, internal::s_allocPeakSize / 1024.0f / 1024.0f);
+	static const char *labels[] = { "default", "mesh" };
+	for (int i = 0; i < MemTag::Count; i++) {
+		XA_PRINT("   %s: %0.2fMB current, %0.2fMB peak\n", labels[i], internal::s_allocTotalTagSize[i] / 1024.0f / 1024.0f, internal::s_allocPeakTagSize[i] / 1024.0f / 1024.0f);
+	}
+}
+
+#define XA_PRINT_MEM_USAGE internal::PrintMemoryUsage();
 #else
-static void *Realloc(void *ptr, size_t size, const char * /*file*/, int /*line*/)
+static void *Realloc(void *ptr, size_t size, int /*tag*/, const char * /*file*/, int /*line*/)
 {
 	void *mem = s_realloc(ptr, size);
 	if (size > 0) {
@@ -870,21 +900,11 @@ class Array {
 public:
 	typedef uint32_t size_type;
 
-	Array() : m_buffer(nullptr), m_capacity(0), m_size(0) {}
+	Array(int memTag = 0) : m_memTag(memTag), m_buffer(nullptr), m_capacity(0), m_size(0) {}
 
-	Array(const Array & a) : m_buffer(nullptr), m_capacity(0), m_size(0)
+	Array(const Array &a) : m_memTag(a.m_memTag), m_buffer(nullptr), m_capacity(0), m_size(0)
 	{
 		copy(a.m_buffer, a.m_size);
-	}
-
-	Array(const T * ptr, uint32_t num) : m_buffer(nullptr), m_capacity(0), m_size(0)
-	{
-		copy(ptr, num);
-	}
-
-	explicit Array(uint32_t capacity) : m_buffer(nullptr), m_capacity(0), m_size(0)
-	{
-		setArrayCapacity(capacity);
 	}
 
 	~Array()
@@ -894,6 +914,7 @@ public:
 
 	const Array<T> &operator=(const Array<T> &other)
 	{
+		m_memTag = other.m_memTag;
 		m_buffer = other.m_buffer;
 		m_capacity = other.m_capacity;
 		m_size = other.m_size;
@@ -1079,11 +1100,12 @@ protected:
 		}
 		else {
 			// realloc the buffer
-			m_buffer = XA_REALLOC(m_buffer, T, new_capacity);
+			m_buffer = XA_REALLOC(m_memTag, m_buffer, T, new_capacity);
 		}
 		m_capacity = new_capacity;
 	}
 
+	int m_memTag;
 	T * m_buffer;
 	uint32_t m_capacity;
 	uint32_t m_size;
@@ -1675,11 +1697,11 @@ template<typename Key, typename Value, typename H = Hash<Key>, typename E = Equa
 class HashMap
 {
 public:
-	HashMap() : m_size(4096), m_numSlots(0), m_slots(nullptr)
+	HashMap(int memTag = 0) : m_memTag(memTag), m_size(4096), m_numSlots(0), m_slots(nullptr), m_keys(memTag), m_values(memTag), m_next(memTag)
 	{
 	}
 
-	HashMap(uint32_t size) : m_size(size), m_numSlots(0), m_slots(nullptr)
+	HashMap(int memTag, uint32_t size) : m_memTag(memTag), m_size(size), m_numSlots(0), m_slots(nullptr), m_keys(memTag), m_values(memTag), m_next(memTag)
 	{
 		m_size = max(m_size, 4096u);
 	}
@@ -1692,6 +1714,7 @@ public:
 
 	const HashMap<Key, Value, H, E> &operator=(const HashMap<Key, Value, H, E> &other)
 	{
+		m_memTag = other.m_memTag;
 		m_numSlots = other.m_numSlots;
 		m_slots = other.m_slots;
 		m_keys = other.m_keys;
@@ -1745,7 +1768,7 @@ private:
 	{
 		XA_DEBUG_ASSERT(m_size > 0);
 		m_numSlots = (uint32_t)(m_size * 1.3);
-		m_slots = XA_ALLOC_ARRAY(uint32_t, m_numSlots);
+		m_slots = XA_ALLOC_ARRAY(m_memTag, uint32_t, m_numSlots);
 		for (uint32_t i = 0; i < m_numSlots; i++)
 			m_slots[i] = UINT32_MAX;
 		m_keys.reserve(m_size);
@@ -1759,6 +1782,7 @@ private:
 		return hash(key) % m_numSlots;
 	}
 
+	int m_memTag;
 	uint32_t m_size;
 	uint32_t m_numSlots;
 	uint32_t *m_slots;
@@ -1822,8 +1846,8 @@ public:
 		// Resize lists if needed
 		if (count != m_size) {
 			if (count > m_size) {
-				m_ranks2 = XA_REALLOC(m_ranks2, uint32_t, count);
-				m_ranks = XA_REALLOC(m_ranks, uint32_t, count);
+				m_ranks2 = XA_REALLOC(MemTag::Default, m_ranks2, uint32_t, count);
+				m_ranks = XA_REALLOC(MemTag::Default, m_ranks, uint32_t, count);
 			}
 			m_size = count;
 			m_validRanks = false;
@@ -2132,7 +2156,7 @@ struct IndexQueue
 		reset();
 		m_size = max;
 		m_inUse = 0;
-		m_list = static_cast<uint32_t*>(XA_ALLOC_ARRAY(uint32_t, m_size));
+		m_list = static_cast<uint32_t*>(XA_ALLOC_ARRAY(MemTag::Default, uint32_t, m_size));
 		unlock();
 	}
 
@@ -2201,7 +2225,7 @@ struct ObjectPool
 	void init(uint32_t count)
 	{
 		reset();
-		m_data = XA_ALLOC_ARRAY(D, count);
+		m_data = XA_ALLOC_ARRAY(MemTag::Default, D, count);
 		for (uint32_t i = 0; i < count; ++i)
 			m_data[i].state = 0xFFFu << kVerDisp;
 		m_count = count;
@@ -2396,7 +2420,7 @@ public:
 		m_counters.init(m_params.max_number_tasks);
 		m_readyTasks.init(m_params.max_number_tasks);
 		XA_DEBUG_ASSERT(m_workers == nullptr);
-		m_workers = static_cast<Worker*>(XA_ALLOC_ARRAY(Worker, m_params.num_threads));
+		m_workers = static_cast<Worker*>(XA_ALLOC_ARRAY(MemTag::Default, Worker, m_params.num_threads));
 		for(uint16_t i = 0; i < m_params.num_threads; ++i) {
 			new (&m_workers[i]) Worker();
 			m_workers[i].thread_index = i;
@@ -2793,7 +2817,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_colocalVertexCount(0), m_edgeMap(approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceGroups(MemTag::Mesh), m_indices(MemTag::Mesh), m_positions(MemTag::Mesh), m_normals(MemTag::Mesh), m_texcoords(MemTag::Mesh), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::Mesh), m_boundaryVertices(MemTag::Mesh), m_oppositeEdges(MemTag::Mesh), m_nextBoundaryEdges(MemTag::Mesh), m_edgeMap(MemTag::Mesh, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -3099,7 +3123,7 @@ public:
 	void linkBoundaries()
 	{
 		const uint32_t edgeCount = m_indices.size();
-		HashMap<uint32_t, uint32_t> vertexToEdgeMap(edgeCount);
+		HashMap<uint32_t, uint32_t> vertexToEdgeMap(MemTag::Mesh, edgeCount);
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			const uint32_t vertex0 = m_indices[meshEdgeIndex0(i)];
 			const uint32_t vertex1 = m_indices[meshEdgeIndex1(i)];
@@ -3933,7 +3957,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, bool
 	if (splitEdges.isEmpty())
 		return nullptr;
 	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(Mesh, 0, vertexCount + splitEdges.size(), faceCount);
+	Mesh *mesh = XA_NEW(MemTag::Mesh, Mesh, 0, vertexCount + splitEdges.size(), faceCount);
 	for (uint32_t v = 0; v < vertexCount; v++)
 		mesh->addVertex(inputMesh.position(v));
 	Array<uint32_t> indexArray;
@@ -5382,7 +5406,7 @@ struct AtlasBuilder
 private:
 	void createRandomChart(float threshold)
 	{
-		ChartBuildData *chart = XA_NEW(ChartBuildData);
+		ChartBuildData *chart = XA_NEW(MemTag::Default, ChartBuildData);
 		chart->id = (int)m_chartArray.size();
 		m_chartArray.push_back(chart);
 		// Pick random face that is not used by any chart yet.
@@ -6027,8 +6051,8 @@ public:
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
 		// Copy face indices.
-		m_mesh = XA_NEW(Mesh, originalMesh->epsilon());
-		m_unifiedMesh = XA_NEW(Mesh, originalMesh->epsilon());
+		m_mesh = XA_NEW(MemTag::Mesh, Mesh, originalMesh->epsilon());
+		m_unifiedMesh = XA_NEW(MemTag::Mesh, Mesh, originalMesh->epsilon());
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(originalMesh->vertexCount(), (uint32_t)~0);
 		Array<uint32_t> unifiedMeshIndices;
@@ -6279,7 +6303,7 @@ public:
 				m_faceToSourceFaceMap.push_back(f);
 		}
 		// Only initial meshes have face groups and ignored faces. The only flag we care about is HasNormals.
-		m_mesh = XA_NEW(Mesh, sourceMesh->epsilon(), sourceMesh->flags() & MeshFlags::HasNormals);
+		m_mesh = XA_NEW(MemTag::Mesh, Mesh, sourceMesh->epsilon(), sourceMesh->flags() & MeshFlags::HasNormals);
 		const uint32_t faceCount = m_faceToSourceFaceMap.size();
 		XA_DEBUG_ASSERT(faceCount > 0);
 		Array<uint32_t> meshIndices;
@@ -6420,7 +6444,7 @@ public:
 		chartFaces.resize(m_mesh->faceCount());
 		for (uint32_t i = 0; i < chartFaces.size(); i++)
 			chartFaces[i] = i;
-		Chart *chart = XA_NEW(Chart, m_mesh, chartFaces, m_sourceId, m_id, 0);
+		Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, chartFaces, m_sourceId, m_id, 0);
 		m_chartArray.push_back(chart);
 #else
 		XA_PROFILE_START(atlasBuilder)
@@ -6451,7 +6475,7 @@ public:
 		}
 #endif
 		for (uint32_t i = 0; i < chartCount; i++) {
-			Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(i), m_sourceId, m_id, i);
+			Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, builder.chartFaces(i), m_sourceId, m_id, i);
 			m_chartArray.push_back(chart);
 #if XA_DEBUG_EXPORT_OBJ_CHART_FACE_OVERLAP
 			if (builder.chartHasOverlaps(i) && file) {
@@ -6526,7 +6550,7 @@ public:
 			AtlasBuilder builder(m_mesh, &meshFaces, options);
 			runAtlasBuilder(builder, options);
 			for (uint32_t j = 0; j < builder.chartCount(); j++) {
-				Chart *chart = XA_NEW(Chart, m_mesh, builder.chartFaces(j), m_sourceId, m_id, m_chartArray.size());
+				Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, builder.chartFaces(j), m_sourceId, m_id, m_chartArray.size());
 				m_chartArray.push_back(chart);
 				m_paramAddedChartsCount++;
 			}
@@ -6768,7 +6792,7 @@ public:
 		Array<ChartGroup *> chartGroups;
 		chartGroups.resize(faceGroups.size());
 		for (uint32_t g = 0; g < faceGroups.size(); g++)
-			chartGroups[g] = XA_NEW(ChartGroup, g, mesh, faceGroups[g]);
+			chartGroups[g] = XA_NEW(MemTag::Default, ChartGroup, g, mesh, faceGroups[g]);
 		m_addMeshMutex.lock();
 		for (uint32_t g = 0; g < chartGroups.size(); g++) {
 			m_chartGroups.push_back(chartGroups[g]);
@@ -7029,7 +7053,7 @@ struct Atlas
 	void addChart(param::Chart *paramChart)
 	{
 		Mesh *mesh = paramChart->mesh();
-		Chart *chart = XA_NEW(Chart);
+		Chart *chart = XA_NEW(MemTag::Default, Chart);
 		chart->atlasIndex = -1;
 		chart->indexCount = mesh->indexCount();
 		chart->indices = mesh->indices();
@@ -7067,7 +7091,7 @@ struct Atlas
 		boundary.reserve(16);
 		for (uint32_t c = 0; c < mesh->mesh->charts.size(); c++) {
 			UvMeshChart *uvChart = mesh->mesh->charts[c];
-			Chart *chart = XA_NEW(Chart);
+			Chart *chart = XA_NEW(MemTag::Default, Chart);
 			chart->atlasIndex = -1;
 			chart->indexCount = uvChart->indices.size();
 			chart->indices = uvChart->indices.data();
@@ -7328,14 +7352,14 @@ struct Atlas
 				bool firstChartInBitImage = false;
 				if (currentAtlas + 1 > m_bitImages.size()) {
 					// Chart doesn't fit in the current bitImage, create a new one.
-					BitImage *bi = XA_NEW(BitImage);
+					BitImage *bi = XA_NEW(MemTag::Default, BitImage);
 					bi->resize(resolution, resolution, true);
 					m_bitImages.push_back(bi);
 					firstChartInBitImage = true;
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
-					DebugAtlasImage *di = XA_NEW(DebugAtlasImage, resolution, resolution);
+					DebugAtlasImage *di = XA_NEW(MemTag::Default, DebugAtlasImage, resolution, resolution);
 					debugAtlasImages.push_back(di);
-					di = XA_NEW(DebugAtlasImage, resolution, resolution);
+					di = XA_NEW(MemTag::Default, DebugAtlasImage, resolution, resolution);
 					debugAtlasImagesNoPadding.push_back(di);
 #endif
 					// Start positions are per-atlas, so create a new one of those too.
@@ -7647,9 +7671,9 @@ struct Context
 
 Atlas *Create()
 {
-	Context *ctx = XA_NEW(Context);
+	Context *ctx = XA_NEW(internal::MemTag::Default, Context);
 	memset(&ctx->atlas, 0, sizeof(Atlas));
-	ctx->taskScheduler = XA_NEW(internal::task::Scheduler);
+	ctx->taskScheduler = XA_NEW(internal::MemTag::Default, internal::task::Scheduler);
 	return &ctx->atlas;
 }
 
@@ -7848,7 +7872,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	}
 	// Don't know how many times AddMesh will be called, so progress needs to adjusted each time.
 	if (!ctx->addMeshProgress) {
-		ctx->addMeshProgress = XA_NEW(internal::task::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
+		ctx->addMeshProgress = XA_NEW(internal::MemTag::Default, internal::task::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
 #if XA_PROFILE
 		internal::s_profile.addMeshConcurrent = clock();
 #endif
@@ -7874,7 +7898,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	uint32_t meshFlags = internal::MeshFlags::HasFaceGroups | internal::MeshFlags::HasIgnoredFaces;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
-	internal::Mesh *mesh = XA_NEW(internal::Mesh, meshDecl.epsilon, meshFlags, meshDecl.vertexCount, indexCount / 3, ctx->meshCount);
+	internal::Mesh *mesh = XA_NEW(internal::MemTag::Mesh, internal::Mesh, meshDecl.epsilon, meshFlags, meshDecl.vertexCount, indexCount / 3, ctx->meshCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0.0f);
 		internal::Vector2 texcoord(0.0f);
@@ -7928,7 +7952,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			ignore = true;
 		mesh->addFace(tri[0], tri[1], tri[2], ignore);
 	}
-	AddMeshJobArgs *jobArgs = XA_NEW(AddMeshJobArgs); // The job frees this.
+	AddMeshJobArgs *jobArgs = XA_NEW(internal::MemTag::Default, AddMeshJobArgs); // The job frees this.
 	jobArgs->ctx = ctx;
 	jobArgs->mesh = mesh;
 	internal::task::Job job;
@@ -8003,7 +8027,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 				return AddMeshError::IndexOutOfRange;
 		}
 	}
-	internal::UvMeshInstance *meshInstance = XA_NEW(internal::UvMeshInstance);
+	internal::UvMeshInstance *meshInstance = XA_NEW(internal::MemTag::Default, internal::UvMeshInstance);
 	meshInstance->texcoords.resize(decl.vertexCount);
 	for (uint32_t i = 0; i < decl.vertexCount; i++)
 		meshInstance->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
@@ -8018,7 +8042,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 	}
 	if (!mesh) {
 		// Copy geometry to mesh.
-		meshInstance->mesh = mesh = XA_NEW(internal::UvMesh);
+		meshInstance->mesh = mesh = XA_NEW(internal::MemTag::Default, internal::UvMesh);
 		mesh->decl = decl;
 		mesh->indices.resize(decl.indexCount);
 		for (uint32_t i = 0; i < indexCount; i++)
@@ -8036,7 +8060,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (faceAssigned.bitAt(f))
 				continue;
-			internal::UvMeshChart *chart = XA_NEW(internal::UvMeshChart);
+			internal::UvMeshChart *chart = XA_NEW(internal::MemTag::Default, internal::UvMeshChart);
 			GrowUvMeshChart(meshInstance, vertexToFaceMap, chart, f, faceAssigned);
 			for (uint32_t i = 0; i < chart->indices.size(); i++)
 				mesh->vertexToChartMap[chart->indices[i]] = mesh->charts.size();
@@ -8297,7 +8321,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	atlas->height = packAtlas.getHeight();
 	atlas->texelsPerUnit = packAtlas.getTexelsPerUnit();
 	if (atlas->atlasCount > 0) {
-		atlas->utilization = XA_ALLOC_ARRAY(float, atlas->atlasCount);
+		atlas->utilization = XA_ALLOC_ARRAY(internal::MemTag::Default, float, atlas->atlasCount);
 		for (uint32_t i = 0; i < atlas->atlasCount; i++)
 			atlas->utilization[i] = packAtlas.getUtilization(i);
 	}
@@ -8324,7 +8348,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		atlas->meshCount = ctx->meshCount;
 	else
 		atlas->meshCount = ctx->uvMeshInstances.size();
-	atlas->meshes = XA_ALLOC_ARRAY(Mesh, atlas->meshCount);
+	atlas->meshes = XA_ALLOC_ARRAY(internal::MemTag::Default, Mesh, atlas->meshCount);
 	memset(atlas->meshes, 0, sizeof(Mesh) * atlas->meshCount);
 	if (ctx->uvMeshInstances.isEmpty()) {
 		uint32_t chartIndex = 0;
@@ -8345,9 +8369,9 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 					}
 				}
 			}
-			outputMesh.vertexArray = XA_ALLOC_ARRAY(Vertex, outputMesh.vertexCount);
-			outputMesh.indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh.indexCount);
-			outputMesh.chartArray = XA_ALLOC_ARRAY(Chart, outputMesh.chartCount);
+			outputMesh.vertexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, Vertex, outputMesh.vertexCount);
+			outputMesh.indexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputMesh.indexCount);
+			outputMesh.chartArray = XA_ALLOC_ARRAY(internal::MemTag::Default, Chart, outputMesh.chartCount);
 			XA_PRINT("   mesh %u: %u vertices, %u triangles, %u charts\n", i, outputMesh.vertexCount, outputMesh.indexCount / 3, outputMesh.chartCount);
 			// Copy mesh data.
 			uint32_t firstVertex = 0;
@@ -8401,7 +8425,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 						if (chart->paramQuality().boundaryIntersection || chart->paramQuality().flippedTriangleCount > 0)
 							outputChart->flags |= ChartFlags::Invalid;
 						outputChart->indexCount = mesh->faceCount() * 3;
-						outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
+						outputChart->indexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->indexCount);
 						for (uint32_t f = 0; f < mesh->faceCount(); f++) {
 							for (uint32_t j = 0; j < 3; j++)
 								outputChart->indexArray[3 * f + j] = firstVertex + mesh->vertexAt(f * 3 + j);
@@ -8432,9 +8456,9 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 			outputMesh.vertexCount = mesh->texcoords.size();
 			outputMesh.indexCount = mesh->mesh->indices.size();
 			outputMesh.chartCount = mesh->mesh->charts.size();
-			outputMesh.vertexArray = XA_ALLOC_ARRAY(Vertex, outputMesh.vertexCount);
-			outputMesh.indexArray = XA_ALLOC_ARRAY(uint32_t, outputMesh.indexCount);
-			outputMesh.chartArray = XA_ALLOC_ARRAY(Chart, outputMesh.chartCount);
+			outputMesh.vertexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, Vertex, outputMesh.vertexCount);
+			outputMesh.indexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputMesh.indexCount);
+			outputMesh.chartArray = XA_ALLOC_ARRAY(internal::MemTag::Default, Chart, outputMesh.chartCount);
 			XA_PRINT("   UV mesh %u: %u vertices, %u triangles, %u charts\n", m, outputMesh.vertexCount, outputMesh.indexCount / 3, outputMesh.chartCount);
 			// Copy mesh data.
 			// Vertices.
@@ -8461,7 +8485,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
 				outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
 				outputChart->indexCount = chart->indexCount;
-				outputChart->indexArray = XA_ALLOC_ARRAY(uint32_t, outputChart->indexCount);
+				outputChart->indexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->indexCount);
 				memcpy(outputChart->indexArray, chart->indices, chart->indexCount * sizeof(uint32_t));
 				chartIndex++;
 			}
