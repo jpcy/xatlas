@@ -477,6 +477,13 @@ static bool setAtlasTexel(void *param, int x, int y, const Vector3 &bar, const V
 	return true;
 }
 
+struct ModelVertex
+{
+	Vector3 pos;
+	Vector3 normal;
+	Vector2 uv;
+};
+
 int main(int argc, char *argv[])
 {
 	if (argc < 2) {
@@ -486,7 +493,7 @@ int main(int argc, char *argv[])
 	// Load model file.
 	printf("Loading '%s'...\n", argv[1]);
 	objz_setIndexFormat(OBJZ_INDEX_FORMAT_U32);
-	objz_setVertexFormat(sizeof(float) * 2, SIZE_MAX, 0, SIZE_MAX);
+	objz_setVertexFormat(sizeof(ModelVertex), offsetof(ModelVertex, pos), offsetof(ModelVertex, uv), offsetof(ModelVertex, normal));
 	objzModel *model = objz_load(argv[1]);
 	if (!model) {
 		fprintf(stderr, "%s\n", objz_getError());
@@ -523,7 +530,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	// Denormalize UVs by scaling them by texture dimensions.
-	auto modelUvs = (Vector2 *)model->vertices;
+	auto modelVertices = (ModelVertex *)model->vertices;
 	std::vector<Vector2> uvs;
 	uvs.resize(model->numVertices);
 	for (uint32_t i = 0; i < model->numVertices; i++) {
@@ -531,7 +538,7 @@ int main(int argc, char *argv[])
 		const TextureData *textureData = nullptr;
 		if (materialIndex != UINT8_MAX && textures[materialIndex] != UINT32_MAX)
 			textureData = &s_textureCache[textures[materialIndex]].data;
-		uvs[i] = modelUvs[i];
+		uvs[i] = modelVertices[i].uv;
 		if (textureData) {
 			uvs[i].x *= (float)textureData->width;
 			uvs[i].y *= (float)textureData->height;
@@ -583,7 +590,7 @@ int main(int argc, char *argv[])
 					indices[l] = chart.indexArray[k * 3 + l];
 					vertices[l] = atlasMesh.vertexArray[indices[l]];
 					v[l] = Vector2(vertices[l].uv[0], vertices[l].uv[1]);
-					args.sourceUv[l] = modelUvs[vertices[l].xref];
+					args.sourceUv[l] = modelVertices[vertices[l].xref].uv;
 					args.sourceUv[l].y = 1.0f - args.sourceUv[l].y;
 				}
 				Triangle tri(v[0], v[1], v[2], Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1));
@@ -594,9 +601,49 @@ int main(int argc, char *argv[])
 		}
 	}
 	// Write the atlas texture.
-	const char *outputFilename = "example_repack_output.tga";
-	printf("Writing '%s'...\n", outputFilename);
-	stbi_write_tga(outputFilename, atlas->width, atlas->height, 3, atlasTexture.data());
+	const char *atlasFilename = "example_repack_output.tga";
+	printf("Writing '%s'...\n", atlasFilename);
+	stbi_write_tga(atlasFilename, atlas->width, atlas->height, 3, atlasTexture.data());
+	// Write the model.
+	const char *modelFilename = "example_repack_output.obj";
+	printf("Writing '%s'...\n", modelFilename);
+	FILE *file;
+	FOPEN(file, modelFilename, "w");
+	if (file) {
+		fprintf(file, "mtllib example_repack_output.mtl\n");
+		uint32_t firstVertex = 0;
+		for (uint32_t i = 0; i < atlas->meshCount; i++) {
+			const xatlas::Mesh &mesh = atlas->meshes[i];
+			for (uint32_t v = 0; v < mesh.vertexCount; v++) {
+				const xatlas::Vertex &vertex = mesh.vertexArray[v];
+				const ModelVertex &sourceVertex = modelVertices[vertex.xref];
+				fprintf(file, "v %g %g %g\n", sourceVertex.pos.x, sourceVertex.pos.y, sourceVertex.pos.z);
+				fprintf(file, "vn %g %g %g\n", sourceVertex.normal.x, sourceVertex.normal.y, sourceVertex.normal.z);
+				fprintf(file, "vt %g %g\n", vertex.uv[0] / atlas->width, 1.0f - vertex.uv[1] / atlas->height);
+			}
+			fprintf(file, "o mesh%03u\n", i);
+			fprintf(file, "usemtl repack_atlas\n");
+			fprintf(file, "s off\n");
+			for (uint32_t f = 0; f < mesh.indexCount; f += 3) {
+				fprintf(file, "f ");
+				for (uint32_t j = 0; j < 3; j++) {
+					const uint32_t index = firstVertex + mesh.indexArray[f + j] + 1; // 1-indexed
+					fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
+				}
+			}
+			firstVertex += mesh.vertexCount;
+		}
+		fclose(file);
+	}
+	// Write the model.
+	const char *materialFilename = "example_repack_output.mtl";
+	printf("Writing '%s'...\n", materialFilename);
+	FOPEN(file, materialFilename, "w");
+	if (file) {
+		fprintf(file, "newmtl repack_atlas\n");
+		fprintf(file, "map_Kd %s\n", atlasFilename);
+		fclose(file);
+	}
 	// Cleanup.
 	xatlas::Destroy(atlas);
 	printf("Done\n");
