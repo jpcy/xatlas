@@ -573,9 +573,9 @@ int main(int argc, char *argv[])
 	atlasTexture.resize(atlas->width * atlas->height * 3);
 	// Rasterize chart triangles.
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
-		const xatlas::Mesh &atlasMesh = atlas->meshes[i];
-		for (uint32_t j = 0; j < atlasMesh.chartCount; j++) {
-			const xatlas::Chart &chart = atlasMesh.chartArray[j];
+		const xatlas::Mesh &mesh = atlas->meshes[i];
+		for (uint32_t j = 0; j < mesh.chartCount; j++) {
+			const xatlas::Chart &chart = mesh.chartArray[j];
 			const uint8_t materialIndex = vertexToMaterial[chart.indexArray[0]];
 			SetAtlasTexelArgs args;
 			if (materialIndex == UINT8_MAX || textures[materialIndex] == UINT32_MAX)
@@ -583,14 +583,12 @@ int main(int argc, char *argv[])
 			else
 				args.sourceTexture = &s_textureCache[textures[materialIndex]].data;
 			for (uint32_t k = 0; k < chart.indexCount / 3; k++) {
-				uint32_t indices[3];
-				xatlas::Vertex vertices[3];
 				Vector2 v[3];
 				for (uint32_t l = 0; l < 3; l++) {
-					indices[l] = chart.indexArray[k * 3 + l];
-					vertices[l] = atlasMesh.vertexArray[indices[l]];
-					v[l] = Vector2(vertices[l].uv[0], vertices[l].uv[1]);
-					args.sourceUv[l] = modelVertices[vertices[l].xref].uv;
+					const uint32_t index = chart.indexArray[k * 3 + l];
+					const xatlas::Vertex &vertex = mesh.vertexArray[index];
+					v[l] = Vector2(vertex.uv[0], vertex.uv[1]);
+					args.sourceUv[l] = modelVertices[vertex.xref].uv;
 					args.sourceUv[l].y = 1.0f - args.sourceUv[l].y;
 				}
 				Triangle tri(v[0], v[1], v[2], Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1));
