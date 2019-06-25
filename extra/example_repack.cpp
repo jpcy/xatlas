@@ -511,33 +511,45 @@ int main(int argc, char *argv[])
 		const objzMaterial &mat = model->materials[i];
 		textures[i] = mat.diffuseTexture[0] ? textureLoadCached(basePath, mat.diffuseTexture) : UINT32_MAX;
 	}
-	// Generate the atlas.
-	xatlas::SetPrint(printf, true);
-	xatlas::Atlas *atlas = xatlas::Create();
+	// Map vertices to materials so rasterization knows which texture to sample.
+	std::vector<uint8_t> vertexToMaterial;
+	vertexToMaterial.resize(model->numVertices);
+	for (uint32_t i = 0; i < model->numMeshes; i++) {
+		const objzMesh &mesh = model->meshes[i];
+		for (uint32_t j = 0; j < mesh.numIndices; j++) {
+			const uint32_t index = ((const uint32_t *)model->indices)[mesh.firstIndex + j];
+			assert(mesh.materialIndex < UINT8_MAX);
+			vertexToMaterial[index] = mesh.materialIndex == -1 ? UINT8_MAX : (uint8_t)mesh.materialIndex;
+		}
+	}
+	// Denormalize UVs by scaling them by texture dimensions.
 	auto modelUvs = (Vector2 *)model->vertices;
 	std::vector<Vector2> uvs;
 	uvs.resize(model->numVertices);
-	for (uint32_t i = 0; i < model->numMeshes; i++) {
-		const objzMesh &mesh = model->meshes[i];
-		// Denormalize UVs by scaling them by texture dimensions.
+	for (uint32_t i = 0; i < model->numVertices; i++) {
+		const uint8_t materialIndex = vertexToMaterial[i];
 		const TextureData *textureData = nullptr;
-		if (mesh.materialIndex != -1 && textures[mesh.materialIndex] != UINT32_MAX)
-			textureData = &s_textureCache[textures[mesh.materialIndex]].data;
-		for (uint32_t j = 0; j < mesh.numIndices; j++) {
-			const uint32_t index = ((const uint32_t *)model->indices)[mesh.firstIndex + j];
-			uvs[index] = modelUvs[index];
-			if (textureData) {
-				uvs[index].x *= (float)textureData->width;
-				uvs[index].y *= (float)textureData->height;
-			}
+		if (materialIndex != UINT8_MAX && textures[materialIndex] != UINT32_MAX)
+			textureData = &s_textureCache[textures[materialIndex]].data;
+		uvs[i] = modelUvs[i];
+		if (textureData) {
+			uvs[i].x *= (float)textureData->width;
+			uvs[i].y *= (float)textureData->height;
 		}
+	}
+	// Generate the atlas.
+	xatlas::SetPrint(printf, true);
+	xatlas::Atlas *atlas = xatlas::Create();
+	for (uint32_t i = 0; i < model->numObjects; i++) {
+		const objzObject &object = model->objects[i];
 		xatlas::UvMeshDecl meshDecl;
 		meshDecl.vertexCount = (uint32_t)uvs.size();
 		meshDecl.vertexUvData = uvs.data();
-		meshDecl.vertexStride = sizeof(float) * 2;
-		meshDecl.indexCount = mesh.numIndices;
-		meshDecl.indexData = &((const uint32_t *)model->indices)[mesh.firstIndex];
+		meshDecl.vertexStride = sizeof(Vector2);
+		meshDecl.indexCount = object.numIndices;
+		meshDecl.indexData = &((uint32_t *)model->indices)[object.firstIndex];
 		meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
+		meshDecl.indexOffset = -(int32_t)object.firstVertex;
 		xatlas::AddMeshError::Enum error = xatlas::AddUvMesh(atlas, meshDecl);
 		if (error != xatlas::AddMeshError::Success) {
 			xatlas::Destroy(atlas);
@@ -555,14 +567,14 @@ int main(int argc, char *argv[])
 	// Rasterize chart triangles.
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
 		const xatlas::Mesh &atlasMesh = atlas->meshes[i];
-		const objzMesh &sourceMesh = model->meshes[i];
-		SetAtlasTexelArgs args;
-		if (sourceMesh.materialIndex == -1 || textures[sourceMesh.materialIndex] == UINT32_MAX)
-			args.sourceTexture = nullptr;
-		else
-			args.sourceTexture = &s_textureCache[textures[sourceMesh.materialIndex]].data;
 		for (uint32_t j = 0; j < atlasMesh.chartCount; j++) {
 			const xatlas::Chart &chart = atlasMesh.chartArray[j];
+			const uint8_t materialIndex = vertexToMaterial[chart.indexArray[0]];
+			SetAtlasTexelArgs args;
+			if (materialIndex == UINT8_MAX || textures[materialIndex] == UINT32_MAX)
+				args.sourceTexture = nullptr;
+			else
+				args.sourceTexture = &s_textureCache[textures[materialIndex]].data;
 			for (uint32_t k = 0; k < chart.indexCount / 3; k++) {
 				uint32_t indices[3];
 				xatlas::Vertex vertices[3];
