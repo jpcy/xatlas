@@ -290,6 +290,8 @@ struct Triangle
 		this->t1 = t0;
 		this->t2 = t2;
 		this->t3 = t1;
+		// make sure every triangle is front facing.
+		flipBackface();
 		// Compute deltas.
 		computeDeltas();
 		computeUnitInwardNormals();
@@ -316,6 +318,19 @@ struct Triangle
 		dx = de0 * lambda1 + de1 * lambda2;
 		dy = de0 * lambda3 + de1 * lambda4;
 		return true;
+	}
+
+	void flipBackface()
+	{
+		// check if triangle is backfacing, if so, swap two vertices
+		if ( ((v3.x - v1.x) * (v2.y - v1.y) - (v3.y - v1.y) * (v2.x - v1.x)) < 0 ) {
+			Vector2 hv = v1;
+			v1 = v2;
+			v2 = hv; // swap pos
+			Vector3 ht = t1;
+			t1 = t2;
+			t2 = ht; // swap tex
+		}
 	}
 
 	// compute unit inward normals for each edge.
