@@ -157,6 +157,13 @@ struct MemTag
 	{
 		Default,
 		Mesh,
+		MeshBoundaries,
+		MeshColocals,
+		MeshEdgeMap,
+		MeshIndices,
+		MeshNormals,
+		MeshPositions,
+		MeshTexcoords,
 		Count
 	};
 };
@@ -268,7 +275,17 @@ static void ReportLeaks()
 static void PrintMemoryUsage()
 {
 	XA_PRINT("Memory usage: %0.2fMB current, %0.2fMB peak\n", internal::s_allocTotalSize / 1024.0f / 1024.0f, internal::s_allocPeakSize / 1024.0f / 1024.0f);
-	static const char *labels[] = { "default", "mesh" };
+	static const char *labels[] = { // Sync with MemTag
+		"Default",
+		"Mesh",
+		"MeshBoundaries",
+		"MeshColocals",
+		"MeshEdgeMap",
+		"MeshIndices",
+		"MeshNormals",
+		"MeshPositions",
+		"MeshTexcoords"
+	};
 	for (int i = 0; i < MemTag::Count; i++) {
 		XA_PRINT("   %s: %0.2fMB current, %0.2fMB peak\n", labels[i], internal::s_allocTotalTagSize[i] / 1024.0f / 1024.0f, internal::s_allocPeakTagSize[i] / 1024.0f / 1024.0f);
 	}
@@ -2817,7 +2834,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceGroups(MemTag::Mesh), m_indices(MemTag::Mesh), m_positions(MemTag::Mesh), m_normals(MemTag::Mesh), m_texcoords(MemTag::Mesh), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::Mesh), m_boundaryVertices(MemTag::Mesh), m_oppositeEdges(MemTag::Mesh), m_nextBoundaryEdges(MemTag::Mesh), m_edgeMap(MemTag::Mesh, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceGroups(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryVertices(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -8508,6 +8525,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	}
 	if (ctx->progressFunc && progress != 100)
 		ctx->progressFunc(ProgressCategory::BuildOutputMeshes, 100, ctx->progressUserData);
+	XA_PRINT_MEM_USAGE
 }
 
 void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFunc, PackOptions packOptions)
