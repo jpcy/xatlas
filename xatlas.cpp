@@ -7700,27 +7700,6 @@ static void DestroyOutputMeshes(Context *ctx)
 	ctx->atlas.meshes = nullptr;
 }
 
-static void addMeshJoin(Context *ctx)
-{
-	if (!ctx->addMeshProgress)
-		return;
-	ctx->taskScheduler->waitFor(ctx->addMeshSync);
-	ctx->addMeshProgress->~Progress();
-	XA_FREE(ctx->addMeshProgress);
-	ctx->addMeshProgress = nullptr;
-#if XA_PROFILE
-	XA_PRINT("Added %u meshes\n", ctx->meshCount);
-	internal::s_profile.addMeshConcurrent = clock() - internal::s_profile.addMeshConcurrent;
-#endif
-	XA_PROFILE_PRINT("   Total (concurrent): ", addMeshConcurrent)
-		XA_PROFILE_PRINT("   Total: ", addMesh)
-		XA_PROFILE_PRINT("      Create colocals: ", addMeshCreateColocals)
-		XA_PROFILE_PRINT("      Create face groups: ", addMeshCreateFaceGroups)
-		XA_PROFILE_PRINT("      Create boundaries: ", addMeshCreateBoundaries)
-		XA_PROFILE_PRINT("      Create chart groups: ", addMeshCreateChartGroups)
-	XA_PRINT_MEM_USAGE
-}
-
 void Destroy(Atlas *atlas)
 {
 	XA_DEBUG_ASSERT(atlas);
@@ -7730,7 +7709,7 @@ void Destroy(Atlas *atlas)
 	DestroyOutputMeshes(ctx);
 	if (ctx->addMeshProgress) {
 		ctx->addMeshProgress->cancel = true;
-		addMeshJoin(ctx); // frees addMeshProgress
+		AddMeshJoin(atlas); // frees addMeshProgress
 	}
 	ctx->taskScheduler->~Scheduler();
 	XA_FREE(ctx->taskScheduler);
@@ -7965,6 +7944,33 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	return AddMeshError::Success;
 }
 
+void AddMeshJoin(Atlas *atlas)
+{
+	XA_DEBUG_ASSERT(atlas);
+	if (!atlas) {
+		XA_PRINT_WARNING("AddMeshJoin: atlas is null.\n");
+		return;
+	}
+	Context *ctx = (Context *)atlas;
+	if (!ctx->addMeshProgress)
+		return;
+	ctx->taskScheduler->waitFor(ctx->addMeshSync);
+	ctx->addMeshProgress->~Progress();
+	XA_FREE(ctx->addMeshProgress);
+	ctx->addMeshProgress = nullptr;
+#if XA_PROFILE
+	XA_PRINT("Added %u meshes\n", ctx->meshCount);
+	internal::s_profile.addMeshConcurrent = clock() - internal::s_profile.addMeshConcurrent;
+#endif
+	XA_PROFILE_PRINT("   Total (concurrent): ", addMeshConcurrent)
+		XA_PROFILE_PRINT("   Total: ", addMesh)
+		XA_PROFILE_PRINT("      Create colocals: ", addMeshCreateColocals)
+		XA_PROFILE_PRINT("      Create face groups: ", addMeshCreateFaceGroups)
+		XA_PROFILE_PRINT("      Create boundaries: ", addMeshCreateBoundaries)
+		XA_PROFILE_PRINT("      Create chart groups: ", addMeshCreateChartGroups)
+		XA_PRINT_MEM_USAGE
+}
+
 struct EdgeKey
 {
 	EdgeKey() {}
@@ -8087,7 +8093,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 		XA_PRINT_WARNING("ComputeCharts: This function should not be called with UV meshes.\n");
 		return;
 	}
-	addMeshJoin(ctx);
+	AddMeshJoin(atlas);
 	if (ctx->meshCount == 0) {
 		XA_PRINT_WARNING("ComputeCharts: No meshes. Call AddMesh first.\n");
 		return;

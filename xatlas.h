@@ -136,6 +136,9 @@ struct AddMeshError
 // Add a mesh to the atlas. MeshDecl data is copied, so it can be freed after AddMesh returns.
 AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountHint = 0);
 
+// Wait for AddMesh async processing to finish. ComputeCharts / Generate call this internally.
+void AddMeshJoin(Atlas *atlas);
+
 struct UvMeshDecl
 {
 	uint32_t vertexCount = 0;

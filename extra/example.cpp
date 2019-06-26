@@ -199,6 +199,7 @@ int main(int argc, char *argv[])
 		totalVertices += meshDecl.vertexCount;
 		totalFaces += meshDecl.indexCount / 3;
 	}
+	xatlas::AddMeshJoin(atlas); // Not necessary. Only called here so geometry totals are printed after the AddMesh progress indicator.
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
 	// Generate atlas.
