@@ -900,7 +900,7 @@ class Array {
 public:
 	typedef uint32_t size_type;
 
-	Array(int memTag = 0) : m_memTag(memTag), m_buffer(nullptr), m_capacity(0), m_size(0) {}
+	Array(int memTag = MemTag::Default) : m_memTag(memTag), m_buffer(nullptr), m_capacity(0), m_size(0) {}
 
 	Array(const Array &a) : m_memTag(a.m_memTag), m_buffer(nullptr), m_capacity(0), m_size(0)
 	{
@@ -4046,7 +4046,8 @@ private:
 		const uint32_t vertexCount = mesh->colocalVertexCount();
 		const uint32_t faceCount = mesh->faceCount();
 		const uint32_t edgeCount = mesh->edgeCount();
-		Array<uint32_t> stack(faceCount);
+		Array<uint32_t> stack(MemTag::Default);
+		stack.reserve(faceCount);
 		BitArray bitFlags(faceCount);
 		bitFlags.clearAll();
 		// Compute connectivity.
