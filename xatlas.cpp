@@ -103,7 +103,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 
 #define XA_UNUSED(a) ((void)(a))
 
-#define XA_CHECK_CHART_FACE_OVERLAP 0
 #define XA_CHECK_MESH_FACE_OVERLAP 0
 #define XA_GROW_CHARTS_COPLANAR 1
 #define XA_MERGE_CHARTS 1
@@ -115,7 +114,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
 #define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
-#define XA_DEBUG_EXPORT_OBJ_CHART_FACE_OVERLAP 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
 #define XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR 0
@@ -127,7 +125,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_DEBUG_EXPORT_OBJ (0 \
 	|| XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES \
 	|| XA_DEBUG_EXPORT_OBJ_CHART_GROUPS \
-	|| XA_DEBUG_EXPORT_OBJ_CHART_FACE_OVERLAP \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
 	|| XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION \
 	|| XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR \
@@ -5121,10 +5118,7 @@ struct ChartBuildData
 	Array<uint32_t> seeds;
 	Array<uint32_t> faces;
 	PriorityQueue candidates;
-#if XA_CHECK_CHART_FACE_OVERLAP
-	bool overlap;
 	Basis basis; // Of first face.
-#endif
 };
 
 struct AtlasBuilder
@@ -5144,9 +5138,7 @@ struct AtlasBuilder
 		}
 		m_faceChartArray.resize(faceCount, -1);
 		m_faceCandidateArray.resize(faceCount, (uint32_t)-1);
-#if XA_CHECK_CHART_FACE_OVERLAP
 		m_texcoords.resize(faceCount * 3);
-#endif
 		// @@ Floyd for the whole mesh is too slow. We could compute floyd progressively per patch as the patch grows. We need a better solution to compute most central faces.
 		//computeShortestPaths();
 		// Precompute edge lengths and face areas.
@@ -5180,10 +5172,7 @@ struct AtlasBuilder
 	uint32_t facesLeft() const { return m_facesLeft; }
 	uint32_t chartCount() const { return m_chartArray.size(); }
 	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_chartArray[i]->faces; }
-#if XA_CHECK_CHART_FACE_OVERLAP
-	bool chartHasOverlaps(uint32_t i) const { return m_chartArray[i]->overlap; }
-	const Array<Vector2> &getTexcoords() const { return m_texcoords; }
-#endif
+	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartArray[chartIndex]->basis; }
 
 	void placeSeeds(float threshold)
 	{
@@ -5210,11 +5199,9 @@ struct AtlasBuilder
 				XA_PROFILE_END(atlasBuilderGrowCharts)
 				return false; // Can't grow more.
 			}
-#if XA_CHECK_CHART_FACE_OVERLAP
 			createFaceTexcoords(candidate.chart, candidate.face);
 			if (!canAddFaceToChart(candidate.chart, candidate.face))
 				continue;
-#endif
 			addFaceToChart(candidate.chart, candidate.face);
 			canAddAny = true;
 		}
@@ -5293,6 +5280,7 @@ struct AtlasBuilder
 		Array<float> sharedBoundaryLengths;
 		Array<float> sharedBoundaryLengthsNoSeams;
 		Array<uint32_t> sharedBoundaryEdgeCountNoSeams;
+		Array<Vector2> tempTexcoords;
 		const uint32_t chartCount = m_chartArray.size();
 		// Merge charts progressively until there's none left to merge.
 		for (;;) {
@@ -5346,36 +5334,35 @@ struct AtlasBuilder
 					// Merge if chart2 has a single face.
 					// chart1 must have more than 1 face.
 					// chart2 area must be <= 10% of chart1 area.
-					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && chart->faces.size() > 1 && chart2->faces.size() == 1 && chart2->area <= chart->area * 0.1f) {
-						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
-						merged = true;
-						break;
-					}
+					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && chart->faces.size() > 1 && chart2->faces.size() == 1 && chart2->area <= chart->area * 0.1f) 
+						goto merge;
 					// Merge if chart2 has two faces (probably a quad), and chart1 bounds at least 2 of its edges.
-					if (chart2->faces.size() == 2 && sharedBoundaryEdgeCountNoSeams[cc] >= 2) {
-						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
-						merged = true;
-						break;
-					}
+					if (chart2->faces.size() == 2 && sharedBoundaryEdgeCountNoSeams[cc] >= 2)
+						goto merge;
 					// Merge if chart2 is wholely inside chart1, ignoring seams.
-					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && equal(sharedBoundaryLengthsNoSeams[cc], chart2->boundaryLength, kEpsilon)) {
-						mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
-						merged = true;
-						break;
-					}
+					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && equal(sharedBoundaryLengthsNoSeams[cc], chart2->boundaryLength, kEpsilon))
+						goto merge;
 					if (sharedBoundaryLengths[cc] > 0.2f * max(0.0f, chart->boundaryLength - externalBoundaryLength) || 
-						sharedBoundaryLengths[cc] > 0.75f * chart2->boundaryLength) {
-						// Over 20% of chart1 boundary touching other faces is shared with chart2.
-						// Over 75% of chart2 boundary is shared with chart1.
-						//if (dot(chart2->centroidFaceNormal, chart->centroidFaceNormal) >= XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION) {
-							// Always use sharedBoundaryLengthsNoSeams when merging, it's the real shared boundary length.
-							mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
-							merged = true;
-							break;
-						//}
+						sharedBoundaryLengths[cc] > 0.75f * chart2->boundaryLength)
+						goto merge;
+					continue;
+				merge:
+					// Create texcoords for chart 2 using chart 1 basis. Backup chart 2 texcoords for restoration if charts cannot be merged.
+					tempTexcoords.resize(chart2->faces.size());
+					for (uint32_t i = 0; i < chart2->faces.size(); i++) {
+						const uint32_t face = chart2->faces[i];
+						tempTexcoords[i] = m_texcoords[face];
+						createFaceTexcoords(chart, face);
 					}
-					if (merged)
-						break;
+					if (!canMergeCharts(chart, chart2)) {
+						// Restore chart 2 texcoords.
+						for (uint32_t i = 0; i < chart2->faces.size(); i++)
+							m_texcoords[chart2->faces[i]] = tempTexcoords[i];
+						continue;
+					}
+					mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
+					merged = true;
+					break;
 				}
 				if (merged)
 					break;
@@ -5426,7 +5413,6 @@ private:
 		growChart(chart, threshold, m_facesLeft);
 	}
 
-#if XA_CHECK_CHART_FACE_OVERLAP
 	void createFaceTexcoords(ChartBuildData *chart, uint32_t face)
 	{
 		for (uint32_t i = 0; i < 3; i++) {
@@ -5435,42 +5421,83 @@ private:
 		}
 	}
 
+	bool isChartBoundaryEdge(ChartBuildData *chart, uint32_t edge) const
+	{
+		const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
+		const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
+		return oppositeEdge == UINT32_MAX || m_ignoreFaces[oppositeFace] || m_faceChartArray[oppositeFace] != chart->id;
+	}
+
 	bool canAddFaceToChart(ChartBuildData *chart, uint32_t face)
 	{
-		uint32_t oppositeFaces[3];
+		// Find face edges that are on a mesh boundary or form a boundary with another chart.
+		uint32_t edgesToCompare[3];
 		for (uint32_t i = 0; i < 3; i++) {
-			const uint32_t oppositeEdge = m_mesh->oppositeEdge(face * 3 + i);
-			oppositeFaces[i] = oppositeEdge == UINT32_MAX ? UINT32_MAX : meshEdgeFace(oppositeEdge);
+			const uint32_t edge = face * 3 + i;
+			const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
+			const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
+			if (oppositeEdge == UINT32_MAX || m_ignoreFaces[oppositeFace] || m_faceChartArray[oppositeFace] != chart->id)
+				edgesToCompare[i] = edge;
+			else
+				edgesToCompare[i] = UINT32_MAX;
 		}
-		for (uint32_t f = 0; f < chart->faces.size(); f++) {
-			const uint32_t face2 = chart->faces[f];
-			if (oppositeFaces[0] == face2 || oppositeFaces[1] == face2 || oppositeFaces[2] == face2)
-				continue;
-			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t edge1 = face * 3 + i;
-				for (uint32_t j = 0; j < 3; j++) {
-					const uint32_t edge2 = face2 * 3 + j;
-					if (linesIntersect(m_texcoords[meshEdgeIndex0(edge1)], m_texcoords[meshEdgeIndex1(edge1)], m_texcoords[meshEdgeIndex0(edge2)], m_texcoords[meshEdgeIndex1(edge2)])) {
-						//printf("intersected line (%g %g) (%g %g) with line (%g %g) (%g %g)\n", m_texcoords[meshEdgeIndex0(edge1)].x, m_texcoords[meshEdgeIndex0(edge1)].y, m_texcoords[meshEdgeIndex1(edge1)].x, m_texcoords[meshEdgeIndex1(edge1)].y, m_texcoords[meshEdgeIndex0(edge2)].x, m_texcoords[meshEdgeIndex0(edge2)].y, m_texcoords[meshEdgeIndex1(edge2)].x, m_texcoords[meshEdgeIndex1(edge2)].y);
+		// All edges on boundary? This can happen if the face is surrounded by the chart.
+		if (edgesToCompare[0] == UINT32_MAX && edgesToCompare[1] == UINT32_MAX && edgesToCompare[2] == UINT32_MAX)
+			return true;
+		// Check if any valid face edge intersects the chart boundary.
+		for (uint32_t i = 0; i < chart->faces.size(); i++) {
+			const uint32_t chartFace = chart->faces[i];
+			for (uint32_t j = 0; j < 3; j++) {
+				const uint32_t chartEdge = chartFace * 3 + j;
+				if (!isChartBoundaryEdge(chart, chartEdge))
+					continue;
+				// Don't check chart boundary edges that border the face.
+				const uint32_t oppositeChartEdge = m_mesh->oppositeEdge(chartEdge);
+				if (meshEdgeFace(oppositeChartEdge) == face)
+					continue;
+				for (uint32_t k = 0; k < 3; k++) {
+					if (edgesToCompare[k] == UINT32_MAX)
+						continue;
+					const uint32_t e1 = chartEdge;
+					const uint32_t e2 = edgesToCompare[k];
+					if (linesIntersect(m_texcoords[meshEdgeIndex0(e1)], m_texcoords[meshEdgeIndex1(e1)], m_texcoords[meshEdgeIndex0(e2)], m_texcoords[meshEdgeIndex1(e2)], m_mesh->epsilon()))
 						return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	bool canMergeCharts(ChartBuildData *chart1, ChartBuildData *chart2)
+	{
+		for (uint32_t f1 = 0; f1 < chart1->faces.size(); f1++) {
+			const uint32_t face1 = chart1->faces[f1];
+			for (uint32_t i = 0; i < 3; i++) {
+				const uint32_t edge1 = face1 * 3 + i;
+				if (!isChartBoundaryEdge(chart1, edge1))
+					continue;
+				for (uint32_t f2 = 0; f2 < chart2->faces.size(); f2++) {
+					const uint32_t face2 = chart2->faces[f2];
+					for (uint32_t j = 0; j < 3; j++) {
+						const uint32_t edge2 = face2 * 3 + j;
+						if (!isChartBoundaryEdge(chart2, edge2))
+							continue;
+						if (linesIntersect(m_texcoords[meshEdgeIndex0(edge1)], m_texcoords[meshEdgeIndex1(edge1)], m_texcoords[meshEdgeIndex0(edge2)], m_texcoords[meshEdgeIndex1(edge2)], m_mesh->epsilon()))
+							return false;
 					}
 				}
 			}
 		}
 		return true;
 	}
-#endif
 
 	void addFaceToChart(ChartBuildData *chart, uint32_t f, bool recomputeProxy = false)
 	{
-#if XA_CHECK_CHART_FACE_OVERLAP
 		// Use the first face normal as the chart basis.
 		if (chart->faces.isEmpty()) {
-			chart->overlap = false;
 			chart->basis.buildFrameForDirection(m_faceNormals[f]);
 			createFaceTexcoords(chart, f);
 		}
-#endif
 		// Add face to chart.
 		chart->faces.push_back(f);
 		XA_DEBUG_ASSERT(m_faceChartArray[f] == -1);
@@ -5500,11 +5527,9 @@ private:
 			const uint32_t f = chart->candidates.pop();
 			if (m_faceChartArray[f] != -1)
 				continue;
-#if XA_CHECK_CHART_FACE_OVERLAP
 			createFaceTexcoords(chart, f);
 			if (!canAddFaceToChart(chart, f))
 				continue;
-#endif
 			addFaceToChart(chart, f);
 			i++;
 		}
@@ -5530,9 +5555,7 @@ private:
 				if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()] || m_faceChartArray[it.oppositeFace()] != -1)
 					continue;
 				if (equal(dot(chartNormal, m_faceNormals[it.oppositeFace()]), 1.0f, kEpsilon)) {
-#if XA_CHECK_CHART_FACE_OVERLAP
 					createFaceTexcoords(chart, it.oppositeFace());
-#endif
 					addFaceToChart(chart, it.oppositeFace());
 					m_growFaces.push_back(it.oppositeFace());
 				}
@@ -5863,9 +5886,7 @@ private:
 	Array<float> m_edgeLengths;
 	Array<float> m_faceAreas;
 	Array<Vector3> m_faceNormals;
-#if XA_CHECK_CHART_FACE_OVERLAP
 	Array<Vector2> m_texcoords;
-#endif
 	Array<uint32_t> m_growFaces;
 	uint32_t m_facesLeft;
 	Array<int> m_faceChartArray;
@@ -6047,7 +6068,7 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, const Basis &basis, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_faceArray(faceArray)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6203,6 +6224,7 @@ public:
 		}
 	}
 
+	const Basis &basis() const { return m_basis; }
 	bool isDisk() const { return m_isDisk; }
 	bool isOrtho() const { return m_isOrtho; }
 	bool isPlanar() const { return m_isPlanar; }
@@ -6272,6 +6294,7 @@ public:
 	}
 
 private:
+	Basis m_basis;
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
 	bool m_isDisk, m_isOrtho, m_isPlanar;
@@ -6455,49 +6478,10 @@ public:
 		XA_PROFILE_END(atlasBuilder)
 		XA_PROFILE_START(createChartMeshes)
 		const uint32_t chartCount = builder.chartCount();
-#if XA_DEBUG_EXPORT_OBJ_CHART_FACE_OVERLAP
-		FILE *file = nullptr;
-		bool anyChartHasOverlaps = false;
 		for (uint32_t i = 0; i < chartCount; i++) {
-			if (builder.chartHasOverlaps(i)) {
-				anyChartHasOverlaps = true;
-				break;
-			}
-		}
-		if (anyChartHasOverlaps) {
-			char filename[256];
-			XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_overlap.obj", m_sourceId, m_id);
-			XA_FOPEN(file, filename, "w");
-			if (file) {
-				for (uint32_t i = 0; i < builder.getTexcoords().size(); i++) {
-					const Vector2 &texcoord = builder.getTexcoords()[i];
-					fprintf(file, "v %g %g 0.0\n", texcoord.x, texcoord.y);
-				}
-			}
-		}
-#endif
-		for (uint32_t i = 0; i < chartCount; i++) {
-			Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, builder.chartFaces(i), m_sourceId, m_id, i);
+			Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, builder.chartFaces(i), builder.chartBasis(i), m_sourceId, m_id, i);
 			m_chartArray.push_back(chart);
-#if XA_DEBUG_EXPORT_OBJ_CHART_FACE_OVERLAP
-			if (builder.chartHasOverlaps(i) && file) {
-				fprintf(file, "s off\n");
-				fprintf(file, "o chart%03u\n", i);
-				for (uint32_t j = 0; j < builder.chartFaces(i).size(); j++) {
-					const uint32_t face = builder.chartFaces(i)[j];
-					fprintf(file, "f ");
-					for (uint32_t k = 0; k < 3; k++) {
-						const uint32_t index = face * 3 + k + 1; // 1-indexed
-						fprintf(file, "%d%c", index, k == 2 ? '\n' : ' ');
-					}
-				}
-			}
-#endif
 		}
-#if XA_DEBUG_EXPORT_OBJ_CHART_FACE_OVERLAP
-		if (file)
-			fclose(file);
-#endif
 		XA_PROFILE_END(createChartMeshes)
 #endif
 #if XA_DEBUG_EXPORT_OBJ_CHARTS
@@ -6552,7 +6536,7 @@ public:
 			AtlasBuilder builder(m_mesh, &meshFaces, options);
 			runAtlasBuilder(builder, options);
 			for (uint32_t j = 0; j < builder.chartCount(); j++) {
-				Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, builder.chartFaces(j), m_sourceId, m_id, m_chartArray.size());
+				Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, builder.chartFaces(j), builder.chartBasis(j), m_sourceId, m_id, m_chartArray.size());
 				m_chartArray.push_back(chart);
 				m_paramAddedChartsCount++;
 			}
@@ -6637,7 +6621,12 @@ private:
 	{
 		Mesh *mesh = chart->unifiedMesh();
 		XA_PROFILE_START(parameterizeChartsOrthogonal)
+#if 1
 		computeOrthogonalProjectionMap(mesh);
+#else
+		for (uint32_t i = 0; i < vertexCount; i++)
+			mesh->texcoord(i) = Vector2(dot(chart->basis().tangent, mesh->position(i)), dot(chart->basis().bitangent, mesh->position(i)));
+#endif
 		XA_PROFILE_END(parameterizeChartsOrthogonal)
 		chart->evaluateOrthoParameterizationQuality();
 		if (!chart->isOrtho() && !chart->isPlanar()) {
@@ -8228,11 +8217,11 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 				bool invalid = false;
 				if (quality.boundaryIntersection) {
 					invalid = true;
-					XA_PRINT_WARNING("   Chart %u: invalid parameterization, self-intersecting boundary.\n", chartIndex);
+					XA_PRINT_WARNING("   Chart %u (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, chart->isPlanar() ? "planar" : chart->isOrtho() ? "ortho" : "other");
 				}
 				if (quality.flippedTriangleCount > 0) {
 					invalid = true;
-					XA_PRINT_WARNING("   Chart %u: invalid parameterization, %u / %u flipped triangles.\n", chartIndex, quality.flippedTriangleCount, quality.totalTriangleCount);
+					XA_PRINT_WARNING("   Chart %u (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, chart->isPlanar() ? "planar" : chart->isOrtho() ? "ortho" : "other", quality.flippedTriangleCount, quality.totalTriangleCount);
 				}
 				if (invalid)
 					invalidParamCount++;
