@@ -1714,30 +1714,14 @@ template<typename Key, typename Value, typename H = Hash<Key>, typename E = Equa
 class HashMap
 {
 public:
-	HashMap(int memTag = 0) : m_memTag(memTag), m_size(4096), m_numSlots(0), m_slots(nullptr), m_keys(memTag), m_values(memTag), m_next(memTag)
-	{
-	}
-
 	HashMap(int memTag, uint32_t size) : m_memTag(memTag), m_size(size), m_numSlots(0), m_slots(nullptr), m_keys(memTag), m_values(memTag), m_next(memTag)
 	{
-		m_size = max(m_size, 4096u);
 	}
 
 	~HashMap()
 	{
 		if (m_slots)
 			XA_FREE(m_slots);
-	}
-
-	const HashMap<Key, Value, H, E> &operator=(const HashMap<Key, Value, H, E> &other)
-	{
-		m_memTag = other.m_memTag;
-		m_numSlots = other.m_numSlots;
-		m_slots = other.m_slots;
-		m_keys = other.m_keys;
-		m_values = other.m_values;
-		m_next = other.m_next;
-		return *this;
 	}
 
 	const Value &value(uint32_t index) const { return m_values[index]; }
@@ -2834,7 +2818,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t flags = 0, uint32_t approxVertexCount = 0, uint32_t approxFaceCount = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceGroups(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryVertices(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceGroups(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryVertices(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -3974,7 +3958,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, bool
 	if (splitEdges.isEmpty())
 		return nullptr;
 	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(MemTag::Mesh, Mesh, 0, vertexCount + splitEdges.size(), faceCount);
+	Mesh *mesh = XA_NEW(MemTag::Mesh, Mesh, inputMesh.epsilon(), vertexCount + splitEdges.size(), faceCount);
 	for (uint32_t v = 0; v < vertexCount; v++)
 		mesh->addVertex(inputMesh.position(v));
 	Array<uint32_t> indexArray;
@@ -6069,8 +6053,8 @@ public:
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
 		// Copy face indices.
-		m_mesh = XA_NEW(MemTag::Mesh, Mesh, originalMesh->epsilon());
-		m_unifiedMesh = XA_NEW(MemTag::Mesh, Mesh, originalMesh->epsilon());
+		m_mesh = XA_NEW(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
+		m_unifiedMesh = XA_NEW(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(originalMesh->vertexCount(), (uint32_t)~0);
 		Array<uint32_t> unifiedMeshIndices;
@@ -6321,8 +6305,8 @@ public:
 				m_faceToSourceFaceMap.push_back(f);
 		}
 		// Only initial meshes have face groups and ignored faces. The only flag we care about is HasNormals.
-		m_mesh = XA_NEW(MemTag::Mesh, Mesh, sourceMesh->epsilon(), sourceMesh->flags() & MeshFlags::HasNormals);
 		const uint32_t faceCount = m_faceToSourceFaceMap.size();
+		m_mesh = XA_NEW(MemTag::Mesh, Mesh, sourceMesh->epsilon(), faceCount * 3, faceCount, sourceMesh->flags() & MeshFlags::HasNormals);
 		XA_DEBUG_ASSERT(faceCount > 0);
 		Array<uint32_t> meshIndices;
 		meshIndices.resize(sourceMesh->vertexCount(), (uint32_t)~0);
@@ -7895,7 +7879,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	uint32_t meshFlags = internal::MeshFlags::HasFaceGroups | internal::MeshFlags::HasIgnoredFaces;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
-	internal::Mesh *mesh = XA_NEW(internal::MemTag::Mesh, internal::Mesh, meshDecl.epsilon, meshFlags, meshDecl.vertexCount, indexCount / 3, ctx->meshCount);
+	internal::Mesh *mesh = XA_NEW(internal::MemTag::Mesh, internal::Mesh, meshDecl.epsilon, meshDecl.vertexCount, indexCount / 3, meshFlags, ctx->meshCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0.0f);
 		internal::Vector2 texcoord(0.0f);
@@ -8075,7 +8059,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		for (uint32_t i = 0; i < mesh->vertexToChartMap.size(); i++)
 			mesh->vertexToChartMap[i] = UINT32_MAX;
 		// Calculate charts (incident faces).
-		internal::HashMap<internal::Vector2, uint32_t> vertexToFaceMap;
+		internal::HashMap<internal::Vector2, uint32_t> vertexToFaceMap(internal::MemTag::Default, indexCount);
 		const uint32_t faceCount = indexCount / 3;
 		for (uint32_t i = 0; i < indexCount; i++)
 			vertexToFaceMap.add(meshInstance->texcoords[mesh->indices[i]], i / 3);
