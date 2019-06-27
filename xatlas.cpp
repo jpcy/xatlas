@@ -636,8 +636,11 @@ static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &
 	if (equal(denom, 0.0f, epsilon))
 		return false;
 	const float s = (-v0.y * (a1.x - b1.x) + v0.x * (a1.y - b1.y)) / denom;
-	const float t = ( v1.x * (a1.y - b1.y) - v1.y * (a1.x - b1.x)) / denom;
-	return s > epsilon && s < 1.0f - epsilon && t > epsilon && t < 1.0f - epsilon;
+	if (s > epsilon && s < 1.0f - epsilon) {
+		const float t = ( v1.x * (a1.y - b1.y) - v1.y * (a1.x - b1.x)) / denom;
+		return t > epsilon && t < 1.0f - epsilon;
+	}
+	return false;
 }
 
 struct Vector2i
