@@ -17,6 +17,8 @@ matrix:
 
 addons:
   apt:
+    sources:
+     - ubuntu-toolchain-r-test
     packages:
      - libgl1-mesa-dev
      - libgtk-3-dev
