@@ -810,6 +810,31 @@ bool isFinite(const Vector3 &v)
 }
 #endif
 
+struct Plane
+{
+	Plane() = default;
+	
+	Plane(const Vector3 &p1, const Vector3 &p2, const Vector3 &p3)
+	{
+		normal = cross(p2 - p1, p3 - p1);
+		dist = dot(normal, p1);
+		const float len = length(normal);
+		if (len > 0.0f) {
+			const float il = 1.0f / len;
+			normal *= il;
+			dist *= il;
+		}
+	}
+
+	float distance(const Vector3 &p) const
+	{
+		return dot(normal, p) - dist;
+	}
+
+	Vector3 normal;
+	float dist;
+};
+
 static bool lineIntersectsPoint(const Vector3 &point, const Vector3 &lineStart, const Vector3 &lineEnd, float *t, float epsilon)
 {
 	float tt;
@@ -826,6 +851,18 @@ static bool lineIntersectsPoint(const Vector3 &point, const Vector3 &lineStart, 
 		return false;
 	*t = dot(v01, v21) / (l * l);
 	return *t > kEpsilon && *t < 1.0f - kEpsilon;
+}
+
+static bool sameSide(const Vector3 &p1, const Vector3 &p2, const Vector3 &a, const Vector3 &b)
+{
+	const Vector3 &ab = b - a;
+	return dot(cross(ab, p1 - a), cross(ab, p2 - a)) >= 0.0f;
+}
+
+// http://blackpawn.com/texts/pointinpoly/default.html
+static bool pointInTriangle(const Vector3 &p, const Vector3 &a, const Vector3 &b, const Vector3 &c)
+{
+	return sameSide(p, a, b, c) && sameSide(p, b, a, c) && sameSide(p, c, a, b);
 }
 
 // From Fast-BVH
@@ -3798,6 +3835,21 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 			}
 			if (intersection)
 				continue;
+			// Don't add the triangle if a boundary point lies on the same plane as the triangle, and is inside it.
+			intersection = false;
+			const Plane plane(frontPoints[i1], frontPoints[i2], frontPoints[i3]);
+			for (uint32_t j = 0; j < frontCount; j++) {
+				if (j == i1 || j == i2 || j == i3)
+					continue;
+				if (!isZero(plane.distance(frontPoints[j]), mesh->epsilon()))
+					continue;
+				if (pointInTriangle(frontPoints[j], frontPoints[i1], frontPoints[i2], frontPoints[i3])) {
+					intersection = true;
+					break;
+				}
+			}
+			if (intersection)
+				continue;
 			smallestAngle = frontAngles[i];
 			smallestAngleIndex = i;
 		}
@@ -3878,17 +3930,10 @@ static bool meshIsPlanar(const Mesh &mesh)
 	const Vector3 p1 = mesh.position(mesh.vertexAt(0));
 	const Vector3 p2 = mesh.position(mesh.vertexAt(1));
 	const Vector3 p3 = mesh.position(mesh.vertexAt(2));
-	Vector3 planeNormal = cross(p2 - p1, p3 - p1);
-	float planeDist = dot(planeNormal, p1);
-	const float len = length(planeNormal);
-	if (len > 0.0f) {
-		const float il = 1.0f / len;
-		planeNormal *= il;
-		planeDist *= il;
-	}
+	const Plane plane(p1, p2, p3);
 	const uint32_t vertexCount = mesh.vertexCount();
 	for (uint32_t v = 0; v < vertexCount; v++) {
-		const float d = dot(planeNormal, mesh.position(v)) - planeDist;
+		const float d = plane.distance(mesh.position(v));
 		if (!isZero(d, mesh.epsilon()))
 			return false;
 	}
