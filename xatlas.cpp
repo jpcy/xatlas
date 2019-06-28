@@ -818,17 +818,21 @@ struct Plane
 	{
 		normal = cross(p2 - p1, p3 - p1);
 		dist = dot(normal, p1);
+	}
+
+	float distance(const Vector3 &p) const
+	{
+		return dot(normal, p) - dist;
+	}
+
+	void normalize()
+	{
 		const float len = length(normal);
 		if (len > 0.0f) {
 			const float il = 1.0f / len;
 			normal *= il;
 			dist *= il;
 		}
-	}
-
-	float distance(const Vector3 &p) const
-	{
-		return dot(normal, p) - dist;
 	}
 
 	Vector3 normal;
@@ -8265,11 +8269,11 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 				bool invalid = false;
 				if (quality.boundaryIntersection) {
 					invalid = true;
-					XA_PRINT_WARNING("   Chart %u (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, chart->isPlanar() ? "planar" : chart->isOrtho() ? "ortho" : "other");
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u) (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, i, j, k, chart->isPlanar() ? "planar" : chart->isOrtho() ? "ortho" : "other");
 				}
 				if (quality.flippedTriangleCount > 0) {
 					invalid = true;
-					XA_PRINT_WARNING("   Chart %u (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, chart->isPlanar() ? "planar" : chart->isOrtho() ? "ortho" : "other", quality.flippedTriangleCount, quality.totalTriangleCount);
+					XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, i, j, k, chart->isPlanar() ? "planar" : chart->isOrtho() ? "ortho" : "other", quality.flippedTriangleCount, quality.totalTriangleCount);
 				}
 				if (invalid)
 					invalidParamCount++;
