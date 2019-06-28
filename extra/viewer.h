@@ -178,6 +178,7 @@ struct GLFWwindow;
 extern GLFWwindow *g_window;
 
 void randomRGB(uint8_t *color);
+uint32_t encodeRGBA(const uint8_t *rgba);
 void setErrorMessage(const char *format, ...);
 void resetCamera();
 
@@ -190,32 +191,16 @@ enum class ShaderId
 	fs_wireframe,
 	vs_chart,
 	vs_chartTexcoordSpace,
+	vs_color,
 	vs_gui,
 	vs_model,
-	vs_position,
 	vs_wireframe
 };
 
 bgfx::ShaderHandle loadShader(ShaderId id);
-bgfx::ShaderHandle get_fs_color();
-bgfx::ShaderHandle get_vs_position();
 bgfx::ProgramHandle getColorProgram();
 void setWireframeThicknessUniform(float thickness);
 bgfx::ProgramHandle getWireframeProgram();
-
-struct PosVertex
-{
-	float pos[2];
-	static bgfx::VertexDecl decl;
-
-	static void init()
-	{
-		decl.begin()
-			.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
-			.end();
-		assert(decl.getStride() == sizeof(PosVertex));
-	}
-};
 
 struct WireframeVertex
 {

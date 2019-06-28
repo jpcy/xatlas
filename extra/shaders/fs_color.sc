@@ -1,8 +1,8 @@
-#include <bgfx_shader.sh>
+$input v_color0
 
-uniform vec4 u_color;
+#include <bgfx_shader.sh>
 
 void main()
 {
-	gl_FragColor = u_color;
+	gl_FragColor = v_color0;
 }

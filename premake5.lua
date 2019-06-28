@@ -25,9 +25,9 @@ newaction
 			"fs_wireframe",
 			"vs_chart",
 			"vs_chartTexcoordSpace",
+			"vs_color",
 			"vs_gui",
 			"vs_model",
-			"vs_position",
 			"vs_wireframe"
 		}
 		local renderers = nil
