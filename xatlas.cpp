@@ -3798,18 +3798,15 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 		float smallestAngle = kPi2;
 		uint32_t smallestAngleIndex = UINT32_MAX;
 		for (uint32_t i = 0; i < frontCount; i++) {
-			const Vector3 &prevPos = frontPoints[i == 0 ? frontCount - 1 : i - 1];
-			const Vector3 &currPos = frontPoints[i];
-			const Vector3 &nextPos = frontPoints[(i + 1) % frontCount];
-			const Vector3 edge1 = prevPos - currPos;
-			const Vector3 edge2 = nextPos - currPos;
-			frontAngles[i] = acosf(dot(edge1, edge2) / (length(edge1) * length(edge2)));
-			if (frontAngles[i] > smallestAngle || isNan(frontAngles[i]))
-				continue;
-			// Don't duplicate edges.
 			const uint32_t i1 = i == 0 ? frontCount - 1 : i - 1;
 			const uint32_t i2 = i;
 			const uint32_t i3 = (i + 1) % frontCount;
+			const Vector3 edge1 = frontPoints[i1] - frontPoints[i2];
+			const Vector3 edge2 = frontPoints[i3] - frontPoints[i2];
+			frontAngles[i] = acosf(dot(edge1, edge2) / (length(edge1) * length(edge2)));
+			if (frontAngles[i] >= smallestAngle || isNan(frontAngles[i]))
+				continue;
+			// Don't duplicate edges.
 			if (mesh->findEdge(UINT32_MAX, frontVertices[i1], frontVertices[i2]) != UINT32_MAX)
 				continue;
 			if (mesh->findEdge(UINT32_MAX, frontVertices[i2], frontVertices[i3]) != UINT32_MAX)
