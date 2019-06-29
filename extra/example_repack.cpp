@@ -454,22 +454,31 @@ struct Triangle
 	Vector3 dx, dy;
 };
 
+struct AtlasLookupTexel
+{
+	uint16_t materialIndex;
+	uint16_t x, y;
+};
+
 struct SetAtlasTexelArgs
 {
 	uint8_t *atlasData;
 	uint32_t atlasWidth;
+	AtlasLookupTexel *atlasLookup;
 	Vector2 sourceUv[3];
+	uint16_t materialIndex;
 	const TextureData *sourceTexture;
 };
 
 static bool setAtlasTexel(void *param, int x, int y, const Vector3 &bar, const Vector3 &, const Vector3 &, float)
 {
 	auto args = (SetAtlasTexelArgs *)param;
-	uint8_t *dest = &args->atlasData[x * 3 + y * (args->atlasWidth * 3)];
+	uint8_t *dest = &args->atlasData[x * 4 + y * (args->atlasWidth * 4)];
 	if (!args->sourceTexture) {
 		dest[0] = 255;
 		dest[1] = 0;
 		dest[2] = 255;
+		dest[3] = 255;
 	} else {
 		// Interpolate source UVs using barycentrics.
 		const Vector2 sourceUv = args->sourceUv[0] * bar.x + args->sourceUv[1] * bar.y + args->sourceUv[2] * bar.z;
@@ -488,6 +497,11 @@ static bool setAtlasTexel(void *param, int x, int y, const Vector3 &bar, const V
 		dest[0] = source[0];
 		dest[1] = source[1];
 		dest[2] = source[2];
+		dest[3] = 255;
+		AtlasLookupTexel &lookup = args->atlasLookup[x + y * args->atlasWidth];
+		lookup.materialIndex = args->materialIndex;
+		lookup.x = (uint16_t)sx;
+		lookup.y = (uint16_t)sy;
 	}
 	return true;
 }
@@ -534,14 +548,14 @@ int main(int argc, char *argv[])
 		textures[i] = mat.diffuseTexture[0] ? textureLoadCached(basePath, mat.diffuseTexture) : UINT32_MAX;
 	}
 	// Map vertices to materials so rasterization knows which texture to sample.
-	std::vector<uint8_t> vertexToMaterial;
+	std::vector<uint16_t> vertexToMaterial;
 	vertexToMaterial.resize(model->numVertices);
 	for (uint32_t i = 0; i < model->numMeshes; i++) {
 		const objzMesh &mesh = model->meshes[i];
 		for (uint32_t j = 0; j < mesh.numIndices; j++) {
 			const uint32_t index = ((const uint32_t *)model->indices)[mesh.firstIndex + j];
-			assert(mesh.materialIndex < UINT8_MAX);
-			vertexToMaterial[index] = mesh.materialIndex == -1 ? UINT8_MAX : (uint8_t)mesh.materialIndex;
+			assert(mesh.materialIndex < UINT16_MAX);
+			vertexToMaterial[index] = mesh.materialIndex == -1 ? UINT16_MAX : (uint16_t)mesh.materialIndex;
 		}
 	}
 	// Denormalize UVs by scaling them by texture dimensions.
@@ -549,9 +563,9 @@ int main(int argc, char *argv[])
 	std::vector<Vector2> uvs;
 	uvs.resize(model->numVertices);
 	for (uint32_t i = 0; i < model->numVertices; i++) {
-		const uint8_t materialIndex = vertexToMaterial[i];
+		const uint16_t materialIndex = vertexToMaterial[i];
 		const TextureData *textureData = nullptr;
-		if (materialIndex != UINT8_MAX && textures[materialIndex] != UINT32_MAX)
+		if (materialIndex != UINT16_MAX && textures[materialIndex] != UINT32_MAX)
 			textureData = &s_textureCache[textures[materialIndex]].data;
 		uvs[i] = modelVertices[i].uv;
 		if (textureData) {
@@ -585,18 +599,24 @@ int main(int argc, char *argv[])
 	xatlas::PackCharts(atlas, packOptions);
 	// Create a texture for the atlas.
 	std::vector<uint8_t> atlasTexture;
-	atlasTexture.resize(atlas->width * atlas->height * 3);
+	atlasTexture.resize(atlas->width * atlas->height * 4);
+	memset(atlasTexture.data(), 0, atlasTexture.size() * sizeof(uint8_t));
+	// Need to lookup source position and material for dilation.
+	std::vector<AtlasLookupTexel> atlasLookup;
+	atlasLookup.resize(atlas->width * atlas->height);
+	for (size_t i = 0; i < atlasLookup.size(); i++)
+		atlasLookup[i].materialIndex = UINT16_MAX;
 	// Rasterize chart triangles.
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
 		const xatlas::Mesh &mesh = atlas->meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
-			const uint8_t materialIndex = vertexToMaterial[chart.indexArray[0]];
 			SetAtlasTexelArgs args;
-			if (materialIndex == UINT8_MAX || textures[materialIndex] == UINT32_MAX)
+			args.materialIndex = vertexToMaterial[chart.indexArray[0]];
+			if (args.materialIndex == UINT16_MAX || textures[args.materialIndex] == UINT32_MAX)
 				args.sourceTexture = nullptr;
 			else
-				args.sourceTexture = &s_textureCache[textures[materialIndex]].data;
+				args.sourceTexture = &s_textureCache[textures[args.materialIndex]].data;
 			for (uint32_t k = 0; k < chart.indexCount / 3; k++) {
 				Vector2 v[3];
 				for (uint32_t l = 0; l < 3; l++) {
@@ -609,14 +629,62 @@ int main(int argc, char *argv[])
 				Triangle tri(v[0], v[1], v[2], Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1));
 				args.atlasData = atlasTexture.data();
 				args.atlasWidth = atlas->width;
+				args.atlasLookup = atlasLookup.data();
 				tri.drawAA(setAtlasTexel, &args);
+			}
+		}
+	}
+	// Run a dilate filter on the atlas texture to fill in padding around charts so bilinear filtering doesn't sample empty texels.
+	// Sample from the source texture(s).
+	std::vector<uint8_t> tempAtlasTexture;
+	tempAtlasTexture.resize(atlasTexture.size());
+	memcpy(tempAtlasTexture.data(), atlasTexture.data(), atlasTexture.size() * sizeof(uint8_t));
+	const int sampleXOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+	const int sampleYOffsets[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+	for (uint32_t y = 0; y < atlas->height; y++) {
+		for (uint32_t x = 0; x < atlas->width; x++) {
+			const uint32_t atlasDataOffset = x * 4 + y * (atlas->width * 4);
+			if (tempAtlasTexture[atlasDataOffset + 3] != 0)
+				continue; // Alpha != 0, already data here.
+			// Sample up to 8 surrounding texels, average their color and assign it to this texel.
+			float rgbSum[3] = { 0.0f, 0.0f, 0.0f }, n = 0;
+			for (uint32_t si = 0; si < 8; si++) {
+				const int sx = (int)x + sampleXOffsets[si];
+				const int sy = (int)y + sampleYOffsets[si];
+				if (sx < 0 || sy < 0 || sx >= (int)atlas->width || sy >= (int)atlas->height)
+					continue; // Sample position is outside of atlas texture.
+				const AtlasLookupTexel &lookup = atlasLookup[sx + sy * (int)atlas->width];
+				if (lookup.materialIndex == UINT16_MAX || textures[lookup.materialIndex] == UINT32_MAX)
+					continue; // No source data here.
+				const TextureData *sourceTexture = &s_textureCache[textures[lookup.materialIndex]].data;
+				const int ssx = (int)lookup.x + sampleXOffsets[si];
+				const int ssy = (int)lookup.y + sampleYOffsets[si];
+				if (ssx < 0 || ssy < 0 || ssx >= (int)sourceTexture->width || ssy >= (int)sourceTexture->height)
+					continue; // Sample position is outside of source texture.
+				// Valid sample.
+				const uint8_t *rgba = &sourceTexture->data[ssx * sourceTexture->numComponents + ssy * (sourceTexture->width * sourceTexture->numComponents)];
+				for (int i = 0; i < 3; i++) {
+					if (sourceTexture->numComponents == 4)
+						rgbSum[i] += (float)rgba[i] * (rgba[3] / 255.0f);
+					else
+						rgbSum[i] += (float)rgba[i];
+				}
+				n++;
+			}
+			if (n != 0) {
+				const float invn = 1.0f / (float)n;
+				uint8_t *rgba = &atlasTexture[atlasDataOffset];
+				rgba[0] = uint8_t(rgbSum[0] * invn);
+				rgba[1] = uint8_t(rgbSum[1] * invn);
+				rgba[2] = uint8_t(rgbSum[2] * invn);
+				rgba[3] = 255;
 			}
 		}
 	}
 	// Write the atlas texture.
 	const char *atlasFilename = "example_repack_output.tga";
 	printf("Writing '%s'...\n", atlasFilename);
-	stbi_write_tga(atlasFilename, atlas->width, atlas->height, 3, atlasTexture.data());
+	stbi_write_tga(atlasFilename, atlas->width, atlas->height, 4, atlasTexture.data());
 	// Write the model.
 	const char *modelFilename = "example_repack_output.obj";
 	printf("Writing '%s'...\n", modelFilename);
