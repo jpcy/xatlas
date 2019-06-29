@@ -409,9 +409,9 @@ struct Triangle
 						float CX3 = CY3;
 						Vector3 tex = texRow;
 						for (float x = x0; x < x0 + BK_SIZE; x++) { // @@ This is not clipping to scissor rectangle correctly.
+							Vector3 tex2 = t1 + dx * (x - v1.x) + dy * (y - v1.y);
 							if (CX1 >= PX_INSIDE && CX2 >= PX_INSIDE && CX3 >= PX_INSIDE) {
 								// pixel completely covered
-								Vector3 tex2 = t1 + dx * (x - v1.x) + dy * (y - v1.y);
 								if (!cb(param, (int)x, (int)y, tex2, dx, dy, 1.0f)) {
 									return false;
 								}
@@ -419,15 +419,9 @@ struct Triangle
 								// triangle partially covers pixel. do clipping.
 								ClippedTriangle ct(v1 - Vector2(x, y), v2 - Vector2(x, y), v3 - Vector2(x, y));
 								ct.clipAABox(-0.5, -0.5, 0.5, 0.5);
-								Vector2 centroid = ct.centroid();
 								float area = ct.area();
 								if (area > 0.0f) {
-									Vector3 texCent = tex - dx * centroid.x - dy * centroid.y;
-									//XA_ASSERT(texCent.x >= -0.1f && texCent.x <= 1.1f); // @@ Centroid is not very exact...
-									//XA_ASSERT(texCent.y >= -0.1f && texCent.y <= 1.1f);
-									//XA_ASSERT(texCent.z >= -0.1f && texCent.z <= 1.1f);
-									//Vector3 texCent2 = t1 + dx * (x - v1.x) + dy * (y - v1.y);
-									if (!cb(param, (int)x, (int)y, texCent, dx, dy, area)) {
+									if (!cb(param, (int)x, (int)y, tex2, dx, dy, 0.0f)) {
 										return false;
 									}
 								}
