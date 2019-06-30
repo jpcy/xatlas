@@ -580,6 +580,7 @@ int main(int argc, char *argv[])
 		meshDecl.indexData = &((uint32_t *)model->indices)[object.firstIndex];
 		meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
 		meshDecl.indexOffset = -(int32_t)object.firstVertex;
+		meshDecl.rotateCharts = false;
 		xatlas::AddMeshError::Enum error = xatlas::AddUvMesh(atlas, meshDecl);
 		if (error != xatlas::AddMeshError::Success) {
 			xatlas::Destroy(atlas);
@@ -591,6 +592,7 @@ int main(int argc, char *argv[])
 	packOptions.padding = 1;
 	packOptions.texelsPerUnit = 1.0f;
 	xatlas::PackCharts(atlas, packOptions);
+	printf("Copying texture data into atlas\n");
 	// Create a texture for the atlas.
 	std::vector<uint8_t> atlasTexture;
 	atlasTexture.resize(atlas->width * atlas->height * 4);
@@ -628,50 +630,135 @@ int main(int argc, char *argv[])
 			}
 		}
 	}
-	// Run a dilate filter on the atlas texture to fill in padding around charts so bilinear filtering doesn't sample empty texels.
-	// Sample from the source texture(s).
-	std::vector<uint8_t> tempAtlasTexture;
-	tempAtlasTexture.resize(atlasTexture.size());
-	memcpy(tempAtlasTexture.data(), atlasTexture.data(), atlasTexture.size() * sizeof(uint8_t));
-	const int sampleXOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
-	const int sampleYOffsets[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
-	for (uint32_t y = 0; y < atlas->height; y++) {
-		for (uint32_t x = 0; x < atlas->width; x++) {
-			const uint32_t atlasDataOffset = x * 4 + y * (atlas->width * 4);
-			if (tempAtlasTexture[atlasDataOffset + 3] != 0)
-				continue; // Alpha != 0, already data here.
-			// Sample up to 8 surrounding texels, average their color and assign it to this texel.
-			float rgbSum[3] = { 0.0f, 0.0f, 0.0f }, n = 0;
-			for (uint32_t si = 0; si < 8; si++) {
-				const int sx = (int)x + sampleXOffsets[si];
-				const int sy = (int)y + sampleYOffsets[si];
-				if (sx < 0 || sy < 0 || sx >= (int)atlas->width || sy >= (int)atlas->height)
-					continue; // Sample position is outside of atlas texture.
-				const AtlasLookupTexel &lookup = atlasLookup[sx + sy * (int)atlas->width];
-				if (lookup.materialIndex == UINT16_MAX || textures[lookup.materialIndex] == UINT32_MAX)
-					continue; // No source data here.
-				const TextureData *sourceTexture = &s_textureCache[textures[lookup.materialIndex]].data;
-				const int ssx = (int)lookup.x + sampleXOffsets[si];
-				const int ssy = (int)lookup.y + sampleYOffsets[si];
-				if (ssx < 0 || ssy < 0 || ssx >= (int)sourceTexture->width || ssy >= (int)sourceTexture->height)
-					continue; // Sample position is outside of source texture.
-				// Valid sample.
-				const uint8_t *rgba = &sourceTexture->data[ssx * sourceTexture->numComponents + ssy * (sourceTexture->width * sourceTexture->numComponents)];
-				for (int i = 0; i < 3; i++) {
-					if (sourceTexture->numComponents == 4)
-						rgbSum[i] += (float)rgba[i] * (rgba[3] / 255.0f);
-					else
-						rgbSum[i] += (float)rgba[i];
+	if (packOptions.padding > 0) {
+#define DEBUG_DILATE 0
+		// Run a dilate filter on the atlas texture to fill in padding around charts so bilinear filtering doesn't sample empty texels.
+		// Sample from the source texture(s).
+		printf("Dilating atlas texture\n");
+		std::vector<uint8_t> tempAtlasTexture;
+		tempAtlasTexture.resize(atlasTexture.size());
+		std::vector<AtlasLookupTexel> tempAtlasLookup;
+		tempAtlasLookup.resize(atlasLookup.size());
+		const int sampleXOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+		const int sampleYOffsets[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+		for (uint32_t i = 0; i < packOptions.padding; i++) {
+			memcpy(tempAtlasTexture.data(), atlasTexture.data(), atlasTexture.size() * sizeof(uint8_t));
+			memcpy(tempAtlasLookup.data(), atlasLookup.data(), atlasLookup.size() * sizeof(AtlasLookupTexel));
+			for (uint32_t y = 0; y < atlas->height; y++) {
+				for (uint32_t x = 0; x < atlas->width; x++) {
+					const uint32_t atlasDataOffset = x * 4 + y * (atlas->width * 4);
+					if (tempAtlasTexture[atlasDataOffset + 3] != 0)
+						continue; // Alpha != 0, already data here.
+					// Try to sample directly from the source texture.
+					// Need to find source texel position by checking surrounding texels in the atlas.
+					bool foundSample = false;
+					for (uint32_t si = 0; si < 8; si++) {
+						const int sx = (int)x + sampleXOffsets[si];
+						const int sy = (int)y + sampleYOffsets[si];
+						if (sx < 0 || sy < 0 || sx >= (int)atlas->width || sy >= (int)atlas->height)
+							continue; // Sample position is outside of atlas texture.
+						const AtlasLookupTexel &lookup = tempAtlasLookup[sx + sy * (int)atlas->width];
+						if (lookup.materialIndex == UINT16_MAX || textures[lookup.materialIndex] == UINT32_MAX)
+							continue; // No source data here.
+						// This atlas texel has a corresponding position for the source texel.
+						// Subtract the sample offset to get the source position.
+						const TextureData *sourceTexture = &s_textureCache[textures[lookup.materialIndex]].data;
+						const int ssx = (int)lookup.x - sampleXOffsets[si];
+						const int ssy = (int)lookup.y - sampleYOffsets[si] * -1; // need to flip y?
+						if (ssx < 0 || ssy < 0 || ssx >= (int)sourceTexture->width || ssy >= (int)sourceTexture->height)
+							continue; // Sample position is outside of source texture.
+						// Valid sample.
+						const uint8_t *rgbaSource = &sourceTexture->data[ssx * sourceTexture->numComponents + ssy * (sourceTexture->width * sourceTexture->numComponents)];
+						uint8_t *rgbaDest = &atlasTexture[atlasDataOffset];
+#if DEBUG_DILATE
+						rgbaDest[0] = 0;
+						rgbaDest[1] = 255;
+						rgbaDest[2] = 0;
+						rgbaDest[3] = 255;
+#else
+						rgbaDest[0] = rgbaSource[0];
+						rgbaDest[1] = rgbaSource[1];
+						rgbaDest[2] = rgbaSource[2];
+						rgbaDest[3] = 255;
+#endif
+						atlasLookup[x + y * (int)atlas->width].x = (uint16_t)ssx;
+						atlasLookup[x + y * (int)atlas->width].y = (uint16_t)ssy;
+						atlasLookup[x + y * (int)atlas->width].materialIndex = lookup.materialIndex;
+						foundSample = true;
+						break;
+					}
+					if (foundSample)
+						continue;
+					// Sample up to 8 surrounding texels in the source texture, average their color and assign it to this texel.
+					float rgbSum[3] = { 0.0f, 0.0f, 0.0f }, n = 0;
+					for (uint32_t si = 0; si < 8; si++) {
+						const int sx = (int)x + sampleXOffsets[si];
+						const int sy = (int)y + sampleYOffsets[si];
+						if (sx < 0 || sy < 0 || sx >= (int)atlas->width || sy >= (int)atlas->height)
+							continue; // Sample position is outside of atlas texture.
+						const AtlasLookupTexel &lookup = tempAtlasLookup[sx + sy * (int)atlas->width];
+						if (lookup.materialIndex == UINT16_MAX || textures[lookup.materialIndex] == UINT32_MAX)
+							continue; // No source data here.
+						const TextureData *sourceTexture = &s_textureCache[textures[lookup.materialIndex]].data;
+						const int ssx = (int)lookup.x + sampleXOffsets[si];
+						const int ssy = (int)lookup.y + sampleYOffsets[si];
+						if (ssx < 0 || ssy < 0 || ssx >= (int)sourceTexture->width || ssy >= (int)sourceTexture->height)
+							continue; // Sample position is outside of source texture.
+						// Valid sample.
+						const uint8_t *rgba = &sourceTexture->data[ssx * sourceTexture->numComponents + ssy * (sourceTexture->width * sourceTexture->numComponents)];
+						rgbSum[0] += (float)rgba[0];
+						rgbSum[1] += (float)rgba[1];
+						rgbSum[2] += (float)rgba[2];
+						n++;
+					}
+					if (n != 0) {
+						const float invn = 1.0f / (float)n;
+						uint8_t *rgba = &atlasTexture[atlasDataOffset];
+#if DEBUG_DILATE
+						rgba[0] = 255;
+						rgba[1] = 0;
+						rgba[2] = 255;
+						rgba[3] = 255;
+#else
+						rgba[0] = uint8_t(rgbSum[0] * invn);
+						rgba[1] = uint8_t(rgbSum[1] * invn);
+						rgba[2] = uint8_t(rgbSum[2] * invn);
+						rgba[3] = 255;
+#endif
+						continue;
+					}
+					// Sample up to 8 surrounding texels in the atlas texture, average their color and assign it to this texel.
+					rgbSum[0] = rgbSum[1] = rgbSum[2] = 0.0f;
+					n = 0;
+					for (uint32_t si = 0; si < 8; si++) {
+						const int sx = (int)x + sampleXOffsets[si];
+						const int sy = (int)y + sampleYOffsets[si];
+						if (sx < 0 || sy < 0 || sx >= (int)atlas->width || sy >= (int)atlas->height)
+							continue; // Sample position is outside of atlas texture.
+						const uint8_t *rgba = &tempAtlasTexture[sx * 4 + sy * (atlas->width * 4)];
+						if (rgba[3] == 0)
+							continue;
+						rgbSum[0] += (float)rgba[0];
+						rgbSum[1] += (float)rgba[1];
+						rgbSum[2] += (float)rgba[2];
+						n++;
+					}
+					if (n != 0) {
+						const float invn = 1.0f / (float)n;
+						uint8_t *rgba = &atlasTexture[atlasDataOffset];
+#if DEBUG_DILATE
+						rgba[0] = 0;
+						rgba[1] = 255;
+						rgba[2] = 255;
+						rgba[3] = 255;
+#else
+						rgba[0] = uint8_t(rgbSum[0] * invn);
+						rgba[1] = uint8_t(rgbSum[1] * invn);
+						rgba[2] = uint8_t(rgbSum[2] * invn);
+						rgba[3] = 255;
+#endif
+					}
 				}
-				n++;
-			}
-			if (n != 0) {
-				const float invn = 1.0f / (float)n;
-				uint8_t *rgba = &atlasTexture[atlasDataOffset];
-				rgba[0] = uint8_t(rgbSum[0] * invn);
-				rgba[1] = uint8_t(rgbSum[1] * invn);
-				rgba[2] = uint8_t(rgbSum[2] * invn);
-				rgba[3] = 255;
 			}
 		}
 	}
