@@ -7212,7 +7212,6 @@ struct Atlas
 				// Estimate resolution based on the mesh surface area and given texel scale.
 				const float texelCount = max(1.0f, meshArea * square(m_texelsPerUnit) / 0.75f); // Assume 75% utilization.
 				resolution = max(1u, nextPowerOfTwo(uint32_t(sqrtf(texelCount))));
-				XA_PRINT("   Estimating resolution as %d\n", resolution);
 			}
 			if (m_texelsPerUnit <= 0) {
 				// Estimate a suitable texelsPerUnit to fit the given resolution.
