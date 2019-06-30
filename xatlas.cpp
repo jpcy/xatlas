@@ -8517,9 +8517,11 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				if (meshChartIndex == UINT32_MAX) {
 					// Vertex doesn't exist in any chart.
 					vertex.atlasIndex = -1;
+					vertex.chartIndex = -1;
 				} else {
 					const internal::pack::Chart *chart = packAtlas.getChart(chartIndex + meshChartIndex);
 					vertex.atlasIndex = chart->atlasIndex;
+					vertex.chartIndex = (int32_t)meshChartIndex;
 				}
 			}
 			// Indices.
