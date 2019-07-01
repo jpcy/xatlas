@@ -4169,6 +4169,7 @@ struct UvMesh
 struct UvMeshInstance
 {
 	UvMesh *mesh;
+	Array<uint32_t> faceMaterials;
 	Array<Vector2> texcoords;
 	bool rotateCharts;
 };
@@ -8040,7 +8041,9 @@ static void GrowUvMeshChart(const internal::UvMeshInstance *mesh, const internal
 		const internal::Vector2 &texcoord = mesh->texcoords[mesh->mesh->indices[face * 3 + i]];
 		uint32_t mapFaceIndex = vertexToFaceMap.get(texcoord);
 		while (mapFaceIndex != UINT32_MAX) {
-			GrowUvMeshChart(mesh, vertexToFaceMap, chart, vertexToFaceMap.value(mapFaceIndex), faceAssigned);
+			const uint32_t face2 = vertexToFaceMap.value(mapFaceIndex);
+			if (mesh->faceMaterials.isEmpty() || mesh->faceMaterials[face] == mesh->faceMaterials[face2])
+				GrowUvMeshChart(mesh, vertexToFaceMap, chart, face2, faceAssigned);
 			mapFaceIndex = vertexToFaceMap.getNext(mapFaceIndex);
 		}
 	}
@@ -8073,6 +8076,10 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		}
 	}
 	internal::UvMeshInstance *meshInstance = XA_NEW(internal::MemTag::Default, internal::UvMeshInstance);
+	if (decl.faceMaterialsData) {
+		meshInstance->faceMaterials.resize(decl.indexCount / 3);
+		memcpy(meshInstance->faceMaterials.data(), decl.faceMaterialsData, decl.indexCount / 3 * sizeof(uint32_t));
+	}
 	meshInstance->texcoords.resize(decl.vertexCount);
 	for (uint32_t i = 0; i < decl.vertexCount; i++)
 		meshInstance->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
