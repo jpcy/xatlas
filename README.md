@@ -1,6 +1,6 @@
 ## xatlas
 
-[![Travis CI Build Status](https://travis-ci.org/jpcy/xatlas.svg?branch=master)](https://travis-ci.org/jpcy/xatlas) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Appveyor CI Build Status](https://ci.appveyor.com/api/projects/status/github/jpcy/xatlas?branch=master&svg=true)](https://ci.appveyor.com/project/jpcy/xatlas) [![Travis CI Build Status](https://travis-ci.org/jpcy/xatlas.svg?branch=master)](https://travis-ci.org/jpcy/xatlas) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A cleaned up version of [thekla_atlas](https://github.com/Thekla/thekla_atlas).
 
