@@ -2417,7 +2417,7 @@ private:
 		uint32_t version = 0;
 		T element;
 		// Avoid false sharing between threads
-		static const size_t PADDING_ADJUSTMENT = (SCHED_CACHE_LINE_SIZE - ((sizeof(state)+sizeof(version)+sizeof(element))%SCHED_CACHE_LINE_SIZE)) % SCHED_CACHE_LINE_SIZE;
+		static const size_t PADDING_ADJUSTMENT = (SCHED_CACHE_LINE_SIZE - ((sizeof(D::state)+sizeof(D::version)+sizeof(D::element))%SCHED_CACHE_LINE_SIZE)) % SCHED_CACHE_LINE_SIZE;
 		char padding[PADDING_ADJUSTMENT];
 	};
 
