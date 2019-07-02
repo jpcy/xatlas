@@ -276,10 +276,10 @@ int main(int argc, char *argv[])
 		}
 		for (uint32_t i = 0; i < atlas->atlasCount; i++) {
 			char filename[256];
-			snprintf(filename, sizeof(filename), "output_tris%02u.tga", i);
+			snprintf(filename, sizeof(filename), "example_uvmesh_tris%02u.tga", i);
 			printf("Writing '%s'...\n", filename);
 			stbi_write_tga(filename, atlas->width, atlas->height, 3, &outputTrisImage[i * imageDataSize]);
-			snprintf(filename, sizeof(filename), "output_charts%02u.tga", i);
+			snprintf(filename, sizeof(filename), "example_uvmesh_charts%02u.tga", i);
 			printf("Writing '%s'...\n", filename);
 			stbi_write_tga(filename, atlas->width,atlas->height, 3, &outputChartsImage[i * imageDataSize]);
 		}
