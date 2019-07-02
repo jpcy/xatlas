@@ -50,6 +50,7 @@ struct Chart
 	uint32_t flags;
 	uint32_t *indexArray;
 	uint32_t indexCount;
+	uint32_t material;
 };
 
 // Output vertex.
@@ -148,7 +149,7 @@ struct UvMeshDecl
 	const void *indexData = nullptr; // optional
 	int32_t indexOffset = 0; // optional. Add this offset to all indices.
 	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
-	const uint32_t *faceMaterialsData = nullptr; // Optional. Faces with different materials won't be assigned to the same chart. Must be indexCount / 3 in length.
+	const uint32_t *faceMaterialData = nullptr; // Optional. Faces with different materials won't be assigned to the same chart. Must be indexCount / 3 in length.
 	bool rotateCharts = true;
 };
 

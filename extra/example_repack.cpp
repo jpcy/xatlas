@@ -577,7 +577,7 @@ int main(int argc, char *argv[])
 		for (uint32_t j = 0; j < object.numMeshes; j++) {
 			const objzMesh &mesh = model->meshes[object.firstMesh + j];
 			for (uint32_t k = 0; k < mesh.numIndices / 3; k++)
-				faceMaterials[mesh.firstIndex / 3 + k] = (uint32_t)mesh.materialIndex;
+				faceMaterials[(mesh.firstIndex - object.firstIndex) / 3 + k] = (uint32_t)mesh.materialIndex;
 		}
 		xatlas::UvMeshDecl meshDecl;
 		meshDecl.vertexCount = (uint32_t)uvs.size();
@@ -587,7 +587,7 @@ int main(int argc, char *argv[])
 		meshDecl.indexData = &((uint32_t *)model->indices)[object.firstIndex];
 		meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
 		meshDecl.indexOffset = -(int32_t)object.firstVertex;
-		meshDecl.faceMaterialsData = faceMaterials.data();
+		meshDecl.faceMaterialData = faceMaterials.data();
 		meshDecl.rotateCharts = false;
 		xatlas::AddMeshError::Enum error = xatlas::AddUvMesh(atlas, meshDecl);
 		if (error != xatlas::AddMeshError::Success) {

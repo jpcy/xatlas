@@ -4156,6 +4156,7 @@ private:
 struct UvMeshChart
 {
 	Array<uint32_t> indices;
+	uint32_t material;
 };
 
 struct UvMesh
@@ -4169,7 +4170,6 @@ struct UvMesh
 struct UvMeshInstance
 {
 	UvMesh *mesh;
-	Array<uint32_t> faceMaterials;
 	Array<Vector2> texcoords;
 	bool rotateCharts;
 };
@@ -7054,6 +7054,7 @@ private:
 struct Chart
 {
 	int32_t atlasIndex;
+	uint32_t material;
 	uint32_t indexCount;
 	const uint32_t *indices;
 	float parametricArea;
@@ -7096,6 +7097,7 @@ struct Atlas
 		Mesh *mesh = paramChart->mesh();
 		Chart *chart = XA_NEW(MemTag::Default, Chart);
 		chart->atlasIndex = -1;
+		chart->material = 0;
 		chart->indexCount = mesh->indexCount();
 		chart->indices = mesh->indices();
 		chart->parametricArea = paramChart->computeParametricArea();
@@ -7134,6 +7136,7 @@ struct Atlas
 			UvMeshChart *uvChart = mesh->mesh->charts[c];
 			Chart *chart = XA_NEW(MemTag::Default, Chart);
 			chart->atlasIndex = -1;
+			chart->material = uvChart->material;
 			chart->indexCount = uvChart->indices.size();
 			chart->indices = uvChart->indices.data();
 			chart->vertices = mesh->texcoords.data();
@@ -8030,7 +8033,7 @@ struct EdgeKey
 	uint32_t v1;
 };
 
-static void GrowUvMeshChart(const internal::UvMeshInstance *mesh, const internal::HashMap<internal::Vector2, uint32_t> &vertexToFaceMap, internal::UvMeshChart *chart, uint32_t face, internal::BitArray &faceAssigned)
+static void GrowUvMeshChart(const internal::UvMeshInstance *mesh, const internal::HashMap<internal::Vector2, uint32_t> &vertexToFaceMap, internal::UvMeshChart *chart, const uint32_t *faceMaterialData, uint32_t face, internal::BitArray &faceAssigned)
 {
 	if (faceAssigned.bitAt(face))
 		return;
@@ -8042,8 +8045,8 @@ static void GrowUvMeshChart(const internal::UvMeshInstance *mesh, const internal
 		uint32_t mapFaceIndex = vertexToFaceMap.get(texcoord);
 		while (mapFaceIndex != UINT32_MAX) {
 			const uint32_t face2 = vertexToFaceMap.value(mapFaceIndex);
-			if (mesh->faceMaterials.isEmpty() || mesh->faceMaterials[face] == mesh->faceMaterials[face2])
-				GrowUvMeshChart(mesh, vertexToFaceMap, chart, face2, faceAssigned);
+			if (!faceMaterialData || faceMaterialData[face] == faceMaterialData[face2])
+				GrowUvMeshChart(mesh, vertexToFaceMap, chart, faceMaterialData, face2, faceAssigned);
 			mapFaceIndex = vertexToFaceMap.getNext(mapFaceIndex);
 		}
 	}
@@ -8076,10 +8079,6 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		}
 	}
 	internal::UvMeshInstance *meshInstance = XA_NEW(internal::MemTag::Default, internal::UvMeshInstance);
-	if (decl.faceMaterialsData) {
-		meshInstance->faceMaterials.resize(decl.indexCount / 3);
-		memcpy(meshInstance->faceMaterials.data(), decl.faceMaterialsData, decl.indexCount / 3 * sizeof(uint32_t));
-	}
 	meshInstance->texcoords.resize(decl.vertexCount);
 	for (uint32_t i = 0; i < decl.vertexCount; i++)
 		meshInstance->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
@@ -8113,7 +8112,8 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			if (faceAssigned.bitAt(f))
 				continue;
 			internal::UvMeshChart *chart = XA_NEW(internal::MemTag::Default, internal::UvMeshChart);
-			GrowUvMeshChart(meshInstance, vertexToFaceMap, chart, f, faceAssigned);
+			chart->material = decl.faceMaterialData ? decl.faceMaterialData[f] : 0;
+			GrowUvMeshChart(meshInstance, vertexToFaceMap, chart, decl.faceMaterialData, f, faceAssigned);
 			for (uint32_t i = 0; i < chart->indices.size(); i++)
 				mesh->vertexToChartMap[chart->indices[i]] = mesh->charts.size();
 			mesh->charts.push_back(chart);
@@ -8482,6 +8482,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 							for (uint32_t j = 0; j < 3; j++)
 								outputChart->indexArray[3 * f + j] = firstVertex + mesh->vertexAt(f * 3 + j);
 						}
+						outputChart->material = 0;
 						meshChartIndex++;
 						chartIndex++;
 						firstVertex += chart->mesh()->vertexCount();
@@ -8540,6 +8541,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
 				outputChart->indexCount = chart->indexCount;
 				outputChart->indexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->indexCount);
+				outputChart->material = chart->material;
 				memcpy(outputChart->indexArray, chart->indices, chart->indexCount * sizeof(uint32_t));
 				chartIndex++;
 			}
