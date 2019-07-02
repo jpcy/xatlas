@@ -8033,25 +8033,6 @@ struct EdgeKey
 	uint32_t v1;
 };
 
-static void GrowUvMeshChart(const internal::UvMeshInstance *mesh, const internal::HashMap<internal::Vector2, uint32_t> &vertexToFaceMap, internal::UvMeshChart *chart, const uint32_t *faceMaterialData, uint32_t face, internal::BitArray &faceAssigned)
-{
-	if (faceAssigned.bitAt(face))
-		return;
-	faceAssigned.setBitAt(face);
-	for (uint32_t i = 0; i < 3; i++)
-		chart->indices.push_back(mesh->mesh->indices[face * 3 + i]);
-	for (uint32_t i = 0; i < 3; i++) {
-		const internal::Vector2 &texcoord = mesh->texcoords[mesh->mesh->indices[face * 3 + i]];
-		uint32_t mapFaceIndex = vertexToFaceMap.get(texcoord);
-		while (mapFaceIndex != UINT32_MAX) {
-			const uint32_t face2 = vertexToFaceMap.value(mapFaceIndex);
-			if (!faceMaterialData || faceMaterialData[face] == faceMaterialData[face2])
-				GrowUvMeshChart(mesh, vertexToFaceMap, chart, faceMaterialData, face2, faceAssigned);
-			mapFaceIndex = vertexToFaceMap.getNext(mapFaceIndex);
-		}
-	}
-}
-
 AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 {
 	XA_DEBUG_ASSERT(atlas);
@@ -8108,14 +8089,47 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			vertexToFaceMap.add(meshInstance->texcoords[mesh->indices[i]], i / 3);
 		internal::BitArray faceAssigned(faceCount);
 		faceAssigned.clearAll();
+		internal::Array<uint32_t> chartFaces;
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (faceAssigned.bitAt(f))
 				continue;
+			// Found an unassigned face, create a new chart.
 			internal::UvMeshChart *chart = XA_NEW(internal::MemTag::Default, internal::UvMeshChart);
 			chart->material = decl.faceMaterialData ? decl.faceMaterialData[f] : 0;
-			GrowUvMeshChart(meshInstance, vertexToFaceMap, chart, decl.faceMaterialData, f, faceAssigned);
-			for (uint32_t i = 0; i < chart->indices.size(); i++)
-				mesh->vertexToChartMap[chart->indices[i]] = mesh->charts.size();
+			// Walk incident faces and assign them to the chart.
+			faceAssigned.setBitAt(f);
+			chartFaces.clear();
+			chartFaces.push_back(f);
+			for (;;) {
+				bool newFaceAssigned = false;
+				const uint32_t faceCount2 = chartFaces.size();
+				for (uint32_t f2 = 0; f2 < faceCount2; f2++) {
+					const uint32_t face = chartFaces[f2];
+					for (uint32_t i = 0; i < 3; i++) {
+						const internal::Vector2 &texcoord = meshInstance->texcoords[meshInstance->mesh->indices[face * 3 + i]];
+						uint32_t mapFaceIndex = vertexToFaceMap.get(texcoord);
+						while (mapFaceIndex != UINT32_MAX) {
+							const uint32_t face2 = vertexToFaceMap.value(mapFaceIndex);
+							// Materials must match.
+							if (!faceAssigned.bitAt(face2) && (!decl.faceMaterialData || decl.faceMaterialData[face] == decl.faceMaterialData[face2])) {
+								faceAssigned.setBitAt(face2);
+								chartFaces.push_back(face2);
+								newFaceAssigned = true;
+							}
+							mapFaceIndex = vertexToFaceMap.getNext(mapFaceIndex);
+						}
+					}
+				}
+				if (!newFaceAssigned)
+					break;
+			}
+			for (uint32_t i = 0; i < chartFaces.size(); i++) {
+				for (uint32_t j = 0; j < 3; j++) {
+					const uint32_t vertex = meshInstance->mesh->indices[chartFaces[i] * 3 + j];
+					chart->indices.push_back(vertex);
+					mesh->vertexToChartMap[vertex] = mesh->charts.size();
+				}
+			}
 			mesh->charts.push_back(chart);
 		}
 		ctx->uvMeshes.push_back(mesh);
