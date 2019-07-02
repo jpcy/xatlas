@@ -597,6 +597,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	xatlas::PackOptions packOptions;
+	packOptions.createImage = true;
 	packOptions.padding = 1;
 	packOptions.texelsPerUnit = 1.0f;
 	xatlas::PackCharts(atlas, packOptions);
