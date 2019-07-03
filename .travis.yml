@@ -27,8 +27,8 @@ before_install:
 install:
   - wget https://github.com/premake/premake-core/releases/download/v5.0.0-alpha13/premake-5.0.0-alpha13-linux.tar.gz -O premake.tar.gz
   - tar -xf premake.tar.gz
-  - ./premake5 --cc=${PREMAKE_CC} gmake
-  - cd build/gmake_${PREMAKE_CC}
+  - ./premake5 --cc=$PREMAKE_CC gmake
+  - cd build/gmake_$PREMAKE_CC
 
 script:
   make
