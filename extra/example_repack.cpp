@@ -21,6 +21,7 @@ Uses AddUvMesh and PackCharts to repack existing UVs into a single atlas. Textur
 */
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <vector>
 #include <assert.h>
 #include <stdarg.h>
