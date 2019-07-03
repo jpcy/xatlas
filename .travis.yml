@@ -14,6 +14,11 @@ matrix:
       env:
         - CC=gcc-8
         - CXX=g++-8
+        - PREMAKE_CC=gcc
+    - os: linux
+      compiler: clang
+      env:
+        - PREMAKE_CC=clang
 
 before_install:
   - sudo apt-get update -qq
@@ -22,8 +27,8 @@ before_install:
 install:
   - wget https://github.com/premake/premake-core/releases/download/v5.0.0-alpha13/premake-5.0.0-alpha13-linux.tar.gz -O premake.tar.gz
   - tar -xf premake.tar.gz
-  - ./premake5 gmake
-  - cd build/gmake
+  - ./premake5 --cc=$(PREMAKE_CC) gmake
+  - cd build/gmake_$(PREMAKE_CC)
 
 script:
   make
