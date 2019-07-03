@@ -7479,8 +7479,8 @@ struct Atlas
 			addChart(m_bitImages[currentAtlas], &chartBitImage, &chartBitImageRotated, atlasWidth, atlasHeight, best_x, best_y, best_r);
 			XA_PROFILE_END(packChartsBlit)
 			if (createImage) {
-				m_atlasImages[currentAtlas]->addChart(i, best_r == 0 ? &chartBitImageNoPadding : &chartBitImageNoPaddingRotated, false, atlasWidth, atlasHeight, best_x, best_y);
-				m_atlasImages[currentAtlas]->addChart(i, best_r == 0 ? &chartBitImage : &chartBitImageRotated, true, atlasWidth, atlasHeight, best_x, best_y);
+				m_atlasImages[currentAtlas]->addChart(c, best_r == 0 ? &chartBitImageNoPadding : &chartBitImageNoPaddingRotated, false, atlasWidth, atlasHeight, best_x, best_y);
+				m_atlasImages[currentAtlas]->addChart(c, best_r == 0 ? &chartBitImage : &chartBitImageRotated, true, atlasWidth, atlasHeight, best_x, best_y);
 			}
 			chart->atlasIndex = (int32_t)currentAtlas;
 			// Translate and rotate chart texture coordinates.
@@ -8575,7 +8575,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				} else {
 					const internal::pack::Chart *chart = packAtlas.getChart(chartIndex + meshChartIndex);
 					vertex.atlasIndex = chart->atlasIndex;
-					vertex.chartIndex = (int32_t)meshChartIndex;
+					vertex.chartIndex = (int32_t)chartIndex + meshChartIndex;
 				}
 			}
 			// Indices.
