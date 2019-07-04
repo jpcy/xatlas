@@ -3740,11 +3740,12 @@ public:
 	};
 };
 
-static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool *duplicatedEdge, bool *failed)
+static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const Vector3 &normal, bool *duplicatedEdge, bool *failed)
 {
 #if XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION
 	const uint32_t faceCount = mesh->faceCount();
 #endif
+	const bool compareNormal = equal(normal, Vector3(0.0f), FLT_EPSILON);
 	uint32_t frontCount = holeVertices.size();
 	Array<uint32_t> frontVertices;
 	Array<Vector3> frontPoints;
@@ -3761,11 +3762,11 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 				if (duplicatedEdge)
 					*duplicatedEdge = true;
 			}
-			break;
+			return;
 		}
 		frontAngles.resize(frontCount);
-		float smallestAngle = kPi2;
-		uint32_t smallestAngleIndex = UINT32_MAX;
+		float smallestAngle = kPi2, smallestAngleIgnoringNormal = kPi2;
+		uint32_t smallestAngleIndex = UINT32_MAX, smallestAngleIndexIgnoringNormal = UINT32_MAX;
 		for (uint32_t i = 0; i < frontCount; i++) {
 			const uint32_t i1 = i == 0 ? frontCount - 1 : i - 1;
 			const uint32_t i2 = i;
@@ -3837,13 +3838,29 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 			if (intersection)
 				continue;
 #endif
-			smallestAngle = frontAngles[i];
-			smallestAngleIndex = i;
+			// Skip backwards facing triangles.
+			if (frontAngles[i] < smallestAngleIgnoringNormal) {
+				smallestAngleIgnoringNormal = frontAngles[i];
+				smallestAngleIndexIgnoringNormal = i;
+			}
+			const Vector3 e0 = frontPoints[i3] - frontPoints[i1];
+			const Vector3 e1 = frontPoints[i2] - frontPoints[i1];
+			const Vector3 triNormal = normalizeSafe(cross(e0, e1), Vector3(0.0f), mesh->epsilon());
+			if (dot(normal, triNormal) <= 0.0f)
+				continue;
+			smallestAngle = smallestAngleIgnoringNormal = frontAngles[i];
+			smallestAngleIndex = smallestAngleIndexIgnoringNormal = i;
 		}
+		// Closing holes failed if we don't have a smallest angle.
+		// Fallback to ignoring the backwards facing normal test if possible.
 		if (smallestAngleIndex == UINT32_MAX || smallestAngle <= 0.0f || smallestAngle >= kPi) {
-			if (failed)
-				*failed = true;
-			return;
+			if (smallestAngleIgnoringNormal == UINT32_MAX || smallestAngleIgnoringNormal <= 0.0f || smallestAngleIgnoringNormal >= kPi) {
+				if (failed)
+					*failed = true;
+				return;
+			} else {
+				smallestAngleIndex = smallestAngleIndexIgnoringNormal;
+			}
 		}
 		const uint32_t i1 = smallestAngleIndex == 0 ? frontCount - 1 : smallestAngleIndex - 1;
 		const uint32_t i2 = smallestAngleIndex;
@@ -3858,7 +3875,7 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 	}
 }
 
-static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, bool *duplicatedEdge, bool *failed, Array<uint32_t> &holeFaceCounts)
+static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, const Vector3 &normal, bool *duplicatedEdge, bool *failed, Array<uint32_t> &holeFaceCounts)
 {
 	if (duplicatedEdge)
 		*duplicatedEdge = false;
@@ -3907,7 +3924,7 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, boo
 			e++;
 		}
 		const uint32_t oldFaceCount = mesh->faceCount();
-		meshCloseHole(mesh, holeVertices, duplicatedEdge, failed);
+		meshCloseHole(mesh, holeVertices, normal, duplicatedEdge, failed);
 		holeFaceCounts.push_back(mesh->faceCount() - oldFaceCount);
 	}
 }
@@ -4016,7 +4033,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, bool
 						indexArray.push_back(splitEdge.vertex);
 				}
 			}
-			meshCloseHole(mesh, indexArray, duplicatedEdge, failed);
+			meshCloseHole(mesh, indexArray, Vector3(0.0f), duplicatedEdge, failed);
 		} else {
 			// No t-junctions in this face. Copy from input mesh.
 			if (mesh->addFace(&inputMesh.indices()[f * 3]) == Mesh::AddFaceResult::DuplicateEdge) {
@@ -6197,7 +6214,7 @@ public:
 				// - Use minimal spanning trees or seamster.
 				Array<uint32_t> holeFaceCounts;
 				XA_PROFILE_START(closeChartMeshHoles)
-				meshCloseHoles(m_unifiedMesh, boundaryLoops, &duplicatedEdge, &failed, holeFaceCounts);
+				meshCloseHoles(m_unifiedMesh, boundaryLoops, basis.normal, &duplicatedEdge, &failed, holeFaceCounts);
 				XA_PROFILE_END(closeChartMeshHoles)
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
