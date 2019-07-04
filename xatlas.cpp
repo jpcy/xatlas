@@ -103,7 +103,6 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 
 #define XA_UNUSED(a) ((void)(a))
 
-#define XA_CHECK_MESH_FACE_OVERLAP 0
 #define XA_GROW_CHARTS_COPLANAR 1
 #define XA_MERGE_CHARTS 1
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
@@ -3006,69 +3005,10 @@ public:
 		return false;
 	}
 
-#if XA_CHECK_MESH_FACE_OVERLAP
-	bool faceOverlapsGroupFace(const Array<AABB> &edgeAabbs, const BVH &edgeBvh, uint32_t group, uint32_t face) const
-	{
-		Array<uint32_t> hitEdges;
-		hitEdges.reserve(8);
-		for (FaceEdgeIterator it(this, face); !it.isDone(); it.advance()) {
-			hitEdges.clear();
-			edgeBvh.query(edgeAabbs[it.edge()], hitEdges);
-			for (uint32_t e = 0; e < hitEdges.size(); e++) {
-				const Edge &otherEdge = m_edges[hitEdges[e]];
-				if (otherEdge.face == face || m_faceGroups[otherEdge.face] != group)
-					continue;
-				const Vector3 &otherPosition0 = m_positions[m_indices[otherEdge.index0]];
-				const Vector3 &otherPosition1 = m_positions[m_indices[otherEdge.index1]];
-				if (equal(it.position0(), otherPosition0) || equal(it.position0(), otherPosition1) || equal(it.position1(), otherPosition0) || equal(it.position1(), otherPosition1))
-					continue;
-				Vector3 points[4];
-				points[0] = it.position0();
-				points[1] = it.position1();
-				points[2] = otherPosition0;
-				points[3] = otherPosition1;
-				int planarDimension = -1;
-				for (uint32_t i = 0; i < 3; i++) {
-					if (equal((&points[0].x)[i], (&points[1].x)[i]) && equal((&points[1].x)[i], (&points[2].x)[i]) && equal((&points[2].x)[i], (&points[3].x)[i])) {
-						planarDimension = i;
-						break;
-					}
-				}
-				if (planarDimension == -1)
-					continue; // Points don't lie on the same plane.
-				Vector2 points2[4];
-				for (uint32_t i = 0; i < 4; i++) {
-					uint32_t k = 0;
-					for (uint32_t j = 0; j < 2; j++) {
-						if (k == (uint32_t)planarDimension)
-							k++;
-						(&points2[i].x)[j] = (&points[i].x)[k];
-						k++;
-					}
-				}
-				if (linesIntersect(points2[0], points2[1], points2[2], points2[3]))
-					return true;
-			}
-		}
-		return false;
-	}
-#endif
-
 	void createFaceGroups()
 	{
 		uint32_t group = 0;
 		Array<uint32_t> growFaces;
-#if XA_CHECK_MESH_FACE_OVERLAP
-		const uint32_t edgeCount = m_edges.size();
-		Array<AABB> edgeAabbs;
-		edgeAabbs.resize(edgeCount);
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			edgeAabbs[i].expandToInclude(m_positions[m_indices[m_edges[i].index0]]);
-			edgeAabbs[i].expandToInclude(m_positions[m_indices[m_edges[i].index1]]);
-			edgeAabbs[i].expand(m_epsilon);
-		}
-		BVH edgeBvh(edgeAabbs);
-#endif
 		for (;;) {
 			// Find an unassigned face.
 			uint32_t face = UINT32_MAX;
@@ -3110,10 +3050,6 @@ public:
 							continue; // Don't want duplicate edges in a group.
 						if (faceMirrorsGroupFace(group, oppositeFace))
 							continue; // Don't want two-sided faces in a group.
-#if XA_CHECK_MESH_FACE_OVERLAP
-						if (faceOverlapsGroupFace(edgeAabbs, edgeBvh, group, oppositeEdge.face))
-							continue; // Don't want overlapping geometry.
-#endif
 						const uint32_t oppositeVertex0 = m_indices[meshEdgeIndex0(oppositeEdge)];
 						const uint32_t oppositeVertex1 = m_indices[meshEdgeIndex1(oppositeEdge)];
 						if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
