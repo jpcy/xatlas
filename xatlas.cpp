@@ -107,6 +107,7 @@ Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 #define XA_MERGE_CHARTS 1
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 #define XA_RECOMPUTE_CHARTS 1
+#define XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION 0
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
@@ -867,6 +868,35 @@ static bool pointInTriangle(const Vector3 &p, const Vector3 &a, const Vector3 &b
 {
 	return sameSide(p, a, b, c) && sameSide(p, b, a, c) && sameSide(p, c, a, b);
 }
+
+#if XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION
+// https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
+static bool rayIntersectsTriangle(const Vector3 &rayOrigin, const Vector3 &rayDir, const Vector3 *tri, float *t)
+{
+	*t = 0.0f;
+	const Vector3 &edge1 = tri[1] - tri[0];
+	const Vector3 &edge2 = tri[2] - tri[0];
+	const Vector3 h = cross(rayDir, edge2);
+	const float a = dot(edge1, h);
+	if (a > -kEpsilon && a < kEpsilon)
+		return false; // This ray is parallel to this triangle.
+	const float f = 1.0f / a;
+	const Vector3 s = rayOrigin - tri[0];
+	const float u = f * dot(s, h);
+	if (u < 0.0f || u > 1.0f)
+		return false;
+	const Vector3 q = cross(s, edge1);
+	const float v = f * dot(rayDir, q);
+	if (v < 0.0f || u + v > 1.0f)
+		return false;
+	// At this stage we can compute t to find out where the intersection point is on the line.
+	*t = f * dot(edge2, q);
+	if (*t > kEpsilon && *t < 1.0f - kEpsilon)
+		return true;
+	// This means that there is a line intersection but not a ray intersection.
+	return false;
+}
+#endif
 
 // From Fast-BVH
 struct AABB
@@ -3712,6 +3742,9 @@ public:
 
 static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool *duplicatedEdge, bool *failed)
 {
+#if XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION
+	const uint32_t faceCount = mesh->faceCount();
+#endif
 	uint32_t frontCount = holeVertices.size();
 	Array<uint32_t> frontVertices;
 	Array<Vector3> frontPoints;
@@ -3787,6 +3820,23 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, bool 
 			}
 			if (intersection)
 				continue;
+#if XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION
+			// Don't add the triangle if the new edge (i3, i1), intersects any other triangle that isn't part of the filled hole.
+			intersection = false;
+			const Vector3 newEdgeVector = frontPoints[i1] - frontPoints[i3];
+			for (uint32_t f = 0; f < faceCount; f++) {
+				Vector3 tri[3];
+				for (uint32_t j = 0; j < 3; j++)
+					tri[j] = mesh->position(mesh->vertexAt(f * 3 + j));
+				float t;
+				if (rayIntersectsTriangle(frontPoints[i3], newEdgeVector, tri, &t)) {
+					intersection = true;
+					break;
+				}
+			}
+			if (intersection)
+				continue;
+#endif
 			smallestAngle = frontAngles[i];
 			smallestAngleIndex = i;
 		}
