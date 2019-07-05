@@ -3740,7 +3740,7 @@ public:
 	};
 };
 
-static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const Vector3 &normal, bool *duplicatedEdge, bool *failed)
+static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const Vector3 &normal)
 {
 #if XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION
 	const uint32_t faceCount = mesh->faceCount();
@@ -3757,13 +3757,6 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const
 		frontPoints[i] = mesh->position(frontVertices[i]);
 	}
 	while (frontCount >= 3) {
-		if (frontCount == 3) {
-			if (mesh->addFace(frontVertices[0], frontVertices[1], frontVertices[2]) == Mesh::AddFaceResult::DuplicateEdge) {
-				if (duplicatedEdge)
-					*duplicatedEdge = true;
-			}
-			return;
-		}
 		frontAngles.resize(frontCount);
 		float smallestAngle = kPi2, smallestAngleIgnoringNormal = kPi2;
 		uint32_t smallestAngleIndex = UINT32_MAX, smallestAngleIndexIgnoringNormal = UINT32_MAX;
@@ -3854,33 +3847,26 @@ static void meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const
 		// Closing holes failed if we don't have a smallest angle.
 		// Fallback to ignoring the backwards facing normal test if possible.
 		if (smallestAngleIndex == UINT32_MAX || smallestAngle <= 0.0f || smallestAngle >= kPi) {
-			if (smallestAngleIgnoringNormal == UINT32_MAX || smallestAngleIgnoringNormal <= 0.0f || smallestAngleIgnoringNormal >= kPi) {
-				if (failed)
-					*failed = true;
-				return;
-			} else {
+			if (smallestAngleIgnoringNormal == UINT32_MAX || smallestAngleIgnoringNormal <= 0.0f || smallestAngleIgnoringNormal >= kPi)
+				return false;
+			else
 				smallestAngleIndex = smallestAngleIndexIgnoringNormal;
-			}
 		}
 		const uint32_t i1 = smallestAngleIndex == 0 ? frontCount - 1 : smallestAngleIndex - 1;
 		const uint32_t i2 = smallestAngleIndex;
 		const uint32_t i3 = (smallestAngleIndex + 1) % frontCount;
-		if (mesh->addFace(frontVertices[i1], frontVertices[i2], frontVertices[i3]) == Mesh::AddFaceResult::DuplicateEdge) {
-			if (duplicatedEdge)
-				*duplicatedEdge = true;
-		}
+		const Mesh::AddFaceResult::Enum result = mesh->addFace(frontVertices[i1], frontVertices[i2], frontVertices[i3]);
+		XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK); // Shouldn't happen due to the findEdge calls above.
+		XA_UNUSED(result);
 		frontVertices.removeAt(i2);
 		frontPoints.removeAt(i2);
 		frontCount = frontVertices.size();
 	}
+	return true;
 }
 
-static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, const Vector3 &normal, bool *duplicatedEdge, bool *failed, Array<uint32_t> &holeFaceCounts)
+static bool meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, const Vector3 &normal, Array<uint32_t> &holeFaceCounts)
 {
-	if (duplicatedEdge)
-		*duplicatedEdge = false;
-	if (failed)
-		*failed = false;
 	holeFaceCounts.clear();
 	// Compute lengths.
 	const uint32_t boundaryCount = boundaryLoops.size();
@@ -3910,6 +3896,7 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, con
 	// Close holes.
 	Array<uint32_t> holeVertices;
 	Array<Vector3> holePoints;
+	bool result = true;
 	for (uint32_t i = 0; i < boundaryCount; i++) {
 		if (diskBoundary == i)
 			continue; // Skip disk boundary.
@@ -3924,9 +3911,11 @@ static void meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, con
 			e++;
 		}
 		const uint32_t oldFaceCount = mesh->faceCount();
-		meshCloseHole(mesh, holeVertices, normal, duplicatedEdge, failed);
+		if (!meshCloseHole(mesh, holeVertices, normal))
+			result = false; // Return false if any hole failed to close, but keep trying to close other holes.
 		holeFaceCounts.push_back(mesh->faceCount() - oldFaceCount);
 	}
+	return result;
 }
 
 static bool meshIsPlanar(const Mesh &mesh)
@@ -4033,7 +4022,10 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, bool
 						indexArray.push_back(splitEdge.vertex);
 				}
 			}
-			meshCloseHole(mesh, indexArray, Vector3(0.0f), duplicatedEdge, failed);
+			if (!meshCloseHole(mesh, indexArray, Vector3(0.0f))) {
+				if (failed)
+					*failed = true;
+			}
 		} else {
 			// No t-junctions in this face. Copy from input mesh.
 			if (mesh->addFace(&inputMesh.indices()[f * 3]) == Mesh::AddFaceResult::DuplicateEdge) {
@@ -6109,7 +6101,6 @@ struct ChartWarningFlags
 {
 	enum Enum
 	{
-		CloseHolesDuplicatedEdge = 1<<0,
 		CloseHolesFailed = 1<<1,
 		FixTJunctionsDuplicatedEdge = 1<<2,
 		FixTJunctionsFailed = 1<<3,
@@ -6214,18 +6205,16 @@ public:
 				// - Use minimal spanning trees or seamster.
 				Array<uint32_t> holeFaceCounts;
 				XA_PROFILE_START(closeChartMeshHoles)
-				meshCloseHoles(m_unifiedMesh, boundaryLoops, basis.normal, &duplicatedEdge, &failed, holeFaceCounts);
+				failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, basis.normal, holeFaceCounts);
 				XA_PROFILE_END(closeChartMeshHoles)
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
-				if (duplicatedEdge)
-					m_warningFlags |= ChartWarningFlags::CloseHolesDuplicatedEdge;
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 				if (failed || boundaryLoops.size() > 1)
 					m_warningFlags |= ChartWarningFlags::CloseHolesFailed;
 				m_closedHolesCount = holeFaceCounts.size();
 #if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
-				if (m_warningFlags & (ChartWarningFlags::CloseHolesDuplicatedEdge | ChartWarningFlags::CloseHolesFailed)) {
+				if (m_warningFlags & ChartWarningFlags::CloseHolesFailed) {
 					char filename[256];
 					XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_chart_%03u_close_holes_error.obj", meshId, chartGroupId, chartId);
 					FILE *file;
@@ -8196,8 +8185,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 				continue;
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
-				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesDuplicatedEdge)
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): closing holes created non-manifold geometry\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesFailed)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): failed to close holes\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
