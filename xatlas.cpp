@@ -3832,15 +3832,17 @@ static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const
 				continue;
 #endif
 			// Skip backwards facing triangles.
-			if (frontAngles[i] < smallestAngleIgnoringNormal) {
-				smallestAngleIgnoringNormal = frontAngles[i];
-				smallestAngleIndexIgnoringNormal = i;
+			if (compareNormal) {
+				if (frontAngles[i] < smallestAngleIgnoringNormal) {
+					smallestAngleIgnoringNormal = frontAngles[i];
+					smallestAngleIndexIgnoringNormal = i;
+				}
+				const Vector3 e0 = frontPoints[i3] - frontPoints[i1];
+				const Vector3 e1 = frontPoints[i2] - frontPoints[i1];
+				const Vector3 triNormal = normalizeSafe(cross(e0, e1), Vector3(0.0f), mesh->epsilon());
+				if (dot(normal, triNormal) <= 0.0f)
+					continue;
 			}
-			const Vector3 e0 = frontPoints[i3] - frontPoints[i1];
-			const Vector3 e1 = frontPoints[i2] - frontPoints[i1];
-			const Vector3 triNormal = normalizeSafe(cross(e0, e1), Vector3(0.0f), mesh->epsilon());
-			if (dot(normal, triNormal) <= 0.0f)
-				continue;
 			smallestAngle = smallestAngleIgnoringNormal = frontAngles[i];
 			smallestAngleIndex = smallestAngleIndexIgnoringNormal = i;
 		}
