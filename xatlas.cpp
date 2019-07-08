@@ -32,11 +32,6 @@ Fast-BVH
 https://github.com/brandonpelfrey/Fast-BVH
 MIT License
 Copyright (c) 2012 Brandon Pelfrey
-
-px_sched
-https://github.com/pplux/px
-MIT License
-Copyright (c) 2017-2018 Jose L. Hidalgo (PpluX)
 */
 #include <algorithm>
 #include <atomic>
@@ -2200,668 +2195,6 @@ private:
 	Vector2 m_majorAxis, m_minorAxis, m_minCorner, m_maxCorner;
 };
 
-namespace task {
-
-#define SCHED_CACHE_LINE_SIZE 64
-
-struct IndexQueue
-{
-	~IndexQueue()
-	{
-		XA_DEBUG_ASSERT(m_list == nullptr);
-	}
-
-	void reset()
-	{
-		if (m_list) {
-			XA_FREE(m_list);
-			m_list = nullptr;
-		}
-		m_size = 0;
-		m_inUse = 0;
-	}
-
-	void init(uint16_t max)
-	{
-		lock();
-		reset();
-		m_size = max;
-		m_inUse = 0;
-		m_list = static_cast<uint32_t*>(XA_ALLOC_ARRAY(MemTag::Default, uint32_t, m_size));
-		unlock();
-	}
-
-	void push(uint32_t p)
-	{
-		lock();
-		XA_DEBUG_ASSERT(m_inUse < m_size);
-		uint16_t pos = (m_current + m_inUse)%m_size;
-		m_list[pos] = p;
-		m_inUse++;
-		unlock();
-	}
-
-	uint16_t in_use()
-	{
-		lock();
-		uint16_t result = m_inUse;
-		unlock();
-		return result;
-	}
-
-	bool pop(uint32_t *res)
-	{
-		lock();
-		bool result = false;
-		if (m_inUse) {
-			if (res)
-				*res = m_list[m_current];
-			m_current = (m_current+1)%m_size;
-			m_inUse--;
-			result = true;
-		}
-		unlock();
-		return result;
-	}
-
-private:
-	void unlock() { m_lock.clear(std::memory_order_release); }
-
-	void lock()
-	{
-		while(m_lock.test_and_set(std::memory_order_acquire))
-			std::this_thread::yield();
-	}
-
-	uint32_t *m_list = nullptr;
-	std::atomic_flag m_lock = ATOMIC_FLAG_INIT;
-	volatile uint16_t m_size = 0;
-	volatile uint16_t m_inUse = 0;
-	volatile uint16_t m_current = 0;
-};
-
-template<class T>
-struct ObjectPool
-{
-	const uint32_t kPosMask = 0x000FFFFF; // 20 bits
-	const uint32_t kRefMask = kPosMask;   // 20 bits
-	const uint32_t kVerMask = 0xFFF00000; // 12 bits
-	const uint32_t kVerDisp = 20;
-
-	~ObjectPool()
-	{
-		reset();
-	}
-
-	void init(uint32_t count)
-	{
-		reset();
-		m_data = XA_ALLOC_ARRAY(MemTag::Default, D, count);
-		for (uint32_t i = 0; i < count; ++i)
-			m_data[i].state = 0xFFFu << kVerDisp;
-		m_count = count;
-		m_next = 0;
-	}
-
-	void reset()
-	{
-		m_count = 0;
-		m_next = 0;
-		if (m_data) {
-			XA_FREE(m_data);
-			m_data = nullptr;
-		}
-	}
-
-	// only access objects you've previously referenced
-	T &get(uint32_t hnd)
-	{
-		const uint32_t pos = hnd & kPosMask;
-		XA_DEBUG_ASSERT(pos < m_count);
-		return m_data[pos].element;
-	}
-
-	// returns the handler of an object in the pool that can be used
-	// it also increments in one the number of references (no need to call ref)
-	uint32_t acquireAndRef()
-	{
-		uint32_t tries = 0;
-		for(;;) {
-			uint32_t pos = (m_next.fetch_add(1) % m_count);
-			D &d = m_data[pos];
-			const uint32_t version = (d.state.load() & kVerMask) >> kVerDisp;
-			// note: avoid 0 as version
-			uint32_t newver = (version + 1) & 0xFFF;
-			if (newver == 0)
-				newver = 1;
-			// instead of using 1 as initial ref, we use 2, when we see 1
-			// in the future we know the object must be freed, but it wont
-			// be actually freed until it reaches 0
-			uint32_t newvalue = (newver << kVerDisp) + 2;
-			uint32_t expected = version << kVerDisp;
-			if (d.state.compare_exchange_strong(expected, newvalue)) {
-				newElement(pos); //< initialize
-				return (newver << kVerDisp) | (pos & kPosMask);
-			}
-			tries++;
-			//XA_DEBUG_ASSERT(tries < m_count*m_count);
-		}
-	}
-
-	void unref(uint32_t hnd) const
-	{
-		const uint32_t pos = hnd & kPosMask;
-#if XA_DEBUG
-		const uint32_t ver = (hnd & kVerMask);
-#endif
-		D &d = m_data[pos];
-		for(;;) {
-			uint32_t prev = d.state.load();
-			uint32_t next = prev - 1;
-			XA_DEBUG_ASSERT((prev & kVerMask) == ver);
-			XA_DEBUG_ASSERT((prev & kRefMask) > 1);
-			if (d.state.compare_exchange_strong(prev, next)) {
-				if ((next & kRefMask) == 1) {
-					deleteElement(pos);
-					d.state = 0;
-				}
-				return;
-			}
-		}
-	}
-
-	// decrements the counter, if the object is no longer valid (last ref)
-	// the given function will be executed with the element
-	template<class F>
-	void unref(uint32_t hnd, F f) const
-	{
-		const uint32_t pos = hnd & kPosMask;
-#if XA_DEBUG
-		const uint32_t ver = (hnd & kVerMask);
-#endif
-		D& d = m_data[pos];
-		for(;;) {
-			uint32_t prev = d.state.load();
-			uint32_t next = prev - 1;
-			XA_DEBUG_ASSERT((prev & kVerMask) == ver);
-			XA_DEBUG_ASSERT((prev & kRefMask) > 1);
-			if (d.state.compare_exchange_strong(prev, next)) {
-				if ((next & kRefMask) == 1) {
-					f(d.element);
-					deleteElement(pos);
-					d.state = 0;
-				}
-				return;
-			}
-		}
-	}
-
-	// returns true if the given position was a valid object
-	bool ref(uint32_t hnd) const
-	{
-		if (!hnd)
-			return false;
-		const uint32_t pos = hnd & kPosMask;
-		const uint32_t ver = (hnd & kVerMask);
-		D &d = m_data[pos];
-		for (;;) {
-			uint32_t prev = d.state.load();
-			const uint32_t next_c = ((prev & kRefMask) + 1);
-			if ((prev & kVerMask) != ver || next_c <= 2)
-				return false;
-			XA_DEBUG_ASSERT(next_c  == (next_c & kRefMask));
-			uint32_t next = (prev & kVerMask) | next_c ;
-			if (d.state.compare_exchange_strong(prev, next))
-				return true;
-		}
-	}
-
-	uint32_t refCount(uint32_t hnd) const
-	{
-		if (!hnd)
-			return 0;
-		const uint32_t pos = hnd & kPosMask;
-		const uint32_t ver = (hnd & kVerMask);
-		D &d = m_data[pos];
-		const uint32_t current = d.state.load();
-		if ((current & kVerMask) != ver)
-			return 0;
-		return (current & kRefMask);
-	}
-
-private:
-	void newElement(uint32_t pos) const
-	{
-		new (&m_data[pos].element) T;
-	}
-
-	void deleteElement(uint32_t pos) const
-	{
-		m_data[pos].element.~T();
-	}
-
-	struct D
-	{
-		mutable std::atomic<uint32_t> state = {0};
-		uint32_t version = 0;
-		T element;
-		// Avoid false sharing between threads
-		static const size_t PADDING_ADJUSTMENT = (SCHED_CACHE_LINE_SIZE - ((sizeof(D::state)+sizeof(D::version)+sizeof(D::element))%SCHED_CACHE_LINE_SIZE)) % SCHED_CACHE_LINE_SIZE;
-		char padding[PADDING_ADJUSTMENT];
-	};
-
-	D *m_data = nullptr;
-	std::atomic<uint32_t> m_next;
-	size_t m_count = 0;
-};
-
-struct Job
-{
-	void (*func)(void *userData);
-	void *userData;
-};
-
-struct Sync
-{
-	uint32_t hnd = 0;
-};
-
-struct SchedulerParams
-{
-	uint16_t num_threads = 16;        // num OS threads created 
-	uint16_t max_running_threads = 0; // 0 --> will be set to max hardware concurrency
-	uint16_t max_number_tasks = 1024; // max number of simultaneous tasks
-	uint16_t thread_num_tries_on_idle = 16;   // number of tries before suspend the thread
-	uint32_t thread_sleep_on_idle_in_microseconds = 5; // time spent waiting between tries
-};
-
-#if XA_MULTITHREADED
-class Scheduler
-{
-public:
-	Scheduler(const SchedulerParams &_params = SchedulerParams()) : m_activeThreads(0)
-	{
-		stop();
-		m_running = true;
-		m_params = _params;
-		if (m_params.max_running_threads == 0)
-			m_params.max_running_threads = static_cast<uint16_t>(std::thread::hardware_concurrency());
-		// create tasks
-		m_tasks.init(m_params.max_number_tasks);
-		m_counters.init(m_params.max_number_tasks);
-		m_readyTasks.init(m_params.max_number_tasks);
-		XA_DEBUG_ASSERT(m_workers == nullptr);
-		m_workers = static_cast<Worker*>(XA_ALLOC_ARRAY(MemTag::Default, Worker, m_params.num_threads));
-		for(uint16_t i = 0; i < m_params.num_threads; ++i) {
-			new (&m_workers[i]) Worker();
-			m_workers[i].thread_index = i;
-		}
-		XA_DEBUG_ASSERT(m_activeThreads.load() == 0);
-		for(uint16_t i = 0; i < m_params.num_threads; ++i) {
-			m_workers[i].thread = std::thread(WorkerThreadMain, this, &m_workers[i]);
-		}
-	}
-
-	~Scheduler()
-	{
-		stop();
-	}
-
-	void stop()
-	{
-		if (m_running) {
-			m_running = false;
-			for(uint16_t i = 0; i < m_params.num_threads; ++i) {
-				wakeUpThreads(m_params.num_threads);
-			}
-			for(uint16_t i = 0; i < m_params.num_threads; ++i) {
-				m_workers[i].thread.join();
-				m_workers[i].~Worker();
-			}
-			XA_FREE(m_workers);
-			m_workers = nullptr;
-			m_tasks.reset();
-			m_counters.reset();
-			m_readyTasks.reset();
-			XA_DEBUG_ASSERT(m_activeThreads.load() == 0);
-		}
-	}
-
-	void run(const Job &job, Sync *sync_obj = nullptr)
-	{
-		XA_DEBUG_ASSERT(m_running);
-		uint32_t t_ref = createTask(job, sync_obj);
-		m_readyTasks.push(t_ref);
-		wakeUpOneThread();
-	}
-
-	void waitFor(Sync s) //< suspend current thread 
-	{
-		if (m_counters.ref(s.hnd)) {
-			Counter &counter = m_counters.get(s.hnd);
-			XA_DEBUG_ASSERT(counter.wait_ptr == nullptr);
-			WaitFor wf;
-			counter.wait_ptr = &wf;
-			unrefCounter(s.hnd);
-			CurrentThreadSleeps(); 
-			wf.wait();
-			CurrentThreadWakesUp(); 
-		}
-	}
-
-	// Call this method before a mutex/lock/etc... to notify the scheduler
-	static void CurrentThreadSleeps()
-	{
-		CurrentThreadBeforeLockResource(nullptr);
-	}
-
-	// call this again to notify the thread is again running
-	static void CurrentThreadWakesUp()
-	{
-		CurrentThreadAfterLockResource();
-	}
-
-	// Call this method before locking a resource, this will be used by the
-	// scheduler to wakeup another thread as a worker.
-	static void CurrentThreadBeforeLockResource(const void *resource_ptr, const char *name = nullptr)
-	{
-		// if the lock might work, wake up one thread to replace this one
-		TLS *d = tls();
-		if (d->scheduler && d->scheduler->m_running.load()) {
-			d->scheduler->m_activeThreads.fetch_sub(1);
-			d->scheduler->wakeUpOneThread();
-		}
-		d->next_lock = {resource_ptr, name};
-	}
-
-	// Call this method after calling CurrentThreadBeforeLockResource, this will be
-	// used to notify the scheduler that this thread can continue working.
-	// If success is true, the lock was successful, false if the thread was not
-	// blocked but also didn't adquired the lock (try_lock)
-	static void CurrentThreadAfterLockResource()
-	{
-		// mark this thread as active (so eventually one thread will step down)
-		TLS *d = tls();
-		if (d->scheduler && d->scheduler->m_running.load())
-			d->scheduler->m_activeThreads.fetch_add(1);
-		d->next_lock = { nullptr, nullptr }; // reset
-	}
-
-private:
-	struct TLS
-	{
-		Scheduler *scheduler = nullptr;
-
-		struct Resource
-		{
-			const void *ptr;
-			const char *name;
-		};
-
-		Resource next_lock = { nullptr, nullptr };
-	};
-
-	static TLS *tls()
-	{
-		static thread_local TLS tls;
-		return &tls;
-	}
-	
-	void wakeUpOneThread()
-	{
-		for(;;) {
-			uint32_t active = m_activeThreads.load();
-			if ((active >= m_params.max_running_threads) || wakeUpThreads(1))
-				return;
-		}
-	}
-
-	SchedulerParams m_params;
-	std::atomic<uint32_t> m_activeThreads;
-	std::atomic<uint32_t> m_running = {0};
-
-	struct Task
-	{
-		Job job;
-		uint32_t counter_id = 0;
-		std::atomic<uint32_t> next_sibling_task = {0};
-	};
-
-	struct WaitFor
-	{
-		explicit WaitFor() : owner(std::this_thread::get_id()), ready(false) {}
-
-		void wait()
-		{
-			XA_DEBUG_ASSERT(std::this_thread::get_id() == owner);
-			std::unique_lock<std::mutex> lk(mutex);
-			if (!ready)
-				condition_variable.wait(lk);
-		}
-
-		void signal()
-		{
-			if (owner != std::this_thread::get_id()) {
-				std::lock_guard<std::mutex> lk(mutex);
-				ready = true;
-				condition_variable.notify_all();
-			} else {
-				ready = true;
-			}
-		}
-		private:
-		std::thread::id const owner;
-		std::mutex mutex;
-		std::condition_variable condition_variable;
-		bool ready;
-	};
-
-	struct Worker
-	{
-		std::thread thread;
-		// setted by the thread when is sleep
-		std::atomic<WaitFor*> wake_up = {nullptr};
-		TLS *thread_tls = nullptr;
-		uint16_t thread_index = 0xFFFF;
-	};
-
-	struct Counter
-	{
-		std::atomic<uint32_t> task_id;
-		std::atomic<uint32_t> user_count;
-		WaitFor *wait_ptr = nullptr;
-	};
-
-	uint16_t wakeUpThreads(uint16_t max_num_threads)
-	{
-		uint16_t total_woken_up = 0;
-		for(uint32_t i = 0; (i < m_params.num_threads) && (total_woken_up < max_num_threads); ++i) {
-			WaitFor *wake_up = m_workers[i].wake_up.exchange(nullptr);
-			if (wake_up) {
-				wake_up->signal();
-				total_woken_up++;
-				// Add one to the total active threads, for later substracting it, this
-				// will take the thread as awake before the thread actually is again working
-				m_activeThreads.fetch_add(1);
-			}
-		}
-		m_activeThreads.fetch_sub(total_woken_up);
-		return total_woken_up;
-	}
-
-	uint32_t createTask(const Job &job, Sync *sync_obj)
-	{
-		uint32_t ref = m_tasks.acquireAndRef();
-		Task *task = &m_tasks.get(ref);
-		task->job = job;
-		task->counter_id = 0;
-		task->next_sibling_task = 0;
-		if (sync_obj) {
-			bool new_counter = !m_counters.ref(sync_obj->hnd);
-			if (new_counter)
-				sync_obj->hnd = createCounter();
-			task->counter_id = sync_obj->hnd;
-		}
-		return ref;
-	}
-	
-	uint32_t createCounter()
-	{
-		uint32_t hnd = m_counters.acquireAndRef();
-		Counter *c = &m_counters.get(hnd);
-		c->task_id = 0;
-		c->user_count = 0;
-		c->wait_ptr = nullptr;
-		return hnd;
-	}
-
-	void unrefCounter(uint32_t hnd)
-	{
-		if (m_counters.ref(hnd)) {
-			m_counters.unref(hnd);
-			Scheduler *schd = this;
-			m_counters.unref(hnd, [schd](Counter &c) {
-				// wake up all tasks 
-				uint32_t tid = c.task_id;
-				while (schd->m_tasks.ref(tid)) {
-					Task &task = schd->m_tasks.get(tid);
-					uint32_t next_tid = task.next_sibling_task; 
-					task.next_sibling_task = 0;
-					schd->m_readyTasks.push(tid);
-					schd->wakeUpOneThread();
-					schd->m_tasks.unref(tid);
-					tid = next_tid;
-				}
-				if (c.wait_ptr)
-					c.wait_ptr->signal();
-			});
-		}
-	}
-
-	Worker *m_workers = nullptr;
-	ObjectPool<Task> m_tasks;
-	ObjectPool<Counter> m_counters;
-	IndexQueue m_readyTasks;
-
-	static void WorkerThreadMain(Scheduler *schd, Scheduler::Worker *worker_data)
-	{
-		const uint16_t id = worker_data->thread_index;
-		TLS *local_storage = tls();
-		local_storage->scheduler = schd;
-		worker_data->thread_tls = local_storage;
-		auto const ttl_wait = schd->m_params.thread_sleep_on_idle_in_microseconds;
-		auto const ttl_value = schd->m_params.thread_num_tries_on_idle ? schd->m_params.thread_num_tries_on_idle : 1;
-		schd->m_activeThreads.fetch_add(1);
-		for(;;) {
-			{ // wait for new activity
-				auto current_num = schd->m_activeThreads.fetch_sub(1);
-				if (!schd->m_running)
-					return;
-				if (schd->m_readyTasks.in_use() == 0 ||
-					current_num > schd->m_params.max_running_threads) {
-					WaitFor wf;
-					schd->m_workers[id].wake_up = &wf;
-					wf.wait();
-					if (!schd->m_running)
-						return;
-				}
-				schd->m_activeThreads.fetch_add(1);
-				schd->m_workers[id].wake_up = nullptr;
-			}
-			auto ttl = ttl_value;
-			{ // do some work
-				uint32_t task_ref;
-				while (ttl && schd->m_running ) {
-					if (!schd->m_readyTasks.pop(&task_ref)) {
-						ttl--;
-						if (ttl_wait) std::this_thread::sleep_for(std::chrono::microseconds(ttl_wait));
-							continue;
-					}
-					ttl = ttl_value;
-					Task *t = &schd->m_tasks.get(task_ref);
-					t->job.func(t->job.userData);
-					uint32_t counter = t->counter_id;
-					schd->m_tasks.unref(task_ref);
-					schd->unrefCounter(counter);
-				}
-			}
-		}
-		worker_data->thread_tls = nullptr;
-		local_storage->scheduler = nullptr;
-	}
-};
-#else
-class Scheduler
-{
-public:
-	Scheduler() {}
-	~Scheduler() {}
-	void init(const SchedulerParams &params = SchedulerParams()) { XA_UNUSED(params); }
-	void stop() {}
-
-	void run(const Job &job, Sync *)
-	{
-		Job j(job);
-		j.func(j.userData);
-	}
-
-	void waitFor(Sync) {}
-};
-#endif
-
-struct Progress
-{
-	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : value(0), cancel(false), m_category(category), m_func(func), m_userData(userData), m_maxValue(maxValue), m_progress(0)
-	{
-		if (m_func) {
-			if (!m_func(category, 0, userData))
-				cancel = true;
-		}
-	}
-
-	~Progress()
-	{
-		if (m_func) {
-			if (!m_func(m_category, 100, m_userData))
-				cancel = true;
-		}
-	}
-
-	void update()
-	{
-		if (!m_func)
-			return;
-		m_mutex.lock();
-		const uint32_t newProgress = uint32_t(ceilf(value.load() / (float)m_maxValue * 100.0f));
-		if (newProgress != m_progress && newProgress < 100) {
-			m_progress = newProgress;
-			if (!m_func(m_category, m_progress, m_userData))
-				cancel = true;
-		}
-		m_mutex.unlock();
-	}
-
-	void setMaxValue(uint32_t maxValue)
-	{
-		m_mutex.lock();
-		m_maxValue = maxValue;
-		m_mutex.unlock();
-	}
-
-	std::atomic<uint32_t> value;
-	std::atomic<bool> cancel;
-
-private:
-	ProgressCategory::Enum m_category;
-	ProgressFunc m_func;
-	void *m_userData;
-	uint32_t m_maxValue;
-	uint32_t m_progress;
-	std::mutex m_mutex;
-};
-
-} // namespace task
-
 static uint32_t meshEdgeFace(uint32_t edge) { return edge / 3; }
 static uint32_t meshEdgeIndex0(uint32_t edge) { return edge; }
 
@@ -4142,6 +3475,287 @@ private:
 	/// Mesh genus.
 	int m_genus;
 };
+
+struct Progress
+{
+	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : value(0), cancel(false), m_category(category), m_func(func), m_userData(userData), m_maxValue(maxValue), m_progress(0)
+	{
+		if (m_func) {
+			if (!m_func(category, 0, userData))
+				cancel = true;
+		}
+	}
+
+	~Progress()
+	{
+		if (m_func) {
+			if (!m_func(m_category, 100, m_userData))
+				cancel = true;
+		}
+	}
+
+	void update()
+	{
+		if (!m_func)
+			return;
+		m_mutex.lock();
+		const uint32_t newProgress = uint32_t(ceilf(value.load() / (float)m_maxValue * 100.0f));
+		if (newProgress != m_progress && newProgress < 100) {
+			m_progress = newProgress;
+			if (!m_func(m_category, m_progress, m_userData))
+				cancel = true;
+		}
+		m_mutex.unlock();
+	}
+
+	void setMaxValue(uint32_t maxValue)
+	{
+		m_mutex.lock();
+		m_maxValue = maxValue;
+		m_mutex.unlock();
+	}
+
+	std::atomic<uint32_t> value;
+	std::atomic<bool> cancel;
+
+private:
+	ProgressCategory::Enum m_category;
+	ProgressFunc m_func;
+	void *m_userData;
+	uint32_t m_maxValue;
+	uint32_t m_progress;
+	std::mutex m_mutex;
+};
+
+struct TaskGroupHandle
+{
+	uint32_t value = UINT32_MAX;
+};
+
+struct Task
+{
+	void (*func)(void *userData);
+	void *userData;
+};
+
+#if XA_MULTITHREADED
+class TaskScheduler
+{
+public:
+	TaskScheduler() : m_shutdown(false)
+	{
+		m_workers.resize(std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1);
+		for (uint32_t i = 0; i < m_workers.size(); i++) {
+			m_workers[i].wakeup = false;
+			m_workers[i].thread = XA_NEW(MemTag::Default, std::thread, workerThread, this, &m_workers[i]);
+		}
+	}
+
+	~TaskScheduler()
+	{
+		m_shutdown = true;
+		for (uint32_t i = 0; i < m_workers.size(); i++) {
+			Worker &worker = m_workers[i];
+			XA_DEBUG_ASSERT(worker.thread);
+			worker.wakeup = true;
+			worker.cv.notify_one();
+			if (worker.thread->joinable())
+				worker.thread->join();
+			worker.thread->~thread();
+			XA_FREE(worker.thread);
+		}
+		for (uint32_t i = 0; i < m_groups.size(); i++)
+			destroyGroup(i);
+	}
+
+	void run(TaskGroupHandle *handle, Task task)
+	{
+		// Allocate a task group if this is the first time using this handle.
+		TaskGroup *group;
+		if (handle->value == UINT32_MAX) {
+			group = XA_NEW(MemTag::Default, TaskGroup);
+			group->ref = 0;
+			std::lock_guard<std::mutex> lock(m_groupsMutex);
+			for (uint32_t i = 0; i < m_groups.size(); i++) {
+				if (!m_groups[i]) {
+					m_groups[i] = group;
+					handle->value = i;
+					break;
+				}
+			}
+			if (handle->value == UINT32_MAX) {
+				m_groups.push_back(group);
+				handle->value = m_groups.size() - 1;
+			}
+		}
+		group = m_groups[handle->value];
+		{
+			std::lock_guard<std::mutex> lock(group->queueMutex);
+			group->queue.push_back(task);
+		}
+		group->ref++;
+		// Wake up a worker to run this task.
+		for (uint32_t i = 0; i < m_workers.size(); i++) {
+			m_workers[i].wakeup = true;
+			m_workers[i].cv.notify_one();
+		}
+	}
+
+	void wait(TaskGroupHandle *handle)
+	{
+		if (handle->value == UINT32_MAX) {
+			XA_DEBUG_ASSERT(false);
+			return;
+		}
+		// Run tasks from the group queue until empty.
+		TaskGroup *group = m_groups[handle->value];
+		for (;;) {
+			Task *task = nullptr;
+			{
+				std::lock_guard<std::mutex> lock(group->queueMutex);
+				if (group->queueHead < group->queue.size())
+					task = &group->queue[group->queueHead++];
+			}
+			if (!task)
+				break;
+			task->func(task->userData);
+			group->ref--;
+		}
+		// Even though the task queue is empty, workers can still be running tasks.
+		while (group->ref > 0)
+			std::this_thread::yield();
+		std::lock_guard<std::mutex> lock(m_groupsMutex);
+		destroyGroup(handle->value);
+		handle->value = UINT32_MAX;
+	}
+
+private:
+	struct TaskGroup
+	{
+		Array<Task> queue; // Items are never removed. queueHead is incremented to pop items.
+		uint32_t queueHead = 0;
+		std::mutex queueMutex;
+		std::atomic<uint32_t> ref; // Increment when a task is enqueued, decrement when a task finishes.
+	};
+
+	struct Worker
+	{
+		std::thread *thread = nullptr;
+		std::mutex mutex;
+		std::condition_variable cv;
+		std::atomic<bool> wakeup;
+	};
+
+	Array<TaskGroup *> m_groups;
+	std::mutex m_groupsMutex;
+	Array<Worker> m_workers;
+	std::atomic<bool> m_shutdown;
+
+	void destroyGroup(uint32_t index)
+	{
+		TaskGroup *group = m_groups[index];
+		m_groups[index] = nullptr;
+		if (group) {
+			group->~TaskGroup();
+			XA_FREE(group);
+		}
+	}
+
+	static void workerThread(TaskScheduler *scheduler, Worker *worker)
+	{
+		std::unique_lock<std::mutex> lock(worker->mutex);
+		for (;;) {
+			worker->cv.wait(lock, [=]{ return worker->wakeup.load(); });
+			worker->wakeup = false;
+			for (;;) {
+				if (scheduler->m_shutdown)
+					return;
+				// Look for a task in any of the groups and run it.
+				TaskGroup *group = nullptr;
+				Task *task = nullptr;
+				{
+					std::lock_guard<std::mutex> groupsLock(scheduler->m_groupsMutex);
+					for (uint32_t i = 0; i < scheduler->m_groups.size(); i++) {
+						group = scheduler->m_groups[i];
+						if (!group)
+							continue;
+						std::lock_guard<std::mutex> queueLock(group->queueMutex);
+						if (group->queueHead < group->queue.size()) {
+							task = &group->queue[group->queueHead++];
+							break;
+						}
+					}
+				}
+				if (!task)
+					break;
+				task->func(task->userData);
+				group->ref--;
+			}
+		}
+	}
+};
+#else
+class TaskScheduler
+{
+public:
+	~TaskScheduler()
+	{
+		for (uint32_t i = 0; i < m_groups.size(); i++)
+			destroyGroup({ i });
+	}
+
+	void run(TaskGroupHandle *handle, Task task)
+	{
+		if (handle->value == UINT32_MAX) {
+			TaskGroup *group = XA_NEW(MemTag::Default, TaskGroup);
+			for (uint32_t i = 0; i < m_groups.size(); i++) {
+				if (!m_groups[i]) {
+					m_groups[i] = group;
+					handle->value = i;
+					break;
+				}
+			}
+			if (handle->value == UINT32_MAX) {
+				m_groups.push_back(group);
+				handle->value = m_groups.size() - 1;
+			}
+		}
+		m_groups[handle->value]->queue.push_back(task);
+	}
+
+	void wait(TaskGroupHandle *handle)
+	{
+		if (handle->value == UINT32_MAX) {
+			XA_DEBUG_ASSERT(false);
+			return;
+		}
+		TaskGroup *group = m_groups[handle->value];
+		for (uint32_t i = 0; i < group->queue.size(); i++)
+			group->queue[i].func(group->queue[i].userData);
+		group->queue.clear();
+		destroyGroup(*handle);
+		handle->value = UINT32_MAX;
+	}
+
+private:
+	void destroyGroup(TaskGroupHandle handle)
+	{
+		TaskGroup *group = m_groups[handle.value];
+		if (group) {
+			group->~TaskGroup();
+			XA_FREE(group);
+			m_groups[handle.value] = nullptr;
+		}
+	}
+
+	struct TaskGroup
+	{
+		Array<Task> queue;
+	};
+
+	Array<TaskGroup *> m_groups;
+};
+#endif
 
 struct UvMeshChart
 {
@@ -6701,16 +6315,16 @@ private:
 	uint32_t m_paramDeletedChartsCount; // Number of charts with invalid parameterizations that were deleted, after charts were recomputed.
 };
 
-struct ComputeChartsJobArgs
+struct ComputeChartsTaskArgs
 {
 	ChartGroup *chartGroup;
 	const ChartOptions *options;
-	task::Progress *progress;
+	Progress *progress;
 };
 
 static void runComputeChartsJob(void *userData)
 {
-	ComputeChartsJobArgs *args = (ComputeChartsJobArgs *)userData;
+	ComputeChartsTaskArgs *args = (ComputeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(computeCharts)
@@ -6720,16 +6334,16 @@ static void runComputeChartsJob(void *userData)
 	args->progress->update();
 }
 
-struct ParameterizeChartsJobArgs
+struct ParameterizeChartsTaskArgs
 {
 	ChartGroup *chartGroup;
 	ParameterizeFunc func;
-	task::Progress *progress;
+	Progress *progress;
 };
 
 static void runParameterizeChartsJob(void *userData)
 {
-	ParameterizeChartsJobArgs *args = (ParameterizeChartsJobArgs *)userData;
+	ParameterizeChartsTaskArgs *args = (ParameterizeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(parameterizeCharts)
@@ -6829,69 +6443,69 @@ public:
 		m_addMeshMutex.unlock();
 	}
 
-	bool computeCharts(task::Scheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
+	bool computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
 		m_chartsComputed = false;
 		m_chartsParameterized = false;
-		uint32_t jobCount = 0;
+		uint32_t taskCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
-				jobCount++;
+				taskCount++;
 		}
-		task::Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, jobCount);
-		Array<ComputeChartsJobArgs> jobArgs;
-		jobArgs.reserve(jobCount);
+		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, taskCount);
+		Array<ComputeChartsTaskArgs> taskArgs;
+		taskArgs.reserve(taskCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap()) {
-				ComputeChartsJobArgs args;
+				ComputeChartsTaskArgs args;
 				args.chartGroup = m_chartGroups[i];
 				args.options = &options;
 				args.progress = &progress;
-				jobArgs.push_back(args);
+				taskArgs.push_back(args);
 			}
 		}
-		task::Sync sync;
-		for (uint32_t i = 0; i < jobCount; i++) {
-			task::Job job;
-			job.userData = &jobArgs[i];
-			job.func = runComputeChartsJob;
-			taskScheduler->run(job, &sync);
+		TaskGroupHandle taskGroup;
+		for (uint32_t i = 0; i < taskCount; i++) {
+			Task task;
+			task.userData = &taskArgs[i];
+			task.func = runComputeChartsJob;
+			taskScheduler->run(&taskGroup, task);
 		}
-		taskScheduler->waitFor(sync);
+		taskScheduler->wait(&taskGroup);
 		if (progress.cancel)
 			return false;
 		m_chartsComputed = true;
 		return true;
 	}
 
-	bool parameterizeCharts(task::Scheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
+	bool parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
 	{
 		m_chartsParameterized = false;
-		uint32_t jobCount = 0;
+		uint32_t taskCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
-				jobCount++;
+				taskCount++;
 		}
-		task::Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, jobCount);
-		Array<ParameterizeChartsJobArgs> jobArgs;
-		jobArgs.reserve(jobCount);
+		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, taskCount);
+		Array<ParameterizeChartsTaskArgs> taskArgs;
+		taskArgs.reserve(taskCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap()) {
-				ParameterizeChartsJobArgs args;
+				ParameterizeChartsTaskArgs args;
 				args.chartGroup = m_chartGroups[i];
 				args.func = func;
 				args.progress = &progress;
-				jobArgs.push_back(args);
+				taskArgs.push_back(args);
 			}
 		}
-		task::Sync sync;
-		for (uint32_t i = 0; i < jobCount; i++) {
-			task::Job job;
-			job.userData = &jobArgs[i];
-			job.func = runParameterizeChartsJob;
-			taskScheduler->run(job, &sync);
+		TaskGroupHandle taskGroup;
+		for (uint32_t i = 0; i < taskCount; i++) {
+			Task task;
+			task.userData = &taskArgs[i];
+			task.func = runParameterizeChartsJob;
+			taskScheduler->run(&taskGroup, task);
 		}
-		taskScheduler->waitFor(sync);
+		taskScheduler->wait(&taskGroup);
 		if (progress.cancel)
 			return false;
 		// Save original texcoords so PackCharts can be called multiple times (packing overwrites the texcoords).
@@ -7707,12 +7321,12 @@ struct Context
 {
 	Atlas atlas;
 	uint32_t meshCount = 0;
-	internal::task::Progress *addMeshProgress = nullptr;
-	internal::task::Sync addMeshSync;
+	internal::Progress *addMeshProgress = nullptr;
+	internal::TaskGroupHandle addMeshTaskGroup;
 	internal::param::Atlas paramAtlas;
 	ProgressFunc progressFunc = nullptr;
 	void *progressUserData = nullptr;
-	internal::task::Scheduler *taskScheduler;
+	internal::TaskScheduler *taskScheduler;
 	internal::Array<internal::UvMesh *> uvMeshes;
 	internal::Array<internal::UvMeshInstance *> uvMeshInstances;
 };
@@ -7721,7 +7335,7 @@ Atlas *Create()
 {
 	Context *ctx = XA_NEW(internal::MemTag::Default, Context);
 	memset(&ctx->atlas, 0, sizeof(Atlas));
-	ctx->taskScheduler = XA_NEW(internal::MemTag::Default, internal::task::Scheduler);
+	ctx->taskScheduler = XA_NEW(internal::MemTag::Default, internal::TaskScheduler);
 	return &ctx->atlas;
 }
 
@@ -7760,7 +7374,7 @@ void Destroy(Atlas *atlas)
 		ctx->addMeshProgress->cancel = true;
 		AddMeshJoin(atlas); // frees addMeshProgress
 	}
-	ctx->taskScheduler->~Scheduler();
+	ctx->taskScheduler->~TaskScheduler();
 	XA_FREE(ctx->taskScheduler);
 	for (uint32_t i = 0; i < ctx->uvMeshes.size(); i++) {
 		internal::UvMesh *mesh = ctx->uvMeshes[i];
@@ -7783,18 +7397,18 @@ void Destroy(Atlas *atlas)
 #endif
 }
 
-struct AddMeshJobArgs
+struct AddMeshTaskArgs
 {
 	Context *ctx;
 	internal::Mesh *mesh;
 };
 
-static void runAddMeshJob(void *userData)
+static void runAddMeshTask(void *userData)
 {
 	XA_PROFILE_START(addMesh)
-	auto args = (AddMeshJobArgs *)userData; // Responsible for freeing this.
+	auto args = (AddMeshTaskArgs *)userData; // Responsible for freeing this.
 	internal::Mesh *mesh = args->mesh;
-	internal::task::Progress *progress = args->ctx->addMeshProgress;
+	internal::Progress *progress = args->ctx->addMeshProgress;
 	if (progress->cancel)
 		goto cleanup;
 	XA_PROFILE_START(addMeshCreateColocals)
@@ -7853,7 +7467,7 @@ static void runAddMeshJob(void *userData)
 cleanup:
 	mesh->~Mesh();
 	XA_FREE(mesh);
-	args->~AddMeshJobArgs();
+	args->~AddMeshTaskArgs();
 	XA_FREE(args);
 	XA_PROFILE_END(addMesh)
 }
@@ -7901,7 +7515,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	}
 	// Don't know how many times AddMesh will be called, so progress needs to adjusted each time.
 	if (!ctx->addMeshProgress) {
-		ctx->addMeshProgress = XA_NEW(internal::MemTag::Default, internal::task::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
+		ctx->addMeshProgress = XA_NEW(internal::MemTag::Default, internal::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
 #if XA_PROFILE
 		internal::s_profile.addMeshConcurrent = clock();
 #endif
@@ -7981,13 +7595,13 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			ignore = true;
 		mesh->addFace(tri[0], tri[1], tri[2], ignore);
 	}
-	AddMeshJobArgs *jobArgs = XA_NEW(internal::MemTag::Default, AddMeshJobArgs); // The job frees this.
-	jobArgs->ctx = ctx;
-	jobArgs->mesh = mesh;
-	internal::task::Job job;
-	job.userData = jobArgs;
-	job.func = runAddMeshJob;
-	ctx->taskScheduler->run(job, &ctx->addMeshSync);
+	AddMeshTaskArgs *taskArgs = XA_NEW(internal::MemTag::Default, AddMeshTaskArgs); // The task frees this.
+	taskArgs->ctx = ctx;
+	taskArgs->mesh = mesh;
+	internal::Task task;
+	task.userData = taskArgs;
+	task.func = runAddMeshTask;
+	ctx->taskScheduler->run(&ctx->addMeshTaskGroup, task);
 	ctx->meshCount++;
 	XA_PROFILE_END(addMesh)
 	return AddMeshError::Success;
@@ -8003,7 +7617,7 @@ void AddMeshJoin(Atlas *atlas)
 	Context *ctx = (Context *)atlas;
 	if (!ctx->addMeshProgress)
 		return;
-	ctx->taskScheduler->waitFor(ctx->addMeshSync);
+	ctx->taskScheduler->wait(&ctx->addMeshTaskGroup);
 	ctx->addMeshProgress->~Progress();
 	XA_FREE(ctx->addMeshProgress);
 	ctx->addMeshProgress = nullptr;
