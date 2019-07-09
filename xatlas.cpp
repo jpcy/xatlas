@@ -308,6 +308,7 @@ struct ProfileData
 	std::atomic<clock_t> addMeshCreateColocals;
 	std::atomic<clock_t> addMeshCreateFaceGroups;
 	std::atomic<clock_t> addMeshCreateBoundaries;
+	std::atomic<clock_t> addMeshCreateChartGroupsConcurrent;
 	std::atomic<clock_t> addMeshCreateChartGroups;
 	clock_t computeChartsConcurrent;
 	std::atomic<clock_t> computeCharts;
@@ -6315,6 +6316,22 @@ private:
 	uint32_t m_paramDeletedChartsCount; // Number of charts with invalid parameterizations that were deleted, after charts were recomputed.
 };
 
+struct CreateChartGroupTaskArgs
+{
+	uint32_t faceGroup;
+	uint32_t groupId;
+	const Mesh *mesh;
+	ChartGroup **chartGroup;
+};
+
+static void runCreateChartGroupTask(void *userData)
+{
+	XA_PROFILE_START(addMeshCreateChartGroups)
+	auto args = (CreateChartGroupTaskArgs *)userData;
+	*(args->chartGroup) = XA_NEW(MemTag::Default, ChartGroup, args->groupId, args->mesh, args->faceGroup);
+	XA_PROFILE_END(addMeshCreateChartGroups)
+}
+
 struct ComputeChartsTaskArgs
 {
 	ChartGroup *chartGroup;
@@ -6413,7 +6430,7 @@ public:
 	}
 
 	// This function is thread safe.
-	void addMesh(const Mesh *mesh)
+	void addMesh(TaskScheduler *taskScheduler, const Mesh *mesh)
 	{
 		// Get list of face groups.
 		const uint32_t faceCount = mesh->faceCount();
@@ -6431,10 +6448,27 @@ public:
 				faceGroups.push_back(group);
 		}
 		// Create one chart group per face group.
+		// Chart group creation is slow since it copies a chunk of the source mesh, so use tasks.
 		Array<ChartGroup *> chartGroups;
 		chartGroups.resize(faceGroups.size());
-		for (uint32_t g = 0; g < faceGroups.size(); g++)
-			chartGroups[g] = XA_NEW(MemTag::Default, ChartGroup, g, mesh, faceGroups[g]);
+		Array<CreateChartGroupTaskArgs> taskArgs;
+		taskArgs.resize(chartGroups.size());
+		for (uint32_t g = 0; g < chartGroups.size(); g++) {
+			CreateChartGroupTaskArgs &args = taskArgs[g];
+			args.chartGroup = &chartGroups[g];
+			args.faceGroup = faceGroups[g];
+			args.groupId = g;
+			args.mesh = mesh;
+		}
+		TaskGroupHandle taskGroup;
+		for (uint32_t g = 0; g < chartGroups.size(); g++) {
+			Task task;
+			task.userData = &taskArgs[g];
+			task.func = runCreateChartGroupTask;
+			taskScheduler->run(&taskGroup, task);
+		}
+		taskScheduler->wait(&taskGroup);
+		// Thread-safe append.
 		m_addMeshMutex.lock();
 		for (uint32_t g = 0; g < chartGroups.size(); g++) {
 			m_chartGroups.push_back(chartGroups[g]);
@@ -7457,9 +7491,9 @@ static void runAddMeshTask(void *userData)
 		fclose(file);
 	}
 #endif
-	XA_PROFILE_START(addMeshCreateChartGroups)
-	args->ctx->paramAtlas.addMesh(mesh); // addMesh is thread safe
-	XA_PROFILE_END(addMeshCreateChartGroups)
+	XA_PROFILE_START(addMeshCreateChartGroupsConcurrent)
+	args->ctx->paramAtlas.addMesh(args->ctx->taskScheduler, mesh); // addMesh is thread safe
+	XA_PROFILE_END(addMeshCreateChartGroupsConcurrent)
 	if (progress->cancel)
 		goto cleanup;
 	progress->value++;
@@ -7626,12 +7660,13 @@ void AddMeshJoin(Atlas *atlas)
 	internal::s_profile.addMeshConcurrent = clock() - internal::s_profile.addMeshConcurrent;
 #endif
 	XA_PROFILE_PRINT("   Total (concurrent): ", addMeshConcurrent)
-		XA_PROFILE_PRINT("   Total: ", addMesh)
-		XA_PROFILE_PRINT("      Create colocals: ", addMeshCreateColocals)
-		XA_PROFILE_PRINT("      Create face groups: ", addMeshCreateFaceGroups)
-		XA_PROFILE_PRINT("      Create boundaries: ", addMeshCreateBoundaries)
-		XA_PROFILE_PRINT("      Create chart groups: ", addMeshCreateChartGroups)
-		XA_PRINT_MEM_USAGE
+	XA_PROFILE_PRINT("   Total: ", addMesh)
+	XA_PROFILE_PRINT("      Create colocals: ", addMeshCreateColocals)
+	XA_PROFILE_PRINT("      Create face groups: ", addMeshCreateFaceGroups)
+	XA_PROFILE_PRINT("      Create boundaries: ", addMeshCreateBoundaries)
+	XA_PROFILE_PRINT("      Create chart groups (concurrent): ", addMeshCreateChartGroupsConcurrent)
+	XA_PROFILE_PRINT("      Create chart groups: ", addMeshCreateChartGroups)
+	XA_PRINT_MEM_USAGE
 }
 
 struct EdgeKey
