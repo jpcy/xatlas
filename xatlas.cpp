@@ -57,7 +57,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #endif
 
 #ifndef XA_PROFILE
-#define XA_PROFILE 1
+#define XA_PROFILE 0
 #endif
 #if XA_PROFILE
 #include <time.h>
@@ -303,26 +303,26 @@ static void *Realloc(void *ptr, size_t size, int /*tag*/, const char * /*file*/,
 
 struct ProfileData
 {
-	clock_t addMeshConcurrent;
-	std::atomic<clock_t> addMesh;
+	std::atomic<clock_t> addMeshReal;
+	std::atomic<clock_t> addMeshThread;
 	std::atomic<clock_t> addMeshCreateColocals;
 	std::atomic<clock_t> addMeshCreateFaceGroups;
 	std::atomic<clock_t> addMeshCreateBoundaries;
-	std::atomic<clock_t> addMeshCreateChartGroupsConcurrent;
-	std::atomic<clock_t> addMeshCreateChartGroups;
-	clock_t computeChartsConcurrent;
-	std::atomic<clock_t> computeCharts;
+	std::atomic<clock_t> addMeshCreateChartGroupsReal;
+	std::atomic<clock_t> addMeshCreateChartGroupsThread;
+	std::atomic<clock_t> computeChartsReal;
+	std::atomic<clock_t> computeChartsThread;
 	std::atomic<clock_t> atlasBuilder;
 	std::atomic<clock_t> atlasBuilderInit;
 	std::atomic<clock_t> atlasBuilderCreateInitialCharts;
 	std::atomic<clock_t> atlasBuilderGrowCharts;
 	std::atomic<clock_t> atlasBuilderMergeCharts;
-	std::atomic<clock_t> createChartMeshesConcurrent;
-	std::atomic<clock_t> createChartMeshes;
+	std::atomic<clock_t> createChartMeshesReal;
+	std::atomic<clock_t> createChartMeshesThread;
 	std::atomic<clock_t> fixChartMeshTJunctions;
 	std::atomic<clock_t> closeChartMeshHoles;
-	clock_t parameterizeChartsConcurrent;
-	std::atomic<clock_t> parameterizeCharts;
+	std::atomic<clock_t> parameterizeChartsReal;
+	std::atomic<clock_t> parameterizeChartsThread;
 	std::atomic<clock_t> parameterizeChartsOrthogonal;
 	std::atomic<clock_t> parameterizeChartsLSCM;
 	std::atomic<clock_t> parameterizeChartsEvaluateQuality;
@@ -5981,10 +5981,10 @@ struct CreateChartTaskArgs
 
 static void runCreateChartTask(void *userData)
 {
-	XA_PROFILE_START(createChartMeshes)
+	XA_PROFILE_START(createChartMeshesThread)
 	auto args = (CreateChartTaskArgs *)userData;
 	*(args->chart) = XA_NEW(MemTag::Default, Chart, args->mesh, *(args->faceArray), *(args->basis), args->meshId, args->chartGroupId, args->chartId);
-	XA_PROFILE_END(createChartMeshes)
+	XA_PROFILE_END(createChartMeshesThread)
 }
 
 // Set of charts corresponding to mesh faces in the same face group.
@@ -6148,7 +6148,6 @@ public:
 		AtlasBuilder builder(m_mesh, nullptr, options);
 		runAtlasBuilder(builder, options);
 		XA_PROFILE_END(atlasBuilder)
-		XA_PROFILE_START(createChartMeshesConcurrent)
 		const uint32_t chartCount = builder.chartCount();
 		m_chartArray.resize(chartCount);
 		Array<CreateChartTaskArgs> taskArgs;
@@ -6163,6 +6162,7 @@ public:
 			args.chartId = i;
 			args.chart = &m_chartArray[i];
 		}
+		XA_PROFILE_START(createChartMeshesReal)
 		TaskGroupHandle taskGroup;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Task task;
@@ -6171,7 +6171,7 @@ public:
 			taskScheduler->run(&taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
-		XA_PROFILE_END(createChartMeshesConcurrent)
+		XA_PROFILE_END(createChartMeshesReal)
 #endif
 #if XA_DEBUG_EXPORT_OBJ_CHARTS
 		char filename[256];
@@ -6363,10 +6363,10 @@ struct CreateChartGroupTaskArgs
 
 static void runCreateChartGroupTask(void *userData)
 {
-	XA_PROFILE_START(addMeshCreateChartGroups)
+	XA_PROFILE_START(addMeshCreateChartGroupsThread)
 	auto args = (CreateChartGroupTaskArgs *)userData;
 	*(args->chartGroup) = XA_NEW(MemTag::Default, ChartGroup, args->groupId, args->mesh, args->faceGroup);
-	XA_PROFILE_END(addMeshCreateChartGroups)
+	XA_PROFILE_END(addMeshCreateChartGroupsThread)
 }
 
 struct ComputeChartsTaskArgs
@@ -6382,9 +6382,9 @@ static void runComputeChartsJob(void *userData)
 	ComputeChartsTaskArgs *args = (ComputeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
 		return;
-	XA_PROFILE_START(computeCharts)
+	XA_PROFILE_START(computeChartsThread)
 	args->chartGroup->computeCharts(args->taskScheduler, *args->options);
-	XA_PROFILE_END(computeCharts)
+	XA_PROFILE_END(computeChartsThread)
 	args->progress->value++;
 	args->progress->update();
 }
@@ -6401,9 +6401,9 @@ static void runParameterizeChartsJob(void *userData)
 	ParameterizeChartsTaskArgs *args = (ParameterizeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
 		return;
-	XA_PROFILE_START(parameterizeCharts)
+	XA_PROFILE_START(parameterizeChartsThread)
 	args->chartGroup->parameterizeCharts(args->func);
-	XA_PROFILE_END(parameterizeCharts)
+	XA_PROFILE_END(parameterizeChartsThread)
 	args->progress->value++;
 	args->progress->update();
 }
@@ -7478,7 +7478,7 @@ struct AddMeshTaskArgs
 
 static void runAddMeshTask(void *userData)
 {
-	XA_PROFILE_START(addMesh)
+	XA_PROFILE_START(addMeshThread)
 	auto args = (AddMeshTaskArgs *)userData; // Responsible for freeing this.
 	internal::Mesh *mesh = args->mesh;
 	internal::Progress *progress = args->ctx->addMeshProgress;
@@ -7530,9 +7530,9 @@ static void runAddMeshTask(void *userData)
 		fclose(file);
 	}
 #endif
-	XA_PROFILE_START(addMeshCreateChartGroupsConcurrent)
+	XA_PROFILE_START(addMeshCreateChartGroupsReal)
 	args->ctx->paramAtlas.addMesh(args->ctx->taskScheduler, mesh); // addMesh is thread safe
-	XA_PROFILE_END(addMeshCreateChartGroupsConcurrent)
+	XA_PROFILE_END(addMeshCreateChartGroupsReal)
 	if (progress->cancel)
 		goto cleanup;
 	progress->value++;
@@ -7542,7 +7542,7 @@ cleanup:
 	XA_FREE(mesh);
 	args->~AddMeshTaskArgs();
 	XA_FREE(args);
-	XA_PROFILE_END(addMesh)
+	XA_PROFILE_END(addMeshThread)
 }
 
 static internal::Vector3 DecodePosition(const MeshDecl &meshDecl, uint32_t index)
@@ -7590,7 +7590,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	if (!ctx->addMeshProgress) {
 		ctx->addMeshProgress = XA_NEW(internal::MemTag::Default, internal::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
 #if XA_PROFILE
-		internal::s_profile.addMeshConcurrent = clock();
+		internal::s_profile.addMeshReal = clock();
 #endif
 	}
 	else {
@@ -7599,7 +7599,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	bool decoded = (meshDecl.indexCount <= 0);
 	uint32_t indexCount = decoded ? meshDecl.vertexCount : meshDecl.indexCount;
 	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", ctx->meshCount, meshDecl.vertexCount, indexCount / 3);
-	XA_PROFILE_START(addMesh)
 	// Expecting triangle faces.
 	if ((indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
@@ -7676,7 +7675,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	task.func = runAddMeshTask;
 	ctx->taskScheduler->run(&ctx->addMeshTaskGroup, task);
 	ctx->meshCount++;
-	XA_PROFILE_END(addMesh)
 	return AddMeshError::Success;
 }
 
@@ -7696,15 +7694,15 @@ void AddMeshJoin(Atlas *atlas)
 	ctx->addMeshProgress = nullptr;
 #if XA_PROFILE
 	XA_PRINT("Added %u meshes\n", ctx->meshCount);
-	internal::s_profile.addMeshConcurrent = clock() - internal::s_profile.addMeshConcurrent;
+	internal::s_profile.addMeshReal = clock() - internal::s_profile.addMeshReal;
 #endif
-	XA_PROFILE_PRINT("   Total (concurrent): ", addMeshConcurrent)
-	XA_PROFILE_PRINT("   Total: ", addMesh)
+	XA_PROFILE_PRINT("   Total (real): ", addMeshReal)
+	XA_PROFILE_PRINT("   Total (thread): ", addMeshThread)
 	XA_PROFILE_PRINT("      Create colocals: ", addMeshCreateColocals)
 	XA_PROFILE_PRINT("      Create face groups: ", addMeshCreateFaceGroups)
 	XA_PROFILE_PRINT("      Create boundaries: ", addMeshCreateBoundaries)
-	XA_PROFILE_PRINT("      Create chart groups (concurrent): ", addMeshCreateChartGroupsConcurrent)
-	XA_PROFILE_PRINT("      Create chart groups: ", addMeshCreateChartGroups)
+	XA_PROFILE_PRINT("      Create chart groups (real): ", addMeshCreateChartGroupsReal)
+	XA_PROFILE_PRINT("      Create chart groups (thread): ", addMeshCreateChartGroupsThread)
 	XA_PRINT_MEM_USAGE
 }
 
@@ -7854,12 +7852,12 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	}
 	XA_PRINT("Computing charts\n");
 	uint32_t chartCount = 0, chartsWithHolesCount = 0, holesCount = 0, chartsWithTJunctionsCount = 0, tJunctionsCount = 0;
-	XA_PROFILE_START(computeChartsConcurrent)
+	XA_PROFILE_START(computeChartsReal)
 	if (!ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, ctx->progressFunc, ctx->progressUserData)) {
 		XA_PRINT("   Cancelled by user\n");
 		return;
 	}
-	XA_PROFILE_END(computeChartsConcurrent)
+	XA_PROFILE_END(computeChartsReal)
 	// Count charts and print warnings.
 	for (uint32_t i = 0; i < ctx->meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
@@ -7893,15 +7891,15 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	if (tJunctionsCount > 0)
 		XA_PRINT("   Fixed %u t-junctions in %u charts\n", tJunctionsCount, chartsWithTJunctionsCount);
 	XA_PRINT("   %u charts\n", chartCount);
-	XA_PROFILE_PRINT("   Total (concurrent): ", computeChartsConcurrent)
-	XA_PROFILE_PRINT("   Total: ", computeCharts)
+	XA_PROFILE_PRINT("   Total (real): ", computeChartsReal)
+	XA_PROFILE_PRINT("   Total (thread): ", computeChartsThread)
 	XA_PROFILE_PRINT("      Atlas builder: ", atlasBuilder)
 	XA_PROFILE_PRINT("         Init: ", atlasBuilderInit)
 	XA_PROFILE_PRINT("         Create initial charts: ", atlasBuilderCreateInitialCharts)
 	XA_PROFILE_PRINT("         Grow charts: ", atlasBuilderGrowCharts)
 	XA_PROFILE_PRINT("         Merge charts: ", atlasBuilderMergeCharts)
-	XA_PROFILE_PRINT("      Create chart meshes (concurrent): ", createChartMeshesConcurrent)
-	XA_PROFILE_PRINT("      Create chart meshes: ", createChartMeshes)
+	XA_PROFILE_PRINT("      Create chart meshes (real): ", createChartMeshesReal)
+	XA_PROFILE_PRINT("      Create chart meshes (thread): ", createChartMeshesThread)
 	XA_PROFILE_PRINT("         Fix t-junctions: ", fixChartMeshTJunctions)
 	XA_PROFILE_PRINT("         Close holes: ", closeChartMeshHoles)
 	XA_PRINT_MEM_USAGE
@@ -7936,12 +7934,12 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	}
 	DestroyOutputMeshes(ctx);
 	XA_PRINT("Parameterizing charts\n");
-	XA_PROFILE_START(parameterizeChartsConcurrent)
+	XA_PROFILE_START(parameterizeChartsReal)
 	if (!ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, func, ctx->progressFunc, ctx->progressUserData)) {
 		XA_PRINT("   Cancelled by user\n");
 			return;
 	}
-	XA_PROFILE_END(parameterizeChartsConcurrent)
+	XA_PROFILE_END(parameterizeChartsReal)
 	uint32_t chartCount = 0, orthoChartsCount = 0, planarChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
 	for (uint32_t i = 0; i < ctx->meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
@@ -8022,8 +8020,8 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	}
 	if (invalidParamCount > 0)
 		XA_PRINT_WARNING("   %u charts with invalid parameterizations\n", invalidParamCount);
-	XA_PROFILE_PRINT("   Total (concurrent): ", parameterizeChartsConcurrent)
-	XA_PROFILE_PRINT("   Total: ", parameterizeCharts)
+	XA_PROFILE_PRINT("   Total (real): ", parameterizeChartsReal)
+	XA_PROFILE_PRINT("   Total (thread): ", parameterizeChartsThread)
 	XA_PROFILE_PRINT("      Orthogonal: ", parameterizeChartsOrthogonal)
 	XA_PROFILE_PRINT("      LSCM: ", parameterizeChartsLSCM)
 	XA_PROFILE_PRINT("      Evaluate quality: ", parameterizeChartsEvaluateQuality)
