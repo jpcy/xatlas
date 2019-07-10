@@ -57,7 +57,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #endif
 
 #ifndef XA_PROFILE
-#define XA_PROFILE 0
+#define XA_PROFILE 1
 #endif
 #if XA_PROFILE
 #include <time.h>
@@ -317,6 +317,7 @@ struct ProfileData
 	std::atomic<clock_t> atlasBuilderCreateInitialCharts;
 	std::atomic<clock_t> atlasBuilderGrowCharts;
 	std::atomic<clock_t> atlasBuilderMergeCharts;
+	std::atomic<clock_t> createChartMeshesConcurrent;
 	std::atomic<clock_t> createChartMeshes;
 	std::atomic<clock_t> fixChartMeshTJunctions;
 	std::atomic<clock_t> closeChartMeshHoles;
@@ -5967,6 +5968,25 @@ private:
 #endif
 };
 
+struct CreateChartTaskArgs
+{
+	const Mesh *mesh;
+	const Array<uint32_t> *faceArray;
+	const Basis *basis;
+	uint32_t meshId;
+	uint32_t chartGroupId;
+	uint32_t chartId;
+	Chart **chart;
+};
+
+static void runCreateChartTask(void *userData)
+{
+	XA_PROFILE_START(createChartMeshes)
+	auto args = (CreateChartTaskArgs *)userData;
+	*(args->chart) = XA_NEW(MemTag::Default, Chart, args->mesh, *(args->faceArray), *(args->basis), args->meshId, args->chartGroupId, args->chartId);
+	XA_PROFILE_END(createChartMeshes)
+}
+
 // Set of charts corresponding to mesh faces in the same face group.
 class ChartGroup
 {
@@ -6107,7 +6127,7 @@ public:
 		  - emphasize roundness metrics to prevent those cases.
 	  - If interior self-overlaps: preserve boundary parameterization and use mean-value map.
 	*/
-	void computeCharts(const ChartOptions &options)
+	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options)
 	{
 		m_chartOptions = options;
 		// This function may be called multiple times, so destroy existing charts.
@@ -6128,13 +6148,30 @@ public:
 		AtlasBuilder builder(m_mesh, nullptr, options);
 		runAtlasBuilder(builder, options);
 		XA_PROFILE_END(atlasBuilder)
-		XA_PROFILE_START(createChartMeshes)
+		XA_PROFILE_START(createChartMeshesConcurrent)
 		const uint32_t chartCount = builder.chartCount();
+		m_chartArray.resize(chartCount);
+		Array<CreateChartTaskArgs> taskArgs;
+		taskArgs.resize(chartCount);
 		for (uint32_t i = 0; i < chartCount; i++) {
-			Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, builder.chartFaces(i), builder.chartBasis(i), m_sourceId, m_id, i);
-			m_chartArray.push_back(chart);
+			CreateChartTaskArgs &args = taskArgs[i];
+			args.mesh = m_mesh;
+			args.faceArray = &builder.chartFaces(i);
+			args.basis = &builder.chartBasis(i);
+			args.meshId = m_sourceId;
+			args.chartGroupId = m_id;
+			args.chartId = i;
+			args.chart = &m_chartArray[i];
 		}
-		XA_PROFILE_END(createChartMeshes)
+		TaskGroupHandle taskGroup;
+		for (uint32_t i = 0; i < chartCount; i++) {
+			Task task;
+			task.userData = &taskArgs[i];
+			task.func = runCreateChartTask;
+			taskScheduler->run(&taskGroup, task);
+		}
+		taskScheduler->wait(&taskGroup);
+		XA_PROFILE_END(createChartMeshesConcurrent)
 #endif
 #if XA_DEBUG_EXPORT_OBJ_CHARTS
 		char filename[256];
@@ -6334,6 +6371,7 @@ static void runCreateChartGroupTask(void *userData)
 
 struct ComputeChartsTaskArgs
 {
+	TaskScheduler *taskScheduler;
 	ChartGroup *chartGroup;
 	const ChartOptions *options;
 	Progress *progress;
@@ -6345,7 +6383,7 @@ static void runComputeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(computeCharts)
-	args->chartGroup->computeCharts(*args->options);
+	args->chartGroup->computeCharts(args->taskScheduler, *args->options);
 	XA_PROFILE_END(computeCharts)
 	args->progress->value++;
 	args->progress->update();
@@ -6492,6 +6530,7 @@ public:
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap()) {
 				ComputeChartsTaskArgs args;
+				args.taskScheduler = taskScheduler;
 				args.chartGroup = m_chartGroups[i];
 				args.options = &options;
 				args.progress = &progress;
@@ -7861,8 +7900,9 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT("         Create initial charts: ", atlasBuilderCreateInitialCharts)
 	XA_PROFILE_PRINT("         Grow charts: ", atlasBuilderGrowCharts)
 	XA_PROFILE_PRINT("         Merge charts: ", atlasBuilderMergeCharts)
+	XA_PROFILE_PRINT("      Create chart meshes (concurrent): ", createChartMeshesConcurrent)
 	XA_PROFILE_PRINT("      Create chart meshes: ", createChartMeshes)
-	XA_PROFILE_PRINT("         Fix t-junctions: ", fixChartMeshTJunctions);
+	XA_PROFILE_PRINT("         Fix t-junctions: ", fixChartMeshTJunctions)
 	XA_PROFILE_PRINT("         Close holes: ", closeChartMeshHoles)
 	XA_PRINT_MEM_USAGE
 }
