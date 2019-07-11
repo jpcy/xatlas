@@ -5987,6 +5987,39 @@ static void runCreateChartTask(void *userData)
 	XA_PROFILE_END(createChartMeshesThread)
 }
 
+struct ParameterizeChartTaskArgs
+{
+	Chart *chart;
+	ParameterizeFunc func;
+};
+
+static void runParameterizeChartTask(void *userData)
+{
+	auto args = (ParameterizeChartTaskArgs *)userData;
+	Mesh *mesh = args->chart->unifiedMesh();
+	XA_PROFILE_START(parameterizeChartsOrthogonal)
+#if 1
+	computeOrthogonalProjectionMap(mesh);
+#else
+	for (uint32_t i = 0; i < vertexCount; i++)
+		mesh->texcoord(i) = Vector2(dot(args->chart->basis().tangent, mesh->position(i)), dot(args->chart->basis().bitangent, mesh->position(i)));
+#endif
+	XA_PROFILE_END(parameterizeChartsOrthogonal)
+	args->chart->evaluateOrthoParameterizationQuality();
+	if (!args->chart->isOrtho() && !args->chart->isPlanar()) {
+		XA_PROFILE_START(parameterizeChartsLSCM)
+		if (args->func)
+			args->func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
+		else if (args->chart->isDisk())
+			computeLeastSquaresConformalMap(mesh);
+		XA_PROFILE_END(parameterizeChartsLSCM)
+		args->chart->evaluateParameterizationQuality();
+	}
+	// @@ Check that parameterization quality is above a certain threshold.
+	// Transfer parameterization from unified mesh to chart mesh.
+	args->chart->transferParameterization();
+}
+
 // Set of charts corresponding to mesh faces in the same face group.
 class ChartGroup
 {
@@ -6194,18 +6227,33 @@ public:
 #endif
 	}
 
-	void parameterizeCharts(ParameterizeFunc func)
+	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func)
 	{
-#if XA_RECOMPUTE_CHARTS
-		Array<Chart *> invalidCharts;
 		const uint32_t chartCount = m_chartArray.size();
+		Array<ParameterizeChartTaskArgs> taskArgs;
+		taskArgs.resize(chartCount);
+		TaskGroupHandle taskGroup;
+		for (uint32_t i = 0; i < chartCount; i++) {
+			ParameterizeChartTaskArgs &args = taskArgs[i];
+			args.chart = m_chartArray[i];
+			args.func = func;
+			Task task;
+			task.userData = &args;
+			task.func = runParameterizeChartTask;
+			taskScheduler->run(&taskGroup, task);
+		}
+		taskScheduler->wait(&taskGroup);
+#if XA_RECOMPUTE_CHARTS
+		// Find charts with invalid parameterizations.
+		Array<Chart *> invalidCharts;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_chartArray[i];
-			parameterizeChart(chart, func);
 			const ParameterizationQuality &quality = chart->paramQuality();
 			if (quality.boundaryIntersection || quality.flippedTriangleCount > 0)
 				invalidCharts.push_back(chart);
 		}
+		if (invalidCharts.isEmpty())
+			return;
 		// Recompute charts with invalid parameterizations.
 		Array<uint32_t> meshFaces;
 		for (uint32_t i = 0; i < invalidCharts.size(); i++) {
@@ -6248,8 +6296,17 @@ public:
 #endif
 		}
 		// Parameterize the new charts.
-		for (uint32_t i = chartCount; i < m_chartArray.size(); i++)
-			parameterizeChart(m_chartArray[i], func);
+		taskArgs.resize(m_chartArray.size() - chartCount);
+		for (uint32_t i = chartCount; i < m_chartArray.size(); i++) {
+			ParameterizeChartTaskArgs &args = taskArgs[i - chartCount];
+			args.chart = m_chartArray[i];
+			args.func = func;
+			Task task;
+			task.userData = &args;
+			task.func = runParameterizeChartTask;
+			taskScheduler->run(&taskGroup, task);
+		}
+		taskScheduler->wait(&taskGroup);
 		// Remove and delete the invalid charts.
 		for (uint32_t i = 0; i < invalidCharts.size(); i++) {
 			Chart *chart = invalidCharts[i];
@@ -6257,12 +6314,6 @@ public:
 			chart->~Chart();
 			XA_FREE(chart);
 			m_paramDeletedChartsCount++;
-		}
-#else
-		const uint32_t chartCount = m_chartArray.size();
-		for (uint32_t i = 0; i < chartCount; i++) {
-			Chart *chart = m_chartArray[i];
-			parameterizeChart(chart, func);
 		}
 #endif
 	}
@@ -6304,32 +6355,6 @@ private:
 		}
 		// Make sure no holes are left!
 		XA_DEBUG_ASSERT(builder.facesLeft() == 0);
-	}
-
-	void parameterizeChart(Chart *chart, ParameterizeFunc func)
-	{
-		Mesh *mesh = chart->unifiedMesh();
-		XA_PROFILE_START(parameterizeChartsOrthogonal)
-#if 1
-		computeOrthogonalProjectionMap(mesh);
-#else
-		for (uint32_t i = 0; i < vertexCount; i++)
-			mesh->texcoord(i) = Vector2(dot(chart->basis().tangent, mesh->position(i)), dot(chart->basis().bitangent, mesh->position(i)));
-#endif
-		XA_PROFILE_END(parameterizeChartsOrthogonal)
-		chart->evaluateOrthoParameterizationQuality();
-		if (!chart->isOrtho() && !chart->isPlanar()) {
-			XA_PROFILE_START(parameterizeChartsLSCM)
-			if (func)
-				func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
-			else if (chart->isDisk())
-				computeLeastSquaresConformalMap(mesh);
-			XA_PROFILE_END(parameterizeChartsLSCM)
-			chart->evaluateParameterizationQuality();
-		}
-		// @@ Check that parameterization quality is above a certain threshold.
-		// Transfer parameterization from unified mesh to chart mesh.
-		chart->transferParameterization();
 	}
 
 	void removeChart(const Chart *chart)
@@ -6379,7 +6404,7 @@ struct ComputeChartsTaskArgs
 
 static void runComputeChartsJob(void *userData)
 {
-	ComputeChartsTaskArgs *args = (ComputeChartsTaskArgs *)userData;
+	auto args = (ComputeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(computeChartsThread)
@@ -6391,6 +6416,7 @@ static void runComputeChartsJob(void *userData)
 
 struct ParameterizeChartsTaskArgs
 {
+	TaskScheduler *taskScheduler;
 	ChartGroup *chartGroup;
 	ParameterizeFunc func;
 	Progress *progress;
@@ -6398,11 +6424,11 @@ struct ParameterizeChartsTaskArgs
 
 static void runParameterizeChartsJob(void *userData)
 {
-	ParameterizeChartsTaskArgs *args = (ParameterizeChartsTaskArgs *)userData;
+	auto args = (ParameterizeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(parameterizeChartsThread)
-	args->chartGroup->parameterizeCharts(args->func);
+	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func);
 	XA_PROFILE_END(parameterizeChartsThread)
 	args->progress->value++;
 	args->progress->update();
@@ -6565,6 +6591,7 @@ public:
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap()) {
 				ParameterizeChartsTaskArgs args;
+				args.taskScheduler = taskScheduler;
 				args.chartGroup = m_chartGroups[i];
 				args.func = func;
 				args.progress = &progress;
