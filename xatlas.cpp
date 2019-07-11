@@ -3570,27 +3570,22 @@ public:
 			destroyGroup(i);
 	}
 
-	void run(TaskGroupHandle *handle, Task task)
+	TaskGroupHandle createTaskGroup(uint32_t reserveSize = 0)
 	{
-		// Allocate a task group if this is the first time using this handle.
-		TaskGroup *group;
-		if (handle->value == UINT32_MAX) {
-			group = XA_NEW(MemTag::Default, TaskGroup);
-			group->ref = 0;
-			std::lock_guard<std::mutex> lock(m_groupsMutex);
-			for (uint32_t i = 0; i < m_groups.size(); i++) {
-				if (!m_groups[i]) {
-					m_groups[i] = group;
-					handle->value = i;
-					break;
-				}
-			}
-			if (handle->value == UINT32_MAX) {
-				m_groups.push_back(group);
-				handle->value = m_groups.size() - 1;
-			}
-		}
-		group = m_groups[handle->value];
+		TaskGroup *group = XA_NEW(MemTag::Default, TaskGroup);
+		group->queue.reserve(reserveSize);
+		group->ref = 0;
+		std::lock_guard<std::mutex> lock(m_groupsMutex);
+		m_groups.push_back(group);
+		TaskGroupHandle handle;
+		handle.value = m_groups.size() - 1;
+		return handle;
+	}
+
+	void run(TaskGroupHandle handle, Task task)
+	{
+		XA_DEBUG_ASSERT(handle.value != UINT32_MAX);
+		TaskGroup *group = m_groups[handle.value];
 		{
 			std::lock_guard<std::mutex> lock(group->queueMutex);
 			group->queue.push_back(task);
@@ -3706,23 +3701,19 @@ public:
 			destroyGroup({ i });
 	}
 
-	void run(TaskGroupHandle *handle, Task task)
+	TaskGroupHandle createTaskGroup(uint32_t reserveSize = 0)
 	{
-		if (handle->value == UINT32_MAX) {
-			TaskGroup *group = XA_NEW(MemTag::Default, TaskGroup);
-			for (uint32_t i = 0; i < m_groups.size(); i++) {
-				if (!m_groups[i]) {
-					m_groups[i] = group;
-					handle->value = i;
-					break;
-				}
-			}
-			if (handle->value == UINT32_MAX) {
-				m_groups.push_back(group);
-				handle->value = m_groups.size() - 1;
-			}
-		}
-		m_groups[handle->value]->queue.push_back(task);
+		TaskGroup *group = XA_NEW(MemTag::Default, TaskGroup);
+		group->queue.reserve(reserveSize);
+		m_groups.push_back(group);
+		TaskGroupHandle handle;
+		handle.value = m_groups.size() - 1;
+		return handle;
+	}
+
+	void run(TaskGroupHandle handle, Task task)
+	{
+		m_groups[handle.value]->queue.push_back(task);
 	}
 
 	void wait(TaskGroupHandle *handle)
@@ -6196,12 +6187,12 @@ public:
 			args.chart = &m_chartArray[i];
 		}
 		XA_PROFILE_START(createChartMeshesReal)
-		TaskGroupHandle taskGroup;
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Task task;
 			task.userData = &taskArgs[i];
 			task.func = runCreateChartTask;
-			taskScheduler->run(&taskGroup, task);
+			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
 		XA_PROFILE_END(createChartMeshesReal)
@@ -6232,7 +6223,7 @@ public:
 		const uint32_t chartCount = m_chartArray.size();
 		Array<ParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
-		TaskGroupHandle taskGroup;
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
 		for (uint32_t i = 0; i < chartCount; i++) {
 			ParameterizeChartTaskArgs &args = taskArgs[i];
 			args.chart = m_chartArray[i];
@@ -6240,7 +6231,7 @@ public:
 			Task task;
 			task.userData = &args;
 			task.func = runParameterizeChartTask;
-			taskScheduler->run(&taskGroup, task);
+			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
 #if XA_RECOMPUTE_CHARTS
@@ -6296,6 +6287,7 @@ public:
 #endif
 		}
 		// Parameterize the new charts.
+		taskGroup = taskScheduler->createTaskGroup(m_chartArray.size() - chartCount);
 		taskArgs.resize(m_chartArray.size() - chartCount);
 		for (uint32_t i = chartCount; i < m_chartArray.size(); i++) {
 			ParameterizeChartTaskArgs &args = taskArgs[i - chartCount];
@@ -6304,7 +6296,7 @@ public:
 			Task task;
 			task.userData = &args;
 			task.func = runParameterizeChartTask;
-			taskScheduler->run(&taskGroup, task);
+			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
 		// Remove and delete the invalid charts.
@@ -6524,12 +6516,12 @@ public:
 			args.groupId = g;
 			args.mesh = mesh;
 		}
-		TaskGroupHandle taskGroup;
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartGroups.size());
 		for (uint32_t g = 0; g < chartGroups.size(); g++) {
 			Task task;
 			task.userData = &taskArgs[g];
 			task.func = runCreateChartGroupTask;
-			taskScheduler->run(&taskGroup, task);
+			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
 		// Thread-safe append.
@@ -6563,12 +6555,12 @@ public:
 				taskArgs.push_back(args);
 			}
 		}
-		TaskGroupHandle taskGroup;
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(taskCount);
 		for (uint32_t i = 0; i < taskCount; i++) {
 			Task task;
 			task.userData = &taskArgs[i];
 			task.func = runComputeChartsJob;
-			taskScheduler->run(&taskGroup, task);
+			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
 		if (progress.cancel)
@@ -6598,12 +6590,12 @@ public:
 				taskArgs.push_back(args);
 			}
 		}
-		TaskGroupHandle taskGroup;
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(taskCount);
 		for (uint32_t i = 0; i < taskCount; i++) {
 			Task task;
 			task.userData = &taskArgs[i];
 			task.func = runParameterizeChartsJob;
-			taskScheduler->run(&taskGroup, task);
+			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
 		if (progress.cancel)
@@ -7694,13 +7686,15 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			ignore = true;
 		mesh->addFace(tri[0], tri[1], tri[2], ignore);
 	}
+	if (ctx->addMeshTaskGroup.value == UINT32_MAX)
+		ctx->addMeshTaskGroup = ctx->taskScheduler->createTaskGroup();
 	AddMeshTaskArgs *taskArgs = XA_NEW(internal::MemTag::Default, AddMeshTaskArgs); // The task frees this.
 	taskArgs->ctx = ctx;
 	taskArgs->mesh = mesh;
 	internal::Task task;
 	task.userData = taskArgs;
 	task.func = runAddMeshTask;
-	ctx->taskScheduler->run(&ctx->addMeshTaskGroup, task);
+	ctx->taskScheduler->run(ctx->addMeshTaskGroup, task);
 	ctx->meshCount++;
 	return AddMeshError::Success;
 }
