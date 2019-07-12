@@ -6537,14 +6537,15 @@ public:
 	{
 		m_chartsComputed = false;
 		m_chartsParameterized = false;
-		uint32_t taskCount = 0;
+		// Ignore vertex maps.
+		uint32_t chartGroupCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
-				taskCount++;
+				chartGroupCount++;
 		}
-		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, taskCount);
+		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, chartGroupCount);
 		Array<ComputeChartsTaskArgs> taskArgs;
-		taskArgs.reserve(taskCount);
+		taskArgs.reserve(chartGroupCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap()) {
 				ComputeChartsTaskArgs args;
@@ -6555,10 +6556,18 @@ public:
 				taskArgs.push_back(args);
 			}
 		}
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(taskCount);
-		for (uint32_t i = 0; i < taskCount; i++) {
+		// Sort chart groups by mesh indexCount.
+		m_chartGroupsRadix = RadixSort();
+		Array<float> chartGroupSortData;
+		chartGroupSortData.resize(chartGroupCount);
+		for (uint32_t i = 0; i < chartGroupCount; i++)
+			chartGroupSortData[i] = (float)taskArgs[i].chartGroup->mesh()->indexCount();
+		m_chartGroupsRadix.sort(chartGroupSortData);
+		// Larger chart group meshes are added first to reduce the chance of thread starvation.
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartGroupCount);
+		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			Task task;
-			task.userData = &taskArgs[i];
+			task.userData = &taskArgs[m_chartGroupsRadix.ranks()[chartGroupCount - i - 1]];
 			task.func = runComputeChartsJob;
 			taskScheduler->run(taskGroup, task);
 		}
@@ -6572,14 +6581,15 @@ public:
 	bool parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
 	{
 		m_chartsParameterized = false;
-		uint32_t taskCount = 0;
+		// Ignore vertex maps.
+		uint32_t chartGroupCount = 0;
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap())
-				taskCount++;
+				chartGroupCount++;
 		}
-		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, taskCount);
+		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
 		Array<ParameterizeChartsTaskArgs> taskArgs;
-		taskArgs.reserve(taskCount);
+		taskArgs.reserve(chartGroupCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
 			if (!m_chartGroups[i]->isVertexMap()) {
 				ParameterizeChartsTaskArgs args;
@@ -6590,10 +6600,11 @@ public:
 				taskArgs.push_back(args);
 			}
 		}
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(taskCount);
-		for (uint32_t i = 0; i < taskCount; i++) {
+		// Larger chart group meshes are added first to reduce the chance of thread starvation.
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartGroupCount);
+		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			Task task;
-			task.userData = &taskArgs[i];
+			task.userData = &taskArgs[m_chartGroupsRadix.ranks()[chartGroupCount - i - 1]];
 			task.func = runParameterizeChartsJob;
 			taskScheduler->run(taskGroup, task);
 		}
@@ -6628,6 +6639,7 @@ private:
 	bool m_chartsComputed;
 	bool m_chartsParameterized;
 	Array<ChartGroup *> m_chartGroups;
+	RadixSort m_chartGroupsRadix; // By mesh indexCount.
 	Array<uint32_t> m_chartGroupSourceMeshes;
 	Array<Array<Vector2> > m_originalChartTexcoords;
 };
