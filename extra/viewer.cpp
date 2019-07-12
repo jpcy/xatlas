@@ -439,6 +439,10 @@ int main(int /*argc*/, char ** /*argv*/)
 	uint32_t bgfxFrameNo = 0;
 	while (!glfwWindowShouldClose(g_window)) {
 		glfwPollEvents();
+		if (glfwGetWindowAttrib(g_window, GLFW_ICONIFIED)) {
+			glfwWaitEvents();
+			lastFrameTime = glfwGetTime();
+		}
 		if (glfwGetKey(g_window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
 			glfwSetWindowShouldClose(g_window, GLFW_TRUE);
 			continue;
