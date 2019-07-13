@@ -299,18 +299,18 @@ static void *Realloc(void *ptr, size_t size, int /*tag*/, const char * /*file*/,
 #if XA_PROFILE
 #define XA_PROFILE_START(var) const clock_t var##Start = clock();
 #define XA_PROFILE_END(var) internal::s_profile.var += clock() - var##Start;
-#define XA_PROFILE_PRINT(label, var) XA_PRINT("%s%.2f seconds (%g ms)\n", label, internal::clockToSeconds(internal::s_profile.var), internal::clockToMs(internal::s_profile.var));
+#define XA_PROFILE_PRINT_AND_RESET(label, var) XA_PRINT("%s%.2f seconds (%g ms)\n", label, internal::clockToSeconds(internal::s_profile.var), internal::clockToMs(internal::s_profile.var)); internal::s_profile.var = 0;
 
 struct ProfileData
 {
-	std::atomic<clock_t> addMeshReal;
+	clock_t addMeshReal;
 	std::atomic<clock_t> addMeshThread;
 	std::atomic<clock_t> addMeshCreateColocals;
 	std::atomic<clock_t> addMeshCreateFaceGroups;
 	std::atomic<clock_t> addMeshCreateBoundaries;
 	std::atomic<clock_t> addMeshCreateChartGroupsReal;
 	std::atomic<clock_t> addMeshCreateChartGroupsThread;
-	std::atomic<clock_t> computeChartsReal;
+	clock_t computeChartsReal;
 	std::atomic<clock_t> computeChartsThread;
 	std::atomic<clock_t> atlasBuilder;
 	std::atomic<clock_t> atlasBuilderInit;
@@ -321,7 +321,7 @@ struct ProfileData
 	std::atomic<clock_t> createChartMeshesThread;
 	std::atomic<clock_t> fixChartMeshTJunctions;
 	std::atomic<clock_t> closeChartMeshHoles;
-	std::atomic<clock_t> parameterizeChartsReal;
+	clock_t parameterizeChartsReal;
 	std::atomic<clock_t> parameterizeChartsThread;
 	std::atomic<clock_t> parameterizeChartsOrthogonal;
 	std::atomic<clock_t> parameterizeChartsLSCM;
@@ -347,7 +347,7 @@ static double clockToSeconds(clock_t c)
 #else
 #define XA_PROFILE_START(var)
 #define XA_PROFILE_END(var)
-#define XA_PROFILE_PRINT(label, var)
+#define XA_PROFILE_PRINT_AND_RESET(label, var)
 #endif
 
 static constexpr float kPi = 3.14159265358979323846f;
@@ -7617,12 +7617,13 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 		XA_PRINT_WARNING("AddMesh: Meshes and UV meshes cannot be added to the same atlas.\n");
 		return AddMeshError::Error;
 	}
+#if XA_PROFILE
+	if (ctx->meshCount == 0)
+		internal::s_profile.addMeshReal = clock();
+#endif
 	// Don't know how many times AddMesh will be called, so progress needs to adjusted each time.
 	if (!ctx->addMeshProgress) {
 		ctx->addMeshProgress = XA_NEW(internal::MemTag::Default, internal::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
-#if XA_PROFILE
-		internal::s_profile.addMeshReal = clock();
-#endif
 	}
 	else {
 		ctx->addMeshProgress->setMaxValue(internal::max(ctx->meshCount + 1, meshCountHint));
@@ -7729,13 +7730,13 @@ void AddMeshJoin(Atlas *atlas)
 	XA_PRINT("Added %u meshes\n", ctx->meshCount);
 	internal::s_profile.addMeshReal = clock() - internal::s_profile.addMeshReal;
 #endif
-	XA_PROFILE_PRINT("   Total (real): ", addMeshReal)
-	XA_PROFILE_PRINT("   Total (thread): ", addMeshThread)
-	XA_PROFILE_PRINT("      Create colocals: ", addMeshCreateColocals)
-	XA_PROFILE_PRINT("      Create face groups: ", addMeshCreateFaceGroups)
-	XA_PROFILE_PRINT("      Create boundaries: ", addMeshCreateBoundaries)
-	XA_PROFILE_PRINT("      Create chart groups (real): ", addMeshCreateChartGroupsReal)
-	XA_PROFILE_PRINT("      Create chart groups (thread): ", addMeshCreateChartGroupsThread)
+	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", addMeshReal)
+	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", addMeshThread)
+	XA_PROFILE_PRINT_AND_RESET("      Create colocals: ", addMeshCreateColocals)
+	XA_PROFILE_PRINT_AND_RESET("      Create face groups: ", addMeshCreateFaceGroups)
+	XA_PROFILE_PRINT_AND_RESET("      Create boundaries: ", addMeshCreateBoundaries)
+	XA_PROFILE_PRINT_AND_RESET("      Create chart groups (real): ", addMeshCreateChartGroupsReal)
+	XA_PROFILE_PRINT_AND_RESET("      Create chart groups (thread): ", addMeshCreateChartGroupsThread)
 	XA_PRINT_MEM_USAGE
 }
 
@@ -7924,17 +7925,17 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	if (tJunctionsCount > 0)
 		XA_PRINT("   Fixed %u t-junctions in %u charts\n", tJunctionsCount, chartsWithTJunctionsCount);
 	XA_PRINT("   %u charts\n", chartCount);
-	XA_PROFILE_PRINT("   Total (real): ", computeChartsReal)
-	XA_PROFILE_PRINT("   Total (thread): ", computeChartsThread)
-	XA_PROFILE_PRINT("      Atlas builder: ", atlasBuilder)
-	XA_PROFILE_PRINT("         Init: ", atlasBuilderInit)
-	XA_PROFILE_PRINT("         Create initial charts: ", atlasBuilderCreateInitialCharts)
-	XA_PROFILE_PRINT("         Grow charts: ", atlasBuilderGrowCharts)
-	XA_PROFILE_PRINT("         Merge charts: ", atlasBuilderMergeCharts)
-	XA_PROFILE_PRINT("      Create chart meshes (real): ", createChartMeshesReal)
-	XA_PROFILE_PRINT("      Create chart meshes (thread): ", createChartMeshesThread)
-	XA_PROFILE_PRINT("         Fix t-junctions: ", fixChartMeshTJunctions)
-	XA_PROFILE_PRINT("         Close holes: ", closeChartMeshHoles)
+	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", computeChartsReal)
+	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", computeChartsThread)
+	XA_PROFILE_PRINT_AND_RESET("      Atlas builder: ", atlasBuilder)
+	XA_PROFILE_PRINT_AND_RESET("         Init: ", atlasBuilderInit)
+	XA_PROFILE_PRINT_AND_RESET("         Create initial charts: ", atlasBuilderCreateInitialCharts)
+	XA_PROFILE_PRINT_AND_RESET("         Grow charts: ", atlasBuilderGrowCharts)
+	XA_PROFILE_PRINT_AND_RESET("         Merge charts: ", atlasBuilderMergeCharts)
+	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (real): ", createChartMeshesReal)
+	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (thread): ", createChartMeshesThread)
+	XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
+	XA_PROFILE_PRINT_AND_RESET("         Close holes: ", closeChartMeshHoles)
 	XA_PRINT_MEM_USAGE
 }
 
@@ -8053,11 +8054,11 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	}
 	if (invalidParamCount > 0)
 		XA_PRINT_WARNING("   %u charts with invalid parameterizations\n", invalidParamCount);
-	XA_PROFILE_PRINT("   Total (real): ", parameterizeChartsReal)
-	XA_PROFILE_PRINT("   Total (thread): ", parameterizeChartsThread)
-	XA_PROFILE_PRINT("      Orthogonal: ", parameterizeChartsOrthogonal)
-	XA_PROFILE_PRINT("      LSCM: ", parameterizeChartsLSCM)
-	XA_PROFILE_PRINT("      Evaluate quality: ", parameterizeChartsEvaluateQuality)
+	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", parameterizeChartsReal)
+	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", parameterizeChartsThread)
+	XA_PROFILE_PRINT_AND_RESET("      Orthogonal: ", parameterizeChartsOrthogonal)
+	XA_PROFILE_PRINT_AND_RESET("      LSCM: ", parameterizeChartsLSCM)
+	XA_PROFILE_PRINT_AND_RESET("      Evaluate quality: ", parameterizeChartsEvaluateQuality)
 	XA_PRINT_MEM_USAGE
 }
 
@@ -8129,19 +8130,12 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		for (uint32_t i = 0; i < atlas->atlasCount; i++)
 			packAtlas.getImages()[i]->copyTo(&atlas->image[atlas->width * atlas->height * i], atlas->width, atlas->height);
 	}
-	XA_PROFILE_PRINT("   Total: ", packCharts)
-	XA_PROFILE_PRINT("      Rasterize: ", packChartsRasterize)
-	XA_PROFILE_PRINT("      Dilate (padding): ", packChartsDilate)
-	XA_PROFILE_PRINT("      Find location: ", packChartsFindLocation)
-	XA_PROFILE_PRINT("      Blit: ", packChartsBlit)
+	XA_PROFILE_PRINT_AND_RESET("   Total: ", packCharts)
+	XA_PROFILE_PRINT_AND_RESET("      Rasterize: ", packChartsRasterize)
+	XA_PROFILE_PRINT_AND_RESET("      Dilate (padding): ", packChartsDilate)
+	XA_PROFILE_PRINT_AND_RESET("      Find location: ", packChartsFindLocation)
+	XA_PROFILE_PRINT_AND_RESET("      Blit: ", packChartsBlit)
 	XA_PRINT_MEM_USAGE
-#if XA_PROFILE
-	internal::s_profile.packCharts = 0;
-	internal::s_profile.packChartsRasterize = 0;
-	internal::s_profile.packChartsDilate = 0;
-	internal::s_profile.packChartsFindLocation = 0;
-	internal::s_profile.packChartsBlit = 0;
-#endif
 	XA_PRINT("Building output meshes\n");
 	int progress = 0;
 	if (ctx->progressFunc) {
