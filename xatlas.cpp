@@ -57,7 +57,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #endif
 
 #ifndef XA_PROFILE
-#define XA_PROFILE 0
+#define XA_PROFILE 1
 #endif
 #if XA_PROFILE
 #include <time.h>
@@ -330,6 +330,7 @@ struct ProfileData
 	clock_t packChartsRasterize;
 	clock_t packChartsDilate;
 	clock_t packChartsFindLocation;
+	std::atomic<clock_t> packChartsFindLocationThread;
 	clock_t packChartsBlit;
 };
 
@@ -642,6 +643,7 @@ static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &
 
 struct Vector2i
 {
+	Vector2i() {}
 	Vector2i(int32_t x, int32_t y) : x(x), y(y) {}
 
 	int32_t x, y;
@@ -6804,6 +6806,71 @@ struct Chart
 	uint32_t uniqueVertexCount() const { return uniqueVertices.isEmpty() ? vertexCount : uniqueVertices.size(); }
 };
 
+struct FindChartLocationBruteForceTaskArgs
+{
+	std::atomic<bool> *finished; // One of the tasks found a location that doesn't expand the atlas.
+	Vector2i startPosition;
+	const BitImage *atlasBitImage;
+	const BitImage *chartBitImage;
+	const BitImage *chartBitImageRotated;
+	int w, h;
+	bool blockAligned, resizableAtlas, allowRotate;
+	// out
+	bool best_insideAtlas;
+	int best_metric, best_x, best_y, best_w, best_h, best_r;
+};
+
+static void runFindChartLocationBruteForceTask(void *userData)
+{
+	XA_PROFILE_START(packChartsFindLocationThread)
+	auto args = (FindChartLocationBruteForceTaskArgs *)userData;
+	args->best_metric = INT_MAX;
+	if (args->finished->load())
+		return;
+	// Try two different orientations.
+	for (int r = 0; r < 2; r++) {
+		int cw = args->chartBitImage->width();
+		int ch = args->chartBitImage->height();
+		if (r == 1) {
+			if (args->allowRotate)
+				swap(cw, ch);
+			else
+				break;
+		}
+		const int y = args->startPosition.y;
+		const int stepSize = args->blockAligned ? 4 : 1;
+		for (int x = args->startPosition.x; x <= args->w + stepSize; x += stepSize) { // + 1 not really necessary here.
+			if (!args->resizableAtlas && (x > (int)args->atlasBitImage->width() - cw || y > (int)args->atlasBitImage->height() - ch))
+				continue;
+			if (args->finished->load())
+				break;
+			// Early out if metric not better.
+			const int area = max(args->w, x + cw) * max(args->h, y + ch);
+			const int extents = max(max(args->w, x + cw), max(args->h, y + ch));
+			const int metric = extents * extents + area;
+			if (metric > args->best_metric)
+				continue;
+			// If metric is the same, pick the one closest to the origin.
+			if (metric == args->best_metric && max(x, y) >= max(args->best_x, args->best_y))
+				continue;
+			if (!args->atlasBitImage->canBlit(r == 1 ? *(args->chartBitImageRotated) : *(args->chartBitImage), x, y))
+				continue;
+			args->best_metric = metric;
+			args->best_insideAtlas = area == args->w * args->h;
+			args->best_x = x;
+			args->best_y = y;
+			args->best_w = cw;
+			args->best_h = ch;
+			args->best_r = r;
+			if (args->best_insideAtlas) {
+				args->finished->store(true);
+				break;
+			}
+		}
+	}
+	XA_PROFILE_END(packChartsFindLocationThread)
+}
+
 struct Atlas
 {
 	~Atlas()
@@ -6924,7 +6991,7 @@ struct Atlas
 	}
 
 	// Pack charts in the smallest possible rectangle.
-	bool packCharts(const PackOptions &options, ProgressFunc progressFunc, void *progressUserData)
+	bool packCharts(TaskScheduler *taskScheduler, const PackOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
 		if (progressFunc) {
 			if (!progressFunc(ProgressCategory::PackCharts, 0, progressUserData))
@@ -7139,7 +7206,7 @@ struct Atlas
 					chartStartPositions.push_back(Vector2i(0, 0));
 				}
 				XA_PROFILE_START(packChartsFindLocation)
-				const bool foundLocation = findChartLocation(chartStartPositions[currentAtlas], options.bruteForce, m_bitImages[currentAtlas], &chartBitImage, &chartBitImageRotated, atlasWidth, atlasHeight, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, resizableAtlas, chart->allowRotate);
+				const bool foundLocation = findChartLocation(taskScheduler, chartStartPositions[currentAtlas], options.bruteForce, m_bitImages[currentAtlas], &chartBitImage, &chartBitImageRotated, atlasWidth, atlasHeight, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, resizableAtlas, chart->allowRotate);
 				XA_PROFILE_END(packChartsFindLocation)
 				if (firstChartInBitImage && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitImage. texelsPerUnit must be too large for the resolution.
@@ -7251,65 +7318,66 @@ private:
 	// is occupied at this point. At the end we have many small charts and a large atlas with sparse holes. Finding those holes randomly is slow. A better approach would be to
 	// start stacking large charts as if they were tetris pieces. Once charts get small try to place them randomly. It may be interesting to try a intermediate strategy, first try
 	// along one axis and then try exhaustively along that axis.
-	bool findChartLocation(const Vector2i &startPosition, bool bruteForce, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
+	bool findChartLocation(TaskScheduler *taskScheduler, const Vector2i &startPosition, bool bruteForce, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
 	{
 		const int attempts = 4096;
 		if (bruteForce || attempts >= w * h)
-			return findChartLocation_bruteForce(startPosition, atlasBitImage, chartBitImage, chartBitImageRotated, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, resizableAtlas, allowRotate);
+			return findChartLocation_bruteForce(taskScheduler, startPosition, atlasBitImage, chartBitImage, chartBitImageRotated, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, resizableAtlas, allowRotate);
 		return findChartLocation_random(atlasBitImage, chartBitImage, chartBitImageRotated, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned, resizableAtlas, allowRotate);
 	}
 
-	bool findChartLocation_bruteForce(const Vector2i &startPosition, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
+	bool findChartLocation_bruteForce(TaskScheduler *taskScheduler, const Vector2i &startPosition, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, bool resizableAtlas, bool allowRotate)
 	{
-		bool result = false;
-		const int BLOCK_SIZE = 4;
-		int best_metric = INT_MAX;
-		int step_size = blockAligned ? BLOCK_SIZE : 1;
-		// Try two different orientations.
-		for (int r = 0; r < 2; r++) {
-			int cw = chartBitImage->width();
-			int ch = chartBitImage->height();
-			if (r == 1) {
-				if (allowRotate)
-					swap(cw, ch);
-				else
-					break;
-			}
-			for (int y = startPosition.y; y <= h + step_size; y += step_size) { // + 1 to extend atlas in case atlas full.
-				for (int x = (y == startPosition.y ? startPosition.x : 0); x <= w + step_size; x += step_size) { // + 1 not really necessary here.
-					if (!resizableAtlas && (x > (int)atlasBitImage->width() - cw || y > (int)atlasBitImage->height() - ch))
-						continue;
-					// Early out.
-					int area = max(w, x + cw) * max(h, y + ch);
-					//int perimeter = max(w, x+cw) + max(h, y+ch);
-					int extents = max(max(w, x + cw), max(h, y + ch));
-					int metric = extents * extents + area;
-					if (metric > best_metric) {
-						continue;
-					}
-					if (metric == best_metric && max(x, y) >= max(*best_x, *best_y)) {
-						// If metric is the same, pick the one closest to the origin.
-						continue;
-					}
-					if (atlasBitImage->canBlit(r == 1 ? *chartBitImageRotated : *chartBitImage, x, y)) {
-						result = true;
-						best_metric = metric;
-						*best_x = x;
-						*best_y = y;
-						*best_w = cw;
-						*best_h = ch;
-						*best_r = r;
-						if (area == w * h) {
-							// Chart is completely inside, do not look at any other location.
-							goto done;
-						}
-					}
-				}
-			}
+		const int stepSize = blockAligned ? 4 : 1;
+		uint32_t taskCount = 0;
+		for (int y = startPosition.y; y <= h + stepSize; y += stepSize)
+			taskCount++;
+		Array<FindChartLocationBruteForceTaskArgs> taskArgs;
+		taskArgs.resize(taskCount);
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(taskCount);
+		std::atomic<bool> finished = false; // One of the tasks found a location that doesn't expand the atlas.
+		uint32_t i = 0;
+		for (int y = startPosition.y; y <= h + stepSize; y += stepSize) {
+			FindChartLocationBruteForceTaskArgs &args = taskArgs[i];
+			args.finished = &finished;
+			args.startPosition = Vector2i(y == startPosition.y ? startPosition.x : 0, y);
+			args.atlasBitImage = atlasBitImage;
+			args.chartBitImage = chartBitImage;
+			args.chartBitImageRotated = chartBitImageRotated;
+			args.w = w;
+			args.h = h;
+			args.blockAligned = blockAligned;
+			args.resizableAtlas = resizableAtlas;
+			args.allowRotate = allowRotate;
+			Task task;
+			task.userData = &taskArgs[i];
+			task.func = runFindChartLocationBruteForceTask;
+			taskScheduler->run(taskGroup, task);
+			i++;
 		}
-	done:
-		XA_DEBUG_ASSERT (best_metric != INT_MAX);
-		return result;
+		taskScheduler->wait(&taskGroup);
+		// Find the task result with the best metric.
+		int best_metric = INT_MAX;
+		bool best_insideAtlas = false;
+		for (i = 0; i < taskCount; i++) {
+			FindChartLocationBruteForceTaskArgs &args = taskArgs[i];
+			if (args.best_metric > best_metric)
+				continue;
+			// A location that doesn't expand the atlas is always preferred.
+			if (!args.best_insideAtlas && best_insideAtlas)
+				continue;
+			// If metric is the same, pick the one closest to the origin.
+			if (!args.best_insideAtlas == best_insideAtlas && args.best_metric == best_metric && max(args.best_x, args.best_y) >= max(*best_x, *best_y))
+				continue;
+			best_metric = args.best_metric;
+			best_insideAtlas = args.best_insideAtlas;
+			*best_x = args.best_x;
+			*best_y = args.best_y;
+			*best_w = args.best_w;
+			*best_h = args.best_h;
+			*best_r = args.best_r;
+		}
+		return best_metric != INT_MAX;
 	}
 
 	bool findChartLocation_random(const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned, bool resizableAtlas, bool allowRotate)
@@ -8111,7 +8179,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 			packAtlas.addChart(ctx->paramAtlas.chartAt(i));
 	}
 	XA_PROFILE_START(packCharts)
-	if (!packAtlas.packCharts(packOptions, ctx->progressFunc, ctx->progressUserData))
+	if (!packAtlas.packCharts(ctx->taskScheduler, packOptions, ctx->progressFunc, ctx->progressUserData))
 		return;
 	XA_PROFILE_END(packCharts)
 	// Populate atlas object with pack results.
@@ -8133,7 +8201,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	XA_PROFILE_PRINT_AND_RESET("   Total: ", packCharts)
 	XA_PROFILE_PRINT_AND_RESET("      Rasterize: ", packChartsRasterize)
 	XA_PROFILE_PRINT_AND_RESET("      Dilate (padding): ", packChartsDilate)
-	XA_PROFILE_PRINT_AND_RESET("      Find location: ", packChartsFindLocation)
+	XA_PROFILE_PRINT_AND_RESET("      Find location (real): ", packChartsFindLocation)
+	XA_PROFILE_PRINT_AND_RESET("      Find location (thread): ", packChartsFindLocationThread)
 	XA_PROFILE_PRINT_AND_RESET("      Blit: ", packChartsBlit)
 	XA_PRINT_MEM_USAGE
 	XA_PRINT("Building output meshes\n");
