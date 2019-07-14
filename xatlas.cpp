@@ -7335,7 +7335,7 @@ private:
 		Array<FindChartLocationBruteForceTaskArgs> taskArgs;
 		taskArgs.resize(taskCount);
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(taskCount);
-		std::atomic<bool> finished = false; // One of the tasks found a location that doesn't expand the atlas.
+		std::atomic<bool> finished(false); // One of the tasks found a location that doesn't expand the atlas.
 		uint32_t i = 0;
 		for (int y = startPosition.y; y <= h + stepSize; y += stepSize) {
 			FindChartLocationBruteForceTaskArgs &args = taskArgs[i];
@@ -7367,7 +7367,7 @@ private:
 			if (!args.best_insideAtlas && best_insideAtlas)
 				continue;
 			// If metric is the same, pick the one closest to the origin.
-			if (!args.best_insideAtlas == best_insideAtlas && args.best_metric == best_metric && max(args.best_x, args.best_y) >= max(*best_x, *best_y))
+			if (args.best_insideAtlas == best_insideAtlas && args.best_metric == best_metric && max(args.best_x, args.best_y) >= max(*best_x, *best_y))
 				continue;
 			best_metric = args.best_metric;
 			best_insideAtlas = args.best_insideAtlas;
@@ -7583,19 +7583,25 @@ static void runAddMeshTask(void *userData)
 	internal::Progress *progress = args->ctx->addMeshProgress;
 	if (progress->cancel)
 		goto cleanup;
-	XA_PROFILE_START(addMeshCreateColocals)
-	mesh->createColocals();
-	XA_PROFILE_END(addMeshCreateColocals)
+	{
+		XA_PROFILE_START(addMeshCreateColocals)
+		mesh->createColocals();
+		XA_PROFILE_END(addMeshCreateColocals)
+	}
 	if (progress->cancel)
 		goto cleanup;
-	XA_PROFILE_START(addMeshCreateFaceGroups)
-	mesh->createFaceGroups();
-	XA_PROFILE_END(addMeshCreateFaceGroups)
+	{
+		XA_PROFILE_START(addMeshCreateFaceGroups)
+		mesh->createFaceGroups();
+		XA_PROFILE_END(addMeshCreateFaceGroups)
+	}
 	if (progress->cancel)
 		goto cleanup;
-	XA_PROFILE_START(addMeshCreateBoundaries)
-	mesh->createBoundaries();
-	XA_PROFILE_END(addMeshCreateBoundaries)
+	{
+		XA_PROFILE_START(addMeshCreateBoundaries)
+		mesh->createBoundaries();
+		XA_PROFILE_END(addMeshCreateBoundaries)
+	}
 	if (progress->cancel)
 		goto cleanup;
 #if XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES
@@ -7629,9 +7635,11 @@ static void runAddMeshTask(void *userData)
 		fclose(file);
 	}
 #endif
-	XA_PROFILE_START(addMeshCreateChartGroupsReal)
-	args->ctx->paramAtlas.addMesh(args->ctx->taskScheduler, mesh); // addMesh is thread safe
-	XA_PROFILE_END(addMeshCreateChartGroupsReal)
+	{
+		XA_PROFILE_START(addMeshCreateChartGroupsReal)
+		args->ctx->paramAtlas.addMesh(args->ctx->taskScheduler, mesh); // addMesh is thread safe
+		XA_PROFILE_END(addMeshCreateChartGroupsReal)
+	}
 	if (progress->cancel)
 		goto cleanup;
 	progress->value++;
