@@ -3531,6 +3531,15 @@ private:
 	std::mutex m_mutex;
 };
 
+struct Spinlock
+{
+	void lock() { while(m_lock.test_and_set(std::memory_order_acquire)) {} }
+	void unlock() { m_lock.clear(std::memory_order_release); }
+
+private:
+	std::atomic_flag m_lock = ATOMIC_FLAG_INIT;
+};
+
 struct TaskGroupHandle
 {
 	uint32_t value = UINT32_MAX;
@@ -3588,10 +3597,9 @@ public:
 	{
 		XA_DEBUG_ASSERT(handle.value != UINT32_MAX);
 		TaskGroup *group = m_groups[handle.value];
-		{
-			std::lock_guard<std::mutex> lock(group->queueMutex);
-			group->queue.push_back(task);
-		}
+		group->queueLock.lock();
+		group->queue.push_back(task);
+		group->queueLock.unlock();
 		group->ref++;
 		// Wake up a worker to run this task.
 		for (uint32_t i = 0; i < m_workers.size(); i++) {
@@ -3610,11 +3618,10 @@ public:
 		TaskGroup *group = m_groups[handle->value];
 		for (;;) {
 			Task *task = nullptr;
-			{
-				std::lock_guard<std::mutex> lock(group->queueMutex);
-				if (group->queueHead < group->queue.size())
-					task = &group->queue[group->queueHead++];
-			}
+			group->queueLock.lock();
+			if (group->queueHead < group->queue.size())
+				task = &group->queue[group->queueHead++];
+			group->queueLock.unlock();
 			if (!task)
 				break;
 			task->func(task->userData);
@@ -3633,7 +3640,7 @@ private:
 	{
 		Array<Task> queue; // Items are never removed. queueHead is incremented to pop items.
 		uint32_t queueHead = 0;
-		std::mutex queueMutex;
+		Spinlock queueLock;
 		std::atomic<uint32_t> ref; // Increment when a task is enqueued, decrement when a task finishes.
 	};
 
@@ -3678,11 +3685,13 @@ private:
 						group = scheduler->m_groups[i];
 						if (!group)
 							continue;
-						std::lock_guard<std::mutex> queueLock(group->queueMutex);
+						group->queueLock.lock();
 						if (group->queueHead < group->queue.size()) {
 							task = &group->queue[group->queueHead++];
+							group->queueLock.unlock();
 							break;
 						}
+						group->queueLock.unlock();
 					}
 				}
 				if (!task)
