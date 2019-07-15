@@ -3557,6 +3557,14 @@ class TaskScheduler
 public:
 	TaskScheduler() : m_shutdown(false)
 	{
+		// Max with current task scheduler usage is 1 per thread + 1 deep nesting, but allow for some slop.
+		m_maxGroups = std::thread::hardware_concurrency() * 4;
+		m_groups = XA_ALLOC_ARRAY(MemTag::Default, TaskGroup, m_maxGroups);
+		for (uint32_t i = 0; i < m_maxGroups; i++) {
+			new (&m_groups[i]) TaskGroup();
+			m_groups[i].free = true;
+			m_groups[i].ref = 0;
+		}
 		m_workers.resize(std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1);
 		for (uint32_t i = 0; i < m_workers.size(); i++) {
 			m_workers[i].wakeup = false;
@@ -3577,30 +3585,42 @@ public:
 			worker.thread->~thread();
 			XA_FREE(worker.thread);
 		}
-		for (uint32_t i = 0; i < m_groups.size(); i++)
-			destroyGroup(i);
+		for (uint32_t i = 0; i < m_maxGroups; i++)
+			m_groups[i].~TaskGroup();
+		XA_FREE(m_groups);
 	}
 
 	TaskGroupHandle createTaskGroup(uint32_t reserveSize = 0)
 	{
-		TaskGroup *group = XA_NEW(MemTag::Default, TaskGroup);
-		group->queue.reserve(reserveSize);
-		group->ref = 0;
-		std::lock_guard<std::mutex> lock(m_groupsMutex);
-		m_groups.push_back(group);
+		// Claim the first free group.
+		for (uint32_t i = 0; i < m_maxGroups; i++) {
+			TaskGroup &group = m_groups[i];
+			bool expected = true;
+			if (!group.free.compare_exchange_strong(expected, false))
+				continue;
+			group.queueLock.lock();
+			group.queueHead = 0;
+			group.queue.clear();
+			group.queue.reserve(reserveSize);
+			group.queueLock.unlock();
+			TaskGroupHandle handle;
+			handle.value = i;
+			return handle;
+		}
+		XA_DEBUG_ASSERT(false);
 		TaskGroupHandle handle;
-		handle.value = m_groups.size() - 1;
+		handle.value = UINT32_MAX;
 		return handle;
 	}
 
 	void run(TaskGroupHandle handle, Task task)
 	{
 		XA_DEBUG_ASSERT(handle.value != UINT32_MAX);
-		TaskGroup *group = m_groups[handle.value];
-		group->queueLock.lock();
-		group->queue.push_back(task);
-		group->queueLock.unlock();
-		group->ref++;
+		TaskGroup &group = m_groups[handle.value];
+		group.queueLock.lock();
+		group.queue.push_back(task);
+		group.queueLock.unlock();
+		group.ref++;
 		// Wake up a worker to run this task.
 		for (uint32_t i = 0; i < m_workers.size(); i++) {
 			m_workers[i].wakeup = true;
@@ -3615,29 +3635,29 @@ public:
 			return;
 		}
 		// Run tasks from the group queue until empty.
-		TaskGroup *group = m_groups[handle->value];
+		TaskGroup &group = m_groups[handle->value];
 		for (;;) {
 			Task *task = nullptr;
-			group->queueLock.lock();
-			if (group->queueHead < group->queue.size())
-				task = &group->queue[group->queueHead++];
-			group->queueLock.unlock();
+			group.queueLock.lock();
+			if (group.queueHead < group.queue.size())
+				task = &group.queue[group.queueHead++];
+			group.queueLock.unlock();
 			if (!task)
 				break;
 			task->func(task->userData);
-			group->ref--;
+			group.ref--;
 		}
 		// Even though the task queue is empty, workers can still be running tasks.
-		while (group->ref > 0)
+		while (group.ref > 0)
 			std::this_thread::yield();
-		std::lock_guard<std::mutex> lock(m_groupsMutex);
-		destroyGroup(handle->value);
+		group.free = true;
 		handle->value = UINT32_MAX;
 	}
 
 private:
 	struct TaskGroup
 	{
+		std::atomic<bool> free;
 		Array<Task> queue; // Items are never removed. queueHead is incremented to pop items.
 		uint32_t queueHead = 0;
 		Spinlock queueLock;
@@ -3652,20 +3672,10 @@ private:
 		std::atomic<bool> wakeup;
 	};
 
-	Array<TaskGroup *> m_groups;
-	std::mutex m_groupsMutex;
+	TaskGroup *m_groups;
+	uint32_t m_maxGroups;
 	Array<Worker> m_workers;
 	std::atomic<bool> m_shutdown;
-
-	void destroyGroup(uint32_t index)
-	{
-		TaskGroup *group = m_groups[index];
-		m_groups[index] = nullptr;
-		if (group) {
-			group->~TaskGroup();
-			XA_FREE(group);
-		}
-	}
 
 	static void workerThread(TaskScheduler *scheduler, Worker *worker)
 	{
@@ -3679,20 +3689,17 @@ private:
 				// Look for a task in any of the groups and run it.
 				TaskGroup *group = nullptr;
 				Task *task = nullptr;
-				{
-					std::lock_guard<std::mutex> groupsLock(scheduler->m_groupsMutex);
-					for (uint32_t i = 0; i < scheduler->m_groups.size(); i++) {
-						group = scheduler->m_groups[i];
-						if (!group)
-							continue;
-						group->queueLock.lock();
-						if (group->queueHead < group->queue.size()) {
-							task = &group->queue[group->queueHead++];
-							group->queueLock.unlock();
-							break;
-						}
+				for (uint32_t i = 0; i < scheduler->m_maxGroups; i++) {
+					group = &scheduler->m_groups[i];
+					if (group->free || group->ref == 0)
+						continue;
+					group->queueLock.lock();
+					if (group->queueHead < group->queue.size()) {
+						task = &group->queue[group->queueHead++];
 						group->queueLock.unlock();
+						break;
 					}
+					group->queueLock.unlock();
 				}
 				if (!task)
 					break;
