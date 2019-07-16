@@ -7,6 +7,7 @@ local EMBREE_DIR = path.join(THIRDPARTY_DIR, "embree3")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
 local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
 local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
+local OPENNL_DIR = path.join(THIRDPARTY_DIR, "OpenNL")
 
 project "example"
 	kind "ConsoleApp"
@@ -77,9 +78,10 @@ project "viewer"
 		EMBREE_DIR,
 		path.join(GLFW_DIR, "include"),
 		path.join(IGL_DIR, "include"),
-		path.join(OIDN_DIR, "include")
+		path.join(OIDN_DIR, "include"),
+		OPENNL_DIR
 	}
-	links { "bgfx", "bimg", "bx", "cgltf", "glfw", "imgui", "nativefiledialog", "objzero", "stb_image", "stb_image_resize", "xatlas" }
+	links { "bgfx", "bimg", "bx", "cgltf", "glfw", "imgui", "nativefiledialog", "objzero", "OpenNL", "stb_image", "stb_image_resize", "xatlas" }
 	filter "system:windows"
 		links { "gdi32", "ole32", "psapi", "uuid" }
 	filter "system:linux"
@@ -261,6 +263,14 @@ project "objzero"
 	language "C"
 	cdialect "C99"
 	files(path.join(THIRDPARTY_DIR, "objzero/objzero.*"))
+	
+project "OpenNL"
+	kind "StaticLib"
+	language "C"
+	defines { "GEO_STATIC_LIBS" }
+	files(path.join(OPENNL_DIR, "*"))
+	filter "action:vs*"
+		defines { "_CRT_SECURE_NO_WARNINGS" }
 	
 project "stb_image"
 	kind "StaticLib"
