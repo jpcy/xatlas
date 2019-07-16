@@ -269,6 +269,8 @@ project "OpenNL"
 	language "C"
 	defines { "GEO_STATIC_LIBS" }
 	files(path.join(OPENNL_DIR, "*"))
+	filter "system:windows"
+		defines "WIN32"
 	filter "action:vs*"
 		defines { "_CRT_SECURE_NO_WARNINGS" }
 	
