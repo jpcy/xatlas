@@ -288,10 +288,10 @@ int main(int argc, char *argv[])
 				color[0] = rand() % 255;
 				color[1] = rand() % 255;
 				color[2] = rand() % 255;
-				for (uint32_t k = 0; k < chart->indexCount; k += 3) {
+				for (uint32_t k = 0; k < chart->faceCount; k++) {
 					int verts[3][2];
 					for (int l = 0; l < 3; l++) {
-						const xatlas::Vertex &v = mesh.vertexArray[chart->indexArray[k + l]];
+						const xatlas::Vertex &v = mesh.vertexArray[mesh.indexArray[chart->faceArray[k] * 3 + l]];
 						verts[l][0] = int(v.uv[0]);
 						verts[l][1] = int(v.uv[1]);
 					}

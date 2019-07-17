@@ -48,8 +48,8 @@ struct Chart
 {
 	uint32_t atlasIndex; // Sub-atlas index.
 	uint32_t flags;
-	uint32_t *indexArray;
-	uint32_t indexCount;
+	uint32_t *faceArray;
+	uint32_t faceCount;
 	uint32_t material;
 };
 

@@ -3770,6 +3770,7 @@ private:
 
 struct UvMeshChart
 {
+	Array<uint32_t> faces;
 	Array<uint32_t> indices;
 	uint32_t material;
 };
@@ -6817,6 +6818,8 @@ struct Chart
 	bool allowRotate;
 	// bounding box
 	Vector2 majorAxis, minorAxis, minCorner, maxCorner;
+	// UvMeshChart only
+	Array<uint32_t> faces;
 
 	Vector2 &uniqueVertexAt(uint32_t v) { return uniqueVertices.isEmpty() ? vertices[v] : vertices[uniqueVertices[v]]; }
 	uint32_t uniqueVertexCount() const { return uniqueVertices.isEmpty() ? vertexCount : uniqueVertices.size(); }
@@ -6960,6 +6963,8 @@ struct Atlas
 			chart->vertices = mesh->texcoords.data();
 			chart->vertexCount = mesh->texcoords.size();
 			chart->allowRotate = mesh->rotateCharts;
+			chart->faces.resize(uvChart->faces.size());
+			memcpy(chart->faces.data(), uvChart->faces.data(), sizeof(uint32_t) * uvChart->faces.size());
 			// Find unique vertices.
 			vertexUsed.clearAll();
 			for (uint32_t i = 0; i < chart->indexCount; i++) {
@@ -7534,8 +7539,8 @@ static void DestroyOutputMeshes(Context *ctx)
 	for (int i = 0; i < (int)ctx->atlas.meshCount; i++) {
 		Mesh &mesh = ctx->atlas.meshes[i];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
-			if (mesh.chartArray[j].indexArray)
-				XA_FREE(mesh.chartArray[j].indexArray);
+			if (mesh.chartArray[j].faceArray)
+				XA_FREE(mesh.chartArray[j].faceArray);
 		}
 		if (mesh.chartArray)
 			XA_FREE(mesh.chartArray);
@@ -7908,7 +7913,6 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			vertexToFaceMap.add(meshInstance->texcoords[mesh->indices[i]], i / 3);
 		internal::BitArray faceAssigned(faceCount);
 		faceAssigned.clearAll();
-		internal::Array<uint32_t> chartFaces;
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (faceAssigned.bitAt(f))
 				continue;
@@ -7917,13 +7921,12 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			chart->material = decl.faceMaterialData ? decl.faceMaterialData[f] : 0;
 			// Walk incident faces and assign them to the chart.
 			faceAssigned.setBitAt(f);
-			chartFaces.clear();
-			chartFaces.push_back(f);
+			chart->faces.push_back(f);
 			for (;;) {
 				bool newFaceAssigned = false;
-				const uint32_t faceCount2 = chartFaces.size();
+				const uint32_t faceCount2 = chart->faces.size();
 				for (uint32_t f2 = 0; f2 < faceCount2; f2++) {
-					const uint32_t face = chartFaces[f2];
+					const uint32_t face = chart->faces[f2];
 					for (uint32_t i = 0; i < 3; i++) {
 						const internal::Vector2 &texcoord = meshInstance->texcoords[meshInstance->mesh->indices[face * 3 + i]];
 						uint32_t mapFaceIndex = vertexToFaceMap.get(texcoord);
@@ -7932,7 +7935,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 							// Materials must match.
 							if (!faceAssigned.bitAt(face2) && (!decl.faceMaterialData || decl.faceMaterialData[face] == decl.faceMaterialData[face2])) {
 								faceAssigned.setBitAt(face2);
-								chartFaces.push_back(face2);
+								chart->faces.push_back(face2);
 								newFaceAssigned = true;
 							}
 							mapFaceIndex = vertexToFaceMap.getNext(mapFaceIndex);
@@ -7942,9 +7945,9 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 				if (!newFaceAssigned)
 					break;
 			}
-			for (uint32_t i = 0; i < chartFaces.size(); i++) {
+			for (uint32_t i = 0; i < chart->faces.size(); i++) {
 				for (uint32_t j = 0; j < 3; j++) {
-					const uint32_t vertex = meshInstance->mesh->indices[chartFaces[i] * 3 + j];
+					const uint32_t vertex = meshInstance->mesh->indices[chart->faces[i] * 3 + j];
 					chart->indices.push_back(vertex);
 					mesh->vertexToChartMap[vertex] = mesh->charts.size();
 				}
@@ -8265,8 +8268,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 			outputMesh.chartArray = XA_ALLOC_ARRAY(internal::MemTag::Default, Chart, outputMesh.chartCount);
 			XA_PRINT("   mesh %u: %u vertices, %u triangles, %u charts\n", i, outputMesh.vertexCount, outputMesh.indexCount / 3, outputMesh.chartCount);
 			// Copy mesh data.
-			uint32_t firstVertex = 0;
-			uint32_t meshChartIndex = 0;
+			uint32_t firstVertex = 0, meshChartIndex = 0;
 			for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
 				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
 				if (chartGroup->isVertexMap()) {
@@ -8315,16 +8317,14 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 						outputChart->flags = 0;
 						if (chart->paramQuality().boundaryIntersection || chart->paramQuality().flippedTriangleCount > 0)
 							outputChart->flags |= ChartFlags::Invalid;
-						outputChart->indexCount = mesh->faceCount() * 3;
-						outputChart->indexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->indexCount);
-						for (uint32_t f = 0; f < mesh->faceCount(); f++) {
-							for (uint32_t j = 0; j < 3; j++)
-								outputChart->indexArray[3 * f + j] = firstVertex + mesh->vertexAt(f * 3 + j);
-						}
+						outputChart->faceCount = mesh->faceCount();
+						outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
+						for (uint32_t f = 0; f < outputChart->faceCount; f++)
+							outputChart->faceArray[f] = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f));
 						outputChart->material = 0;
 						meshChartIndex++;
 						chartIndex++;
-						firstVertex += chart->mesh()->vertexCount();
+						firstVertex += mesh->vertexCount();
 					}
 				}
 			}
@@ -8378,10 +8378,11 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				const internal::pack::Chart *chart = packAtlas.getChart(chartIndex);
 				XA_DEBUG_ASSERT(chart->atlasIndex >= 0);
 				outputChart->atlasIndex = (uint32_t)chart->atlasIndex;
-				outputChart->indexCount = chart->indexCount;
-				outputChart->indexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->indexCount);
+				outputChart->faceCount = chart->faces.size();
+				outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
 				outputChart->material = chart->material;
-				memcpy(outputChart->indexArray, chart->indices, chart->indexCount * sizeof(uint32_t));
+				for (uint32_t f = 0; f < outputChart->faceCount; f++)
+					outputChart->faceArray[f] = chart->faces[f];
 				chartIndex++;
 			}
 			if (ctx->progressFunc) {

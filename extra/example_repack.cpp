@@ -618,15 +618,15 @@ int main(int argc, char *argv[])
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
 			SetAtlasTexelArgs args;
-			args.materialIndex = vertexToMaterial[chart.indexArray[0]];
+			args.materialIndex = vertexToMaterial[mesh.indexArray[chart.faceArray[0] * 3]];
 			if (args.materialIndex == UINT16_MAX || textures[args.materialIndex] == UINT32_MAX)
 				args.sourceTexture = nullptr;
 			else
 				args.sourceTexture = &s_textureCache[textures[args.materialIndex]].data;
-			for (uint32_t k = 0; k < chart.indexCount / 3; k++) {
+			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				Vector2 v[3];
 				for (uint32_t l = 0; l < 3; l++) {
-					const uint32_t index = chart.indexArray[k * 3 + l];
+					const uint32_t index = mesh.indexArray[chart.faceArray[k] * 3 + l];
 					const xatlas::Vertex &vertex = mesh.vertexArray[index];
 					v[l] = Vector2(vertex.uv[0], vertex.uv[1]);
 					args.sourceUv[l] = modelVertices[vertex.xref].uv;

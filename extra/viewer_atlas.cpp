@@ -681,19 +681,19 @@ static void atlasGenerateThread()
 			const xatlas::Chart &chart = mesh.chartArray[j];
 			// Hash edges for finding boundaries.
 			edgeMap.clear();
-			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				for (uint32_t l = 0; l < 3; l++) {
 					EdgeKey key;
-					key.p0 = vertices[mesh.vertexArray[chart.indexArray[k + l]].xref].pos;
-					key.p1 = vertices[mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]].xref].pos;
+					key.p0 = vertices[mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + l]].xref].pos;
+					key.p1 = vertices[mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + (l + 1) % 3]].xref].pos;
 					edgeMap[key] = 0; // Don't care.
 				}
 			}
-			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				for (uint32_t l = 0; l < 3; l++) {
 					EdgeKey key;
-					key.p0 = vertices[mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]].xref].pos;
-					key.p1 = vertices[mesh.vertexArray[chart.indexArray[k + l]].xref].pos;
+					key.p0 = vertices[mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + (l + 1) % 3]].xref].pos;
+					key.p1 = vertices[mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + l]].xref].pos;
 					s_atlas.boundaryEdges[numEdges] = edgeMap.count(key) == 0;
 					numEdges++;
 				}
@@ -736,17 +736,19 @@ static void atlasGenerateThread()
 			randomRGB(bcolor);
 			bcolor[3] = 255;
 			const uint32_t color = encodeRGBA(bcolor);
-			for (uint32_t k = 0; k < chart.indexCount; k++) {
-				uint32_t &index = s_atlas.chartIndices[firstChartIndex + k];
-				index = firstVertex + chart.indexArray[k];
-				s_atlas.chartColorVertices[index] = color;
-				if (chart.flags & xatlas::ChartFlags::Invalid)
-					s_atlas.chartInvalidColorVertices[index] = color;
-				else
-					s_atlas.chartInvalidColorVertices[index] = 0xffc0c0c0;
+			for (uint32_t k = 0; k < chart.faceCount; k++) {
+				for (uint32_t l = 0; l < 3; l++) {
+					uint32_t &index = s_atlas.chartIndices[firstChartIndex + k * 3 + l];
+					index = firstVertex + mesh.indexArray[chart.faceArray[k] * 3 + l];
+					s_atlas.chartColorVertices[index] = color;
+					if (chart.flags & xatlas::ChartFlags::Invalid)
+						s_atlas.chartInvalidColorVertices[index] = color;
+					else
+						s_atlas.chartInvalidColorVertices[index] = 0xffc0c0c0;
+				}
 			}
-			firstChartIndex += chart.indexCount;
-			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+			firstChartIndex += chart.faceCount * 3;
+			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				bool removeEdge[3];
 				for (int l = 0; l < 3; l++) {
 					removeEdge[l] = !s_atlas.boundaryEdges[numEdges];
@@ -756,7 +758,7 @@ static void atlasGenerateThread()
 					continue;
 				WireframeVertex verts[3];
 				for (int l = 0; l < 3; l++)
-					verts[l].pos = oldVertices[mesh.vertexArray[chart.indexArray[k + l]].xref].pos;
+					verts[l].pos = oldVertices[mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + l]].xref].pos;
 				verts[0].barycentric = bx::Vec3(1.0f, 0.0f, 0.0f);
 				verts[1].barycentric = bx::Vec3(0.0f, 1.0f, 0.0f);
 				verts[2].barycentric = bx::Vec3(0.0f, 0.0f, 1.0f);
@@ -831,15 +833,15 @@ static void atlasRenderChartsTextures()
 			bcolor[3] = 255;
 			const uint32_t color = encodeRGBA(bcolor);
 			if (chart.atlasIndex == (uint32_t)s_atlas.currentTexture) {
-				for (uint32_t k = 0; k < chart.indexCount; k++)
+				for (uint32_t k = 0; k < chart.faceCount * 3; k++)
 					s_atlas.textureChartIndices.push_back(s_atlas.chartIndices[firstSourceChartIndex + k]);
 			}
 			// Build boundary vertices for this chart.
-			for (uint32_t k = 0; k < chart.indexCount; k += 3) {
+			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				for (int l = 0; l < 3; l++) {
 					if (chart.atlasIndex == (uint32_t)s_atlas.currentTexture && s_atlas.boundaryEdges[edge]) {
-						const xatlas::Vertex &v0 = mesh.vertexArray[chart.indexArray[k + l]];
-						const xatlas::Vertex &v1 = mesh.vertexArray[chart.indexArray[k + (l + 1) % 3]];
+						const xatlas::Vertex &v0 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + l]];
+						const xatlas::Vertex &v1 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + (l + 1) % 3]];
 						ChartBoundaryVertex cbv;
 						cbv.pos[0] = v0.uv[0];
 						cbv.pos[1] = v0.uv[1];
@@ -852,7 +854,7 @@ static void atlasRenderChartsTextures()
 					edge++;
 				}
 			}
-			firstSourceChartIndex += chart.indexCount;
+			firstSourceChartIndex += chart.faceCount * 3;
 		}
 	}
 	// Render charts.
