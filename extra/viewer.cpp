@@ -31,6 +31,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 bgfx::VertexDecl WireframeVertex::decl;
 Options g_options;
 GLFWwindow *g_window;
+int g_windowSize[2];
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
 static bool s_showBgfxStats = false;
 
@@ -419,6 +420,8 @@ int main(int /*argc*/, char ** /*argv*/)
 #endif
 	int width, height;
 	glfwGetWindowSize(g_window, &width, &height);
+	g_windowSize[0] = width;
+	g_windowSize[1] = height;
 	init.resolution.width = (uint32_t)width;
 	init.resolution.height = (uint32_t)height;
 	init.resolution.reset = BGFX_RESET_VSYNC | BGFX_RESET_MSAA_X16;
@@ -454,6 +457,10 @@ int main(int /*argc*/, char ** /*argv*/)
 		int oldWidth = width, oldHeight = height;
 		glfwGetWindowSize(g_window, &width, &height);
 		if (width != oldWidth || height != oldHeight) {
+			if (width != 0 && height != 0) {
+				g_windowSize[0] = width;
+				g_windowSize[1] = height;
+			}
 			bgfx::reset((uint32_t)width, (uint32_t)height, BGFX_RESET_VSYNC | BGFX_RESET_MSAA_X16);
 			guiResize(width, height);
 			bgfx::setViewRect(kModelView, 0, 0, bgfx::BackbufferRatio::Equal);

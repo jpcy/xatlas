@@ -1025,12 +1025,11 @@ void atlasShowGuiOptions()
 
 void atlasShowGuiWindow(int progressDots)
 {
-	ImGuiIO &io = ImGui::GetIO();
 	const float margin = 4.0f;
 	const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 	const AtlasStatus::Enum atlasStatus = s_atlas.status.get();
 	if (atlasStatus == AtlasStatus::Generating) {
-		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - margin, margin), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - margin, margin), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
 		ImGui::SetNextWindowSize(ImVec2(300.0f, -1.0f), ImGuiCond_Always);
 		if (ImGui::Begin("##atlasProgress", nullptr, progressWindowFlags)) {
 			int progress;
@@ -1048,7 +1047,7 @@ void atlasShowGuiWindow(int progressDots)
 		}
 	} else if (atlasStatus == AtlasStatus::Ready && g_options.showAtlasWindow) {
 		const float size = 500;
-		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, margin), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - size - margin, margin), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 		if (ImGui::Begin("Atlas", &g_options.showAtlasWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 			if (s_atlas.data->atlasCount > 1) {

@@ -176,6 +176,7 @@ struct Options
 extern Options g_options;
 struct GLFWwindow;
 extern GLFWwindow *g_window;
+extern int g_windowSize[2]; // Last known good window size. Not set to 0,0 when minimized.
 
 void randomRGB(uint8_t *color);
 uint32_t encodeRGBA(const uint8_t *rgba);

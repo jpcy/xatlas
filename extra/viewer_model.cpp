@@ -847,10 +847,9 @@ void modelShowGuiOptions()
 
 void modelShowGuiWindow(int progressDots)
 {
-	ImGuiIO &io = ImGui::GetIO();
 	const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 	if (s_model.status.get() == ModelStatus::Loading) {
-		ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] * 0.5f, g_windowSize[1] * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 		if (ImGui::Begin("##modelProgress", nullptr, progressWindowFlags)) {
 			ImGui::Text("Loading model");
 			for (int i = 0; i < 3; i++) {

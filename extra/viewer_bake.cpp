@@ -1092,10 +1092,9 @@ void bakeShowGuiWindow()
 {
 	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::InitEmbree || s_bake.status == BakeStatus::Error || !g_options.showLightmapWindow)
 		return;
-	ImGuiIO &io = ImGui::GetIO();
 	const float size = 500;
 	const float margin = 4.0f;
-	ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Lightmap", &g_options.showLightmapWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 		ImGui::Checkbox("Fit to window", &s_bake.options.fitToWindow);
