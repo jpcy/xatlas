@@ -327,6 +327,8 @@ struct ProfileData
 	std::atomic<clock_t> parameterizeChartsLSCM;
 	std::atomic<clock_t> parameterizeChartsEvaluateQuality;
 	clock_t packCharts;
+	clock_t packChartsAddCharts;
+	std::atomic<clock_t> packChartsAddChartsThread;
 	clock_t packChartsRasterize;
 	clock_t packChartsDilate;
 	clock_t packChartsFindLocation;
@@ -6825,6 +6827,51 @@ struct Chart
 	uint32_t uniqueVertexCount() const { return uniqueVertices.isEmpty() ? vertexCount : uniqueVertices.size(); }
 };
 
+struct AddChartTaskArgs
+{
+	param::Chart *paramChart;
+	Chart *chart; // out
+};
+
+static void runAddChartTask(void *userData)
+{
+	XA_PROFILE_START(packChartsAddChartsThread)
+	auto args = (AddChartTaskArgs *)userData;
+	param::Chart *paramChart = args->paramChart;
+	Mesh *mesh = paramChart->mesh();
+	Chart *chart = args->chart = XA_NEW(MemTag::Default, Chart);
+	chart->atlasIndex = -1;
+	chart->material = 0;
+	chart->indexCount = mesh->indexCount();
+	chart->indices = mesh->indices();
+	chart->parametricArea = paramChart->computeParametricArea();
+	if (chart->parametricArea < kAreaEpsilon) {
+		// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
+		const Vector2 bounds = paramChart->computeParametricBounds();
+		chart->parametricArea = bounds.x * bounds.y;
+	}
+	chart->surfaceArea = paramChart->computeSurfaceArea();
+	chart->vertices = mesh->texcoords();
+	chart->vertexCount = mesh->vertexCount();
+	chart->allowRotate = true;
+	// Compute list of boundary vertices.
+	Array<Vector2> boundary;
+	boundary.reserve(16);
+	for (uint32_t v = 0; v < chart->vertexCount; v++) {
+		if (mesh->isBoundaryVertex(v))
+			boundary.push_back(mesh->texcoord(v));
+	}
+	XA_DEBUG_ASSERT(boundary.size() > 0);
+	// Compute bounding box of chart.
+	static thread_local BoundingBox2D boundingBox;
+	boundingBox.compute(boundary.data(), boundary.size(), mesh->texcoords(), mesh->vertexCount());
+	chart->majorAxis = boundingBox.majorAxis();
+	chart->minorAxis = boundingBox.minorAxis();
+	chart->minCorner = boundingBox.minCorner();
+	chart->maxCorner = boundingBox.maxCorner();
+	XA_PROFILE_END(packChartsAddChartsThread)
+}
+
 struct FindChartLocationBruteForceTaskArgs
 {
 	std::atomic<bool> *finished; // One of the tasks found a location that doesn't expand the atlas.
@@ -6913,39 +6960,24 @@ struct Atlas
 	const Array<AtlasImage *> &getImages() const { return m_atlasImages; }
 	float getUtilization(uint32_t atlas) const { return m_utilization[atlas]; }
 
-	void addChart(param::Chart *paramChart)
+	void addCharts(TaskScheduler *taskScheduler, const Array<param::Chart *> &paramCharts)
 	{
-		Mesh *mesh = paramChart->mesh();
-		Chart *chart = XA_NEW(MemTag::Default, Chart);
-		chart->atlasIndex = -1;
-		chart->material = 0;
-		chart->indexCount = mesh->indexCount();
-		chart->indices = mesh->indices();
-		chart->parametricArea = paramChart->computeParametricArea();
-		if (chart->parametricArea < kAreaEpsilon) {
-			// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
-			const Vector2 bounds = paramChart->computeParametricBounds();
-			chart->parametricArea = bounds.x * bounds.y;
+		const uint32_t taskCount = paramCharts.size();
+		Array<AddChartTaskArgs> taskArgs;
+		taskArgs.resize(taskCount);
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(taskCount);
+		for (uint32_t i = 0; i < taskCount; i++) {
+			AddChartTaskArgs &args = taskArgs[i];
+			args.paramChart = paramCharts[i];
+			Task task;
+			task.userData = &taskArgs[i];
+			task.func = runAddChartTask;
+			taskScheduler->run(taskGroup, task);
 		}
-		chart->surfaceArea = paramChart->computeSurfaceArea();
-		chart->vertices = mesh->texcoords();
-		chart->vertexCount = mesh->vertexCount();
-		chart->allowRotate = true;
-		// Compute list of boundary vertices.
-		Array<Vector2> boundary;
-		boundary.reserve(16);
-		for (uint32_t v = 0; v < chart->vertexCount; v++) {
-			if (mesh->isBoundaryVertex(v))
-				boundary.push_back(mesh->texcoord(v));
-		}
-		XA_DEBUG_ASSERT(boundary.size() > 0);
-		// Compute bounding box of chart.
-		m_boundingBox.compute(boundary.data(), boundary.size(), mesh->texcoords(), mesh->vertexCount());
-		chart->majorAxis = m_boundingBox.majorAxis();
-		chart->minorAxis = m_boundingBox.minorAxis();
-		chart->minCorner = m_boundingBox.minCorner();
-		chart->maxCorner = m_boundingBox.maxCorner();
-		m_charts.push_back(chart);
+		taskScheduler->wait(&taskGroup);
+		m_charts.resize(taskCount);
+		for (uint32_t i = 0; i < taskCount; i++)
+			m_charts[i] = taskArgs[i].chart;
 	}
 
 	void addUvMeshCharts(UvMeshInstance *mesh)
@@ -6953,6 +6985,7 @@ struct Atlas
 		BitArray vertexUsed(mesh->texcoords.size());
 		Array<Vector2> boundary;
 		boundary.reserve(16);
+		BoundingBox2D boundingBox;
 		for (uint32_t c = 0; c < mesh->mesh->charts.size(); c++) {
 			UvMeshChart *uvChart = mesh->mesh->charts[c];
 			Chart *chart = XA_NEW(MemTag::Default, Chart);
@@ -7002,11 +7035,11 @@ struct Atlas
 				boundary.push_back(chart->uniqueVertexAt(v));
 			XA_DEBUG_ASSERT(boundary.size() > 0);
 			// Compute bounding box of chart.
-			m_boundingBox.compute(boundary.data(), boundary.size(), boundary.data(), boundary.size());
-			chart->majorAxis = m_boundingBox.majorAxis();
-			chart->minorAxis = m_boundingBox.minorAxis();
-			chart->minCorner = m_boundingBox.minCorner();
-			chart->maxCorner = m_boundingBox.maxCorner();
+			boundingBox.compute(boundary.data(), boundary.size(), boundary.data(), boundary.size());
+			chart->majorAxis = boundingBox.majorAxis();
+			chart->minorAxis = boundingBox.minorAxis();
+			chart->minCorner = boundingBox.minCorner();
+			chart->maxCorner = boundingBox.maxCorner();
 			m_charts.push_back(chart);
 		}
 	}
@@ -7498,7 +7531,6 @@ private:
 	Array<AtlasImage *> m_atlasImages;
 	Array<float> m_utilization;
 	Array<BitImage *> m_bitImages;
-	BoundingBox2D m_boundingBox;
 	Array<Chart *> m_charts;
 	RadixSort m_radix;
 	uint32_t m_width = 0;
@@ -8195,6 +8227,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	}
 	atlas->meshCount = 0;
 	// Pack charts.
+	XA_PROFILE_START(packChartsAddCharts)
 	internal::pack::Atlas packAtlas;
 	if (!ctx->uvMeshInstances.isEmpty()) {
 		for (uint32_t i = 0; i < ctx->uvMeshInstances.size(); i++)
@@ -8202,9 +8235,13 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	}
 	else if (ctx->paramAtlas.chartCount() > 0) {
 		ctx->paramAtlas.restoreOriginalChartTexcoords();
+		internal::Array<internal::param::Chart *> charts;
+		charts.resize(ctx->paramAtlas.chartCount());
 		for (uint32_t i = 0; i < ctx->paramAtlas.chartCount(); i++)
-			packAtlas.addChart(ctx->paramAtlas.chartAt(i));
+			charts[i] = ctx->paramAtlas.chartAt(i);
+		packAtlas.addCharts(ctx->taskScheduler, charts);
 	}
+	XA_PROFILE_END(packChartsAddCharts)
 	XA_PROFILE_START(packCharts)
 	if (!packAtlas.packCharts(ctx->taskScheduler, packOptions, ctx->progressFunc, ctx->progressUserData))
 		return;
@@ -8226,6 +8263,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 			packAtlas.getImages()[i]->copyTo(&atlas->image[atlas->width * atlas->height * i], atlas->width, atlas->height);
 	}
 	XA_PROFILE_PRINT_AND_RESET("   Total: ", packCharts)
+	XA_PROFILE_PRINT_AND_RESET("      Add charts (real): ", packChartsAddCharts)
+	XA_PROFILE_PRINT_AND_RESET("      Add charts (thread): ", packChartsAddChartsThread)
 	XA_PROFILE_PRINT_AND_RESET("      Rasterize: ", packChartsRasterize)
 	XA_PROFILE_PRINT_AND_RESET("      Dilate (padding): ", packChartsDilate)
 	XA_PROFILE_PRINT_AND_RESET("      Find location (real): ", packChartsFindLocation)
