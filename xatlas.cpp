@@ -327,6 +327,7 @@ struct ProfileData
 	std::atomic<clock_t> parameterizeChartsLSCM;
 	std::atomic<clock_t> parameterizeChartsEvaluateQuality;
 	clock_t packCharts;
+	clock_t packChartsRestoreTexcoords;
 	clock_t packChartsAddCharts;
 	std::atomic<clock_t> packChartsAddChartsThread;
 	clock_t packChartsRasterize;
@@ -6632,27 +6633,17 @@ public:
 		taskScheduler->wait(&taskGroup);
 		if (progress.cancel)
 			return false;
-		// Save original texcoords so PackCharts can be called multiple times (packing overwrites the texcoords).
-		const uint32_t nCharts = chartCount();
-		m_originalChartTexcoords.resize(nCharts);
-		for (uint32_t i = 0; i < nCharts; i++) {
-			const Mesh *mesh = chartAt(i)->mesh();
-			m_originalChartTexcoords[i].resize(mesh->vertexCount());
-			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
-				m_originalChartTexcoords[i][j] = mesh->texcoord(j);
-		}
 		m_chartsParameterized = true;
 		return true;
 	}
 
 	void restoreOriginalChartTexcoords()
 	{
+		XA_PROFILE_START(packChartsRestoreTexcoords)
 		const uint32_t nCharts = chartCount();
-		for (uint32_t i = 0; i < nCharts; i++) {
-			Mesh *mesh = chartAt(i)->mesh();
-			for (uint32_t j = 0; j < mesh->vertexCount(); j++)
-				mesh->texcoord(j) = m_originalChartTexcoords[i][j];
-		}
+		for (uint32_t i = 0; i < nCharts; i++)
+			chartAt(i)->transferParameterization();
+		XA_PROFILE_END(packChartsRestoreTexcoords)
 	}
 
 private:
@@ -6662,7 +6653,6 @@ private:
 	Array<ChartGroup *> m_chartGroups;
 	RadixSort m_chartGroupsRadix; // By mesh indexCount.
 	Array<uint32_t> m_chartGroupSourceMeshes;
-	Array<Array<Vector2> > m_originalChartTexcoords;
 };
 
 } // namespace param
@@ -8270,6 +8260,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	XA_PROFILE_PRINT_AND_RESET("      Find location (real): ", packChartsFindLocation)
 	XA_PROFILE_PRINT_AND_RESET("      Find location (thread): ", packChartsFindLocationThread)
 	XA_PROFILE_PRINT_AND_RESET("      Blit: ", packChartsBlit)
+	XA_PROFILE_PRINT_AND_RESET("   Restore texcoords: ", packChartsRestoreTexcoords)
 	XA_PRINT_MEM_USAGE
 	XA_PRINT("Building output meshes\n");
 	int progress = 0;
