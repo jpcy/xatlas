@@ -304,6 +304,7 @@ static void *Realloc(void *ptr, size_t size, int /*tag*/, const char * /*file*/,
 struct ProfileData
 {
 	clock_t addMeshReal;
+	clock_t addMeshCopyData;
 	std::atomic<clock_t> addMeshThread;
 	std::atomic<clock_t> addMeshCreateColocals;
 	std::atomic<clock_t> addMeshCreateFaceGroups;
@@ -335,6 +336,7 @@ struct ProfileData
 	clock_t packChartsFindLocation;
 	std::atomic<clock_t> packChartsFindLocationThread;
 	clock_t packChartsBlit;
+	clock_t buildOutputMeshes;
 };
 
 static ProfileData s_profile;
@@ -7743,13 +7745,14 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	else {
 		ctx->addMeshProgress->setMaxValue(internal::max(ctx->meshCount + 1, meshCountHint));
 	}
-	bool decoded = (meshDecl.indexCount <= 0);
-	uint32_t indexCount = decoded ? meshDecl.vertexCount : meshDecl.indexCount;
+	XA_PROFILE_START(addMeshCopyData)
+	const bool hasIndices = meshDecl.indexCount > 0;
+	const uint32_t indexCount = hasIndices ? meshDecl.indexCount : meshDecl.vertexCount;
 	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", ctx->meshCount, meshDecl.vertexCount, indexCount / 3);
 	// Expecting triangle faces.
 	if ((indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
-	if (!decoded) {
+	if (hasIndices) {
 		// Check if any index is out of range.
 		for (uint32_t i = 0; i < indexCount; i++) {
 			const uint32_t index = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i);
@@ -7773,7 +7776,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	for (uint32_t i = 0; i < indexCount / 3; i++) {
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
-			tri[j] = decoded ? i * 3 + j : DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
+			tri[j] = hasIndices ? DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j) : i * 3 + j;
 		bool ignore = false;
 		// Check for degenerate or zero length edges.
 		for (int j = 0; j < 3; j++) {
@@ -7814,6 +7817,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			ignore = true;
 		mesh->addFace(tri[0], tri[1], tri[2], ignore);
 	}
+	XA_PROFILE_END(addMeshCopyData)
 	if (ctx->addMeshTaskGroup.value == UINT32_MAX)
 		ctx->addMeshTaskGroup = ctx->taskScheduler->createTaskGroup();
 	AddMeshTaskArgs *taskArgs = XA_NEW(internal::MemTag::Default, AddMeshTaskArgs); // The task frees this.
@@ -7846,6 +7850,7 @@ void AddMeshJoin(Atlas *atlas)
 	internal::s_profile.addMeshReal = clock() - internal::s_profile.addMeshReal;
 #endif
 	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", addMeshReal)
+	XA_PROFILE_PRINT_AND_RESET("      Copy data: ", addMeshCopyData)
 	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", addMeshThread)
 	XA_PROFILE_PRINT_AND_RESET("      Create colocals: ", addMeshCreateColocals)
 	XA_PROFILE_PRINT_AND_RESET("      Create face groups: ", addMeshCreateFaceGroups)
@@ -8253,6 +8258,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	XA_PROFILE_PRINT_AND_RESET("      Blit: ", packChartsBlit)
 	XA_PRINT_MEM_USAGE
 	XA_PRINT("Building output meshes\n");
+	XA_PROFILE_START(buildOutputMeshes)
 	int progress = 0;
 	if (ctx->progressFunc) {
 		if (!ctx->progressFunc(ProgressCategory::BuildOutputMeshes, 0, ctx->progressUserData))
@@ -8417,6 +8423,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	}
 	if (ctx->progressFunc && progress != 100)
 		ctx->progressFunc(ProgressCategory::BuildOutputMeshes, 100, ctx->progressUserData);
+	XA_PROFILE_END(buildOutputMeshes)
+	XA_PROFILE_PRINT_AND_RESET("   Total: ", buildOutputMeshes)
 	XA_PRINT_MEM_USAGE
 }
 
