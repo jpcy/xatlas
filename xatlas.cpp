@@ -327,9 +327,9 @@ struct ProfileData
 	std::atomic<clock_t> parameterizeChartsLSCM;
 	std::atomic<clock_t> parameterizeChartsEvaluateQuality;
 	clock_t packCharts;
-	clock_t packChartsRestoreTexcoords;
 	clock_t packChartsAddCharts;
 	std::atomic<clock_t> packChartsAddChartsThread;
+	std::atomic<clock_t> packChartsAddChartsRestoreTexcoords;
 	clock_t packChartsRasterize;
 	clock_t packChartsDilate;
 	clock_t packChartsFindLocation;
@@ -6464,6 +6464,8 @@ public:
 
 	bool chartsComputed() const { return m_chartsComputed; }
 	bool chartsParameterized() const { return m_chartsParameterized; }
+	uint32_t chartGroupCount() const { return m_chartGroups.size(); }
+	const ChartGroup *chartGroupAt(uint32_t index) const { return m_chartGroups[index]; }
 
 	uint32_t chartGroupCount(uint32_t mesh) const
 	{
@@ -6483,26 +6485,6 @@ public:
 			if (group == 0)
 				return m_chartGroups[c];
 			group--;
-		}
-		return nullptr;
-	}
-
-	uint32_t chartCount() const
-	{
-		uint32_t count = 0;
-		for (uint32_t i = 0; i < m_chartGroups.size(); i++)
-			count += m_chartGroups[i]->chartCount();
-		return count;
-	}
-
-	Chart *chartAt(uint32_t i)
-	{
-		for (uint32_t c = 0; c < m_chartGroups.size(); c++) {
-			uint32_t count = m_chartGroups[c]->chartCount();
-			if (i < count) {
-				return m_chartGroups[c]->chartAt(i);
-			}
-			i -= count;
 		}
 		return nullptr;
 	}
@@ -6635,15 +6617,6 @@ public:
 			return false;
 		m_chartsParameterized = true;
 		return true;
-	}
-
-	void restoreOriginalChartTexcoords()
-	{
-		XA_PROFILE_START(packChartsRestoreTexcoords)
-		const uint32_t nCharts = chartCount();
-		for (uint32_t i = 0; i < nCharts; i++)
-			chartAt(i)->transferParameterization();
-		XA_PROFILE_END(packChartsRestoreTexcoords)
 	}
 
 private:
@@ -6828,6 +6801,9 @@ static void runAddChartTask(void *userData)
 	XA_PROFILE_START(packChartsAddChartsThread)
 	auto args = (AddChartTaskArgs *)userData;
 	param::Chart *paramChart = args->paramChart;
+	XA_PROFILE_START(packChartsAddChartsRestoreTexcoords)
+	paramChart->transferParameterization();
+	XA_PROFILE_END(packChartsAddChartsRestoreTexcoords)
 	Mesh *mesh = paramChart->mesh();
 	Chart *chart = args->chart = XA_NEW(MemTag::Default, Chart);
 	chart->atlasIndex = -1;
@@ -6950,23 +6926,43 @@ struct Atlas
 	const Array<AtlasImage *> &getImages() const { return m_atlasImages; }
 	float getUtilization(uint32_t atlas) const { return m_utilization[atlas]; }
 
-	void addCharts(TaskScheduler *taskScheduler, const Array<param::Chart *> &paramCharts)
+	void addCharts(TaskScheduler *taskScheduler, param::Atlas *paramAtlas)
 	{
-		const uint32_t taskCount = paramCharts.size();
+		// Count charts.
+		uint32_t chartCount = 0;
+		const uint32_t chartGroupsCount = paramAtlas->chartGroupCount();
+		for (uint32_t i = 0; i < chartGroupsCount; i++) {
+			const param::ChartGroup *chartGroup = paramAtlas->chartGroupAt(i);
+			if (chartGroup->isVertexMap())
+				continue;
+			chartCount += chartGroup->chartCount();
+		}
+		if (chartCount == 0)
+			return;
+		// Run one task per chart.
 		Array<AddChartTaskArgs> taskArgs;
-		taskArgs.resize(taskCount);
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(taskCount);
-		for (uint32_t i = 0; i < taskCount; i++) {
-			AddChartTaskArgs &args = taskArgs[i];
-			args.paramChart = paramCharts[i];
-			Task task;
-			task.userData = &taskArgs[i];
-			task.func = runAddChartTask;
-			taskScheduler->run(taskGroup, task);
+		taskArgs.resize(chartCount);
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
+		uint32_t chartIndex = 0;
+		for (uint32_t i = 0; i < chartGroupsCount; i++) {
+			const param::ChartGroup *chartGroup = paramAtlas->chartGroupAt(i);
+			if (chartGroup->isVertexMap())
+				continue;
+			const uint32_t count = chartGroup->chartCount();
+			for (uint32_t j = 0; j < count; j++) {
+				AddChartTaskArgs &args = taskArgs[chartIndex];
+				args.paramChart = chartGroup->chartAt(j);
+				Task task;
+				task.userData = &taskArgs[chartIndex];
+				task.func = runAddChartTask;
+				taskScheduler->run(taskGroup, task);
+				chartIndex++;
+			}
 		}
 		taskScheduler->wait(&taskGroup);
-		m_charts.resize(taskCount);
-		for (uint32_t i = 0; i < taskCount; i++)
+		// Get task output.
+		m_charts.resize(chartCount);
+		for (uint32_t i = 0; i < chartCount; i++)
 			m_charts[i] = taskArgs[i].chart;
 	}
 
@@ -8112,7 +8108,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	XA_PRINT("   %u planar charts, %u ortho charts, %u other\n", planarChartsCount, orthoChartsCount, chartCount - (planarChartsCount + orthoChartsCount));
 	if (chartsDeletedCount > 0) {
 		XA_PRINT("   %u charts deleted due to invalid parameterizations, %u new charts added\n", chartsDeletedCount, chartsAddedCount);
-		XA_PRINT("   %u charts\n", ctx->paramAtlas.chartCount());
+		XA_PRINT("   %u charts\n", chartCount);
 	}
 	uint32_t chartIndex = 0, invalidParamCount = 0;
 	for (uint32_t i = 0; i < ctx->meshCount; i++) {
@@ -8223,14 +8219,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		for (uint32_t i = 0; i < ctx->uvMeshInstances.size(); i++)
 			packAtlas.addUvMeshCharts(ctx->uvMeshInstances[i]);
 	}
-	else if (ctx->paramAtlas.chartCount() > 0) {
-		ctx->paramAtlas.restoreOriginalChartTexcoords();
-		internal::Array<internal::param::Chart *> charts;
-		charts.resize(ctx->paramAtlas.chartCount());
-		for (uint32_t i = 0; i < ctx->paramAtlas.chartCount(); i++)
-			charts[i] = ctx->paramAtlas.chartAt(i);
-		packAtlas.addCharts(ctx->taskScheduler, charts);
-	}
+	else
+		packAtlas.addCharts(ctx->taskScheduler, &ctx->paramAtlas);
 	XA_PROFILE_END(packChartsAddCharts)
 	XA_PROFILE_START(packCharts)
 	if (!packAtlas.packCharts(ctx->taskScheduler, packOptions, ctx->progressFunc, ctx->progressUserData))
@@ -8255,12 +8245,12 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	XA_PROFILE_PRINT_AND_RESET("   Total: ", packCharts)
 	XA_PROFILE_PRINT_AND_RESET("      Add charts (real): ", packChartsAddCharts)
 	XA_PROFILE_PRINT_AND_RESET("      Add charts (thread): ", packChartsAddChartsThread)
+	XA_PROFILE_PRINT_AND_RESET("         Restore texcoords: ", packChartsAddChartsRestoreTexcoords)
 	XA_PROFILE_PRINT_AND_RESET("      Rasterize: ", packChartsRasterize)
 	XA_PROFILE_PRINT_AND_RESET("      Dilate (padding): ", packChartsDilate)
 	XA_PROFILE_PRINT_AND_RESET("      Find location (real): ", packChartsFindLocation)
 	XA_PROFILE_PRINT_AND_RESET("      Find location (thread): ", packChartsFindLocationThread)
 	XA_PROFILE_PRINT_AND_RESET("      Blit: ", packChartsBlit)
-	XA_PROFILE_PRINT_AND_RESET("   Restore texcoords: ", packChartsRestoreTexcoords)
 	XA_PRINT_MEM_USAGE
 	XA_PRINT("Building output meshes\n");
 	int progress = 0;
