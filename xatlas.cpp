@@ -5584,11 +5584,10 @@ struct ParameterizationQuality
 	bool boundaryIntersection = false;
 };
 
-static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh, Array<uint32_t> *flippedFaces)
+static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh, uint32_t faceCount, Array<uint32_t> *flippedFaces)
 {
 	XA_DEBUG_ASSERT(mesh != nullptr);
 	ParameterizationQuality quality;
-	const uint32_t faceCount = mesh->faceCount();
 	uint32_t firstBoundaryEdge = UINT32_MAX;
 	for (uint32_t e = 0; e < mesh->edgeCount(); e++) {
 		if (mesh->isBoundaryEdge(e)) {
@@ -5751,7 +5750,7 @@ public:
 		Array<uint32_t> unifiedMeshIndices;
 		unifiedMeshIndices.resize(originalMesh->vertexCount(), (uint32_t)~0);
 		// Add vertices.
-		const uint32_t faceCount = faceArray.size();
+		const uint32_t faceCount = m_initialFaceCount = faceArray.size();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = originalMesh->vertexAt(faceArray[f] * 3 + i);
@@ -5913,7 +5912,7 @@ public:
 	void evaluateOrthoParameterizationQuality()
 	{
 		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
-		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, nullptr);
+		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, nullptr);
 		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 		// Use orthogonal parameterization if quality is acceptable.
 		if (!m_paramQuality.boundaryIntersection && m_paramQuality.geometricArea > 0.0f && m_paramQuality.stretchMetric <= 1.1f && m_paramQuality.maxStretchMetric <= 1.25f)
@@ -5924,9 +5923,9 @@ public:
 	{
 		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, &m_paramFlippedFaces);
+		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, &m_paramFlippedFaces);
 #else
-		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, nullptr);
+		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, nullptr);
 #endif
 		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 	}
@@ -5967,6 +5966,7 @@ private:
 	Mesh *m_unifiedMesh;
 	bool m_isDisk, m_isOrtho, m_isPlanar;
 	uint32_t m_warningFlags;
+	uint32_t m_initialFaceCount; // Before fixing T-junctions and/or closing holes.
 	uint32_t m_closedHolesCount, m_fixedTJunctionsCount;
 
 	// List of faces of the original mesh that belong to this chart.
