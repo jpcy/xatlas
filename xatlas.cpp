@@ -7233,6 +7233,7 @@ struct Atlas
 			int best_x = 0, best_y = 0;
 			int best_cw = 0, best_ch = 0;
 			int best_r = 0;
+			bool failed = false;
 			for (;;)
 			{
 				bool firstChartInBitImage = false;
@@ -7252,7 +7253,7 @@ struct Atlas
 				XA_PROFILE_END(packChartsFindLocation)
 				if (firstChartInBitImage && !foundLocation) {
 					// Chart doesn't fit in an empty, newly allocated bitImage. texelsPerUnit must be too large for the resolution.
-					XA_ASSERT(true && "chart doesn't fit");
+					failed = true;
 					break;
 				}
 				if (resizableAtlas) {
@@ -7264,6 +7265,9 @@ struct Atlas
 				// Chart doesn't fit in the current bitImage, try the next one.
 				currentAtlas++;
 			}
+			XA_ASSERT(!failed && "chart doesn't fit");
+			if (failed)
+				continue;
 			// Update brute force start location.
 			if (options.bruteForce) {
 				// Reset start location if the chart expanded the atlas.
@@ -7328,12 +7332,16 @@ struct Atlas
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
 		m_utilization.resize(m_bitImages.size());
 		for (uint32_t i = 0; i < m_utilization.size(); i++) {
-			uint32_t count = 0;
-			for (uint32_t y = 0; y < m_height; y++) {
-				for (uint32_t x = 0; x < m_width; x++)
-					count += m_bitImages[i]->bitAt(x, y);
+			if (m_width == 0 || m_height == 0)
+				m_utilization[i] = 0.0f;
+			else {
+				uint32_t count = 0;
+				for (uint32_t y = 0; y < m_height; y++) {
+					for (uint32_t x = 0; x < m_width; x++)
+						count += m_bitImages[i]->bitAt(x, y);
+				}
+				m_utilization[i] = float(count) / (m_width * m_height);
 			}
-			m_utilization[i] = float(count) / (m_width * m_height);
 			if (m_utilization.size() > 1) {
 				XA_PRINT("   %u: %f%% utilization\n", i, m_utilization[i] * 100.0f);
 			}
