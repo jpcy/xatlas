@@ -214,8 +214,18 @@ struct PackOptions
 	uint32_t padding = 0;
 };
 
+struct PackChartsError
+{
+    enum Enum
+    {
+        Success,                     // No error.
+        Error,                       // Unspecified error.
+        ChartDoesntFit,              // size of a chart is bigger than resolution supplied
+    };
+};
+
 // Call after ParameterizeCharts. Can be called multiple times to re-pack charts with different options.
-void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions());
+PackChartsError::Enum PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions());
 
 // Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence. Can be called multiple times to regenerate with different options.
 void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeFunc paramFunc = nullptr, PackOptions packOptions = PackOptions());
