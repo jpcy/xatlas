@@ -7382,13 +7382,13 @@ private:
 		uint32_t taskCount = 0;
 		for (int y = startPosition.y; y <= h + stepSize; y += stepSize)
 			taskCount++;
-		Array<FindChartLocationBruteForceTaskArgs> taskArgs;
-		taskArgs.resize(taskCount);
+		m_bruteForceTaskArgs.clear();
+		m_bruteForceTaskArgs.resize(taskCount);
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(taskCount);
 		std::atomic<bool> finished(false); // One of the tasks found a location that doesn't expand the atlas.
 		uint32_t i = 0;
 		for (int y = startPosition.y; y <= h + stepSize; y += stepSize) {
-			FindChartLocationBruteForceTaskArgs &args = taskArgs[i];
+			FindChartLocationBruteForceTaskArgs &args = m_bruteForceTaskArgs[i];
 			args.finished = &finished;
 			args.startPosition = Vector2i(y == startPosition.y ? startPosition.x : 0, y);
 			args.atlasBitImage = atlasBitImage;
@@ -7400,7 +7400,7 @@ private:
 			args.resizableAtlas = resizableAtlas;
 			args.allowRotate = allowRotate;
 			Task task;
-			task.userData = &taskArgs[i];
+			task.userData = &m_bruteForceTaskArgs[i];
 			task.func = runFindChartLocationBruteForceTask;
 			taskScheduler->run(taskGroup, task);
 			i++;
@@ -7410,7 +7410,7 @@ private:
 		int best_metric = INT_MAX;
 		bool best_insideAtlas = false;
 		for (i = 0; i < taskCount; i++) {
-			FindChartLocationBruteForceTaskArgs &args = taskArgs[i];
+			FindChartLocationBruteForceTaskArgs &args = m_bruteForceTaskArgs[i];
 			if (args.best_metric > best_metric)
 				continue;
 			// A location that doesn't expand the atlas is always preferred.
@@ -7528,6 +7528,7 @@ private:
 	Array<float> m_utilization;
 	Array<BitImage *> m_bitImages;
 	Array<Chart *> m_charts;
+	Array<FindChartLocationBruteForceTaskArgs> m_bruteForceTaskArgs;
 	RadixSort m_radix;
 	uint32_t m_width = 0;
 	uint32_t m_height = 0;
