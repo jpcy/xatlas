@@ -269,6 +269,7 @@ project "objzero"
 project "OpenFBX"
 	kind "StaticLib"
 	language "C++"
+	cppdialect "C++14"
 	exceptionhandling "Off"
 	rtti "Off"
 	files(path.join(OPENFBX_DIR, "*.*"))
