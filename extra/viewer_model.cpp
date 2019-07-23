@@ -354,6 +354,10 @@ static objzModel *fbxLoad(const char *filename, const char * /*basePath*/)
 	uint32_t currentIndex = 0, currentVertex = 0;
 	for (int i = 0; i < scene->getMeshCount(); i++) {
 		const ofbx::Mesh *sourceMesh = scene->getMesh(i);
+		ofbx::Matrix dtransform = sourceMesh->getGlobalTransform();
+		float transform[16];
+		for (uint32_t j = 0; j < 16; j++)
+			transform[j] = (float)dtransform.m[j];
 		const ofbx::Geometry *sourceGeo = scene->getMesh(i)->getGeometry();
 		objzMesh &mesh = model->meshes[i];
 		mesh.firstIndex = currentIndex;
@@ -383,6 +387,7 @@ static objzModel *fbxLoad(const char *filename, const char * /*basePath*/)
 			vertex.pos.x = (float)pos.x;
 			vertex.pos.y = (float)pos.y;
 			vertex.pos.z = (float)pos.z;
+			vertex.pos = bx::mul(vertex.pos, transform);
 			if (sourceGeo->getNormals()) {
 				const ofbx::Vec3 &normal = sourceGeo->getNormals()[j];
 				vertex.normal.x = (float)normal.x;
