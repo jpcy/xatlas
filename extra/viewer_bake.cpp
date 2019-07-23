@@ -421,6 +421,7 @@ struct SampleLocation
 
 struct
 {
+	std::mutex errorMessageMutex;
 	char errorMessage[256];
 	bool initialized = false;
 	BakeStatus status;
@@ -510,6 +511,7 @@ static bool bakeInitEmbree()
 	if (!s_bake.embreeLibrary) {
 		s_bake.embreeLibrary = bx::dlopen(EMBREE_LIB);
 		if (!s_bake.embreeLibrary) {
+			std::mutex_lock lock(s_bake.errorMessageMutex);
 			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Embree not installed. Cannot open '%s'.", EMBREE_LIB);
 			return false;
 		}
@@ -533,6 +535,7 @@ static bool bakeInitEmbree()
 	if (!s_bake.embreeDevice) {
 		s_bake.embreeDevice = embree::NewDevice(nullptr);
 		if (!s_bake.embreeDevice) {
+			std::mutex_lock lock(s_bake.errorMessageMutex);
 			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Error creating Embree device");
 			return false;
 		}
@@ -863,7 +866,9 @@ static void bakeDenoiseThread()
 	if (!s_bake.oidnLibrary) {
 		s_bake.oidnLibrary = bx::dlopen(OIDN_LIB);
 		if (!s_bake.oidnLibrary) {
-			fprintf(stderr, "OIDN not installed. Cannot open '%s'.", OIDN_LIB);
+			std::mutex_lock lock(s_bake.errorMessageMutex);
+			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "OIDN not installed. Cannot open '%s'.", OIDN_LIB);
+			fprintf(stderr, "OIDN not installed. Cannot open '%s'.\n", OIDN_LIB);
 			s_bake.denoiseStatus = DenoiseStatus::Error;
 			return;
 		}
@@ -883,6 +888,8 @@ static void bakeDenoiseThread()
 	s_bake.denoisedLightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	OIDNDevice device = oidn::NewDevice(OIDN_DEVICE_TYPE_DEFAULT);
 	if (!device) {
+		std::mutex_lock lock(s_bake.errorMessageMutex);
+		bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Error creating OIDN device");
 		fprintf(stderr, "Error creating OIDN device\n");
 		s_bake.denoiseStatus = DenoiseStatus::Error;
 		return;
@@ -955,6 +962,10 @@ void bakeExecute()
 {
 	if (!(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Cancelled || s_bake.status == BakeStatus::Error))
 		return;
+	{
+		std::mutex_lock lock(s_bake.errorMessageMutex);
+		s_bake.errorMessage[0] = 0;
+	}
 	// Re-create lightmap if atlas resolution has changed.
 	const bool lightmapResolutionChanged = s_bake.lightmapWidth != atlasGetWidth() || s_bake.lightmapHeight != atlasGetHeight();
 	if (!s_bake.initialized || lightmapResolutionChanged) {
@@ -1055,15 +1066,16 @@ void bakeShowGuiOptions()
 			if (ImGui::Button("Denoise", buttonSize))
 				bakeDenoise();
 		}
-		if (s_bake.status == BakeStatus::Error) {
-			ImGui::PushStyleColor(ImGuiCol_Text, red);
-			ImGui::Text("%s", s_bake.errorMessage);
-			ImGui::PopStyleColor();
-		}
 		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
 		ImGui::SliderInt("Max depth", &s_bake.options.maxDepth, 1, 16);
 		if (s_bake.denoiseStatus == DenoiseStatus::Finished)
 			ImGui::Checkbox("Use denoised lightmap", &s_bake.options.useDenoisedLightmap);
+		std::mutex_lock lock(s_bake.errorMessageMutex);
+		if (s_bake.errorMessage[0]) {
+			ImGui::PushStyleColor(ImGuiCol_Text, red);
+			ImGui::Text("%s", s_bake.errorMessage);
+			ImGui::PopStyleColor();
+		}
 	} else if (s_bake.status == BakeStatus::InitEmbree) {
 		ImGui::Text("Initializing Embree...");
 	} else if (s_bake.status == BakeStatus::Rasterizing) {
