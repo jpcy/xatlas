@@ -12,12 +12,14 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <cstddef>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <bx/filepath.h>
 #include <bx/string.h>
 #include <cgltf.h>
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
 #include <nativefiledialog/nfd.h>
+#include <ofbx.h>
 #include <stb_image.h>
 #include <stb_image_resize.h>
 #define STL_READER_NO_EXCEPTIONS
@@ -96,6 +98,32 @@ struct
 }
 s_model;
 
+static bool readFileData(const char *filename, std::vector<uint8_t> *fileData)
+{
+#if _MSC_VER
+	FILE *f;
+	if (fopen_s(&f, filename, "rb") != 0)
+		f = nullptr;
+#else
+	FILE *f = fopen(filename, "rb");
+#endif
+	if (!f) {
+		fprintf(stderr, "Error opening '%s'\n", filename);
+		return false;
+	}
+	fseek(f, 0, SEEK_END);
+	const long length = ftell(f);
+	fseek(f, 0, SEEK_SET);
+	fileData->resize(length);
+	if (fread(fileData->data(), 1, (size_t)length, f) < (size_t)length) {
+		fclose(f);
+		fprintf(stderr, "Error reading '%s'\n", filename);
+		return false;
+	}
+	fclose(f);
+	return true;
+}
+
 struct TextureData
 {
 	uint16_t width;
@@ -115,28 +143,9 @@ static TextureData textureLoad(const char *basePath, const char *filename)
 	TextureData td;
 	td.mem = nullptr;
 	td.sampleData = nullptr;
-#if _MSC_VER
-	FILE *f;
-	if (fopen_s(&f, fullFilename, "rb") != 0)
-		f = nullptr;
-#else
-	FILE *f = fopen(fullFilename, "rb");
-#endif
-	if (!f) {
-		fprintf(stderr, "Error opening '%s'\n", fullFilename);
-		return td;
-	}
-	fseek(f, 0, SEEK_END);
-	const long length = ftell(f);
-	fseek(f, 0, SEEK_SET);
 	std::vector<uint8_t> fileData;
-	fileData.resize(length);
-	if (fread(fileData.data(), 1, (size_t)length, f) < (size_t)length) {
-		fclose(f);
-		fprintf(stderr, "Error reading '%s'\n", fullFilename);
+	if (!readFileData(fullFilename, &fileData))
 		return td;
-	}
-	fclose(f);
 	int width, height, numComponents;
 	const uint8_t *imageData = stbi_load_from_memory(fileData.data(), (int)fileData.size(), &width, &height, &numComponents, 0);
 	if (!imageData) {
@@ -277,6 +286,140 @@ void modelShutdown()
 	bgfx::destroy(s_model.fs_material);
 	bgfx::destroy(s_model.materialProgram);
 	bgfx::destroy(s_model.u_dummyTexture);
+}
+
+static void fbxDestroy(objzModel *model)
+{
+	delete [] (uint32_t *)model->indices;
+	delete [] model->meshes;
+	delete [] model->objects;
+	delete [] (ModelVertex *)model->vertices;
+	if (model->materials)
+		delete [] model->materials;
+	delete model;
+}
+
+static objzModel *fbxLoad(const char *filename, const char * /*basePath*/) 
+{
+	std::vector<uint8_t> fileData;
+	if (!readFileData(filename, &fileData))
+		return nullptr;
+	ofbx::IScene *scene = ofbx::load(fileData.data(), (int)fileData.size(), ofbx::LoadFlags::TRIANGULATE);
+	if (!scene) {
+		fprintf(stderr, "%s\n", ofbx::getError());
+		return nullptr;
+	}
+	objzModel *model = new objzModel();
+	model->numIndices = 0;
+	model->numMaterials = 0;
+	model->numMeshes = (uint32_t)scene->getMeshCount();
+	model->numObjects = 1;
+	model->numVertices = 0;
+	// Count array lengths.
+	std::unordered_map<const ofbx::Material *, uint32_t> materialToIndex;
+	for (int i = 0; i < scene->getAllObjectCount(); i++) {
+		const ofbx::Object *object = scene->getAllObjects()[i];
+		if (object->getType() == ofbx::Object::Type::MATERIAL) {
+			materialToIndex[(const ofbx::Material *)object] = model->numMaterials;
+			model->numMaterials++;
+		}
+	}
+	for (int i = 0; i < scene->getMeshCount(); i++) {
+		const ofbx::Geometry *geo = scene->getMesh(i)->getGeometry();
+		model->numIndices += (uint32_t)geo->getIndexCount();
+		model->numVertices += (uint32_t)geo->getVertexCount();
+	}
+	// Alloc data.
+	auto indices = new uint32_t[model->numIndices];
+	auto vertices = new ModelVertex[model->numVertices];
+	model->indices = indices;
+	model->meshes = new objzMesh[model->numMeshes];
+	model->objects = new objzObject[model->numObjects];
+	model->vertices = vertices;
+	if (model->numMaterials > 0)
+		model->materials = new objzMaterial[model->numMaterials];
+	else
+		model->materials = nullptr;
+	// Populate data.
+	{
+		objzObject &object = model->objects[0];
+		object.name[0] = 0;
+		object.firstMesh = 0;
+		object.numMeshes = model->numMeshes;
+		object.firstIndex = 0;
+		object.numIndices = model->numIndices;
+		object.firstVertex = 0;
+		object.numVertices = model->numVertices;
+	}
+	uint32_t currentIndex = 0, currentVertex = 0;
+	for (int i = 0; i < scene->getMeshCount(); i++) {
+		const ofbx::Mesh *sourceMesh = scene->getMesh(i);
+		const ofbx::Geometry *sourceGeo = scene->getMesh(i)->getGeometry();
+		objzMesh &mesh = model->meshes[i];
+		mesh.firstIndex = currentIndex;
+		mesh.numIndices = (uint32_t)sourceGeo->getIndexCount();
+		// ignoring all but the first material for now
+		if (sourceMesh->getMaterialCount() > 0)
+			mesh.materialIndex = materialToIndex[sourceMesh->getMaterial(0)];
+		else
+			mesh.materialIndex = -1;
+		for (uint32_t j = 0; j < mesh.numIndices; j++) {
+			int sourceIndex = sourceGeo->getFaceIndices()[j];
+			if (sourceIndex < 0)
+				sourceIndex = -sourceIndex - 1; // index is negative if last in face
+			if (sourceIndex >= sourceGeo->getVertexCount()) {
+				fprintf(stderr, "Index '%d' out of range of vertex count '%d'\n", sourceIndex, sourceGeo->getVertexCount());
+				scene->destroy();
+				fbxDestroy(model);
+				return nullptr;
+			}
+			const uint32_t index = currentVertex + (uint32_t)sourceIndex;
+			assert(index < model->numVertices);
+			indices[mesh.firstIndex + j] = index;
+		}
+		for (uint32_t j = 0; j < (uint32_t)sourceGeo->getVertexCount(); j++) {
+			ModelVertex &vertex = vertices[currentVertex + j];
+			const ofbx::Vec3 &pos = sourceGeo->getVertices()[j];
+			vertex.pos.x = (float)pos.x;
+			vertex.pos.y = (float)pos.y;
+			vertex.pos.z = (float)pos.z;
+			if (sourceGeo->getNormals()) {
+				const ofbx::Vec3 &normal = sourceGeo->getNormals()[j];
+				vertex.normal.x = (float)normal.x;
+				vertex.normal.y = (float)normal.y;
+				vertex.normal.z = (float)normal.z;
+			} else {
+				vertex.normal = bx::Vec3(0.0f);
+			}
+			if (sourceGeo->getUVs(0)) {
+				const ofbx::Vec2 &uv = sourceGeo->getUVs(0)[j];
+				vertex.texcoord[0] = (float)uv.x;
+				vertex.texcoord[1] = (float)uv.y;
+			} else {
+				vertex.texcoord[0] = vertex.texcoord[1] = 0.0f;
+			}
+			vertex.texcoord[2] = vertex.texcoord[3] = 0.0f;
+		}
+		currentIndex += mesh.numIndices;
+		currentVertex += (uint32_t)sourceGeo->getVertexCount();
+	}
+	uint32_t currentMaterial = 0;
+	for (int i = 0; i < scene->getAllObjectCount(); i++) {
+		const ofbx::Object *object = scene->getAllObjects()[i];
+		if (object->getType() != ofbx::Object::Type::MATERIAL)
+			continue;
+		auto sourceMat = (const ofbx::Material *)object;
+		objzMaterial &destMat = model->materials[currentMaterial];
+		memset(&destMat, 0, sizeof(destMat));
+		destMat.opacity = 1.0f;
+		const ofbx::Color &diffuse = sourceMat->getDiffuseColor();
+		destMat.diffuse[0] = diffuse.r;
+		destMat.diffuse[1] = diffuse.g;
+		destMat.diffuse[2] = diffuse.b;
+		currentMaterial++;
+	}
+	scene->destroy();
+	return model;
 }
 
 BX_PRAGMA_DIAGNOSTIC_PUSH();
@@ -594,7 +737,17 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		}
 	}
 	const bx::StringView ext = bx::FilePath(args.filename).getExt();
-	if (bx::strCmpI(ext, ".glb") == 0 || bx::strCmpI(ext, ".gltf") == 0) {
+	if (bx::strCmpI(ext, ".fbx") == 0) {
+		objzModel *model = fbxLoad(args.filename, basePath);
+		if (!model) {
+			fprintf(stderr, "Error loading '%s'\n", args.filename);
+			setErrorMessage("Error loading '%s'\n", args.filename);
+			s_model.status.set(ModelStatus::NotLoaded);
+			return;
+		}
+		s_model.data = model;
+		s_model.destroyModelData = fbxDestroy;
+	} else if (bx::strCmpI(ext, ".glb") == 0 || bx::strCmpI(ext, ".gltf") == 0) {
 		objzModel *model = gltfLoad(args.filename, basePath);
 		if (!model) {
 			fprintf(stderr, "Error loading '%s'\n", args.filename);
@@ -705,7 +858,7 @@ void modelOpenDialog()
 	if (!(atlasIsNotGenerated() || atlasIsReady()))
 		return;
 	nfdchar_t *filename = nullptr;
-	nfdresult_t result = NFD_OpenDialog("glb,gltf,obj,stl", nullptr, &filename);
+	nfdresult_t result = NFD_OpenDialog("fbx,glb,gltf,obj,stl", nullptr, &filename);
 	if (result != NFD_OKAY)
 		return;
 	modelDestroy();

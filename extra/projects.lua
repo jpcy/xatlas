@@ -7,6 +7,7 @@ local EMBREE_DIR = path.join(THIRDPARTY_DIR, "embree3")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
 local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
 local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
+local OPENFBX_DIR = path.join(THIRDPARTY_DIR, "OpenFBX")
 local OPENNL_DIR = path.join(THIRDPARTY_DIR, "OpenNL")
 
 project "example"
@@ -79,9 +80,10 @@ project "viewer"
 		path.join(GLFW_DIR, "include"),
 		path.join(IGL_DIR, "include"),
 		path.join(OIDN_DIR, "include"),
+		OPENFBX_DIR,
 		OPENNL_DIR
 	}
-	links { "bgfx", "bimg", "bx", "cgltf", "glfw", "imgui", "nativefiledialog", "objzero", "OpenNL", "stb_image", "stb_image_resize", "xatlas" }
+	links { "bgfx", "bimg", "bx", "cgltf", "glfw", "imgui", "nativefiledialog", "objzero", "OpenFBX", "OpenNL", "stb_image", "stb_image_resize", "xatlas" }
 	filter "system:windows"
 		links { "gdi32", "ole32", "psapi", "uuid" }
 	filter "system:linux"
@@ -263,6 +265,13 @@ project "objzero"
 	language "C"
 	cdialect "C99"
 	files(path.join(THIRDPARTY_DIR, "objzero/objzero.*"))
+	
+project "OpenFBX"
+	kind "StaticLib"
+	language "C++"
+	exceptionhandling "Off"
+	rtti "Off"
+	files(path.join(OPENFBX_DIR, "*.*"))
 	
 project "OpenNL"
 	kind "StaticLib"
