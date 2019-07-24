@@ -61,6 +61,7 @@ void atlasShowGuiWindow(int progressDots);
 uint32_t atlasGetCount();
 uint32_t atlasGetWidth();
 uint32_t atlasGetHeight();
+const uint32_t *atlasGetImage();
 struct ModelVertex;
 std::vector<ModelVertex> *atlasGetVertices();
 std::vector<uint32_t> *atlasGetIndices();

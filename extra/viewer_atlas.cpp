@@ -237,6 +237,7 @@ static void clearPackOptions()
 	s_atlas.packOptions = xatlas::PackOptions();
 	// Baking needs 1 pixel padding for dilate filter.
 	s_atlas.packOptions.padding = 1;
+	s_atlas.packOptions.createImage = true;
 }
 
 void atlasInit()
@@ -1094,6 +1095,11 @@ uint32_t atlasGetWidth()
 uint32_t atlasGetHeight()
 {
 	return s_atlas.data->height;
+}
+
+const uint32_t *atlasGetImage()
+{
+	return s_atlas.data->image;
 }
 
 std::vector<ModelVertex> *atlasGetVertices()

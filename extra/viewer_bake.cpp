@@ -22,6 +22,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <imgui/imgui.h>
 #include <OpenImageDenoise/oidn.h>
 #include "shaders/shared.h"
+#include "../xatlas.h"
 #include "viewer.h"
 
 namespace std { typedef std::lock_guard<std::mutex> mutex_lock; }
@@ -245,59 +246,6 @@ static bool lm_findNextConservativeTriangleRasterizerPosition(lm_context *ctx)
 	return lm_findFirstConservativeTriangleRasterizerPosition(ctx);
 }
 
-static void lmImageDilate(const float *image, float *outImage, int w, int h, int c)
-{
-	assert(c > 0 && c <= 4);
-	for (int y = 0; y < h; y++)
-	{
-		for (int x = 0; x < w; x++)
-		{
-			float color[4];
-			bool valid = false;
-			for (int i = 0; i < c; i++)
-			{
-				color[i] = image[(y * w + x) * c + i];
-				valid |= color[i] > 0.0f;
-			}
-			if (!valid)
-			{
-				int n = 0;
-				const int dx[] = { -1, 0, 1,  0 };
-				const int dy[] = {  0, 1, 0, -1 };
-				for (int d = 0; d < 4; d++)
-				{
-					int cx = x + dx[d];
-					int cy = y + dy[d];
-					if (cx >= 0 && cx < w && cy >= 0 && cy < h)
-					{
-						float dcolor[4];
-						bool dvalid = false;
-						for (int i = 0; i < c; i++)
-						{
-							dcolor[i] = image[(cy * w + cx) * c + i];
-							dvalid |= dcolor[i] > 0.0f;
-						}
-						if (dvalid)
-						{
-							for (int i = 0; i < c; i++)
-								color[i] += dcolor[i];
-							n++;
-						}
-					}
-				}
-				if (n)
-				{
-					float in = 1.0f / n;
-					for (int i = 0; i < c; i++)
-						color[i] *= in;
-				}
-			}
-			for (int i = 0; i < c; i++)
-				outImage[(y * w + x) * c + i] = color[i];
-		}
-	}
-}
-
 struct BakeStatus
 {
 	enum Enum
@@ -443,7 +391,6 @@ struct
 	std::mutex cancelWorkerMutex;
 	std::vector<SampleLocation> sampleLocations;
 	std::vector<float> lightmapData;
-	std::vector<float> dilatedLightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
 	std::atomic<uint32_t> numSampleLocationsProcessed;
 	uint32_t numRaysTraced;
@@ -780,6 +727,59 @@ static bool bakeTraceRays()
 	return true;
 }
 
+static void bakeDilateCharts(float *data)
+{
+	const int xOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+	const int yOffsets[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+	const uint32_t *atlasImage = atlasGetImage();
+	for (uint32_t y = 0; y < s_bake.lightmapHeight; y++) {
+		for (uint32_t x = 0; x < s_bake.lightmapWidth; x++) {
+			const uint32_t offset = x + y * s_bake.lightmapWidth;
+			if (!(atlasImage[offset] & xatlas::kImageIsPaddingBit)) {
+#if 0
+				if (atlasImage[offset] == 0) {
+					float *rgba = &data[offset * 4];
+					rgba[0] = 1.0f;
+					rgba[1] = 0.0f;
+					rgba[2] = 1.0f;
+					rgba[3] = 1.0f;
+				}
+#endif
+				continue; // Not padding.
+			}
+			const uint32_t chart = atlasImage[offset] & xatlas::kImageChartIndexMask;
+			float rgbSum[3] = { 0.0f, 0.0f, 0.0f }, n = 0;
+			for (uint32_t si = 0; si < 8; si++) {
+				const int sx = (int)x + xOffsets[si];
+				const int sy = (int)y + yOffsets[si];
+				if (sx < 0 || sy < 0 || sx >= (int)s_bake.lightmapWidth || sy >= (int)s_bake.lightmapHeight)
+					continue; // Sample position is outside of atlas.
+				const uint32_t sampleOffset = (uint32_t)sx + (uint32_t)sy * s_bake.lightmapWidth;
+				if (atlasImage[sampleOffset] == 0)
+					continue; // Empty space.
+				if (atlasImage[sampleOffset] & xatlas::kImageIsPaddingBit)
+					continue; // Don't sample from padding.
+				if ((atlasImage[sampleOffset] & xatlas::kImageChartIndexMask) != chart)
+					continue; // Only sample from matching chart.
+				// Valid sample.
+				const float *rgba = &data[sampleOffset * 4];
+				rgbSum[0] += (float)rgba[0];
+				rgbSum[1] += (float)rgba[1];
+				rgbSum[2] += (float)rgba[2];
+				n++;
+			}
+			if (n != 0) {
+				const float invn = 1.0f / (float)n;
+				float *rgba = &data[offset * 4];
+				rgba[0] = rgbSum[0] * invn;
+				rgba[1] = rgbSum[1] * invn;
+				rgba[2] = rgbSum[2] * invn;
+				rgba[3] = 1.0f;
+			}
+		}
+	}
+}
+
 static void bakeWorkerThread()
 {
 	if (!bakeInitEmbree()) {
@@ -797,8 +797,7 @@ static void bakeWorkerThread()
 		return;
 	}
 	// Dilate
-	s_bake.dilatedLightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
-	lmImageDilate(s_bake.lightmapData.data(), s_bake.dilatedLightmapData.data(), (int)s_bake.lightmapWidth, (int)s_bake.lightmapHeight, 4);
+	bakeDilateCharts(s_bake.lightmapData.data());
 	s_bake.status = BakeStatus::ThreadFinished;
 }
 
@@ -899,7 +898,7 @@ static void bakeDenoiseThread()
 	oidn::CommitDevice(device);
 	OIDNFilter filter = oidn::NewFilter(device, "RT");
 	oidn::SetFilterProgressMonitorFunction(filter, bakeOidnProgress, nullptr);
-	oidn::SetSharedFilterImage(filter, "color", s_bake.dilatedLightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
+	oidn::SetSharedFilterImage(filter, "color", s_bake.lightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
 	oidn::SetSharedFilterImage(filter, "output", s_bake.denoisedLightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
 	oidn::CommitFilter(filter);
 	oidn::ExecuteFilter(filter);
@@ -907,9 +906,9 @@ static void bakeDenoiseThread()
 	oidn::ReleaseDevice(device);
 	// Copy alpha channel.
 	for (uint32_t i = 0; i < s_bake.lightmapWidth * s_bake.lightmapHeight; i++)
-		s_bake.denoisedLightmapData[i * 4 + 3] = s_bake.dilatedLightmapData[i * 4 + 3];
+		s_bake.denoisedLightmapData[i * 4 + 3] = s_bake.lightmapData[i * 4 + 3];
 	// Dilate
-	lmImageDilate(s_bake.denoisedLightmapData.data(), s_bake.dilatedLightmapData.data(), (int)s_bake.lightmapWidth, (int)s_bake.lightmapHeight, 4);
+	bakeDilateCharts(s_bake.denoisedLightmapData.data());
 	s_bake.denoiseStatus = DenoiseStatus::ThreadFinished;
 }
 
@@ -993,7 +992,7 @@ void bakeFrame(uint32_t frameNo)
 	if (s_bake.status == BakeStatus::ThreadFinished) {
 		shutdownWorkerThread();
 		// Do a final update of the lightmap texture with the dilated result.
-		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.dilatedLightmapData.data(), (uint32_t)s_bake.dilatedLightmapData.size() * sizeof(float)));
+		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.lightmapData.data(), (uint32_t)s_bake.lightmapData.size() * sizeof(float)));
 		s_bake.status = BakeStatus::Finished;
 	} else if ((s_bake.status == BakeStatus::Cancelled || s_bake.status == BakeStatus::Error) && g_options.shadeMode == ShadeMode::Lightmap) {
 		// Executing bake sets shade mode to lightmap. Set it back to charts if bake was cancelled or there was an error.
@@ -1003,7 +1002,7 @@ void bakeFrame(uint32_t frameNo)
 #if BX_ARCH_64BIT
 		bakeShutdownDenoiseThread();
 #endif
-		bgfx::updateTexture2D(s_bake.denoisedLightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.dilatedLightmapData.data(), (uint32_t)s_bake.dilatedLightmapData.size() * sizeof(float)));
+		bgfx::updateTexture2D(s_bake.denoisedLightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.lightmapData.data(), (uint32_t)s_bake.lightmapData.size() * sizeof(float)));
 		s_bake.denoiseStatus = DenoiseStatus::Finished;
 	}
 	if (s_bake.updateStatus == UpdateStatus::Pending) {
