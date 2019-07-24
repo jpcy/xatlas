@@ -545,10 +545,10 @@ static bool operator!=(const Vector2 &a, const Vector2 &b)
 	return a.x != b.x || a.y != b.y;
 }
 
-static Vector2 operator+(const Vector2 &a, const Vector2 &b)
+/*static Vector2 operator+(const Vector2 &a, const Vector2 &b)
 {
 	return Vector2(a.x + b.x, a.y + b.y);
-}
+}*/
 
 static Vector2 operator-(const Vector2 &a, const Vector2 &b)
 {
@@ -7075,15 +7075,11 @@ struct Atlas
 		float minChartPerimeter = FLT_MAX, maxChartPerimeter = 0.0f;
 		for (uint32_t c = 0; c < chartCount; c++) {
 			Chart *chart = m_charts[c];
-			//chartOrderArray[c] = chart.surfaceArea;
 			// Compute chart scale
 			float scale = (chart->surfaceArea / chart->parametricArea) * m_texelsPerUnit;
-			if (chart->parametricArea == 0) { // < kAreaEpsilon)
+			if (chart->parametricArea == 0.0f)
 				scale = 0;
-			}
 			XA_ASSERT(isFinite(scale));
-			// Sort charts by perimeter. @@ This is sometimes producing somewhat unexpected results. Is this right?
-			//chartOrderArray[c] = ((chart->maxCorner.x - chart->minCorner.x) + (chart->maxCorner.y - chart->minCorner.y)) * scale;
 			// Translate, rotate and scale vertices. Compute extents.
 			Vector2 minCorner(FLT_MAX, FLT_MAX);
 			if (!chart->allowRotate) {
@@ -7103,21 +7099,11 @@ struct Atlas
 					texcoord -= minCorner;
 				}
 				texcoord *= scale;
-				XA_DEBUG_ASSERT(texcoord.x >= 0 && texcoord.y >= 0);
+				XA_DEBUG_ASSERT(texcoord.x >= 0.0f && texcoord.y >= 0.0f);
 				XA_DEBUG_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 				extents = max(extents, texcoord);
 			}
 			XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
-			// Limit chart size.
-			const float maxChartSize = (float)options.maxChartSize;
-			if (extents.x > maxChartSize || extents.y > maxChartSize) {
-				const float limit = max(extents.x, extents.y);
-				scale = maxChartSize / (limit + 1.0f);
-				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
-					chart->uniqueVertexAt(i) *= scale;
-				extents *= scale;
-				XA_DEBUG_ASSERT(extents.x <= maxChartSize && extents.y <= maxChartSize);
-			}
 			// Scale the charts to use the entire texel area available. So, if the width is 0.1 we could scale it to 1 without increasing the lightmap usage and making a better
 			// use of it. In many cases this also improves the look of the seams, since vertices on the chart boundaries have more chances of being aligned with the texel centers.
 			float scale_x = 1.0f;
@@ -7152,9 +7138,25 @@ struct Atlas
 				texcoord.y *= scale_y;
 				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 			}
+			// Limit chart size.
+			const float maxChartSize = (float)options.maxChartSize;
+			if (extents.x > maxChartSize || extents.y > maxChartSize) {
+				const float limit = max(extents.x, extents.y);
+				scale = maxChartSize / (limit + 1.0f);
+				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
+					chart->uniqueVertexAt(i) *= scale;
+				extents *= scale;
+				XA_DEBUG_ASSERT(extents.x <= maxChartSize && extents.y <= maxChartSize);
+			}
+			// Align to texel centers and add padding offset.
+			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+				Vector2 &texcoord = chart->uniqueVertexAt(v);
+				texcoord.x += 0.5f + options.padding;
+				texcoord.y += 0.5f + options.padding;
+				extents = max(extents, texcoord);
+			}
 			chartExtents[c] = extents;
-			// Sort charts by perimeter.
-			chartOrderArray[c] = extents.x + extents.y;
+			chartOrderArray[c] = extents.x + extents.y; // Use perimeter for chart sort key.
 			minChartPerimeter = min(minChartPerimeter, chartOrderArray[c]);
 			maxChartPerimeter = max(maxChartPerimeter, chartOrderArray[c]);
 		}
@@ -7193,8 +7195,8 @@ struct Atlas
 			//    V   V   V
 			//    0   1   2
 			XA_PROFILE_START(packChartsRasterize)
-			// Leave room for padding.
-			chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + 1 + options.padding * 2, ftoi_ceil(chartExtents[c].y) + 1 + options.padding * 2, true);
+			// Leave room for padding at extents.
+			chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + options.padding, ftoi_ceil(chartExtents[c].y) + options.padding, true);
 			if (chart->allowRotate)
 				chartBitImageRotated.resize(chartBitImage.height(), chartBitImage.width(), true);
 			// Rasterize chart faces.
@@ -7203,7 +7205,7 @@ struct Atlas
 				// Offset vertices by padding.
 				Vector2 vertices[3];
 				for (uint32_t v = 0; v < 3; v++)
-					vertices[v] = chart->vertices[chart->indices[f * 3 + v]] + Vector2(0.5f) + Vector2(float(options.padding));
+					vertices[v] = chart->vertices[chart->indices[f * 3 + v]];
 				DrawTriangleCallbackArgs args;
 				args.chartBitImage = &chartBitImage;
 				args.chartBitImageRotated = chart->allowRotate ? &chartBitImageRotated : nullptr;
@@ -7309,8 +7311,8 @@ struct Atlas
 					XA_DEBUG_ASSERT(chart->allowRotate);
 					swap(t.x, t.y);
 				}
-				texcoord.x = best_x + t.x + 0.5f;
-				texcoord.y = best_y + t.y + 0.5f;
+				texcoord.x = best_x + t.x;
+				texcoord.y = best_y + t.y;
 				XA_ASSERT(texcoord.x >= 0 && texcoord.y >= 0);
 				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 			}
