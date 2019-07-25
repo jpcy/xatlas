@@ -6727,10 +6727,10 @@ public:
 		}
 	}
 
-	void copyTo(uint32_t *dest, uint32_t destWidth, uint32_t destHeight) const
+	void copyTo(uint32_t *dest, uint32_t destWidth, uint32_t destHeight, int padding) const
 	{
 		for (uint32_t y = 0; y < destHeight; y++)
-			memcpy(&dest[y * destWidth], &m_data[y * m_width], destWidth * sizeof(uint32_t));
+			memcpy(&dest[y * destWidth], &m_data[padding + (y + padding) * m_width], destWidth * sizeof(uint32_t));
 	}
 
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
@@ -7303,7 +7303,10 @@ struct Atlas
 				m_atlasImages[currentAtlas]->addChart(c, best_r == 0 ? &chartBitImage : &chartBitImageRotated, true, atlasWidth, atlasHeight, best_x, best_y);
 			}
 			chart->atlasIndex = (int32_t)currentAtlas;
-			// Translate and rotate chart texture coordinates.
+			// Modify texture coordinates:
+			//  - rotate if the chart should be rotated
+			//  - translate to chart location
+			//  - translate to remove padding from top and left atlas edges
 			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(v);
 				Vector2 t = texcoord;
@@ -7311,8 +7314,8 @@ struct Atlas
 					XA_DEBUG_ASSERT(chart->allowRotate);
 					swap(t.x, t.y);
 				}
-				texcoord.x = best_x + t.x;
-				texcoord.y = best_y + t.y;
+				texcoord.x = best_x + t.x - (float)options.padding;
+				texcoord.y = best_y + t.y - (float)options.padding;
 				XA_ASSERT(texcoord.x >= 0 && texcoord.y >= 0);
 				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 			}
@@ -7326,6 +7329,7 @@ struct Atlas
 			}
 		}
 		if (resizableAtlas) {
+			// Remove padding from outer edges.
 			m_width = max(0, atlasWidth - (int)options.padding * 2);
 			m_height = max(0, atlasHeight - (int)options.padding * 2);
 		} else {
@@ -8256,7 +8260,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	if (packOptions.createImage) {
 		atlas->image = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, atlas->atlasCount * atlas->width * atlas->height);
 		for (uint32_t i = 0; i < atlas->atlasCount; i++)
-			packAtlas.getImages()[i]->copyTo(&atlas->image[atlas->width * atlas->height * i], atlas->width, atlas->height);
+			packAtlas.getImages()[i]->copyTo(&atlas->image[atlas->width * atlas->height * i], atlas->width, atlas->height, packOptions.padding);
 	}
 	XA_PROFILE_PRINT_AND_RESET("   Total: ", packCharts)
 	XA_PROFILE_PRINT_AND_RESET("      Add charts (real): ", packChartsAddCharts)
