@@ -7315,7 +7315,7 @@ struct Atlas
 			// Modify texture coordinates:
 			//  - rotate if the chart should be rotated
 			//  - translate to chart location
-			//  - translate to remove padding from top and left atlas edges
+			//  - translate to remove padding from top and left atlas edges (unless block aligned)
 			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(v);
 				Vector2 t = texcoord;
@@ -7323,8 +7323,12 @@ struct Atlas
 					XA_DEBUG_ASSERT(chart->allowRotate);
 					swap(t.x, t.y);
 				}
-				texcoord.x = best_x + t.x - (float)options.padding;
-				texcoord.y = best_y + t.y - (float)options.padding;
+				texcoord.x = best_x + t.x;
+				texcoord.y = best_y + t.y;
+				if (!options.blockAlign) {
+					texcoord.x -= (float)options.padding;
+					texcoord.y -= (float)options.padding;
+				}
 				XA_ASSERT(texcoord.x >= 0 && texcoord.y >= 0);
 				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 			}
@@ -7337,12 +7341,21 @@ struct Atlas
 				}
 			}
 		}
-		// Remove padding from outer edges.
-		if (maxResolution == 0) {
-			m_width = max(0, atlasSizes[0].x - (int)options.padding * 2);
-			m_height = max(0, atlasSizes[0].y - (int)options.padding * 2);
+		if (options.blockAlign) {
+			if (maxResolution == 0) {
+				m_width = max(0, atlasSizes[0].x);
+				m_height = max(0, atlasSizes[0].y);
+			} else {
+				m_width = m_height = maxResolution;
+			}
 		} else {
-			m_width = m_height = maxResolution - (int)options.padding * 2;
+			// Remove padding from outer edges.
+			if (maxResolution == 0) {
+				m_width = max(0, atlasSizes[0].x - (int)options.padding * 2);
+				m_height = max(0, atlasSizes[0].y - (int)options.padding * 2);
+			} else {
+				m_width = m_height = maxResolution - (int)options.padding * 2;
+			}
 		}
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
 		m_utilization.resize(m_bitImages.size());
