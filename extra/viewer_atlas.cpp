@@ -178,7 +178,7 @@ enum class ParamMethod
 	OpenNL_LSCM
 };
 
-struct ChartBoundaryVertex
+struct AtlasVertex
 {
 	float pos[2];
 	uint32_t color;
@@ -193,6 +193,7 @@ struct
 	AtlasStatus status;
 	int currentTexture;
 	bool fitToWindow = true;
+	bool showBlockGrid = false;
 	bgfx::FrameBufferHandle chartsFrameBuffer = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
@@ -217,10 +218,10 @@ struct
 	std::vector<bool> boundaryEdges;
 	std::vector<WireframeVertex> chartBoundaryVertices;
 	std::vector<uint32_t> textureChartIndices;
-	std::vector<ChartBoundaryVertex> textureChartBoundaryVertices;
+	std::vector<AtlasVertex> textureChartBoundaryVertices;
 	bgfx::VertexDecl wireVertexDecl;
 	bgfx::VertexDecl chartColorDecl;
-	bgfx::VertexDecl chartBoundaryDecl;
+	bgfx::VertexDecl atlasVertexDecl;
 	// Chart rendering with checkerboard pattern.
 	bgfx::UniformHandle u_color;
 	bgfx::UniformHandle u_textureSize_cellSize;
@@ -249,7 +250,7 @@ void atlasInit()
 	s_atlas.chartColorDecl.begin()
 		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
 		.end();
-	s_atlas.chartBoundaryDecl.begin()
+	s_atlas.atlasVertexDecl.begin()
 		.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
 		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
 		.end();
@@ -843,7 +844,7 @@ static void atlasRenderChartsTextures()
 					if (chart.atlasIndex == (uint32_t)s_atlas.currentTexture && s_atlas.boundaryEdges[edge]) {
 						const xatlas::Vertex &v0 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + l]];
 						const xatlas::Vertex &v1 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + (l + 1) % 3]];
-						ChartBoundaryVertex cbv;
+						AtlasVertex cbv;
 						cbv.pos[0] = v0.uv[0];
 						cbv.pos[1] = v0.uv[1];
 						cbv.color = color;
@@ -874,10 +875,41 @@ static void atlasRenderChartsTextures()
 	bgfx::submit(viewId, s_atlas.chartTexcoordSpaceProgram);
 	// Render chart boundary lines to emulate conservative rasterization.
 	bgfx::destroyAndClear(s_atlas.textureChartBoundaryVb);
-	s_atlas.textureChartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.textureChartBoundaryVertices), s_atlas.chartBoundaryDecl);
+	s_atlas.textureChartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.textureChartBoundaryVertices), s_atlas.atlasVertexDecl);
 	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES);
 	bgfx::setVertexBuffer(0, s_atlas.textureChartBoundaryVb);
 	bgfx::submit(viewId, getColorProgram());
+	// Render 4x4 block grid.
+	if (s_atlas.showBlockGrid) {
+		const uint32_t nVertices = ((s_atlas.data->width + 1) / 4 + (s_atlas.data->height + 1) / 4) * 2;
+		if (bgfx::getAvailTransientVertexBuffer(nVertices, s_atlas.atlasVertexDecl) != nVertices)
+			return;
+		bgfx::TransientVertexBuffer tvb;
+		bgfx::allocTransientVertexBuffer(&tvb, nVertices, s_atlas.atlasVertexDecl);
+		auto vertices = (AtlasVertex *)tvb.data;
+		uint32_t i = 0;
+		for (uint32_t x = 0; x <= s_atlas.data->width; x += 4) {
+			vertices[i].pos[0] = (float)x + 0.5f;
+			vertices[i].pos[1] = 0.5f;
+			i++;
+			vertices[i].pos[0] = (float)x + 0.5f;
+			vertices[i].pos[1] = (float)s_atlas.data->height - 0.5f;
+			i++;
+		}
+		for (uint32_t y = 0; y <= s_atlas.data->height; y += 4) {
+			vertices[i].pos[0] = 0.5f;
+			vertices[i].pos[1] = (float)y + 0.5f;
+			i++;
+			vertices[i].pos[0] = (float)s_atlas.data->width - 0.5f;
+			vertices[i].pos[1] = (float)y + 0.5f;
+			i++;
+		}
+		for (i = 0; i < nVertices; i++)
+			vertices[i].color = 0x77ffffff;
+		bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA | BGFX_STATE_PT_LINES);
+		bgfx::setVertexBuffer(0, &tvb);
+		bgfx::submit(viewId, getColorProgram(), 1u); // Render last
+	}
 }
 
 void atlasFinalize()
@@ -902,8 +934,8 @@ void atlasFinalize()
 	bgfx::TextureHandle texture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack));
 	s_atlas.chartsFrameBuffer = bgfx::createFrameBuffer(1, &texture, true);
 	// Render charts to texture(s) for previewing UVs. Render in UV space.
-	atlasRenderChartsTextures();
 	s_atlas.currentTexture = 0;
+	atlasRenderChartsTextures();
 	g_options.shadeMode = ShadeMode::Charts;
 	g_options.wireframeMode = WireframeMode::Charts;
 	g_options.chartColorMode = ChartColorMode::Individual;
@@ -1070,6 +1102,9 @@ void atlasShowGuiWindow(int progressDots)
 				ImGui::SameLine();
 			}
 			ImGui::Checkbox("Fit to window", &s_atlas.fitToWindow);
+			ImGui::SameLine();
+			if (ImGui::Checkbox("Show 4x4 grid", &s_atlas.showBlockGrid))
+				atlasRenderChartsTextures();
 			GuiTexture texture;
 			texture.bgfx.handle = bgfx::getTexture(s_atlas.chartsFrameBuffer);
 			texture.bgfx.flags = GuiTextureFlags::PointSampler;
