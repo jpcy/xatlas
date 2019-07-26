@@ -856,15 +856,18 @@ void modelFinalize()
 	s_model.status.set(ModelStatus::Loaded);
 }
 
-void modelOpenDialog()
+static bool modelCanOpen()
 {
 	if (s_model.status.get() == ModelStatus::Loading || s_model.status.get() == ModelStatus::Finalizing)
-		return;
+		return false;
 	if (!(atlasIsNotGenerated() || atlasIsReady()))
-		return;
-	nfdchar_t *filename = nullptr;
-	nfdresult_t result = NFD_OpenDialog("fbx,glb,gltf,obj,stl", nullptr, &filename);
-	if (result != NFD_OKAY)
+		return false;
+	return true;
+}
+
+void modelOpen(const char *filename)
+{
+	if (!modelCanOpen())
 		return;
 	modelDestroy();
 	s_model.status.set(ModelStatus::Loading);
@@ -875,6 +878,17 @@ void modelOpenDialog()
 	ModelLoadThreadArgs args;
 	bx::strCopy(args.filename, sizeof(args.filename), filename);
 	s_model.thread = new std::thread(modelLoadThread, args);
+}
+
+void modelOpenDialog()
+{
+	if (!modelCanOpen())
+		return;
+	nfdchar_t *filename = nullptr;
+	nfdresult_t result = NFD_OpenDialog("fbx,glb,gltf,obj,stl", nullptr, &filename);
+	if (result != NFD_OKAY)
+		return;
+	modelOpen(filename);
 	free(filename);
 }
 

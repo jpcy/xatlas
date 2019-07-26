@@ -396,7 +396,7 @@ struct BgfxCallback : public bgfx::CallbackI
 	void captureFrame(const void*, uint32_t) override {}
 };
 
-int main(int /*argc*/, char ** /*argv*/)
+int main(int argc, char **argv)
 {
 	glfwSetErrorCallback(glfw_errorCallback);
 	if (!glfwInit())
@@ -437,6 +437,8 @@ int main(int /*argc*/, char ** /*argv*/)
 	glfwSetKeyCallback(g_window, glfw_keyCallback);
 	glfwSetMouseButtonCallback(g_window, glfw_mouseButtonCallback);
 	glfwSetScrollCallback(g_window, glfw_scrollCallback);
+	if (argc >= 2)
+		modelOpen(argv[1]);
 	int frameCount = 0, progressDots = 0;
 	double lastFrameTime = glfwGetTime();
 	uint32_t bgfxFrameNo = 0;

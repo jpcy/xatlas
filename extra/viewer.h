@@ -127,6 +127,7 @@ struct ModelVertex
 void modelInit();
 void modelShutdown();
 void modelFinalize();
+void modelOpen(const char *filename);
 void modelOpenDialog();
 void modelDestroy();
 void modelRender(const float *view, const float *projection);
