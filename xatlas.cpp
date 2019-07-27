@@ -7839,10 +7839,37 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 				break;
 			}
 		}
+		// Ignore faces with any nan vertex attributes.
+		if (!ignore) {
+			for (int j = 0; j < 3; j++) {
+				const internal::Vector3 &pos = mesh->position(tri[j]);
+				if (internal::isNan(pos.x) || internal::isNan(pos.y) || internal::isNan(pos.z)) {
+					XA_PRINT("   NAN position in face: %d\n", i);
+					ignore = true;
+					break;
+				}
+				if (meshDecl.vertexNormalData) {
+					const internal::Vector3 &normal = mesh->normal(tri[j]);
+					if (internal::isNan(normal.x) || internal::isNan(normal.y) || internal::isNan(normal.z)) {
+						XA_PRINT("   NAN normal in face: %d\n", i);
+						ignore = true;
+						break;
+					}
+				}
+				if (meshDecl.vertexUvData) {
+					const internal::Vector2 &uv = mesh->texcoord(tri[j]);
+					if (internal::isNan(uv.x) || internal::isNan(uv.y)) {
+						XA_PRINT("   NAN texture coordinate in face: %d\n", i);
+						ignore = true;
+						break;
+					}
+				}
+			}
+		}
 		const internal::Vector3 &a = mesh->position(tri[0]);
 		const internal::Vector3 &b = mesh->position(tri[1]);
 		const internal::Vector3 &c = mesh->position(tri[2]);
-		// Check for zero area faces. Don't bother if a degenerate or zero length edge was already detected.
+		// Check for zero area faces.
 		float area = 0.0f;
 		if (!ignore) {
 			area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
@@ -7952,8 +7979,13 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 	}
 	internal::UvMeshInstance *meshInstance = XA_NEW(internal::MemTag::Default, internal::UvMeshInstance);
 	meshInstance->texcoords.resize(decl.vertexCount);
-	for (uint32_t i = 0; i < decl.vertexCount; i++)
-		meshInstance->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
+	for (uint32_t i = 0; i < decl.vertexCount; i++) {
+		internal::Vector2 texcoord = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
+		// Set nan values to 0.
+		if (internal::isNan(texcoord.x) || internal::isNan(texcoord.y))
+			texcoord.x = texcoord.y = 0.0f;
+		meshInstance->texcoords[i] = texcoord;
+	}
 	meshInstance->rotateCharts = decl.rotateCharts;
 	// See if this is an instance of an already existing mesh.
 	internal::UvMesh *mesh = nullptr;
