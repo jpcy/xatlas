@@ -942,7 +942,7 @@ void atlasFinalize()
 	s_atlas.status.set(AtlasStatus::Ready);
 }
 
-void atlasRenderCharts(const float *modelMatrix)
+void atlasRenderCharts(const float *modelMatrix, uint64_t state)
 {
 	float textureSize_cellSize[4];
 	textureSize_cellSize[0] = (float)s_atlas.data->width;
@@ -950,7 +950,7 @@ void atlasRenderCharts(const float *modelMatrix)
 	textureSize_cellSize[2] = (float)g_options.chartCellSize;
 	textureSize_cellSize[3] = (float)g_options.chartCellSize;
 	bgfx::setUniform(s_atlas.u_textureSize_cellSize, textureSize_cellSize);
-	bgfx::setState(BGFX_STATE_DEFAULT);
+	bgfx::setState(state);
 	bgfx::setTransform(modelMatrix);
 	bgfx::setIndexBuffer(s_atlas.chartIb);
 	bgfx::setVertexBuffer(0, s_atlas.vb);

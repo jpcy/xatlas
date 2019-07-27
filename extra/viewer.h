@@ -54,7 +54,7 @@ void atlasShutdown();
 void atlasDestroy();
 void atlasGenerate();
 void atlasFinalize();
-void atlasRenderCharts(const float *modelMatrix);
+void atlasRenderCharts(const float *modelMatrix, uint64_t state);
 void atlasRenderChartsWireframe(const float *modelMatrix);
 void atlasShowGuiOptions();
 void atlasShowGuiWindow(int progressDots);

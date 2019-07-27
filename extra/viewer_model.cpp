@@ -83,6 +83,8 @@ struct
 	bgfx::VertexBufferHandle wireframeVb = BGFX_INVALID_HANDLE;
 	std::vector<WireframeVertex> wireframeVertices;
 	float scale = 1.0f;
+	bool rightHandedAxis = false; // Default is z/-x/y, right handed is -z/x/y.
+	bool flipFaceWinding = false;
 	bgfx::ShaderHandle vs_model;
 	bgfx::ShaderHandle fs_material;
 	bgfx::ProgramHandle materialProgram;
@@ -97,6 +99,13 @@ struct
 	bgfx::TextureHandle u_dummyTexture;
 }
 s_model;
+
+static const float s_rightHandedAxisMatrix[16] = {
+	0.0f, 0.0f, -1.0f, 0.0f,
+	1.0f, 0.0f, 0.0f, 0.0f,
+	0.0f, 1.0f, 0.0f, 0.0f,
+	0.0f, 0.0f, 0.0f, 1.0f
+};
 
 static bool readFileData(const char *filename, std::vector<uint8_t> *fileData)
 {
@@ -922,8 +931,15 @@ void modelRender(const float *view, const float *projection)
 {
 	if (s_model.status.get() != ModelStatus::Loaded)
 		return;
+	float transform[16];
+	if (s_model.rightHandedAxis)
+		memcpy(transform, s_rightHandedAxisMatrix, sizeof(float) * 16);
+	else
+		bx::mtxIdentity(transform);
+	float scaleMatrix[16];
+	bx::mtxScale(scaleMatrix, s_model.scale);
 	float modelMatrix[16];
-	bx::mtxScale(modelMatrix, s_model.scale);
+	bx::mtxMul(modelMatrix, transform, scaleMatrix);
 	bgfx::setViewTransform(kModelView, view, projection);
 	bgfx::setViewTransform(kModelTransparentView, view, projection);
 	const bool renderCharts = g_options.shadeMode == ShadeMode::Charts && atlasIsReady();
@@ -945,6 +961,8 @@ void modelRender(const float *view, const float *projection)
 				bgfx::setVertexBuffer(0, s_model.vb);
 			}
 			uint64_t state = BGFX_STATE_DEFAULT;
+			if (s_model.flipFaceWinding)
+				state = state & ~BGFX_STATE_CULL_CW | BGFX_STATE_CULL_CCW;
 			if (transparent)
 				state |= BGFX_STATE_BLEND_ALPHA;
 			bgfx::setState(state);
@@ -990,8 +1008,12 @@ void modelRender(const float *view, const float *projection)
 			bgfx::submit(transparent ? kModelTransparentView : kModelView, s_model.materialProgram);
 		}
 	}
-	if (renderCharts)
-		atlasRenderCharts(modelMatrix);
+	if (renderCharts) {
+		uint64_t state = BGFX_STATE_DEFAULT;
+		if (s_model.flipFaceWinding)
+			state = state & ~BGFX_STATE_CULL_CW | BGFX_STATE_CULL_CCW;
+		atlasRenderCharts(modelMatrix, state);
+	}
 	if (g_options.wireframe) {
 		if (g_options.wireframeMode == WireframeMode::Triangles) {
 			const float color[] = { 0.0f, 0.0f, 0.0f, 0.75f };
@@ -1015,6 +1037,8 @@ void modelShowGuiOptions()
 	ImGui::Text("%u triangles", s_model.data->numIndices / 3);
 	ImGui::InputFloat("Model scale", &s_model.scale, 0.01f, 0.1f);
 	s_model.scale = bx::max(0.001f, s_model.scale);
+	ImGui::Checkbox("Model right-handed axis", &s_model.rightHandedAxis);
+	ImGui::Checkbox("Model flip face winding", &s_model.flipFaceWinding);
 }
 
 void modelShowGuiWindow(int progressDots)
@@ -1045,7 +1069,10 @@ const objzModel *modelGetData()
 
 bx::Vec3 modelGetCentroid()
 {
-	return bx::mul(s_model.centroid, s_model.scale);
+	bx::Vec3 centroid(s_model.centroid);
+	if (s_model.rightHandedAxis)
+		centroid = bx::mul(centroid, s_rightHandedAxisMatrix);
+	return bx::mul(centroid, s_model.scale);
 }
 
 float modelGetScale()
