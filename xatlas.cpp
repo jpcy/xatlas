@@ -7145,14 +7145,18 @@ struct Atlas
 				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 			}
 			// Limit chart size.
-			const float maxChartSize = (float)options.maxChartSize;
-			if (extents.x > maxChartSize || extents.y > maxChartSize) {
-				const float limit = max(extents.x, extents.y);
-				scale = maxChartSize / (limit + 1.0f);
-				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
-					chart->uniqueVertexAt(i) *= scale;
-				extents *= scale;
-				XA_DEBUG_ASSERT(extents.x <= maxChartSize && extents.y <= maxChartSize);
+			if (options.maxChartSize > 0) {
+				const float maxChartSize = (float)options.maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
+				if (extents.x > maxChartSize || extents.y > maxChartSize) {
+					scale = maxChartSize / max(extents.x, extents.y);
+					extents.x = extents.y = 0.0f;
+					for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
+						Vector2 &texcoord = chart->uniqueVertexAt(i);
+						texcoord *= scale;
+						extents = max(extents, texcoord);
+					}
+					XA_DEBUG_ASSERT(extents.x <= maxChartSize && extents.y <= maxChartSize);
+				}
 			}
 			// Align to texel centers and add padding offset.
 			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {

@@ -204,8 +204,8 @@ struct PackOptions
 	// If not 0, and texelsPerUnit is 0, texelsPerUnit is estimated to approximately match the resolution.
 	uint32_t resolution = 0;
 
-	// Charts larger than this will be scaled down.
-	uint32_t maxChartSize = 1024;
+	// Charts larger than this will be scaled down. 0 means no limit.
+	uint32_t maxChartSize = 0;
 
 	// Align charts to 4x4 blocks. Also improves packing speed, since there are fewer possible chart locations to consider.
 	bool blockAlign = false;
