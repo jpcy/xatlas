@@ -7144,18 +7144,27 @@ struct Atlas
 				texcoord.y *= scale_y;
 				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 			}
-			// Limit chart size.
-			if (options.maxChartSize > 0) {
-				const float maxChartSize = (float)options.maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
-				if (extents.x > maxChartSize || extents.y > maxChartSize) {
-					scale = maxChartSize / max(extents.x, extents.y);
+			// Limit chart size, either to PackOptions::maxChartSize or maxResolution (if set), whichever is smaller.
+			// If limiting chart size to maxResolution print a warning, since that may not be desirable to the user.
+			uint32_t maxChartSize = options.maxChartSize;
+			bool warnChartResized = false;
+			if (maxResolution > 0 && (maxChartSize == 0 || maxResolution < maxChartSize)) {
+				maxChartSize = maxResolution - options.padding * 2; // Don't include padding.
+				warnChartResized = true;
+			}
+			if (maxChartSize > 0) {
+				const float realMaxChartSize = (float)maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
+				if (extents.x > realMaxChartSize || extents.y > realMaxChartSize) {
+					if (warnChartResized)
+						XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y, maxChartSize, maxChartSize);
+					scale = realMaxChartSize / max(extents.x, extents.y);
 					extents.x = extents.y = 0.0f;
 					for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
 						Vector2 &texcoord = chart->uniqueVertexAt(i);
 						texcoord *= scale;
 						extents = max(extents, texcoord);
 					}
-					XA_DEBUG_ASSERT(extents.x <= maxChartSize && extents.y <= maxChartSize);
+					XA_DEBUG_ASSERT(extents.x <= realMaxChartSize && extents.y <= realMaxChartSize);
 				}
 			}
 			// Align to texel centers and add padding offset.
@@ -7245,10 +7254,10 @@ struct Atlas
 			int best_x = 0, best_y = 0;
 			int best_cw = 0, best_ch = 0;
 			int best_r = 0;
-			bool failed = false;
 			for (;;)
 			{
 				bool firstChartInBitImage = false;
+				XA_UNUSED(firstChartInBitImage);
 				if (currentAtlas + 1 > m_bitImages.size()) {
 					// Chart doesn't fit in the current bitImage, create a new one.
 					BitImage *bi = XA_NEW(MemTag::Default, BitImage);
@@ -7264,13 +7273,9 @@ struct Atlas
 				XA_PROFILE_START(packChartsFindLocation)
 				const bool foundLocation = findChartLocation(taskScheduler, chartStartPositions[currentAtlas], options.bruteForce, m_bitImages[currentAtlas], &chartBitImage, &chartBitImageRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, maxResolution, chart->allowRotate);
 				XA_PROFILE_END(packChartsFindLocation)
-				if (firstChartInBitImage && !foundLocation) {
-					// Chart doesn't fit in an empty, newly allocated bitImage. texelsPerUnit must be too large for the resolution.
-					failed = true;
-					break;
-				}
+				XA_DEBUG_ASSERT(!(firstChartInBitImage && !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
 				if (maxResolution == 0) {
-					XA_DEBUG_ASSERT(foundLocation);
+					XA_DEBUG_ASSERT(foundLocation); // The atlas isn't limited to a fixed resolution, a chart location should be found on the first attempt.
 					break;
 				}
 				if (foundLocation)
@@ -7278,9 +7283,6 @@ struct Atlas
 				// Chart doesn't fit in the current bitImage, try the next one.
 				currentAtlas++;
 			}
-			XA_ASSERT(!failed && "chart doesn't fit");
-			if (failed)
-				continue;
 			// Update brute force start location.
 			if (options.bruteForce) {
 				// Reset start location if the chart expanded the atlas.
