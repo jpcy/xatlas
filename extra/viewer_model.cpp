@@ -9,8 +9,8 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
+#include <atomic>
 #include <cstddef>
-#include <mutex>
 #include <thread>
 #include <unordered_map>
 #include <bx/filepath.h>
@@ -31,34 +31,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 bgfx::VertexDecl ModelVertex::decl;
 
-struct ModelStatus
+enum class ModelStatus
 {
-	enum Enum
-	{
-		NotLoaded,
-		Loading,
-		Finalizing,
-		Loaded
-	};
-
-	Enum get()
-	{
-		m_lock.lock();
-		Enum result = m_value;
-		m_lock.unlock();
-		return result;
-	}
-
-	void set(Enum value)
-	{
-		m_lock.lock();
-		m_value = value;
-		m_lock.unlock();
-	}
-
-private:
-	std::mutex m_lock;
-	Enum m_value = NotLoaded;
+	NotLoaded,
+	Loading,
+	Finalizing,
+	Loaded
 };
 
 enum class ModelFormat
@@ -70,7 +48,7 @@ enum class ModelFormat
 
 struct
 {
-	ModelStatus status;
+	std::atomic<ModelStatus> status;
 	std::thread *thread = nullptr;
 	objzModel *data = nullptr;
 	void (*destroyModelData)(objzModel *) = nullptr;
@@ -261,6 +239,7 @@ static void textureDestroyCache()
 
 void modelInit()
 {
+	s_model.status = ModelStatus::NotLoaded;
 	s_model.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
 	s_model.u_diffuse = bgfx::createUniform("u_diffuse", bgfx::UniformType::Vec4);
 	s_model.u_emission = bgfx::createUniform("u_emission", bgfx::UniformType::Vec4);
@@ -756,7 +735,7 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		if (!model) {
 			fprintf(stderr, "Error loading '%s'\n", args.filename);
 			setErrorMessage("Error loading '%s'\n", args.filename);
-			s_model.status.set(ModelStatus::NotLoaded);
+			s_model.status = ModelStatus::NotLoaded;
 			return;
 		}
 		s_model.data = model;
@@ -766,7 +745,7 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		if (!model) {
 			fprintf(stderr, "Error loading '%s'\n", args.filename);
 			setErrorMessage("Error loading '%s'\n", args.filename);
-			s_model.status.set(ModelStatus::NotLoaded);
+			s_model.status = ModelStatus::NotLoaded;
 			return;
 		}
 		s_model.data = model;
@@ -778,7 +757,7 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		if (!model) {
 			fprintf(stderr, "%s\n", objz_getError());
 			setErrorMessage("Error loading' %s'\n%s\n", args.filename, objz_getError());
-			s_model.status.set(ModelStatus::NotLoaded);
+			s_model.status = ModelStatus::NotLoaded;
 			return;
 		}
 		if (objz_getError()) // Print warnings.
@@ -794,7 +773,7 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		if (!model) {
 			fprintf(stderr, "Error loading '%s'\n", args.filename);
 			setErrorMessage("Error loading '%s'\n", args.filename);
-			s_model.status.set(ModelStatus::NotLoaded);
+			s_model.status = ModelStatus::NotLoaded;
 			return;
 		}
 		s_model.data = model;
@@ -834,12 +813,12 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		s_model.diffuseTextures[i] = mat.diffuseTexture[0] ? textureLoadCached(basePath, mat.diffuseTexture) : UINT32_MAX;
 		s_model.emissionTextures[i] = mat.emissionTexture[0] ? textureLoadCached(basePath, mat.emissionTexture) : UINT32_MAX;
 	}
-	s_model.status.set(ModelStatus::Finalizing);
+	s_model.status = ModelStatus::Finalizing;
 }
 
 void modelFinalize()
 {
-	if (s_model.status.get() != ModelStatus::Finalizing)
+	if (s_model.status != ModelStatus::Finalizing)
 		return;
 	if (s_model.thread) {
 		if (s_model.thread->joinable())
@@ -866,12 +845,12 @@ void modelFinalize()
 	resetCamera();
 	g_options.shadeMode = ShadeMode::Flat;
 	g_options.wireframeMode = WireframeMode::Triangles;
-	s_model.status.set(ModelStatus::Loaded);
+	s_model.status = ModelStatus::Loaded;
 }
 
 static bool modelCanOpen()
 {
-	if (s_model.status.get() == ModelStatus::Loading || s_model.status.get() == ModelStatus::Finalizing)
+	if (s_model.status == ModelStatus::Loading || s_model.status == ModelStatus::Finalizing)
 		return false;
 	if (!(atlasIsNotGenerated() || atlasIsReady()))
 		return false;
@@ -883,7 +862,7 @@ void modelOpen(const char *filename)
 	if (!modelCanOpen())
 		return;
 	modelDestroy();
-	s_model.status.set(ModelStatus::Loading);
+	s_model.status = ModelStatus::Loading;
 	char windowTitle[256];
 	snprintf(windowTitle, sizeof(windowTitle), "%s - %s\n", WINDOW_TITLE, filename);
 	glfwSetWindowTitle(g_window, windowTitle);
@@ -928,12 +907,12 @@ void modelDestroy()
 		s_model.wireframeVb = BGFX_INVALID_HANDLE;
 	}
 	glfwSetWindowTitle(g_window, WINDOW_TITLE);
-	s_model.status.set(ModelStatus::NotLoaded);
+	s_model.status = ModelStatus::NotLoaded;
 }
 
 void modelRender(const float *view, const float *projection)
 {
-	if (s_model.status.get() != ModelStatus::Loaded)
+	if (s_model.status != ModelStatus::Loaded)
 		return;
 	float transform[16];
 	if (s_model.rightHandedAxis)
@@ -1048,7 +1027,7 @@ void modelShowGuiOptions()
 void modelShowGuiWindow(int progressDots)
 {
 	const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
-	if (s_model.status.get() == ModelStatus::Loading) {
+	if (s_model.status == ModelStatus::Loading) {
 		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] * 0.5f, g_windowSize[1] * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 		if (ImGui::Begin("##modelProgress", nullptr, progressWindowFlags)) {
 			ImGui::Text("Loading model");
@@ -1091,7 +1070,7 @@ bgfx::ShaderHandle modelGet_vs_model()
 
 bool modelIsLoaded()
 {
-	return s_model.status.get() == ModelStatus::Loaded;
+	return s_model.status == ModelStatus::Loaded;
 }
 
 static bool modelSampleTexture(uint32_t textureIndex, const float *uv, bx::Vec3 *color)
