@@ -7110,39 +7110,23 @@ struct Atlas
 				extents = max(extents, texcoord);
 			}
 			XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
-			// Scale the charts to use the entire texel area available. So, if the width is 0.1 we could scale it to 1 without increasing the lightmap usage and making a better
-			// use of it. In many cases this also improves the look of the seams, since vertices on the chart boundaries have more chances of being aligned with the texel centers.
-			float scale_x = 1.0f;
-			float scale_y = 1.0f;
-			float divide_x = 1.0f;
-			float divide_y = 1.0f;
-			if (extents.x > 0) {
-				int cw = ftoi_ceil(extents.x);
-				if (options.blockAlign) {
-					// Align all chart extents to 4x4 blocks, but taking padding into account.
-					cw = align(cw + 2, 4) - 2;
+			// Scale the charts to use the entire texel area available. So, if the width is 0.1 we could scale it to 1 without increasing the lightmap usage and making a better use of it. In many cases this also improves the look of the seams, since vertices on the chart boundaries have more chances of being aligned with the texel centers.
+			if (extents.x > 0.0f && extents.y > 0.0f) {
+				// Block align: align all chart extents to 4x4 blocks, but taking padding and texel center offset into account.
+				const int blockAlignSizeOffset = options.padding * 2 + 1;
+				int width = ftoi_ceil(extents.x);
+				if (options.blockAlign)
+					width = align(width + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
+				int height = ftoi_ceil(extents.y);
+				if (options.blockAlign)
+					height = align(height + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
+				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+					Vector2 &texcoord = chart->uniqueVertexAt(v);
+					texcoord.x = texcoord.x / extents.x * (float)width;
+					texcoord.y = texcoord.y / extents.y * (float)height;
 				}
-				scale_x = (float(cw) - kEpsilon);
-				divide_x = extents.x;
-				extents.x = float(cw);
-			}
-			if (extents.y > 0) {
-				int ch = ftoi_ceil(extents.y);
-				if (options.blockAlign) {
-					// Align all chart extents to 4x4 blocks, but taking padding into account.
-					ch = align(ch + 2, 4) - 2;
-				}
-				scale_y = (float(ch) - kEpsilon);
-				divide_y = extents.y;
-				extents.y = float(ch);
-			}
-			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
-				Vector2 &texcoord = chart->uniqueVertexAt(v);
-				texcoord.x /= divide_x;
-				texcoord.y /= divide_y;
-				texcoord.x *= scale_x;
-				texcoord.y *= scale_y;
-				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
+				extents.x = (float)width;
+				extents.y = (float)height;
 			}
 			// Limit chart size, either to PackOptions::maxChartSize or maxResolution (if set), whichever is smaller.
 			// If limiting chart size to maxResolution print a warning, since that may not be desirable to the user.
@@ -8328,7 +8312,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	if (packOptions.createImage) {
 		atlas->image = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, atlas->atlasCount * atlas->width * atlas->height);
 		for (uint32_t i = 0; i < atlas->atlasCount; i++)
-			packAtlas.getImages()[i]->copyTo(&atlas->image[atlas->width * atlas->height * i], atlas->width, atlas->height, packOptions.padding);
+			packAtlas.getImages()[i]->copyTo(&atlas->image[atlas->width * atlas->height * i], atlas->width, atlas->height, packOptions.blockAlign ? 0 : packOptions.padding);
 	}
 	XA_PROFILE_PRINT_AND_RESET("   Total: ", packCharts)
 	XA_PROFILE_PRINT_AND_RESET("      Add charts (real): ", packChartsAddCharts)
