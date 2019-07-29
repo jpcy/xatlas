@@ -526,35 +526,6 @@ int main(int argc, char **argv)
 					ImGui::Spacing();
 					ImGui::Text("View");
 					ImGui::Spacing();
-					if (atlasIsReady()) {
-						ImGui::AlignTextToFramePadding();
-						ImGui::RadioButton("Flat", (int *)&g_options.shadeMode, (int)ShadeMode::Flat);
-						ImGui::SameLine();
-						ImGui::RadioButton("Charts##shading", (int *)&g_options.shadeMode, (int)ShadeMode::Charts);
-						if (bakeIsLightmapReady()) {
-							ImGui::SameLine();
-							ImGui::RadioButton("Lightmap", (int *)&g_options.shadeMode, (int)ShadeMode::Lightmap);
-							ImGui::SameLine();
-							ImGui::RadioButton("Lightmap only", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapOnly);
-						}
-						if (g_options.shadeMode == ShadeMode::Charts) {
-							ImGui::Text("Chart color mode");
-							ImGui::SameLine();
-							ImGui::RadioButton("Individual", (int *)&g_options.chartColorMode, (int)ChartColorMode::Individual);
-							ImGui::SameLine();
-							ImGui::RadioButton("Invalid", (int *)&g_options.chartColorMode, (int)ChartColorMode::Invalid);
-							ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
-						}
-						if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly)
-							ImGui::Checkbox("Lightmap point sampling", &g_options.lightmapPointSampling);
-					}
-					ImGui::Checkbox("Wireframe overlay", &g_options.wireframe);
-					if (g_options.wireframe && atlasIsReady()) {
-						ImGui::SameLine();
-						ImGui::RadioButton("Charts##wireframe", (int *)&g_options.wireframeMode, (int)WireframeMode::Charts);
-						ImGui::SameLine();
-						ImGui::RadioButton("Triangles", (int *)&g_options.wireframeMode, (int)WireframeMode::Triangles);
-					}
 					ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
 					ImGui::SameLine();
 					ImGui::TextDisabled("(?)");
@@ -573,6 +544,38 @@ int main(int argc, char **argv)
 						ImGui::EndTooltip();
 					}
 					ImGui::DragFloat("Camera sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
+					ImGui::Checkbox("Wireframe", &g_options.wireframe);
+					if (g_options.wireframe && atlasIsReady()) {
+						ImGui::SameLine();
+						ImGui::RadioButton("Charts##wireframe", (int *)&g_options.wireframeMode, (int)WireframeMode::Charts);
+						ImGui::SameLine();
+						ImGui::RadioButton("Triangles", (int *)&g_options.wireframeMode, (int)WireframeMode::Triangles);
+					}
+					if (atlasIsReady()) {
+						ImGui::AlignTextToFramePadding();
+						ImGui::Text("Shading");
+						ImGui::SameLine();
+						ImGui::RadioButton("Flat", (int *)&g_options.shadeMode, (int)ShadeMode::Flat);
+						ImGui::SameLine();
+						ImGui::RadioButton("Charts##shading", (int *)&g_options.shadeMode, (int)ShadeMode::Charts);
+						if (bakeIsLightmapReady()) {
+							ImGui::SameLine();
+							ImGui::RadioButton("Lightmap", (int *)&g_options.shadeMode, (int)ShadeMode::Lightmap);
+							ImGui::SameLine();
+							ImGui::RadioButton("Lightmap only", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapOnly);
+						}
+						if (g_options.shadeMode == ShadeMode::Charts) {
+							ImGui::AlignTextToFramePadding();
+							ImGui::Text("Chart color mode");
+							ImGui::SameLine();
+							ImGui::RadioButton("Individual", (int *)&g_options.chartColorMode, (int)ChartColorMode::Individual);
+							ImGui::SameLine();
+							ImGui::RadioButton("Invalid", (int *)&g_options.chartColorMode, (int)ChartColorMode::Invalid);
+							ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
+						}
+						if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly)
+							ImGui::Checkbox("Lightmap point sampling", &g_options.lightmapPointSampling);
+					}
 					if (atlasIsReady())
 						ImGui::Checkbox("Show atlas window", &g_options.showAtlasWindow);
 					if (bakeIsLightmapReady())

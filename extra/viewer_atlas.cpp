@@ -988,15 +988,26 @@ void atlasShowGuiOptions()
 			numIndices += outputMesh.indexCount;
 			numVertices += outputMesh.vertexCount;
 		}
-		ImGui::Text("%u atlas%s", s_atlas.data->atlasCount, s_atlas.data->atlasCount > 1 ? "es" : "");
-		ImGui::Text("%ux%u resolution", s_atlas.data->width, s_atlas.data->height);
-		ImGui::Text("%u charts", s_atlas.data->chartCount);
-		ImGui::Text("%u vertices", numVertices);
-		ImGui::Text("%u triangles", numIndices / 3);
-		ImGui::Text("%g texels per unit", s_atlas.data->texelsPerUnit);
+		ImGui::Columns(2, nullptr, false);
 		if (s_atlas.data->atlasCount == 1)
+			ImGui::Text("%ux%u atlas", s_atlas.data->width, s_atlas.data->height);
+		else
+			ImGui::Text("%ux%ux%u atlas", s_atlas.data->atlasCount, s_atlas.data->width, s_atlas.data->height);
+		ImGui::NextColumn();
+		ImGui::Text("%u charts", s_atlas.data->chartCount);
+		ImGui::NextColumn();
+		ImGui::Text("%u vertices", numVertices);
+		ImGui::NextColumn();
+		ImGui::Text("%u triangles", numIndices / 3);
+		ImGui::NextColumn();
+		ImGui::Text("%g texels per unit", s_atlas.data->texelsPerUnit);
+		if (s_atlas.data->atlasCount == 1) {
+			ImGui::NextColumn();
 			ImGui::Text("%g%% utilization", s_atlas.data->utilization[0] * 100.0f);
+			ImGui::Columns(1);
+		}
 		else {
+			ImGui::Columns(1);
 			for (uint32_t i = 0; i < s_atlas.data->atlasCount; i++)
 				ImGui::Text("%u: %g%% utilization", i, s_atlas.data->utilization[i]);
 		}

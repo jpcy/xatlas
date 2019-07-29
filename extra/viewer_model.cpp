@@ -62,7 +62,7 @@ struct
 	std::vector<WireframeVertex> wireframeVertices;
 	float scale = 1.0f;
 	bool rightHandedAxis = false; // Default is z/-x/y, right handed is -z/x/y.
-	bool flipFaceWinding = false;
+	bool clockwiseFaceWinding = true;
 	bgfx::ShaderHandle vs_model;
 	bgfx::ShaderHandle fs_material;
 	bgfx::ProgramHandle materialProgram;
@@ -944,7 +944,7 @@ void modelRender(const float *view, const float *projection)
 				bgfx::setVertexBuffer(0, s_model.vb);
 			}
 			uint64_t state = BGFX_STATE_DEFAULT;
-			if (s_model.flipFaceWinding)
+			if (!s_model.clockwiseFaceWinding)
 				state = state & ~BGFX_STATE_CULL_CW | BGFX_STATE_CULL_CCW;
 			if (transparent)
 				state |= BGFX_STATE_BLEND_ALPHA;
@@ -993,7 +993,7 @@ void modelRender(const float *view, const float *projection)
 	}
 	if (renderCharts) {
 		uint64_t state = BGFX_STATE_DEFAULT;
-		if (s_model.flipFaceWinding)
+		if (!s_model.clockwiseFaceWinding)
 			state = state & ~BGFX_STATE_CULL_CW | BGFX_STATE_CULL_CCW;
 		atlasRenderCharts(modelMatrix, state);
 	}
@@ -1014,14 +1014,19 @@ void modelRender(const float *view, const float *projection)
 
 void modelShowGuiOptions()
 {
-	ImGui::Text("%u objects", s_model.data->numObjects);
-	ImGui::Text("%u meshes", s_model.data->numMeshes);
-	ImGui::Text("%u vertices", s_model.data->numVertices);
+	ImGui::Columns(2, nullptr, false);
+	ImGui::Text("%u object%s", s_model.data->numObjects, s_model.data->numObjects > 1 ? "s" : "");
+	ImGui::NextColumn();
+	ImGui::Text("%u mesh%s", s_model.data->numMeshes, s_model.data->numMeshes > 1 ? "es" : "");
+	ImGui::NextColumn();
 	ImGui::Text("%u triangles", s_model.data->numIndices / 3);
-	ImGui::InputFloat("Model scale", &s_model.scale, 0.01f, 0.1f);
+	ImGui::NextColumn();
+	ImGui::Text("%u vertices", s_model.data->numVertices);
+	ImGui::Columns(1);
+	ImGui::Checkbox("Right-handed axis", &s_model.rightHandedAxis);
+	ImGui::Checkbox("Clockwise face winding", &s_model.clockwiseFaceWinding);
+	ImGui::InputFloat("Scale", &s_model.scale, 0.01f, 0.1f);
 	s_model.scale = bx::max(0.001f, s_model.scale);
-	ImGui::Checkbox("Model right-handed axis", &s_model.rightHandedAxis);
-	ImGui::Checkbox("Model flip face winding", &s_model.flipFaceWinding);
 }
 
 void modelShowGuiWindow(int progressDots)
