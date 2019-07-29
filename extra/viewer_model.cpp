@@ -850,12 +850,16 @@ void modelFinalize()
 	textureCreateCachedTextures();
 	s_model.aabb = AABB();
 	s_model.centroid = bx::Vec3(0.0f, 0.0f, 0.0f);
+	uint32_t centroidCount = 0;
 	for (uint32_t i = 0; i < s_model.data->numVertices; i++) {
 		const bx::Vec3 &pos = ((const ModelVertex *)s_model.data->vertices)[i].pos;
 		s_model.aabb.addPoint(pos);
-		s_model.centroid = bx::add(s_model.centroid, pos);
+		if (!std::isnan(pos.x) && !std::isnan(pos.y) && !std::isnan(pos.z)) {
+			s_model.centroid = bx::add(s_model.centroid, pos);
+			centroidCount++;
+		}
 	}
-	s_model.centroid = bx::mul(s_model.centroid, 1.0f / s_model.data->numVertices);
+	s_model.centroid = bx::mul(s_model.centroid, 1.0f / centroidCount);
 	s_model.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.data->vertices, s_model.data->numVertices * sizeof(ModelVertex)), ModelVertex::decl);
 	s_model.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_model.data->indices, s_model.data->numIndices * sizeof(uint32_t)), BGFX_BUFFER_INDEX32);
 	s_model.wireframeVb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.wireframeVertices.data(), uint32_t(s_model.wireframeVertices.size() * sizeof(WireframeVertex))), WireframeVertex::decl);
