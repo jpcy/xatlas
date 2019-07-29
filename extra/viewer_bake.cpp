@@ -25,7 +25,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "../xatlas.h"
 #include "viewer.h"
 
-namespace std { typedef std::lock_guard<std::mutex> mutex_lock; }
 static bx::Vec3 operator+(bx::Vec3 a, bx::Vec3 b) { return bx::add(a, b); }
 static bx::Vec3 operator-(bx::Vec3 a, bx::Vec3 b) { return bx::sub(a, b); }
 static bx::Vec3 operator*(bx::Vec3 a, bx::Vec3 b) { return bx::mul(a, b); }
@@ -246,110 +245,32 @@ static bool lm_findNextConservativeTriangleRasterizerPosition(lm_context *ctx)
 	return lm_findFirstConservativeTriangleRasterizerPosition(ctx);
 }
 
-struct BakeStatus
+enum class BakeStatus
 {
-	enum Enum
-	{
-		Idle,
-		InitEmbree,
-		Rasterizing,
-		Tracing,
-		ThreadFinished,
-		Finished,
-		Cancelled,
-		Error
-	};
-
-	bool operator==(Enum value)
-	{
-		std::mutex_lock lock(m_mutex);
-		return m_value == value;
-	}
-
-	bool operator!=(Enum value)
-	{
-		std::mutex_lock lock(m_mutex);
-		return m_value != value;
-	}
-
-	BakeStatus &operator=(Enum value)
-	{
-		std::mutex_lock lock(m_mutex);
-		m_value = value;
-		return *this;
-	}
-
-private:
-	std::mutex m_mutex;
-	Enum m_value = Idle;
+	Idle,
+	InitEmbree,
+	Rasterizing,
+	Tracing,
+	ThreadFinished,
+	Finished,
+	Cancelled,
+	Error
 };
 
-struct DenoiseStatus
+enum class DenoiseStatus
 {
-	enum Enum
-	{
-		Idle,
-		Working,
-		ThreadFinished,
-		Finished,
-		Error
-	};
-
-	bool operator==(Enum value)
-	{
-		std::mutex_lock lock(m_mutex);
-		return m_value == value;
-	}
-
-	bool operator!=(Enum value)
-	{
-		std::mutex_lock lock(m_mutex);
-		return m_value != value;
-	}
-
-	DenoiseStatus &operator=(Enum value)
-	{
-		std::mutex_lock lock(m_mutex);
-		m_value = value;
-		return *this;
-	}
-
-private:
-	std::mutex m_mutex;
-	Enum m_value = Idle;
+	Idle,
+	Working,
+	ThreadFinished,
+	Finished,
+	Error
 };
 
-struct UpdateStatus
+enum class UpdateStatus
 {
-	enum Enum
-	{
-		Idle,
-		Pending,
-		Updating
-	};
-
-	bool operator==(Enum value)
-	{
-		std::mutex_lock lock(m_mutex);
-		return m_value == value;
-	}
-
-	bool operator!=(Enum value)
-	{
-		std::mutex_lock lock(m_mutex);
-		return m_value != value;
-	}
-
-	UpdateStatus &operator=(Enum value)
-	{
-		std::mutex_lock lock(m_mutex);
-		m_value = value;
-		return *this;
-	}
-
-private:
-	std::mutex m_mutex;
-	Enum m_value = Idle;
+	Idle,
+	Pending,
+	Updating
 };
 
 struct BakeOptions
@@ -372,7 +293,7 @@ struct
 	std::mutex errorMessageMutex;
 	char errorMessage[256];
 	bool initialized = false;
-	BakeStatus status;
+	std::atomic<BakeStatus> status;
 	BakeOptions options;
 	void *embreeLibrary = nullptr;
 	RTCDevice embreeDevice = nullptr;
@@ -385,10 +306,8 @@ struct
 	uint32_t lightmapWidth, lightmapHeight;
 	// worker thread
 	std::thread *workerThread = nullptr;
-	bool stopWorker = false;
-	std::mutex stopWorkerMutex;
-	bool cancelWorker = false;
-	std::mutex cancelWorkerMutex;
+	std::atomic<bool> stopWorker;
+	std::atomic<bool> cancelWorker;
 	std::vector<SampleLocation> sampleLocations;
 	std::vector<float> lightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
@@ -396,7 +315,7 @@ struct
 	uint32_t numRaysTraced;
 	bx::RngMwc rng;
 	// denoise thread
-	DenoiseStatus denoiseStatus;
+	std::atomic<DenoiseStatus> denoiseStatus;
 	std::thread *denoiseThread = nullptr;
 	double denoiseProgress;
 	std::vector<float> denoisedLightmapData;
@@ -404,7 +323,7 @@ struct
 	clock_t lastUpdateTime = 0;
 	const double updateIntervalMs = 50;
 	std::vector<float> updateData;
-	UpdateStatus updateStatus;
+	std::atomic<UpdateStatus> updateStatus;
 	uint32_t updateFinishedFrameNo;
 }
 s_bake;
@@ -458,7 +377,7 @@ static bool bakeInitEmbree()
 	if (!s_bake.embreeLibrary) {
 		s_bake.embreeLibrary = bx::dlopen(EMBREE_LIB);
 		if (!s_bake.embreeLibrary) {
-			std::mutex_lock lock(s_bake.errorMessageMutex);
+			std::lock_guard<std::mutex> lock(s_bake.errorMessageMutex);
 			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Embree not installed. Cannot open '%s'.", EMBREE_LIB);
 			return false;
 		}
@@ -482,7 +401,7 @@ static bool bakeInitEmbree()
 	if (!s_bake.embreeDevice) {
 		s_bake.embreeDevice = embree::NewDevice(nullptr);
 		if (!s_bake.embreeDevice) {
-			std::mutex_lock lock(s_bake.errorMessageMutex);
+			std::lock_guard<std::mutex> lock(s_bake.errorMessageMutex);
 			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Error creating Embree device");
 			return false;
 		}
@@ -497,18 +416,6 @@ static bool bakeInitEmbree()
 		embree::CommitScene(s_bake.embreeScene);
 	}
 	return true;
-}
-
-static bool shouldWorkerThreadStop()
-{
-	std::lock_guard<std::mutex> lock(s_bake.stopWorkerMutex);
-	return s_bake.stopWorker;
-}
-
-static bool isWorkerThreadCancelled()
-{
-	std::lock_guard<std::mutex> lock(s_bake.cancelWorkerMutex);
-	return s_bake.cancelWorker;
 }
 
 static bool bakeRasterize()
@@ -566,7 +473,7 @@ static bool bakeRasterize()
 			}
 		}
 		s_bake.numTrianglesRasterized++;
-		if (isWorkerThreadCancelled())
+		if (s_bake.cancelWorker)
 			return false;
 	}
 	return true;
@@ -705,11 +612,11 @@ static bool bakeTraceRays()
 			rgba[2] = texel.accumColor.z / (float)texel.numColorSamples;
 			rgba[3] = 1.0f;
 			s_bake.numSampleLocationsProcessed++;
-			if (shouldWorkerThreadStop()) {
+			if (s_bake.stopWorker) {
 				finished = true;
 				break;
 			}
-			if (isWorkerThreadCancelled())
+			if (s_bake.cancelWorker)
 				return false;
 			// Handle lightmap updates.
 			const double elapsedMs = (clock() - s_bake.lastUpdateTime) * 1000.0 / CLOCKS_PER_SEC;
@@ -803,9 +710,7 @@ static void bakeWorkerThread()
 
 static void shutdownWorkerThread()
 {
-	s_bake.cancelWorkerMutex.lock();
 	s_bake.cancelWorker = true;
-	s_bake.cancelWorkerMutex.unlock();
 	if (s_bake.workerThread) {
 		if (s_bake.workerThread->joinable())
 			s_bake.workerThread->join();
@@ -865,7 +770,7 @@ static void bakeDenoiseThread()
 	if (!s_bake.oidnLibrary) {
 		s_bake.oidnLibrary = bx::dlopen(OIDN_LIB);
 		if (!s_bake.oidnLibrary) {
-			std::mutex_lock lock(s_bake.errorMessageMutex);
+			std::lock_guard<std::mutex> lock(s_bake.errorMessageMutex);
 			bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "OIDN not installed. Cannot open '%s'.", OIDN_LIB);
 			fprintf(stderr, "OIDN not installed. Cannot open '%s'.\n", OIDN_LIB);
 			s_bake.denoiseStatus = DenoiseStatus::Error;
@@ -887,7 +792,7 @@ static void bakeDenoiseThread()
 	s_bake.denoisedLightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	OIDNDevice device = oidn::NewDevice(OIDN_DEVICE_TYPE_DEFAULT);
 	if (!device) {
-		std::mutex_lock lock(s_bake.errorMessageMutex);
+		std::lock_guard<std::mutex> lock(s_bake.errorMessageMutex);
 		bx::snprintf(s_bake.errorMessage, sizeof(s_bake.errorMessage), "Error creating OIDN device");
 		fprintf(stderr, "Error creating OIDN device\n");
 		s_bake.denoiseStatus = DenoiseStatus::Error;
@@ -933,6 +838,10 @@ static void bakeShutdownDenoiseThread()
 
 void bakeInit()
 {
+	s_bake.status = BakeStatus::Idle;
+	s_bake.denoiseStatus = DenoiseStatus::Idle;
+	s_bake.updateStatus = UpdateStatus::Idle;
+	s_bake.stopWorker = false;
 }
 
 void bakeShutdown()
@@ -962,7 +871,7 @@ void bakeExecute()
 	if (!(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Cancelled || s_bake.status == BakeStatus::Error))
 		return;
 	{
-		std::mutex_lock lock(s_bake.errorMessageMutex);
+		std::lock_guard<std::mutex> lock(s_bake.errorMessageMutex);
 		s_bake.errorMessage[0] = 0;
 	}
 	// Re-create lightmap if atlas resolution has changed.
@@ -1069,7 +978,7 @@ void bakeShowGuiOptions()
 		ImGui::SliderInt("Max depth", &s_bake.options.maxDepth, 1, 16);
 		if (s_bake.denoiseStatus == DenoiseStatus::Finished)
 			ImGui::Checkbox("Use denoised lightmap", &s_bake.options.useDenoisedLightmap);
-		std::mutex_lock lock(s_bake.errorMessageMutex);
+		std::lock_guard<std::mutex> lock(s_bake.errorMessageMutex);
 		if (s_bake.errorMessage[0]) {
 			ImGui::PushStyleColor(ImGuiCol_Text, red);
 			ImGui::Text("%s", s_bake.errorMessage);
@@ -1084,10 +993,8 @@ void bakeShowGuiOptions()
 			shutdownWorkerThread();
 	} else if (s_bake.status == BakeStatus::Tracing) {
 		ImGui::Text("Tracing rays...");
-		if (ImGui::Button("Stop", buttonSize)) {
-			std::lock_guard<std::mutex> lock(s_bake.stopWorkerMutex);
+		if (ImGui::Button("Stop", buttonSize))
 			s_bake.stopWorker = true;
-		}
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel", buttonSize))
 			shutdownWorkerThread();
