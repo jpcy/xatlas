@@ -11,6 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #include <atomic>
 #include <cstddef>
+#include <cmath>
 #include <thread>
 #include <unordered_map>
 #include <bx/filepath.h>
@@ -945,7 +946,7 @@ void modelRender(const float *view, const float *projection)
 			}
 			uint64_t state = BGFX_STATE_DEFAULT;
 			if (!s_model.clockwiseFaceWinding)
-				state = state & ~BGFX_STATE_CULL_CW | BGFX_STATE_CULL_CCW;
+				state = (state & ~BGFX_STATE_CULL_CW) | BGFX_STATE_CULL_CCW;
 			if (transparent)
 				state |= BGFX_STATE_BLEND_ALPHA;
 			bgfx::setState(state);
@@ -994,7 +995,7 @@ void modelRender(const float *view, const float *projection)
 	if (renderCharts) {
 		uint64_t state = BGFX_STATE_DEFAULT;
 		if (!s_model.clockwiseFaceWinding)
-			state = state & ~BGFX_STATE_CULL_CW | BGFX_STATE_CULL_CCW;
+			state = (state & ~BGFX_STATE_CULL_CW) | BGFX_STATE_CULL_CCW;
 		atlasRenderCharts(modelMatrix, state);
 	}
 	if (g_options.wireframe) {
