@@ -1295,11 +1295,7 @@ public:
 
 	BitImage(const BitImage &other)
 	{
-		m_width = other.m_width;
-		m_height = other.m_height;
-		m_rowStride = other.m_rowStride;
-		m_data.resize(m_rowStride * m_height);
-		memcpy(m_data.data(), other.m_data.data(), m_rowStride * m_height * sizeof(uint64_t));
+		copy(other);
 	}
 
 	const BitImage &operator=(const BitImage &other)
@@ -1313,6 +1309,15 @@ public:
 
 	uint32_t width() const { return m_width; }
 	uint32_t height() const { return m_height; }
+
+	void copy(const BitImage &other)
+	{
+		m_width = other.m_width;
+		m_height = other.m_height;
+		m_rowStride = other.m_rowStride;
+		m_data.resize(m_rowStride * m_height);
+		memcpy(m_data.data(), other.m_data.data(), m_rowStride * m_height * sizeof(uint64_t));
+	}
 
 	void resize(uint32_t w, uint32_t h, bool discard)
 	{
@@ -3834,7 +3839,7 @@ public:
 		m_numVertices = p;
 	}
 
-	void clipVerticalPlane(float offset, float clipdirection )
+	void clipVerticalPlane(float offset, float clipdirection)
 	{
 		Vector2 *v  = m_vertexBuffers[m_activeVertexBuffer];
 		m_activeVertexBuffer ^= 1;
@@ -3883,9 +3888,20 @@ public:
 		computeArea();
 	}
 
-	float area()
+	float area() const
 	{
 		return m_area;
+	}
+
+	void computeClippedBounds(Vector2 *boundsMin, Vector2 *boundsMax) const
+	{
+		boundsMin->x = boundsMin->y = FLT_MAX;
+		boundsMax->x = boundsMax->y = FLT_MIN;
+		for (uint32_t i = 0; i < m_numVertices; i++) {
+			const Vector2 &v = m_vertexBuffers[m_activeVertexBuffer][i];
+			*boundsMin = min(*boundsMin, v);
+			*boundsMax = max(*boundsMax, v);
+		}
 	}
 
 private:
@@ -3898,7 +3914,7 @@ private:
 };
 
 /// A callback to sample the environment. Return false to terminate rasterization.
-typedef bool (*SamplingCallback)(void *param, int x, int y);
+typedef bool (*SamplingCallback)(void *param, int x, int y, ClippedTriangle *clipped);
 
 /// A triangle for rasterization.
 struct Triangle
@@ -3965,9 +3981,8 @@ struct Triangle
 				if ( (aC >= BK_INSIDE) && (bC >= BK_INSIDE) && (cC >= BK_INSIDE) ) {
 					for (float y = y0; y < y0 + BK_SIZE; y++) {
 						for (float x = x0; x < x0 + BK_SIZE; x++) {
-							if (!cb(param, (int)x, (int)y)) {
+							if (!cb(param, (int)x, (int)y, nullptr))
 								return false;
-							}
 						}
 					}
 				} else { // Partially covered block
@@ -3980,17 +3995,15 @@ struct Triangle
 						float CX3 = CY3;
 						for (float x = x0; x < x0 + BK_SIZE; x++) { // @@ This is not clipping to scissor rectangle correctly.
 							if (CX1 >= PX_INSIDE && CX2 >= PX_INSIDE && CX3 >= PX_INSIDE) {
-								if (!cb(param, (int)x, (int)y)) {
+								if (!cb(param, (int)x, (int)y,  nullptr))
 									return false;
-								}
 							} else if ((CX1 >= PX_OUTSIDE) && (CX2 >= PX_OUTSIDE) && (CX3 >= PX_OUTSIDE)) {
 								// triangle partially covers pixel. do clipping.
 								ClippedTriangle ct(v1 - Vector2(x, y), v2 - Vector2(x, y), v3 - Vector2(x, y));
 								ct.clipAABox(-0.5, -0.5, 0.5, 0.5);
 								if (ct.area() > 0.0f) {
-									if (!cb(param, (int)x, (int)y)) {
+									if (!cb(param, (int)x, (int)y, &ct))
 										return false;
-									}
 								}
 							}
 							CX1 += n1.x;
@@ -6705,7 +6718,7 @@ public:
 		swap(m_data, data);
 	}
 
-	void addChart(uint32_t chartIndex, const BitImage *image, bool imageHasPadding, int atlas_w, int atlas_h, int offset_x, int offset_y)
+	void addChart(uint32_t chartIndex, const BitImage *image, const BitImage *imageBilinear, const BitImage *imagePadding, int atlas_w, int atlas_h, int offset_x, int offset_y)
 	{
 		const int w = image->width();
 		const int h = image->height();
@@ -6715,14 +6728,20 @@ public:
 				continue;
 			for (int x = 0; x < w; x++) {
 				const int xx = x + offset_x;
-				if (xx >= 0 && xx < atlas_w && yy < atlas_h && image->bitAt(x, y)) {
+				if (xx >= 0 && xx < atlas_w && yy < atlas_h) {
 					const uint32_t dataOffset = xx + yy * m_width;
-					if (m_data[dataOffset] != 0)
-						continue;
-					uint32_t value = chartIndex | kImageHasChartIndexBit;
-					if (imageHasPadding)
-						value |= kImageIsPaddingBit;
-					m_data[dataOffset] = value;
+					if (image->bitAt(x, y)) {
+						XA_DEBUG_ASSERT(m_data[dataOffset] == 0);
+						m_data[dataOffset] = chartIndex | kImageHasChartIndexBit;
+					}
+					else if (imageBilinear && imageBilinear->bitAt(x, y)) {
+						XA_DEBUG_ASSERT(m_data[dataOffset] == 0);
+						m_data[dataOffset] = chartIndex | kImageHasChartIndexBit | kImageIsBilinearBit;
+					}
+					else if (imagePadding && imagePadding->bitAt(x, y)) {
+						XA_DEBUG_ASSERT(m_data[dataOffset] == 0);
+						m_data[dataOffset] = chartIndex | kImageHasChartIndexBit | kImageIsPaddingBit;
+					}
 				}
 			}
 		}
@@ -6746,20 +6765,26 @@ public:
 				if (x >= m_width)
 					continue;
 				const uint32_t data = m_data[x + y * m_width];
-				if (!(data & kImageHasChartIndexBit))
+				uint8_t *bgr = &image[(x + y * width) * 3];
+				if (data == 0) {
+					bgr[0] = bgr[1] = bgr[2] = 0;
 					continue;
+				}
 				const uint32_t chartIndex = data & kImageChartIndexMask;
-				uint8_t *color = &image[(x + y * width) * 3];
 				if (data & kImageIsPaddingBit) {
-					color[0] = 255;
-					color[1] = 0;
-					color[2] = 255;
+					bgr[0] = 0;
+					bgr[1] = 0;
+					bgr[2] = 255;
+				} else if (data & kImageIsBilinearBit) {
+					bgr[0] = 0;
+					bgr[1] = 255;
+					bgr[2] = 0;
 				} else {
 					const int mix = 192;
 					srand((unsigned int)chartIndex);
-					color[0] = uint8_t((rand() % 255 + mix) * 0.5f);
-					color[1] = uint8_t((rand() % 255 + mix) * 0.5f);
-					color[2] = uint8_t((rand() % 255 + mix) * 0.5f);
+					bgr[0] = uint8_t((rand() % 255 + mix) * 0.5f);
+					bgr[1] = uint8_t((rand() % 255 + mix) * 0.5f);
+					bgr[2] = uint8_t((rand() % 255 + mix) * 0.5f);
 				}
 			}
 		}
@@ -7178,7 +7203,12 @@ struct Atlas
 #else
 		const bool createImage = options.createImage;
 #endif
-		BitImage chartBitImage, chartBitImageRotated;
+		// chartImage: result from conservative rasterization
+		// chartImageBilinear: chartImage plus any texels that would be sampled by bilinear filtering.
+		// chartImagePadding: either chartImage or chartImageBilinear depending on options, with a dilate filter applied options.padding times.
+		// Rotated versions swap x and y.
+		BitImage chartImage, chartImageBilinear, chartImagePadding;
+		BitImage chartImageRotated, chartImageBilinearRotated, chartImagePaddingRotated;
 		Array<Vector2i> atlasSizes;
 		atlasSizes.push_back(Vector2i(0, 0));
 		int progress = 0;
@@ -7198,10 +7228,16 @@ struct Atlas
 			//    V   V   V
 			//    0   1   2
 			XA_PROFILE_START(packChartsRasterize)
+			// Resize and clear (discard = true) chart images.
 			// Leave room for padding at extents.
-			chartBitImage.resize(ftoi_ceil(chartExtents[c].x) + options.padding, ftoi_ceil(chartExtents[c].y) + options.padding, true);
+			chartImage.resize(ftoi_ceil(chartExtents[c].x) + options.padding, ftoi_ceil(chartExtents[c].y) + options.padding, true);
 			if (chart->allowRotate)
-				chartBitImageRotated.resize(chartBitImage.height(), chartBitImage.width(), true);
+				chartImageRotated.resize(chartImage.height(), chartImage.width(), true);
+			if (options.bilinear) {
+				chartImageBilinear.resize(chartImage.width(), chartImage.height(), true);
+				if (chart->allowRotate)
+					chartImageBilinearRotated.resize(chartImage.height(), chartImage.width(), true);
+			}
 			// Rasterize chart faces.
 			const uint32_t faceCount = chart->indexCount / 3;
 			for (uint32_t f = 0; f < faceCount; f++) {
@@ -7210,17 +7246,27 @@ struct Atlas
 				for (uint32_t v = 0; v < 3; v++)
 					vertices[v] = chart->vertices[chart->indices[f * 3 + v]];
 				DrawTriangleCallbackArgs args;
-				args.chartBitImage = &chartBitImage;
-				args.chartBitImageRotated = chart->allowRotate ? &chartBitImageRotated : nullptr;
-				raster::drawTriangle(Vector2((float)chartBitImage.width(), (float)chartBitImage.height()), vertices, drawTriangleCallback, &args);
+				args.chartBitImage = &chartImage;
+				args.chartBitImageRotated = chart->allowRotate ? &chartImageRotated : nullptr;
+				if (options.bilinear) {
+					args.chartBitImageBilinear = &chartImageBilinear;
+					args.chartBitImageBilinearRotated = chart->allowRotate ? &chartImageBilinearRotated : nullptr;
+				} else {
+					args.chartBitImageBilinear = nullptr;
+					args.chartBitImageBilinearRotated = nullptr;
+				}
+				raster::drawTriangle(Vector2((float)chartImage.width(), (float)chartImage.height()), vertices, drawTriangleCallback, &args);
 			}
-			// Expand chart by padding pixels. (dilation)
-			BitImage chartBitImageNoPadding(chartBitImage), chartBitImageNoPaddingRotated(chartBitImageRotated);
+			// Expand chart by padding pixels (dilation).
 			if (options.padding > 0) {
+				// Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
 				XA_PROFILE_START(packChartsDilate)
-				chartBitImage.dilate(options.padding);
-				if (chart->allowRotate)
-					chartBitImageRotated.dilate(options.padding);
+				chartImagePadding.copy(options.bilinear ? chartImageBilinear : chartImage);
+				chartImagePadding.dilate(options.padding);
+				if (chart->allowRotate) {
+					chartImagePaddingRotated.copy(options.bilinear ? chartImageBilinearRotated : chartImageRotated);
+					chartImagePaddingRotated.dilate(options.padding);
+				}
 				XA_PROFILE_END(packChartsDilate)
 			}
 			XA_PROFILE_END(packChartsRasterize)
@@ -7234,6 +7280,17 @@ struct Atlas
 				}
 			}
 			// Find a location to place the chart in the atlas.
+			BitImage *chartImageToPack, *chartImageToPackRotated;
+			if (options.padding > 0) {
+				chartImageToPack = &chartImagePadding;
+				chartImageToPackRotated = &chartImagePaddingRotated;
+			} else if (options.bilinear) {
+				chartImageToPack = &chartImageBilinear;
+				chartImageToPackRotated = &chartImageBilinearRotated;
+			} else {
+				chartImageToPack = &chartImage;
+				chartImageToPackRotated = &chartImageRotated;
+			}
 			uint32_t currentAtlas = 0;
 			int best_x = 0, best_y = 0;
 			int best_cw = 0, best_ch = 0;
@@ -7255,7 +7312,7 @@ struct Atlas
 					chartStartPositions.push_back(Vector2i(0, 0));
 				}
 				XA_PROFILE_START(packChartsFindLocation)
-				const bool foundLocation = findChartLocation(taskScheduler, chartStartPositions[currentAtlas], options.bruteForce, m_bitImages[currentAtlas], &chartBitImage, &chartBitImageRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, maxResolution, chart->allowRotate);
+				const bool foundLocation = findChartLocation(taskScheduler, chartStartPositions[currentAtlas], options.bruteForce, m_bitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, maxResolution, chart->allowRotate);
 				XA_PROFILE_END(packChartsFindLocation)
 				XA_DEBUG_ASSERT(!(firstChartInBitImage && !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
 				if (maxResolution == 0) {
@@ -7296,11 +7353,14 @@ struct Atlas
 				XA_DEBUG_ASSERT(atlasSizes[currentAtlas].y <= (int)maxResolution);
 			}
 			XA_PROFILE_START(packChartsBlit)
-			addChart(m_bitImages[currentAtlas], &chartBitImage, &chartBitImageRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_r);
+			addChart(m_bitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_r);
 			XA_PROFILE_END(packChartsBlit)
 			if (createImage) {
-				m_atlasImages[currentAtlas]->addChart(c, best_r == 0 ? &chartBitImageNoPadding : &chartBitImageNoPaddingRotated, false, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
-				m_atlasImages[currentAtlas]->addChart(c, best_r == 0 ? &chartBitImage : &chartBitImageRotated, true, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
+				if (best_r == 0) {
+					m_atlasImages[currentAtlas]->addChart(c, &chartImage, options.bilinear ? &chartImageBilinear : nullptr, options.padding > 0 ? &chartImagePadding : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
+				} else {
+					m_atlasImages[currentAtlas]->addChart(c, &chartImageRotated, options.bilinear ? &chartImageBilinearRotated : nullptr, options.padding > 0 ? &chartImagePaddingRotated : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
+				}
 			}
 			chart->atlasIndex = (int32_t)currentAtlas;
 			// Modify texture coordinates:
@@ -7535,18 +7595,43 @@ private:
 		}
 	}
 
+	static void bilinearExpand(BitImage *chartBitImage, int x, int y, const raster::ClippedTriangle *triangle)
+	{
+		if (!triangle)
+			return;
+		Vector2 bmin, bmax;
+		triangle->computeClippedBounds(&bmin, &bmax);
+		bmin += Vector2(0.5f); // Convert -0.5 to 0.5 range to 0.0 to 1.0
+		bmax += Vector2(0.5f);
+		if (bmin.x < 0.5f && x > 0)
+			chartBitImage->setBitAt(x - 1, y);
+		if (bmax.x > 0.5f && x < (int)chartBitImage->width() - 1)
+			chartBitImage->setBitAt(x + 1, y);
+		if (bmax.y < 0.5f && y > 0)
+			chartBitImage->setBitAt(x, y - 1);
+		if (bmax.y > 0.5f && y < (int)chartBitImage->height() - 1)
+			chartBitImage->setBitAt(x, y + 1);
+	}
+
 	struct DrawTriangleCallbackArgs
 	{
-		BitImage *chartBitImage;
-		BitImage *chartBitImageRotated;
+		BitImage *chartBitImage, *chartBitImageRotated, *chartBitImageBilinear, *chartBitImageBilinearRotated;
 	};
 
-	static bool drawTriangleCallback(void *param, int x, int y)
+	static bool drawTriangleCallback(void *param, int x, int y, raster::ClippedTriangle *clipped)
 	{
 		auto args = (DrawTriangleCallbackArgs *)param;
 		args->chartBitImage->setBitAt(x, y);
 		if (args->chartBitImageRotated)
 			args->chartBitImageRotated->setBitAt(y, x);
+		if (args->chartBitImageBilinear) {
+			args->chartBitImageBilinear->setBitAt(x, y);
+			bilinearExpand(args->chartBitImageBilinear, x, y, clipped);
+		}
+		if (args->chartBitImageBilinearRotated) {
+			args->chartBitImageBilinearRotated->setBitAt(y, x);
+			bilinearExpand(args->chartBitImageBilinearRotated, y, x, clipped);
+		}
 		return true;
 	}
 

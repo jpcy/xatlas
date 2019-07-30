@@ -236,8 +236,6 @@ s_atlas;
 static void clearPackOptions()
 {
 	s_atlas.packOptions = xatlas::PackOptions();
-	// Baking needs 1 pixel padding for dilate filter.
-	s_atlas.packOptions.padding = 1;
 	s_atlas.packOptions.createImage = true;
 }
 
@@ -1051,6 +1049,7 @@ void atlasShowGuiOptions()
 #endif
 	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding)) {
 		bool changed = false;
+		changed |= ImGui::Checkbox("Bilinear", &s_atlas.packOptions.bilinear);
 		changed |= ImGui::Checkbox("Brute force", &s_atlas.packOptions.bruteForce);
 		changed |= ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
 		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);

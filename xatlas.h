@@ -74,8 +74,9 @@ struct Mesh
 };
 
 static const uint32_t kImageChartIndexMask = 0x3FFFFFFF;
-static const uint32_t kImageHasChartIndexBit = 0x40000000;
-static const uint32_t kImageIsPaddingBit = 0x80000000;
+static const uint32_t kImageHasChartIndexBit = 0x80000000;
+static const uint32_t kImageIsBilinearBit = 0x40000000;
+static const uint32_t kImageIsPaddingBit = 0x20000000;
 
 // Empty on creation. Populated after charts are packed.
 struct Atlas
@@ -188,11 +189,23 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = nullptr);
 
 struct PackOptions
 {
+	// Leave space around charts for texels that would be sampled by bilinear filtering.
+	bool bilinear = true;
+
+	// Align charts to 4x4 blocks. Also improves packing speed, since there are fewer possible chart locations to consider.
+	bool blockAlign = false;
+
 	// Slower, but gives the best result. If false, use random chart placement.
 	bool bruteForce = false;
 
 	// Create Atlas::image
 	bool createImage = false;
+
+	// Charts larger than this will be scaled down. 0 means no limit.
+	uint32_t maxChartSize = 0;
+
+	// Number of pixels to pad charts with.
+	uint32_t padding = 0;
 
 	// Unit to texel scale. e.g. a 1x1 quad with texelsPerUnit of 32 will take up approximately 32x32 texels in the atlas.
 	// If 0, an estimated value will be calculated to approximately match the given resolution.
@@ -203,15 +216,6 @@ struct PackOptions
 	// If not 0, and texelsPerUnit is not 0, generate one or more atlases with that exact resolution.
 	// If not 0, and texelsPerUnit is 0, texelsPerUnit is estimated to approximately match the resolution.
 	uint32_t resolution = 0;
-
-	// Charts larger than this will be scaled down. 0 means no limit.
-	uint32_t maxChartSize = 0;
-
-	// Align charts to 4x4 blocks. Also improves packing speed, since there are fewer possible chart locations to consider.
-	bool blockAlign = false;
-
-	// Number of pixels to pad charts with.
-	uint32_t padding = 0;
 };
 
 // Call after ParameterizeCharts. Can be called multiple times to re-pack charts with different options.

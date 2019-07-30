@@ -642,18 +642,24 @@ static void bakeDilateCharts(float *data)
 	for (uint32_t y = 0; y < s_bake.lightmapHeight; y++) {
 		for (uint32_t x = 0; x < s_bake.lightmapWidth; x++) {
 			const uint32_t offset = x + y * s_bake.lightmapWidth;
-			if (!(atlasImage[offset] & xatlas::kImageIsPaddingBit)) {
 #if 0
-				if (atlasImage[offset] == 0) {
-					float *rgba = &data[offset * 4];
-					rgba[0] = 1.0f;
-					rgba[1] = 0.0f;
-					rgba[2] = 1.0f;
-					rgba[3] = 1.0f;
-				}
-#endif
-				continue; // Not padding.
+			if (atlasImage[offset] & xatlas::kImageIsBilinearBit) {
+				float *rgba = &data[offset * 4];
+				rgba[0] = 1.0f;
+				rgba[1] = 0.0f;
+				rgba[2] = 0.0f;
+				rgba[3] = 1.0f;
+			} else if (atlasImage[offset] == 0) {
+				float *rgba = &data[offset * 4];
+				rgba[0] = 0.0f;
+				rgba[1] = 1.0f;
+				rgba[2] = 0.0f;
+				rgba[3] = 1.0f;
 			}
+			continue;
+#endif
+			if (!(atlasImage[offset] & xatlas::kImageIsBilinearBit))
+				continue; // Not sampled by bilinear filtering.
 			const uint32_t chart = atlasImage[offset] & xatlas::kImageChartIndexMask;
 			float rgbSum[3] = { 0.0f, 0.0f, 0.0f }, n = 0;
 			for (uint32_t si = 0; si < 8; si++) {
@@ -664,8 +670,8 @@ static void bakeDilateCharts(float *data)
 				const uint32_t sampleOffset = (uint32_t)sx + (uint32_t)sy * s_bake.lightmapWidth;
 				if (atlasImage[sampleOffset] == 0)
 					continue; // Empty space.
-				if (atlasImage[sampleOffset] & xatlas::kImageIsPaddingBit)
-					continue; // Don't sample from padding.
+				if (atlasImage[sampleOffset] & (xatlas::kImageIsBilinearBit | xatlas::kImageIsPaddingBit))
+					continue; // Don't sample from bilinear or padding.
 				if ((atlasImage[sampleOffset] & xatlas::kImageChartIndexMask) != chart)
 					continue; // Only sample from matching chart.
 				// Valid sample.
