@@ -187,7 +187,8 @@ struct AtlasVertex
 struct AtlasOptions
 {
 	int cellSize = 0;
-	int currentTexture;
+	int selectedAtlas;
+	int selectedChart;
 	bool fitToWindow = true;
 	float scale = 1.0f;
 	bool showBlockGrid = false;
@@ -821,8 +822,9 @@ static void atlasRenderChartsTextures()
 	bx::mtxOrtho(projection, 0.0f, (float)s_atlas.data->width, bottom, top, 0.0f, 1.0f, 0.0f, bgfx::getCaps()->homogeneousDepth);
 	// Setup view for rendering into atlas texture.
 	bgfx::setViewClear(viewId, BGFX_CLEAR_COLOR);
-	bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height);
 	bgfx::setViewFrameBuffer(viewId, s_atlas.chartsFrameBuffer);
+	bgfx::setViewMode(viewId, bgfx::ViewMode::Sequential);
+	bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height);
 	bgfx::setViewTransform(viewId, nullptr, projection);
 	// Build chart and chart boundary geometry.
 	s_atlas.textureChartIndices.clear();
@@ -838,14 +840,14 @@ static void atlasRenderChartsTextures()
 			randomRGB(bcolor);
 			bcolor[3] = 255;
 			const uint32_t color = encodeRGBA(bcolor);
-			if (chart.atlasIndex == (uint32_t)s_atlas.options.currentTexture) {
+			if (chart.atlasIndex == (uint32_t)s_atlas.options.selectedAtlas) {
 				for (uint32_t k = 0; k < chart.faceCount * 3; k++)
 					s_atlas.textureChartIndices.push_back(s_atlas.chartIndices[firstSourceChartIndex + k]);
 			}
 			// Build boundary vertices for this chart.
 			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				for (int l = 0; l < 3; l++) {
-					if (chart.atlasIndex == (uint32_t)s_atlas.options.currentTexture && s_atlas.boundaryEdges[edge]) {
+					if (chart.atlasIndex == (uint32_t)s_atlas.options.selectedAtlas && s_atlas.boundaryEdges[edge]) {
 						const xatlas::Vertex &v0 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + l]];
 						const xatlas::Vertex &v1 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + (l + 1) % 3]];
 						AtlasVertex cbv;
@@ -883,6 +885,53 @@ static void atlasRenderChartsTextures()
 	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES);
 	bgfx::setVertexBuffer(0, s_atlas.textureChartBoundaryVb);
 	bgfx::submit(viewId, getColorProgram());
+	// Render boundary lines around selected chart.
+	if (s_atlas.options.selectedChart != -1) {
+		int chartIndex = 0, chartFirstEdge = 0;
+		for (uint32_t mi = 0; mi < s_atlas.data->meshCount; mi++) {
+			const xatlas::Mesh &mesh = s_atlas.data->meshes[mi];
+			for (uint32_t ci = 0; ci < mesh.chartCount; ci++) {
+				const xatlas::Chart &chart = mesh.chartArray[ci];
+				if (chartIndex == s_atlas.options.selectedChart) {
+					uint32_t nVertices = 0;
+					for (uint32_t k = 0; k < chart.faceCount; k++) {
+						for (int l = 0; l < 3; l++) {
+							if (s_atlas.boundaryEdges[chartFirstEdge + k * 3 + l])
+								nVertices += 2;
+						}
+					}
+					bgfx::TransientVertexBuffer tvb;
+					bgfx::allocTransientVertexBuffer(&tvb, nVertices, s_atlas.atlasVertexDecl);
+					auto vertices = (AtlasVertex *)tvb.data;
+					nVertices = 0;
+					for (uint32_t k = 0; k < chart.faceCount; k++) {
+						for (int l = 0; l < 3; l++) {
+							if (s_atlas.boundaryEdges[chartFirstEdge + k * 3 + l]) {
+								const xatlas::Vertex &v0 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + l]];
+								const xatlas::Vertex &v1 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + (l + 1) % 3]];
+								vertices[nVertices].pos[0] = v0.uv[0];
+								vertices[nVertices].pos[1] = v0.uv[1];
+								vertices[nVertices].color = 0xffffffff;
+								nVertices++;
+								vertices[nVertices].pos[0] = v1.uv[0];
+								vertices[nVertices].pos[1] = v1.uv[1];
+								vertices[nVertices].color = 0xffffffff;
+								nVertices++;
+							}
+						}
+					}
+					bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES);
+					bgfx::setVertexBuffer(0, &tvb);
+					bgfx::submit(viewId, getColorProgram());
+					break;
+				}
+				chartFirstEdge += mesh.chartArray[ci].faceCount * 3;
+				chartIndex++;
+			}
+			if (chartIndex == s_atlas.options.selectedChart)
+				break;
+		}
+	}
 	// Render 4x4 block grid.
 	if (s_atlas.options.showBlockGrid) {
 		const uint32_t nVertices = ((s_atlas.data->width + 1) / 4 + (s_atlas.data->height + 1) / 4) * 2;
@@ -912,7 +961,7 @@ static void atlasRenderChartsTextures()
 			vertices[i].color = 0x77ffffff;
 		bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA | BGFX_STATE_PT_LINES);
 		bgfx::setVertexBuffer(0, &tvb);
-		bgfx::submit(viewId, getColorProgram(), 1u); // Render last
+		bgfx::submit(viewId, getColorProgram());
 	}
 }
 
@@ -938,7 +987,8 @@ void atlasFinalize()
 	bgfx::TextureHandle texture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack));
 	s_atlas.chartsFrameBuffer = bgfx::createFrameBuffer(1, &texture, true);
 	// Render charts to texture(s) for previewing UVs. Render in UV space.
-	s_atlas.options.currentTexture = 0;
+	s_atlas.options.selectedAtlas = 0;
+	s_atlas.options.selectedChart = -1;
 	atlasRenderChartsTextures();
 	g_options.shadeMode = ShadeMode::Charts;
 	g_options.wireframeMode = WireframeMode::Charts;
@@ -1100,19 +1150,19 @@ void atlasShowGuiWindow(int progressDots)
 		ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 		if (ImGui::Begin("Atlas", &g_options.showAtlasWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 			if (s_atlas.data->atlasCount > 1) {
-				ImGui::Text("Atlas %d of %u", s_atlas.options.currentTexture + 1, s_atlas.data->atlasCount);
+				ImGui::Text("Atlas %d of %u", s_atlas.options.selectedAtlas + 1, s_atlas.data->atlasCount);
 				ImGui::SameLine();
 				if (ImGui::ArrowButton("##prevAtlas", ImGuiDir_Left)) {
-					s_atlas.options.currentTexture--;
-					if (s_atlas.options.currentTexture < 0)
-						s_atlas.options.currentTexture = s_atlas.data->atlasCount - 1;
+					s_atlas.options.selectedAtlas--;
+					if (s_atlas.options.selectedAtlas < 0)
+						s_atlas.options.selectedAtlas = s_atlas.data->atlasCount - 1;
 					atlasRenderChartsTextures();
 				}
 				ImGui::SameLine();
 				if (ImGui::ArrowButton("##nextAtlas", ImGuiDir_Right)) {
-					s_atlas.options.currentTexture++;
-					if (s_atlas.options.currentTexture > (int)s_atlas.data->atlasCount - 1)
-						s_atlas.options.currentTexture = 0;
+					s_atlas.options.selectedAtlas++;
+					if (s_atlas.options.selectedAtlas > (int)s_atlas.data->atlasCount - 1)
+						s_atlas.options.selectedAtlas = 0;
 					atlasRenderChartsTextures();
 				}
 				ImGui::SameLine();
@@ -1127,6 +1177,7 @@ void atlasShowGuiWindow(int progressDots)
 				ImGui::InputFloat("Scale", &s_atlas.options.scale);
 				ImGui::PopItemWidth();
 			}
+			const ImVec2 pos = ImGui::GetCursorScreenPos();
 			GuiTexture texture;
 			texture.bgfx.handle = bgfx::getTexture(s_atlas.chartsFrameBuffer);
 			texture.bgfx.flags = GuiTextureFlags::PointSampler;
@@ -1134,6 +1185,28 @@ void atlasShowGuiWindow(int progressDots)
 				ImGui::Image(texture.imgui, ImGui::GetContentRegionAvail());
 			else 
 				ImGui::Image(texture.imgui, ImVec2((float)s_atlas.data->width * s_atlas.options.scale, (float)s_atlas.data->height * s_atlas.options.scale));
+			if (ImGui::IsItemHovered()) {
+				const ImVec2 textureSize((float)s_atlas.data->width, (float)s_atlas.data->height);
+				const ImVec2 imageSize(ImGui::GetItemRectSize());
+				const ImVec2 imageToTex(textureSize.x / imageSize.x, textureSize.y / imageSize.y);
+				ImGuiIO &io = ImGui::GetIO();
+				const ImVec2 uv = ImVec2((io.MousePos.x - pos.x) * imageToTex.x, (io.MousePos.y - pos.y) * imageToTex.y);
+				const int oldSelectedChart = s_atlas.options.selectedChart;
+				s_atlas.options.selectedChart = -1;
+				if (uv.x >= 0.0f && uv.y >= 0.0f && uv.x < textureSize.x && uv.y < textureSize.y) {
+					const uint32_t data = s_atlas.data->image[(uint32_t(uv.x) + uint32_t(uv.y) * s_atlas.data->width) * uint32_t(s_atlas.options.selectedAtlas + 1)];
+					if (data & xatlas::kImageHasChartIndexBit)
+						s_atlas.options.selectedChart = int(data & xatlas::kImageChartIndexMask);
+				}
+				if (s_atlas.options.selectedChart != -1) {
+					ImGui::BeginTooltip();
+					ImGui::Text("chart %d", s_atlas.options.selectedChart);
+					//ImGui::Text("(%g, %g)", uv.x, uv.y);
+					ImGui::EndTooltip();
+				}
+				if (s_atlas.options.selectedChart != oldSelectedChart)
+					atlasRenderChartsTextures();
+			}
 			ImGui::End();
 		}
 	}
