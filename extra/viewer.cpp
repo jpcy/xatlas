@@ -283,13 +283,14 @@ struct ShaderSourceBundle
 // Sync with ShaderId
 static ShaderSourceBundle s_shaders[] = 
 {
+	SHADER_SOURCE_BUNDLE(fs_blit),
 	SHADER_SOURCE_BUNDLE(fs_chart),
 	SHADER_SOURCE_BUNDLE(fs_color),
 	SHADER_SOURCE_BUNDLE(fs_gui),
 	SHADER_SOURCE_BUNDLE(fs_material),
 	SHADER_SOURCE_BUNDLE(fs_wireframe),
+	SHADER_SOURCE_BUNDLE(vs_blit),
 	SHADER_SOURCE_BUNDLE(vs_chart),
-	SHADER_SOURCE_BUNDLE(vs_chartTexcoordSpace),
 	SHADER_SOURCE_BUNDLE(vs_color),
 	SHADER_SOURCE_BUNDLE(vs_gui),
 	SHADER_SOURCE_BUNDLE(vs_model),
@@ -409,6 +410,7 @@ int main(int argc, char **argv)
 	bgfx::renderFrame();
 	BgfxCallback bgfxCallback;
 	bgfx::Init init;
+	//init.type = bgfx::RendererType::OpenGL;
 	init.callback = &bgfxCallback;
 #if BX_PLATFORM_LINUX || BX_PLATFORM_BSD
 	init.platformData.ndt = glfwGetX11Display();

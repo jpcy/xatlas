@@ -184,6 +184,12 @@ struct AtlasVertex
 	uint32_t color;
 };
 
+struct BlitVertex
+{
+	float pos[2];
+	float uv[2];
+};
+
 struct AtlasOptions
 {
 	int cellSize = 0;
@@ -191,6 +197,8 @@ struct AtlasOptions
 	int selectedChart;
 	bool fitToWindow = true;
 	float scale = 1.0f;
+	bool showBilinear = false;
+	bool showPadding = false;
 	bool showBlockGrid = false;
 	xatlas::ChartOptions chart;
 	bool chartChanged = false;
@@ -202,21 +210,21 @@ struct AtlasOptions
 
 struct
 {
-	const int chartColorSeed = 13;
 	xatlas::Atlas *data = nullptr;
 	std::thread *thread = nullptr;
 	AtlasStatus status;
 	AtlasOptions options;
+	std::vector<uint32_t> chartColors;
 	std::mutex paramMutex; // Used by OpenNL
 	bgfx::FrameBufferHandle chartsFrameBuffer = BGFX_INVALID_HANDLE;
+	bgfx::TextureHandle chartsTexture = BGFX_INVALID_HANDLE;
+	std::vector<uint8_t> chartsTextureData;
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle chartColorVb = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle chartInvalidColorVb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle chartIb = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle chartBoundaryVb = BGFX_INVALID_HANDLE;
-	bgfx::IndexBufferHandle textureChartIb = BGFX_INVALID_HANDLE;
-	bgfx::VertexBufferHandle textureChartBoundaryVb = BGFX_INVALID_HANDLE;
 	std::vector<ModelVertex> vertices;
 	std::vector<uint32_t> indices;
 	std::vector<uint32_t> chartColorVertices;
@@ -224,19 +232,19 @@ struct
 	std::vector<uint32_t> chartIndices;
 	std::vector<bool> boundaryEdges;
 	std::vector<WireframeVertex> chartBoundaryVertices;
-	std::vector<uint32_t> textureChartIndices;
-	std::vector<AtlasVertex> textureChartBoundaryVertices;
-	bgfx::VertexDecl wireVertexDecl;
-	bgfx::VertexDecl chartColorDecl;
 	bgfx::VertexDecl atlasVertexDecl;
+	bgfx::VertexDecl blitVertexDecl;
+	bgfx::VertexDecl chartColorDecl;
+	bgfx::VertexDecl wireVertexDecl;
+	// Blit.
+	bgfx::ProgramHandle blitProgram;
+	bgfx::UniformHandle s_texture;
 	// Chart rendering with checkerboard pattern.
 	bgfx::UniformHandle u_color;
 	bgfx::UniformHandle u_textureSize_cellSize;
 	bgfx::ShaderHandle fs_chart;
 	bgfx::ShaderHandle vs_chart;
-	bgfx::ShaderHandle vs_chartTexcoordSpace;
 	bgfx::ProgramHandle chartProgram;
-	bgfx::ProgramHandle chartTexcoordSpaceProgram;
 }
 s_atlas;
 
@@ -248,37 +256,45 @@ static void clearPackOptions()
 
 void atlasInit()
 {
-	s_atlas.wireVertexDecl
-		.begin()
-		.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-		.end();
-	s_atlas.chartColorDecl.begin()
-		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
-		.end();
 	s_atlas.atlasVertexDecl.begin()
 		.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
 		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
 		.end();
+	s_atlas.blitVertexDecl.begin()
+		.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
+		.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+		.end();
+	s_atlas.chartColorDecl.begin()
+		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
+		.end();
+	s_atlas.wireVertexDecl
+		.begin()
+		.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+		.end();
 	bgfx::setPaletteColor(kPaletteBlack, 0x000000ff);
+	s_atlas.s_texture = bgfx::createUniform("s_texture", bgfx::UniformType::Sampler);
+	{
+		bgfx::ShaderHandle vertex = loadShader(ShaderId::vs_blit);
+		bgfx::ShaderHandle fragment = loadShader(ShaderId::fs_blit);
+		s_atlas.blitProgram = bgfx::createProgram(vertex, fragment, true);
+	}
 	s_atlas.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
 	s_atlas.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize", bgfx::UniformType::Vec4);
 	s_atlas.fs_chart = loadShader(ShaderId::fs_chart);
 	s_atlas.vs_chart = loadShader(ShaderId::vs_chart);
-	s_atlas.vs_chartTexcoordSpace = loadShader(ShaderId::vs_chartTexcoordSpace);
 	s_atlas.chartProgram = bgfx::createProgram(s_atlas.vs_chart, s_atlas.fs_chart);
-	s_atlas.chartTexcoordSpaceProgram = bgfx::createProgram(s_atlas.vs_chartTexcoordSpace, s_atlas.fs_chart);
 	clearPackOptions();
 }
 
 void atlasShutdown()
 {
+	bgfx::destroy(s_atlas.s_texture);
+	bgfx::destroy(s_atlas.blitProgram);
 	bgfx::destroy(s_atlas.u_color);
 	bgfx::destroy(s_atlas.u_textureSize_cellSize);
 	bgfx::destroy(s_atlas.fs_chart);
 	bgfx::destroy(s_atlas.vs_chart);
-	bgfx::destroy(s_atlas.vs_chartTexcoordSpace);
 	bgfx::destroy(s_atlas.chartProgram);
-	bgfx::destroy(s_atlas.chartTexcoordSpaceProgram);
 }
 
 void atlasDestroy()
@@ -295,15 +311,13 @@ void atlasDestroy()
 		s_atlas.data = nullptr;
 	}
 	bgfx::destroyAndClear(s_atlas.chartsFrameBuffer);
-	bgfx::destroyAndClear(s_atlas.chartsFrameBuffer);
+	bgfx::destroyAndClear(s_atlas.chartsTexture);
 	bgfx::destroyAndClear(s_atlas.vb);
 	bgfx::destroyAndClear(s_atlas.ib);
 	bgfx::destroyAndClear(s_atlas.chartColorVb);
 	bgfx::destroyAndClear(s_atlas.chartInvalidColorVb);
 	bgfx::destroyAndClear(s_atlas.chartIb);
 	bgfx::destroyAndClear(s_atlas.chartBoundaryVb);
-	bgfx::destroyAndClear(s_atlas.textureChartIb);
-	bgfx::destroyAndClear(s_atlas.textureChartBoundaryVb);
 	s_atlas.status.set(AtlasStatus::NotGenerated);
 }
 
@@ -707,7 +721,17 @@ static void atlasGenerateThread()
 			}
 		}
 	}
+	// Generate random chart colors.
+	s_atlas.chartColors.resize(s_atlas.data->chartCount);
+	srand(13);
+	for (uint32_t i = 0; i < s_atlas.data->chartCount; i++) {
+		uint8_t bcolor[4];
+		randomRGB(bcolor);
+		bcolor[3] = 255;
+		s_atlas.chartColors[i] = encodeRGBA(bcolor);
+	}
 	// Copy charts for rendering.
+	s_atlas.chartsTextureData.resize(s_atlas.data->width * s_atlas.data->height * 4);
 	s_atlas.vertices.clear();
 	s_atlas.indices.clear();
 	s_atlas.chartColorVertices.clear();
@@ -725,11 +749,11 @@ static void atlasGenerateThread()
 	s_atlas.chartColorVertices.resize(numVertices);
 	s_atlas.chartInvalidColorVertices.resize(numVertices);
 	s_atlas.chartIndices.resize(numIndices);
+	uint32_t chartIndex = 0;
 	uint32_t firstIndex = 0;
 	uint32_t firstChartIndex = 0;
 	uint32_t firstVertex = 0;
 	numEdges = 0;
-	srand(s_atlas.chartColorSeed);
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		const objzObject &object = model->objects[i];
@@ -739,17 +763,13 @@ static void atlasGenerateThread()
 		firstIndex += mesh.indexCount;
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
-			uint8_t bcolor[4];
-			randomRGB(bcolor);
-			bcolor[3] = 255;
-			const uint32_t color = encodeRGBA(bcolor);
 			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				for (uint32_t l = 0; l < 3; l++) {
 					uint32_t &index = s_atlas.chartIndices[firstChartIndex + k * 3 + l];
 					index = firstVertex + mesh.indexArray[chart.faceArray[k] * 3 + l];
-					s_atlas.chartColorVertices[index] = color;
+					s_atlas.chartColorVertices[index] = s_atlas.chartColors[chartIndex];
 					if (chart.flags & xatlas::ChartFlags::Invalid)
-						s_atlas.chartInvalidColorVertices[index] = color;
+						s_atlas.chartInvalidColorVertices[index] = s_atlas.chartColors[chartIndex];
 					else
 						s_atlas.chartInvalidColorVertices[index] = 0xffc0c0c0;
 				}
@@ -778,6 +798,7 @@ static void atlasGenerateThread()
 				for (int l = 0; l < 3; l++)
 					s_atlas.chartBoundaryVertices.push_back(verts[l]);
 			}
+			chartIndex++;
 		}
 		for (uint32_t j = 0; j < mesh.vertexCount; j++) {
 			const xatlas::Vertex &outputVertex = mesh.vertexArray[j];
@@ -826,65 +847,52 @@ static void atlasRenderChartsTextures()
 	bgfx::setViewMode(viewId, bgfx::ViewMode::Sequential);
 	bgfx::setViewRect(viewId, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height);
 	bgfx::setViewTransform(viewId, nullptr, projection);
-	// Build chart and chart boundary geometry.
-	s_atlas.textureChartIndices.clear();
-	s_atlas.textureChartBoundaryVertices.clear();
-	srand(s_atlas.chartColorSeed);
-	int edge = 0;
-	uint32_t firstSourceChartIndex = 0;
-	for (uint32_t mi = 0; mi < s_atlas.data->meshCount; mi++) {
-		const xatlas::Mesh &mesh = s_atlas.data->meshes[mi];
-		for (uint32_t ci = 0; ci < mesh.chartCount; ci++) {
-			const xatlas::Chart &chart = mesh.chartArray[ci];
-			uint8_t bcolor[4];
-			randomRGB(bcolor);
-			bcolor[3] = 255;
-			const uint32_t color = encodeRGBA(bcolor);
-			if (chart.atlasIndex == (uint32_t)s_atlas.options.selectedAtlas) {
-				for (uint32_t k = 0; k < chart.faceCount * 3; k++)
-					s_atlas.textureChartIndices.push_back(s_atlas.chartIndices[firstSourceChartIndex + k]);
+	// Render charts.
+	memset(s_atlas.chartsTextureData.data(), 0, s_atlas.chartsTextureData.size());
+	for (uint32_t y = 0; y < s_atlas.data->height; y++) {
+		for (uint32_t x = 0; x < s_atlas.data->width; x++) {
+			const uint32_t data = s_atlas.data->image[(x + y * s_atlas.data->width) * (s_atlas.options.selectedAtlas + 1)];
+			if (data == 0)
+				continue;
+			const uint32_t chartIndex = data & xatlas::kImageChartIndexMask;
+			uint32_t color = s_atlas.chartColors[chartIndex];
+			if (data & xatlas::kImageIsBilinearBit) {
+				if (!s_atlas.options.showBilinear)
+					continue;
+				color = 0xff00ff00;
+			} else if (data & xatlas::kImageIsPaddingBit) {
+				if (!s_atlas.options.showPadding)
+					continue;
+				color = 0xffff0000;
 			}
-			// Build boundary vertices for this chart.
-			for (uint32_t k = 0; k < chart.faceCount; k++) {
-				for (int l = 0; l < 3; l++) {
-					if (chart.atlasIndex == (uint32_t)s_atlas.options.selectedAtlas && s_atlas.boundaryEdges[edge]) {
-						const xatlas::Vertex &v0 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + l]];
-						const xatlas::Vertex &v1 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + (l + 1) % 3]];
-						AtlasVertex cbv;
-						cbv.pos[0] = v0.uv[0];
-						cbv.pos[1] = v0.uv[1];
-						cbv.color = color;
-						s_atlas.textureChartBoundaryVertices.push_back(cbv);
-						cbv.pos[0] = v1.uv[0];
-						cbv.pos[1] = v1.uv[1];
-						s_atlas.textureChartBoundaryVertices.push_back(cbv);
-					}
-					edge++;
-				}
-			}
-			firstSourceChartIndex += chart.faceCount * 3;
+			uint32_t *bgra = (uint32_t *)&s_atlas.chartsTextureData[(x + y * s_atlas.data->width) * 4];
+			*bgra = color;
 		}
 	}
-	// Render charts.
-	bgfx::destroyAndClear(s_atlas.textureChartIb);
-	s_atlas.textureChartIb = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.textureChartIndices), BGFX_BUFFER_INDEX32);
-	float textureSize_cellSize[4];
-	textureSize_cellSize[0] = (float)s_atlas.data->width;
-	textureSize_cellSize[1] = (float)s_atlas.data->height;
-	textureSize_cellSize[2] = (float)s_atlas.options.cellSize;
-	textureSize_cellSize[3] = (float)s_atlas.options.cellSize;
-	bgfx::setUniform(s_atlas.u_textureSize_cellSize, textureSize_cellSize);
-	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-	bgfx::setIndexBuffer(s_atlas.textureChartIb);
-	bgfx::setVertexBuffer(0, s_atlas.vb);
-	bgfx::setVertexBuffer(1, s_atlas.chartColorVb);
-	bgfx::submit(viewId, s_atlas.chartTexcoordSpaceProgram);
-	// Render chart boundary lines to emulate conservative rasterization.
-	bgfx::destroyAndClear(s_atlas.textureChartBoundaryVb);
-	s_atlas.textureChartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.textureChartBoundaryVertices), s_atlas.atlasVertexDecl);
-	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_PT_LINES);
-	bgfx::setVertexBuffer(0, s_atlas.textureChartBoundaryVb);
-	bgfx::submit(viewId, getColorProgram());
+	bgfx::updateTexture2D(s_atlas.chartsTexture, 0, 0, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, bgfx::makeRef(s_atlas.chartsTextureData));
+	if (bgfx::getAvailTransientVertexBuffer(3, s_atlas.blitVertexDecl) == 3) {
+		bgfx::TransientVertexBuffer tvb;
+		bgfx::allocTransientVertexBuffer(&tvb, 3, s_atlas.blitVertexDecl);
+		auto vertices = (BlitVertex *)tvb.data;
+		const float w = (float)s_atlas.data->width;
+		const float h = (float)s_atlas.data->height;
+		vertices[0].pos[0] = -w;
+		vertices[0].pos[1] = 0.0f;
+		vertices[0].uv[0] = -1.0f;
+		vertices[0].uv[1] = 0.0f;
+		vertices[1].pos[0] = w;
+		vertices[1].pos[1] = 0.0f;
+		vertices[1].uv[0] = 1.0f;
+		vertices[1].uv[1] = 0.0f;
+		vertices[2].pos[0] = w;
+		vertices[2].pos[1] = h * 2.0f;
+		vertices[2].uv[0] = 1.0f;
+		vertices[2].uv[1] = 2.0f;
+		bgfx::setState(BGFX_STATE_WRITE_RGB);
+		bgfx::setTexture(0, s_atlas.s_texture, s_atlas.chartsTexture);
+		bgfx::setVertexBuffer(0, &tvb);
+		bgfx::submit(viewId, s_atlas.blitProgram);
+	}
 	// Render boundary lines around selected chart.
 	if (s_atlas.options.selectedChart != -1) {
 		int chartIndex = 0, chartFirstEdge = 0;
@@ -986,7 +994,8 @@ void atlasFinalize()
 	// Create framebuffer/texture for atlas.
 	bgfx::TextureHandle texture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack));
 	s_atlas.chartsFrameBuffer = bgfx::createFrameBuffer(1, &texture, true);
-	// Render charts to texture(s) for previewing UVs. Render in UV space.
+	s_atlas.chartsTexture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8);
+	// Render charts to texture(s) for previewing UVs.
 	s_atlas.options.selectedAtlas = 0;
 	s_atlas.options.selectedChart = -1;
 	atlasRenderChartsTextures();
@@ -1169,6 +1178,12 @@ void atlasShowGuiWindow(int progressDots)
 			}
 			ImGui::Checkbox("Fit to window", &s_atlas.options.fitToWindow);
 			ImGui::SameLine();
+			if (ImGui::Checkbox("Show Bilinear", &s_atlas.options.showBilinear))
+				atlasRenderChartsTextures();
+			ImGui::SameLine();
+			if (ImGui::Checkbox("Show Padding", &s_atlas.options.showPadding))
+				atlasRenderChartsTextures();
+			ImGui::SameLine();
 			if (ImGui::Checkbox("Show 4x4 grid", &s_atlas.options.showBlockGrid))
 				atlasRenderChartsTextures();
 			if (!s_atlas.options.fitToWindow) {
@@ -1200,8 +1215,7 @@ void atlasShowGuiWindow(int progressDots)
 				}
 				if (s_atlas.options.selectedChart != -1) {
 					ImGui::BeginTooltip();
-					ImGui::Text("chart %d", s_atlas.options.selectedChart);
-					//ImGui::Text("(%g, %g)", uv.x, uv.y);
+					ImGui::Text("Chart %d", s_atlas.options.selectedChart);
 					ImGui::EndTooltip();
 				}
 				if (s_atlas.options.selectedChart != oldSelectedChart)

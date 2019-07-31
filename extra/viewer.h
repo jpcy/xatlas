@@ -187,13 +187,14 @@ void resetCamera();
 
 enum class ShaderId
 {
+	fs_blit,
 	fs_chart,
 	fs_color,
 	fs_gui,
 	fs_material,
 	fs_wireframe,
+	vs_blit,
 	vs_chart,
-	vs_chartTexcoordSpace,
 	vs_color,
 	vs_gui,
 	vs_model,
