@@ -184,17 +184,29 @@ struct AtlasVertex
 	uint32_t color;
 };
 
-struct
+struct AtlasOptions
 {
-	const int chartColorSeed = 13;
-	int chartTextureCellSize = 0;
-	xatlas::Atlas *data = nullptr;
-	std::thread *thread = nullptr;
-	AtlasStatus status;
+	int cellSize = 0;
 	int currentTexture;
 	bool fitToWindow = true;
 	float scale = 1.0f;
 	bool showBlockGrid = false;
+	xatlas::ChartOptions chart;
+	bool chartChanged = false;
+	xatlas::PackOptions pack;
+	bool packChanged = false;
+	ParamMethod paramMethod = ParamMethod::LSCM;
+	bool paramChanged = false;
+};
+
+struct
+{
+	const int chartColorSeed = 13;
+	xatlas::Atlas *data = nullptr;
+	std::thread *thread = nullptr;
+	AtlasStatus status;
+	AtlasOptions options;
+	std::mutex paramMutex; // Used by OpenNL
 	bgfx::FrameBufferHandle chartsFrameBuffer = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
@@ -204,13 +216,6 @@ struct
 	bgfx::VertexBufferHandle chartBoundaryVb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle textureChartIb = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle textureChartBoundaryVb = BGFX_INVALID_HANDLE;
-	xatlas::ChartOptions chartOptions;
-	bool chartOptionsChanged = false;
-	xatlas::PackOptions packOptions;
-	bool packOptionsChanged = false;
-	ParamMethod paramMethod = ParamMethod::LSCM;
-	std::mutex paramMutex; // Used by OpenNL
-	bool paramOptionsChanged = false;
 	std::vector<ModelVertex> vertices;
 	std::vector<uint32_t> indices;
 	std::vector<uint32_t> chartColorVertices;
@@ -236,8 +241,8 @@ s_atlas;
 
 static void clearPackOptions()
 {
-	s_atlas.packOptions = xatlas::PackOptions();
-	s_atlas.packOptions.createImage = true;
+	s_atlas.options.pack = xatlas::PackOptions();
+	s_atlas.options.pack.createImage = true;
 }
 
 void atlasInit()
@@ -407,7 +412,7 @@ static void project_triangle(
 static void atlasParameterizationCallback(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount)
 {
 #if USE_LIBIGL
-	if (s_atlas.paramMethod == ParamMethod::libigl_Harmonic || s_atlas.paramMethod == ParamMethod::libigl_LSCM || s_atlas.paramMethod == ParamMethod::libigl_ARAP) {
+	if (s_atlas.options.paramMethod == ParamMethod::libigl_Harmonic || s_atlas.options.paramMethod == ParamMethod::libigl_LSCM || s_atlas.options.paramMethod == ParamMethod::libigl_ARAP) {
 		Eigen::MatrixXd V(vertexCount, 3);
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			V(i, 0) = positions[i * 3 + 0];
@@ -424,11 +429,11 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 		Eigen::VectorXi bnd;
 		igl::boundary_loop(F, bnd);
 		Eigen::MatrixXd V_uv;
-		if (s_atlas.paramMethod == ParamMethod::libigl_Harmonic) {
+		if (s_atlas.options.paramMethod == ParamMethod::libigl_Harmonic) {
 			Eigen::MatrixXd bnd_uv;
 			igl::map_vertices_to_circle(V,bnd,bnd_uv);
 			igl::harmonic(V,F,bnd,bnd_uv,1,V_uv);
-		} else if (s_atlas.paramMethod == ParamMethod::libigl_LSCM) {
+		} else if (s_atlas.options.paramMethod == ParamMethod::libigl_LSCM) {
 			Eigen::VectorXi b(2, 1);
 			b(0) = bnd(0);
 			b(1) = bnd((int)round(bnd.size()/2));
@@ -439,7 +444,7 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 			bc(1, 0) = texcoords[b(1) * 2 + 0];
 			bc(1, 1) = texcoords[b(1) * 2 + 1];
 			igl::lscm(V, F, b, bc, V_uv);
-		} else if (s_atlas.paramMethod == ParamMethod::libigl_ARAP) {
+		} else if (s_atlas.options.paramMethod == ParamMethod::libigl_ARAP) {
 			// Compute the initial solution for ARAP (harmonic parametrization)
 			Eigen::MatrixXd initial_guess;
 			Eigen::MatrixXd bnd_uv;
@@ -465,7 +470,7 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 	}
 #endif
 #if USE_OPENNL
-	if (s_atlas.paramMethod == ParamMethod::OpenNL_LSCM) {
+	if (s_atlas.options.paramMethod == ParamMethod::OpenNL_LSCM) {
 		std::mutex_lock lock(s_atlas.paramMutex); // Current context should really be TLS internally...
 		/**
 		* \brief Computes the least squares conformal map and stores it in
@@ -628,33 +633,33 @@ static void atlasGenerateThread()
 			}
 		}
 	}
-	if (firstRun || s_atlas.chartOptionsChanged) {
-		xatlas::ComputeCharts(s_atlas.data, s_atlas.chartOptions);
+	if (firstRun || s_atlas.options.chartChanged) {
+		xatlas::ComputeCharts(s_atlas.data, s_atlas.options.chart);
 		if (s_atlas.status.getCancel()) {
-			s_atlas.chartOptionsChanged = true; // Force ComputeCharts to be called next time.
+			s_atlas.options.chartChanged = true; // Force ComputeCharts to be called next time.
 			s_atlas.status.set(AtlasStatus::NotGenerated);
 			s_atlas.status.setCancel(false);
 			return;
 		}
 	}
-	if (firstRun || s_atlas.chartOptionsChanged || s_atlas.paramOptionsChanged) {
+	if (firstRun || s_atlas.options.chartChanged || s_atlas.options.paramChanged) {
 		xatlas::ParameterizeFunc paramFunc = nullptr;
 #if USE_LIBIGL || USE_OPENNL
-		if (s_atlas.paramMethod != ParamMethod::LSCM)
+		if (s_atlas.options.paramMethod != ParamMethod::LSCM)
 			paramFunc = atlasParameterizationCallback;
 #endif
 		xatlas::ParameterizeCharts(s_atlas.data, paramFunc);
 		if (s_atlas.status.getCancel()) {
-			s_atlas.paramOptionsChanged = true; // Force ParameterizeCharts to be called next time.
+			s_atlas.options.paramChanged = true; // Force ParameterizeCharts to be called next time.
 			s_atlas.status.set(AtlasStatus::NotGenerated);
 			s_atlas.status.setCancel(false);
 			return;
 		}
 	}
-	if (firstRun || s_atlas.chartOptionsChanged || s_atlas.paramOptionsChanged || s_atlas.packOptionsChanged) {
-		xatlas::PackCharts(s_atlas.data, s_atlas.packOptions);
+	if (firstRun || s_atlas.options.chartChanged || s_atlas.options.paramChanged || s_atlas.options.packChanged) {
+		xatlas::PackCharts(s_atlas.data, s_atlas.options.pack);
 		if (s_atlas.status.getCancel()) {
-			s_atlas.packOptionsChanged = true; // Force PackCharts to be called next time.
+			s_atlas.options.packChanged = true; // Force PackCharts to be called next time.
 			s_atlas.status.set(AtlasStatus::NotGenerated);
 			s_atlas.status.setCancel(false);
 			return;
@@ -662,9 +667,9 @@ static void atlasGenerateThread()
 	}
 	const double elapsedTime = (clock() - startTime) * 1000.0 / CLOCKS_PER_SEC;
 	printf("Generated atlas in %.2f seconds (%g ms)\n", elapsedTime / 1000.0, elapsedTime);
-	s_atlas.chartOptionsChanged = false;
-	s_atlas.paramOptionsChanged = false;
-	s_atlas.packOptionsChanged = false;
+	s_atlas.options.chartChanged = false;
+	s_atlas.options.paramChanged = false;
+	s_atlas.options.packChanged = false;
 	// Find chart boundary edges.
 	uint32_t numEdges = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -793,7 +798,7 @@ void atlasGenerate()
 {
 	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
 		return;
-	if (s_atlas.data && !s_atlas.chartOptionsChanged && !s_atlas.paramOptionsChanged && !s_atlas.packOptionsChanged) {
+	if (s_atlas.data && !s_atlas.options.chartChanged && !s_atlas.options.paramChanged && !s_atlas.options.packChanged) {
 		// Already have an atlas and none of the options that affect atlas creation have changed.
 		return;
 	}
@@ -833,14 +838,14 @@ static void atlasRenderChartsTextures()
 			randomRGB(bcolor);
 			bcolor[3] = 255;
 			const uint32_t color = encodeRGBA(bcolor);
-			if (chart.atlasIndex == (uint32_t)s_atlas.currentTexture) {
+			if (chart.atlasIndex == (uint32_t)s_atlas.options.currentTexture) {
 				for (uint32_t k = 0; k < chart.faceCount * 3; k++)
 					s_atlas.textureChartIndices.push_back(s_atlas.chartIndices[firstSourceChartIndex + k]);
 			}
 			// Build boundary vertices for this chart.
 			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				for (int l = 0; l < 3; l++) {
-					if (chart.atlasIndex == (uint32_t)s_atlas.currentTexture && s_atlas.boundaryEdges[edge]) {
+					if (chart.atlasIndex == (uint32_t)s_atlas.options.currentTexture && s_atlas.boundaryEdges[edge]) {
 						const xatlas::Vertex &v0 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + l]];
 						const xatlas::Vertex &v1 = mesh.vertexArray[mesh.indexArray[chart.faceArray[k] * 3 + (l + 1) % 3]];
 						AtlasVertex cbv;
@@ -864,8 +869,8 @@ static void atlasRenderChartsTextures()
 	float textureSize_cellSize[4];
 	textureSize_cellSize[0] = (float)s_atlas.data->width;
 	textureSize_cellSize[1] = (float)s_atlas.data->height;
-	textureSize_cellSize[2] = (float)s_atlas.chartTextureCellSize;
-	textureSize_cellSize[3] = (float)s_atlas.chartTextureCellSize;
+	textureSize_cellSize[2] = (float)s_atlas.options.cellSize;
+	textureSize_cellSize[3] = (float)s_atlas.options.cellSize;
 	bgfx::setUniform(s_atlas.u_textureSize_cellSize, textureSize_cellSize);
 	bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
 	bgfx::setIndexBuffer(s_atlas.textureChartIb);
@@ -879,7 +884,7 @@ static void atlasRenderChartsTextures()
 	bgfx::setVertexBuffer(0, s_atlas.textureChartBoundaryVb);
 	bgfx::submit(viewId, getColorProgram());
 	// Render 4x4 block grid.
-	if (s_atlas.showBlockGrid) {
+	if (s_atlas.options.showBlockGrid) {
 		const uint32_t nVertices = ((s_atlas.data->width + 1) / 4 + (s_atlas.data->height + 1) / 4) * 2;
 		if (bgfx::getAvailTransientVertexBuffer(nVertices, s_atlas.atlasVertexDecl) != nVertices)
 			return;
@@ -933,7 +938,7 @@ void atlasFinalize()
 	bgfx::TextureHandle texture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack));
 	s_atlas.chartsFrameBuffer = bgfx::createFrameBuffer(1, &texture, true);
 	// Render charts to texture(s) for previewing UVs. Render in UV space.
-	s_atlas.currentTexture = 0;
+	s_atlas.options.currentTexture = 0;
 	atlasRenderChartsTextures();
 	g_options.shadeMode = ShadeMode::Charts;
 	g_options.wireframeMode = WireframeMode::Charts;
@@ -1013,57 +1018,57 @@ void atlasShowGuiOptions()
 	}
 	if (ImGui::TreeNodeEx("Chart options", ImGuiTreeNodeFlags_FramePadding)) {
 		bool changed = false;
-		changed |= ImGui::InputFloat("Proxy fit metric weight", &s_atlas.chartOptions.proxyFitMetricWeight);
-		changed |= ImGui::InputFloat("Roundness metric weight", &s_atlas.chartOptions.roundnessMetricWeight);
-		changed |= ImGui::InputFloat("Straightness metric weight", &s_atlas.chartOptions.straightnessMetricWeight);
-		changed |= ImGui::InputFloat("Normal seam metric weight", &s_atlas.chartOptions.normalSeamMetricWeight);
-		changed |= ImGui::InputFloat("Texture seam metric weight", &s_atlas.chartOptions.textureSeamMetricWeight);
-		changed |= ImGui::InputFloat("Max chart area", &s_atlas.chartOptions.maxChartArea);
-		changed |= ImGui::InputFloat("Max boundary length", &s_atlas.chartOptions.maxBoundaryLength);
-		changed |= ImGui::InputFloat("Max threshold", &s_atlas.chartOptions.maxThreshold);
-		changed |= ImGui::InputInt("Grow face count", (int *)&s_atlas.chartOptions.growFaceCount);
-		changed |= ImGui::InputInt("Max iterations", (int *)&s_atlas.chartOptions.maxIterations);
+		changed |= ImGui::InputFloat("Proxy fit metric weight", &s_atlas.options.chart.proxyFitMetricWeight);
+		changed |= ImGui::InputFloat("Roundness metric weight", &s_atlas.options.chart.roundnessMetricWeight);
+		changed |= ImGui::InputFloat("Straightness metric weight", &s_atlas.options.chart.straightnessMetricWeight);
+		changed |= ImGui::InputFloat("Normal seam metric weight", &s_atlas.options.chart.normalSeamMetricWeight);
+		changed |= ImGui::InputFloat("Texture seam metric weight", &s_atlas.options.chart.textureSeamMetricWeight);
+		changed |= ImGui::InputFloat("Max chart area", &s_atlas.options.chart.maxChartArea);
+		changed |= ImGui::InputFloat("Max boundary length", &s_atlas.options.chart.maxBoundaryLength);
+		changed |= ImGui::InputFloat("Max threshold", &s_atlas.options.chart.maxThreshold);
+		changed |= ImGui::InputInt("Grow face count", (int *)&s_atlas.options.chart.growFaceCount);
+		changed |= ImGui::InputInt("Max iterations", (int *)&s_atlas.options.chart.maxIterations);
 		if (ImGui::Button("Reset to default", buttonSize)) {
-			s_atlas.chartOptions = xatlas::ChartOptions();
+			s_atlas.options.chart = xatlas::ChartOptions();
 			changed = true;
 		}
 		ImGui::TreePop();
 		if (changed)
-			s_atlas.chartOptionsChanged = true;
+			s_atlas.options.chartChanged = true;
 	}
 #if USE_LIBIGL || USE_OPENNL
 	if (ImGui::TreeNodeEx("Parameterization options", ImGuiTreeNodeFlags_FramePadding)) {
-		const ParamMethod oldParamMethod = s_atlas.paramMethod;
-		ImGui::RadioButton("LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::LSCM);
+		const ParamMethod oldParamMethod = s_atlas.options.paramMethod;
+		ImGui::RadioButton("LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::LSCM);
 #if USE_LIBIGL
-		ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_Harmonic);
-		ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_LSCM);
-		ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.paramMethod, (int)ParamMethod::libigl_ARAP);
+		ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_Harmonic);
+		ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_LSCM);
+		ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_ARAP);
 #endif
 #if USE_OPENNL
-		ImGui::RadioButton("OpenNL LSCM", (int *)&s_atlas.paramMethod, (int)ParamMethod::OpenNL_LSCM);
+		ImGui::RadioButton("OpenNL LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::OpenNL_LSCM);
 #endif
 		ImGui::TreePop();
-		if (s_atlas.paramMethod != oldParamMethod)
-			s_atlas.paramOptionsChanged = true;
+		if (s_atlas.options.paramMethod != oldParamMethod)
+			s_atlas.options.paramChanged = true;
 	}
 #endif
 	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding)) {
 		bool changed = false;
-		changed |= ImGui::Checkbox("Bilinear", &s_atlas.packOptions.bilinear);
-		changed |= ImGui::Checkbox("Brute force", &s_atlas.packOptions.bruteForce);
-		changed |= ImGui::Checkbox("Block align", &s_atlas.packOptions.blockAlign);
-		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.packOptions.texelsPerUnit, 0.0f, 32.0f, 2);
-		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.packOptions.resolution, 8);
-		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.packOptions.padding, 0, 8);
-		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.packOptions.maxChartSize);
+		changed |= ImGui::Checkbox("Bilinear", &s_atlas.options.pack.bilinear);
+		changed |= ImGui::Checkbox("Brute force", &s_atlas.options.pack.bruteForce);
+		changed |= ImGui::Checkbox("Block align", &s_atlas.options.pack.blockAlign);
+		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.options.pack.texelsPerUnit, 0.0f, 32.0f, 2);
+		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.options.pack.resolution, 8);
+		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.options.pack.padding, 0, 8);
+		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.options.pack.maxChartSize);
 		if (ImGui::Button("Reset to default", buttonSize)) {
 			clearPackOptions();
 			changed = true;
 		}
 		ImGui::TreePop();
 		if (changed)
-			s_atlas.packOptionsChanged = true;
+			s_atlas.options.packChanged = true;
 	}
 }
 
@@ -1095,40 +1100,40 @@ void atlasShowGuiWindow(int progressDots)
 		ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 		if (ImGui::Begin("Atlas", &g_options.showAtlasWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 			if (s_atlas.data->atlasCount > 1) {
-				ImGui::Text("Atlas %d of %u", s_atlas.currentTexture + 1, s_atlas.data->atlasCount);
+				ImGui::Text("Atlas %d of %u", s_atlas.options.currentTexture + 1, s_atlas.data->atlasCount);
 				ImGui::SameLine();
 				if (ImGui::ArrowButton("##prevAtlas", ImGuiDir_Left)) {
-					s_atlas.currentTexture--;
-					if (s_atlas.currentTexture < 0)
-						s_atlas.currentTexture = s_atlas.data->atlasCount - 1;
+					s_atlas.options.currentTexture--;
+					if (s_atlas.options.currentTexture < 0)
+						s_atlas.options.currentTexture = s_atlas.data->atlasCount - 1;
 					atlasRenderChartsTextures();
 				}
 				ImGui::SameLine();
 				if (ImGui::ArrowButton("##nextAtlas", ImGuiDir_Right)) {
-					s_atlas.currentTexture++;
-					if (s_atlas.currentTexture > (int)s_atlas.data->atlasCount - 1)
-						s_atlas.currentTexture = 0;
+					s_atlas.options.currentTexture++;
+					if (s_atlas.options.currentTexture > (int)s_atlas.data->atlasCount - 1)
+						s_atlas.options.currentTexture = 0;
 					atlasRenderChartsTextures();
 				}
 				ImGui::SameLine();
 			}
-			ImGui::Checkbox("Fit to window", &s_atlas.fitToWindow);
+			ImGui::Checkbox("Fit to window", &s_atlas.options.fitToWindow);
 			ImGui::SameLine();
-			if (ImGui::Checkbox("Show 4x4 grid", &s_atlas.showBlockGrid))
+			if (ImGui::Checkbox("Show 4x4 grid", &s_atlas.options.showBlockGrid))
 				atlasRenderChartsTextures();
-			if (!s_atlas.fitToWindow) {
+			if (!s_atlas.options.fitToWindow) {
 				ImGui::SameLine();
 				ImGui::PushItemWidth(50.0f);
-				ImGui::InputFloat("Scale", &s_atlas.scale);
+				ImGui::InputFloat("Scale", &s_atlas.options.scale);
 				ImGui::PopItemWidth();
 			}
 			GuiTexture texture;
 			texture.bgfx.handle = bgfx::getTexture(s_atlas.chartsFrameBuffer);
 			texture.bgfx.flags = GuiTextureFlags::PointSampler;
-			if (s_atlas.fitToWindow)
+			if (s_atlas.options.fitToWindow)
 				ImGui::Image(texture.imgui, ImGui::GetContentRegionAvail());
 			else 
-				ImGui::Image(texture.imgui, ImVec2((float)s_atlas.data->width * s_atlas.scale, (float)s_atlas.data->height * s_atlas.scale));
+				ImGui::Image(texture.imgui, ImVec2((float)s_atlas.data->width * s_atlas.options.scale, (float)s_atlas.data->height * s_atlas.options.scale));
 			ImGui::End();
 		}
 	}
