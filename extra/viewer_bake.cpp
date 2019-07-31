@@ -276,6 +276,7 @@ enum class UpdateStatus
 struct BakeOptions
 {
 	bool fitToWindow = true;
+	float scale = 1.0f;
 	bool useDenoisedLightmap = true;
 	bx::Vec3 skyColor = bx::Vec3(0.5f, 0.5f, 0.5f);
 	int maxDepth = 10;
@@ -1022,13 +1023,19 @@ void bakeShowGuiWindow()
 	ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Lightmap", &g_options.showLightmapWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 		ImGui::Checkbox("Fit to window", &s_bake.options.fitToWindow);
+		if (!s_bake.options.fitToWindow) {
+			ImGui::SameLine();
+			ImGui::PushItemWidth(50.0f);
+			ImGui::InputFloat("Scale", &s_bake.options.scale);
+			ImGui::PopItemWidth();
+		}
 		GuiTexture texture;
 		texture.bgfx.handle = bakeGetLightmap();
 		texture.bgfx.flags = GuiTextureFlags::PointSampler;
 		if (s_bake.options.fitToWindow)
 			ImGui::Image(texture.imgui, ImGui::GetContentRegionAvail());
 		else
-			ImGui::Image(texture.imgui, ImVec2((float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight));
+			ImGui::Image(texture.imgui, ImVec2((float)s_bake.lightmapWidth * s_bake.options.scale, (float)s_bake.lightmapHeight * s_bake.options.scale));
 		ImGui::End();
 	}
 }

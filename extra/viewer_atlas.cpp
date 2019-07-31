@@ -193,6 +193,7 @@ struct
 	AtlasStatus status;
 	int currentTexture;
 	bool fitToWindow = true;
+	float scale = 1.0f;
 	bool showBlockGrid = false;
 	bgfx::FrameBufferHandle chartsFrameBuffer = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
@@ -1115,13 +1116,19 @@ void atlasShowGuiWindow(int progressDots)
 			ImGui::SameLine();
 			if (ImGui::Checkbox("Show 4x4 grid", &s_atlas.showBlockGrid))
 				atlasRenderChartsTextures();
+			if (!s_atlas.fitToWindow) {
+				ImGui::SameLine();
+				ImGui::PushItemWidth(50.0f);
+				ImGui::InputFloat("Scale", &s_atlas.scale);
+				ImGui::PopItemWidth();
+			}
 			GuiTexture texture;
 			texture.bgfx.handle = bgfx::getTexture(s_atlas.chartsFrameBuffer);
 			texture.bgfx.flags = GuiTextureFlags::PointSampler;
 			if (s_atlas.fitToWindow)
 				ImGui::Image(texture.imgui, ImGui::GetContentRegionAvail());
 			else 
-				ImGui::Image(texture.imgui, ImVec2((float)s_atlas.data->width, (float)s_atlas.data->height));
+				ImGui::Image(texture.imgui, ImVec2((float)s_atlas.data->width * s_atlas.scale, (float)s_atlas.data->height * s_atlas.scale));
 			ImGui::End();
 		}
 	}
