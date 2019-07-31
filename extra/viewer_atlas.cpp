@@ -941,19 +941,19 @@ static void atlasRenderChartsTextures()
 		bgfx::allocTransientVertexBuffer(&tvb, nVertices, s_atlas.atlasVertexDecl);
 		auto vertices = (AtlasVertex *)tvb.data;
 		uint32_t i = 0;
-		for (uint32_t x = 0; x <= s_atlas.data->width; x += 4) {
+		for (uint32_t x = 0; x < s_atlas.data->width; x += 4) {
 			vertices[i].pos[0] = (float)x + 0.5f;
 			vertices[i].pos[1] = 0.5f;
 			i++;
 			vertices[i].pos[0] = (float)x + 0.5f;
-			vertices[i].pos[1] = (float)s_atlas.data->height - 0.5f;
+			vertices[i].pos[1] = (float)s_atlas.data->height + 1.0f;
 			i++;
 		}
-		for (uint32_t y = 0; y <= s_atlas.data->height; y += 4) {
+		for (uint32_t y = 0; y < s_atlas.data->height; y += 4) {
 			vertices[i].pos[0] = 0.5f;
 			vertices[i].pos[1] = (float)y + 0.5f;
 			i++;
-			vertices[i].pos[0] = (float)s_atlas.data->width - 0.5f;
+			vertices[i].pos[0] = (float)s_atlas.data->width + 1.0f;
 			vertices[i].pos[1] = (float)y + 0.5f;
 			i++;
 		}
