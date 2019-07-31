@@ -73,7 +73,7 @@ struct Mesh
 	uint32_t vertexCount;
 };
 
-static const uint32_t kImageChartIndexMask = 0x3FFFFFFF;
+static const uint32_t kImageChartIndexMask = 0x1FFFFFFF;
 static const uint32_t kImageHasChartIndexBit = 0x80000000;
 static const uint32_t kImageIsBilinearBit = 0x40000000;
 static const uint32_t kImageIsPaddingBit = 0x20000000;
