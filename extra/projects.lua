@@ -4,6 +4,7 @@ local BIMG_DIR = path.join(THIRDPARTY_DIR, "bimg")
 local BX_DIR = path.join(THIRDPARTY_DIR, "bx")
 local EIGEN_DIR = path.join(THIRDPARTY_DIR, "eigen")
 local EMBREE_DIR = path.join(THIRDPARTY_DIR, "embree3")
+local ENKITS_DIR = path.join(THIRDPARTY_DIR, "enkiTS")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
 local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
 local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
@@ -77,13 +78,14 @@ project "viewer"
 		path.join(BX_DIR, "include"),
 		EIGEN_DIR,
 		EMBREE_DIR,
+		ENKITS_DIR,
 		path.join(GLFW_DIR, "include"),
 		path.join(IGL_DIR, "include"),
 		path.join(OIDN_DIR, "include"),
 		OPENFBX_DIR,
 		OPENNL_DIR
 	}
-	links { "bgfx", "bimg", "bx", "cgltf", "glfw", "imgui", "nativefiledialog", "objzero", "OpenFBX", "OpenNL", "stb_image", "stb_image_resize", "xatlas" }
+	links { "bgfx", "bimg", "bx", "cgltf", "enkiTS", "glfw", "imgui", "nativefiledialog", "objzero", "OpenFBX", "OpenNL", "stb_image", "stb_image_resize", "xatlas" }
 	filter "system:windows"
 		links { "gdi32", "ole32", "psapi", "uuid" }
 	filter "system:linux"
@@ -196,6 +198,14 @@ project "cgltf"
 	files(path.join(THIRDPARTY_DIR, "cgltf.*"))
 	filter "action:vs*"
 		defines { "_CRT_SECURE_NO_WARNINGS" }
+		
+project "enkiTS"
+	kind "StaticLib"
+	language "C++"
+	cppdialect "C++11"
+	exceptionhandling "Off"
+	rtti "Off"
+	files(path.join(ENKITS_DIR, "*.*"))
 
 project "glfw"
 	kind "StaticLib"

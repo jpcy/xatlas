@@ -21,6 +21,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <embree3/rtcore.h>
 #include <imgui/imgui.h>
 #include <OpenImageDenoise/oidn.h>
+#include <TaskScheduler_c.h>
 #include "shaders/shared.h"
 #include "../xatlas.h"
 #include "viewer.h"
@@ -289,6 +290,14 @@ struct SampleLocation
 	uint32_t uv[2];
 };
 
+struct TexelData
+{
+	bx::Vec3 accumColor;
+	uint32_t numColorSamples;
+	int numPathsTraced;
+	float randomOffset[2];
+};
+
 struct
 {
 	std::mutex errorMessageMutex;
@@ -296,6 +305,7 @@ struct
 	bool initialized = false;
 	std::atomic<BakeStatus> status;
 	BakeOptions options;
+	enkiTaskScheduler *taskScheduler;
 	void *embreeLibrary = nullptr;
 	RTCDevice embreeDevice = nullptr;
 	RTCScene embreeScene = nullptr;
@@ -310,6 +320,7 @@ struct
 	std::atomic<bool> stopWorker;
 	std::atomic<bool> cancelWorker;
 	std::vector<SampleLocation> sampleLocations;
+	std::vector<TexelData> texels;
 	std::vector<float> lightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
 	std::atomic<uint32_t> numSampleLocationsProcessed;
@@ -321,8 +332,6 @@ struct
 	double denoiseProgress;
 	std::vector<float> denoisedLightmapData;
 	// lightmap update
-	clock_t lastUpdateTime = 0;
-	const double updateIntervalMs = 50;
 	std::vector<float> updateData;
 	std::atomic<UpdateStatus> updateStatus;
 	uint32_t updateFinishedFrameNo;
@@ -514,14 +523,6 @@ static bx::Vec3 randomDirHemisphere(int index, const float *offset, bx::Vec3 nor
 	return dir;
 }
 
-struct TexelData
-{
-	bx::Vec3 accumColor;
-	uint32_t numColorSamples;
-	int numPathsTraced;
-	float randomOffset[2];
-};
-
 // https://github.com/aras-p/ToyPathTracer
 static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, TexelData &texel, int depth, const float near)
 {
@@ -578,6 +579,27 @@ static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, TexelData &texel, in
 	return bx::Vec3(0.0f);
 }
 
+static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadIndex*/, void * /*args*/)
+{
+	const float kNear = 0.01f * modelGetScale();
+	for (uint32_t i = start; i < end; i++) {
+		const SampleLocation &sample = s_bake.sampleLocations[i];
+		TexelData &texel = s_bake.texels[i];
+		const bx::Vec3 dir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, sample.normal);
+		const bx::Vec3 color = bakeTraceRay(sample.pos, dir, texel, 0, kNear);
+		texel.accumColor = texel.accumColor + color;
+		texel.numColorSamples++;
+		float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
+		rgba[0] = texel.accumColor.x / (float)texel.numColorSamples;
+		rgba[1] = texel.accumColor.y / (float)texel.numColorSamples;
+		rgba[2] = texel.accumColor.z / (float)texel.numColorSamples;
+		rgba[3] = 1.0f;
+		s_bake.numSampleLocationsProcessed++;
+		if (s_bake.stopWorker || s_bake.cancelWorker)
+			break;
+	}
+}
+
 static bool bakeTraceRays()
 {
 	s_bake.rng.reset();
@@ -586,50 +608,31 @@ static bool bakeTraceRays()
 	s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	memset(s_bake.lightmapData.data(), 0, s_bake.lightmapData.size() * sizeof(float));
 	s_bake.updateData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
-	std::vector<TexelData> texels;
-	texels.resize(s_bake.sampleLocations.size());
-	for (uint32_t i = 0; i < (uint32_t)texels.size(); i++) {
-		TexelData &texel = texels[i];
+	s_bake.texels.resize(s_bake.sampleLocations.size());
+	for (uint32_t i = 0; i < (uint32_t)s_bake.texels.size(); i++) {
+		TexelData &texel = s_bake.texels[i];
 		texel.accumColor = bx::Vec3(0.0f);
 		texel.numColorSamples = 0;
 		texel.numPathsTraced = 0;
 		texel.randomOffset[0] = bx::frnd(&s_bake.rng);
 		texel.randomOffset[1] = bx::frnd(&s_bake.rng);
 	}
-	const float kNear = 0.01f * modelGetScale();
+	enkiTaskSet *task = enkiCreateTaskSet(s_bake.taskScheduler, bakeTraceRaysTask);
 	const clock_t start = clock();
-	bool finished = false;
-	while (!finished) {
-		for (uint32_t i = 0; i < (uint32_t)s_bake.sampleLocations.size(); i++) {
-			const SampleLocation &sample = s_bake.sampleLocations[i];
-			TexelData &texel = texels[i];
-			const bx::Vec3 dir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, sample.normal);
-			const bx::Vec3 color = bakeTraceRay(sample.pos, dir, texel, 0, kNear);
-			texel.accumColor = texel.accumColor + color;
-			texel.numColorSamples++;
-			float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
-			rgba[0] = texel.accumColor.x / (float)texel.numColorSamples;
-			rgba[1] = texel.accumColor.y / (float)texel.numColorSamples;
-			rgba[2] = texel.accumColor.z / (float)texel.numColorSamples;
-			rgba[3] = 1.0f;
-			s_bake.numSampleLocationsProcessed++;
-			if (s_bake.stopWorker) {
-				finished = true;
-				break;
-			}
-			if (s_bake.cancelWorker)
-				return false;
-			// Handle lightmap updates.
-			const double elapsedMs = (clock() - s_bake.lastUpdateTime) * 1000.0 / CLOCKS_PER_SEC;
-			if (elapsedMs >= s_bake.updateIntervalMs) {
-				if (s_bake.updateStatus == UpdateStatus::Idle) {
-					memcpy(s_bake.updateData.data(), s_bake.lightmapData.data(), s_bake.lightmapData.size() * sizeof(float));
-					s_bake.updateStatus = UpdateStatus::Pending;
-				}
-				s_bake.lastUpdateTime = clock();
-			}
+	for (;;) {
+		enkiAddTaskSetToPipe(s_bake.taskScheduler, task, 0, (int32_t)s_bake.sampleLocations.size());
+		enkiWaitForTaskSet(s_bake.taskScheduler, task);
+		if (s_bake.stopWorker || s_bake.cancelWorker)
+			break;
+		// Handle lightmap updates.
+		if (s_bake.updateStatus == UpdateStatus::Idle) {
+			memcpy(s_bake.updateData.data(), s_bake.lightmapData.data(), s_bake.lightmapData.size() * sizeof(float));
+			s_bake.updateStatus = UpdateStatus::Pending;
 		}
 	}
+	enkiDeleteTaskSet(task);
+	if (s_bake.cancelWorker)
+		return false;
 	const double elapsedSeconds = (clock() - start) / (double)CLOCKS_PER_SEC;
 	printf("Finished tracing rays in %.2f seconds. %.2f Mrays/s.\n", elapsedSeconds, s_bake.numRaysTraced / elapsedSeconds / 1000000.0);
 	return true;
@@ -849,6 +852,8 @@ void bakeInit()
 	s_bake.denoiseStatus = DenoiseStatus::Idle;
 	s_bake.updateStatus = UpdateStatus::Idle;
 	s_bake.stopWorker = false;
+	s_bake.taskScheduler = enkiNewTaskScheduler();
+	enkiInitTaskScheduler(s_bake.taskScheduler);
 }
 
 void bakeShutdown()
@@ -857,6 +862,7 @@ void bakeShutdown()
 	bakeShutdownDenoiseThread();
 #endif
 	shutdownWorkerThread();
+	enkiDeleteTaskScheduler(s_bake.taskScheduler);
 	if (s_bake.embreeDevice) {
 		embree::ReleaseGeometry(s_bake.embreeGeometry);
 		embree::ReleaseScene(s_bake.embreeScene);
