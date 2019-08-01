@@ -943,7 +943,7 @@ void bakeFrame(uint32_t frameNo)
 #if BX_ARCH_64BIT
 		bakeShutdownDenoiseThread();
 #endif
-		bgfx::updateTexture2D(s_bake.denoisedLightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.lightmapData.data(), (uint32_t)s_bake.lightmapData.size() * sizeof(float)));
+		bgfx::updateTexture2D(s_bake.denoisedLightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.denoisedLightmapData.data(), (uint32_t)s_bake.denoisedLightmapData.size() * sizeof(float)));
 		s_bake.denoiseStatus = DenoiseStatus::Finished;
 	}
 	if (s_bake.updateStatus == UpdateStatus::Pending) {
