@@ -320,6 +320,7 @@ struct
 	std::atomic<bool> stopWorker;
 	std::atomic<bool> cancelWorker;
 	std::vector<SampleLocation> sampleLocations;
+	std::vector<uint32_t> sampleLocationRanks;
 	std::vector<TexelData> texels;
 	std::vector<float> lightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
@@ -428,6 +429,19 @@ static bool bakeInitEmbree()
 	return true;
 }
 
+static int compareSampleLocations(const void *a, const void *b)
+{
+	const uint32_t i0 = *(const uint32_t *)a;
+	const uint32_t i1 = *(const uint32_t *)b;
+	const uint32_t offset0 = s_bake.sampleLocations[i0].uv[0] + s_bake.sampleLocations[i0].uv[1] * s_bake.lightmapWidth;
+	const uint32_t offset1 = s_bake.sampleLocations[i1].uv[0] + s_bake.sampleLocations[i1].uv[1] * s_bake.lightmapWidth;
+	if (offset0 < offset1)
+		return -1;
+	else if (offset0 > offset1)
+		return 1;
+	return 0;
+}
+
 static bool bakeRasterize()
 {
 	// Only need to do this once, unless the atlas or models changes - bakeClear will be called.
@@ -486,6 +500,11 @@ static bool bakeRasterize()
 		if (s_bake.cancelWorker)
 			return false;
 	}
+	// Sort samples.
+	s_bake.sampleLocationRanks.resize(s_bake.sampleLocations.size());
+	for (uint32_t i = 0; i < s_bake.sampleLocationRanks.size(); i++)
+		s_bake.sampleLocationRanks[i] = i;
+	qsort(s_bake.sampleLocationRanks.data(), s_bake.sampleLocationRanks.size(), sizeof(uint32_t), compareSampleLocations);
 	return true;
 }
 
@@ -583,7 +602,7 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 {
 	const float kNear = 0.01f * modelGetScale();
 	for (uint32_t i = start; i < end; i++) {
-		const SampleLocation &sample = s_bake.sampleLocations[i];
+		const SampleLocation &sample = s_bake.sampleLocations[s_bake.sampleLocationRanks[i]];
 		TexelData &texel = s_bake.texels[i];
 		const bx::Vec3 dir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, sample.normal);
 		const bx::Vec3 color = bakeTraceRay(sample.pos, dir, texel, 0, kNear);
