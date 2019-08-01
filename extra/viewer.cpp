@@ -446,7 +446,7 @@ int main(int argc, char **argv)
 	uint32_t bgfxFrameNo = 0;
 	while (!glfwWindowShouldClose(g_window)) {
 		glfwPollEvents();
-		if (glfwGetWindowAttrib(g_window, GLFW_ICONIFIED)) {
+		while (glfwGetWindowAttrib(g_window, GLFW_ICONIFIED)) {
 			glfwWaitEvents();
 			lastFrameTime = glfwGetTime();
 		}
