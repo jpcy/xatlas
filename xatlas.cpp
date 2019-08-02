@@ -6468,7 +6468,7 @@ static void runParameterizeChartsJob(void *userData)
 class Atlas
 {
 public:
-	Atlas() : m_chartsComputed(false), m_chartsParameterized(false) {}
+	Atlas() : m_chartsComputed(false), m_chartsParameterized(false), m_meshCount(0) {}
 
 	~Atlas()
 	{
@@ -6550,7 +6550,30 @@ public:
 			m_chartGroups.push_back(chartGroups[g]);
 			m_chartGroupSourceMeshes.push_back(mesh->id());
 		}
+		m_meshCount++;
 		m_addMeshMutex.unlock();
+	}
+
+	// Chart id/index is determined by depth-first hierarchy of mesh -> chart group -> chart.
+	// For chart index to be consistent here, chart groups needs to sorted by mesh index. Since addMesh is called by multithreaded tasks, order is indeterminate, so chart groups need to be explicitly sorted after all meshes are added.
+	void sortChartGroups()
+	{
+		Array<ChartGroup *> oldChartGroups;
+		oldChartGroups.resize(m_chartGroups.size());
+		memcpy(oldChartGroups.data(), m_chartGroups.data(), sizeof(ChartGroup *) * m_chartGroups.size());
+		Array<uint32_t> oldChartGroupSourceMeshes;
+		oldChartGroupSourceMeshes.resize(m_chartGroupSourceMeshes.size());
+		memcpy(oldChartGroupSourceMeshes.data(), m_chartGroupSourceMeshes.data(), sizeof(uint32_t) * m_chartGroupSourceMeshes.size());
+		uint32_t current = 0;
+		for (uint32_t i = 0; i < m_meshCount; i++) {
+			for (uint32_t j = 0; j < oldChartGroups.size(); j++) {
+				if (oldChartGroupSourceMeshes[j] == i) {
+					m_chartGroups[current] = oldChartGroups[j];
+					m_chartGroupSourceMeshes[current] = oldChartGroupSourceMeshes[j];
+					current++;
+				}
+			}
+		}
 	}
 
 	bool computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
@@ -6637,6 +6660,7 @@ public:
 
 private:
 	std::mutex m_addMeshMutex;
+	uint32_t m_meshCount;
 	bool m_chartsComputed;
 	bool m_chartsParameterized;
 	Array<ChartGroup *> m_chartGroups;
@@ -7992,6 +8016,7 @@ void AddMeshJoin(Atlas *atlas)
 	ctx->addMeshProgress->~Progress();
 	XA_FREE(ctx->addMeshProgress);
 	ctx->addMeshProgress = nullptr;
+	ctx->paramAtlas.sortChartGroups();
 #if XA_PROFILE
 	XA_PRINT("Added %u meshes\n", ctx->meshCount);
 	internal::s_profile.addMeshReal = clock() - internal::s_profile.addMeshReal;
