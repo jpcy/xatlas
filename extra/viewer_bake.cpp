@@ -279,7 +279,7 @@ struct BakeOptions
 	bool fitToWindow = true;
 	float scale = 1.0f;
 	bool useDenoisedLightmap = true;
-	bx::Vec3 skyColor = bx::Vec3(0.5f, 0.5f, 0.5f);
+	bx::Vec3 skyColor = bx::Vec3(1.0f);
 	int maxDepth = 10;
 };
 
