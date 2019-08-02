@@ -3893,17 +3893,6 @@ public:
 		return m_area;
 	}
 
-	void computeClippedBounds(Vector2 *boundsMin, Vector2 *boundsMax) const
-	{
-		boundsMin->x = boundsMin->y = FLT_MAX;
-		boundsMax->x = boundsMax->y = FLT_MIN;
-		for (uint32_t i = 0; i < m_numVertices; i++) {
-			const Vector2 &v = m_vertexBuffers[m_activeVertexBuffer][i];
-			*boundsMin = min(*boundsMin, v);
-			*boundsMax = max(*boundsMax, v);
-		}
-	}
-
 private:
 	Vector2 m_verticesA[7 + 1];
 	Vector2 m_verticesB[7 + 1];
@@ -3914,7 +3903,7 @@ private:
 };
 
 /// A callback to sample the environment. Return false to terminate rasterization.
-typedef bool (*SamplingCallback)(void *param, int x, int y, ClippedTriangle *clipped);
+typedef bool (*SamplingCallback)(void *param, int x, int y);
 
 /// A triangle for rasterization.
 struct Triangle
@@ -3981,7 +3970,7 @@ struct Triangle
 				if ( (aC >= BK_INSIDE) && (bC >= BK_INSIDE) && (cC >= BK_INSIDE) ) {
 					for (float y = y0; y < y0 + BK_SIZE; y++) {
 						for (float x = x0; x < x0 + BK_SIZE; x++) {
-							if (!cb(param, (int)x, (int)y, nullptr))
+							if (!cb(param, (int)x, (int)y))
 								return false;
 						}
 					}
@@ -3995,14 +3984,14 @@ struct Triangle
 						float CX3 = CY3;
 						for (float x = x0; x < x0 + BK_SIZE; x++) { // @@ This is not clipping to scissor rectangle correctly.
 							if (CX1 >= PX_INSIDE && CX2 >= PX_INSIDE && CX3 >= PX_INSIDE) {
-								if (!cb(param, (int)x, (int)y,  nullptr))
+								if (!cb(param, (int)x, (int)y))
 									return false;
 							} else if ((CX1 >= PX_OUTSIDE) && (CX2 >= PX_OUTSIDE) && (CX3 >= PX_OUTSIDE)) {
 								// triangle partially covers pixel. do clipping.
 								ClippedTriangle ct(v1 - Vector2(x, y), v2 - Vector2(x, y), v3 - Vector2(x, y));
 								ct.clipAABox(-0.5, -0.5, 0.5, 0.5);
 								if (ct.area() > 0.0f) {
-									if (!cb(param, (int)x, (int)y, &ct))
+									if (!cb(param, (int)x, (int)y))
 										return false;
 								}
 							}
@@ -7265,22 +7254,17 @@ struct Atlas
 			// Rasterize chart faces.
 			const uint32_t faceCount = chart->indexCount / 3;
 			for (uint32_t f = 0; f < faceCount; f++) {
-				// Offset vertices by padding.
 				Vector2 vertices[3];
 				for (uint32_t v = 0; v < 3; v++)
 					vertices[v] = chart->vertices[chart->indices[f * 3 + v]];
 				DrawTriangleCallbackArgs args;
 				args.chartBitImage = &chartImage;
 				args.chartBitImageRotated = chart->allowRotate ? &chartImageRotated : nullptr;
-				if (options.bilinear) {
-					args.chartBitImageBilinear = &chartImageBilinear;
-					args.chartBitImageBilinearRotated = chart->allowRotate ? &chartImageBilinearRotated : nullptr;
-				} else {
-					args.chartBitImageBilinear = nullptr;
-					args.chartBitImageBilinearRotated = nullptr;
-				}
 				raster::drawTriangle(Vector2((float)chartImage.width(), (float)chartImage.height()), vertices, drawTriangleCallback, &args);
 			}
+			// Expand chart by pixels sampled by bilinear interpolation.
+			if (options.bilinear)
+				bilinearExpand(chart, &chartImage, &chartImageBilinear, chart->allowRotate ? &chartImageBilinearRotated : nullptr);
 			// Expand chart by padding pixels (dilation).
 			if (options.padding > 0) {
 				// Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
@@ -7619,43 +7603,75 @@ private:
 		}
 	}
 
-	static void bilinearExpand(BitImage *chartBitImage, int x, int y, const raster::ClippedTriangle *triangle)
+	void bilinearExpand(const Chart *chart, BitImage *source, BitImage *dest, BitImage *destRotated) const
 	{
-		if (!triangle)
-			return;
-		Vector2 bmin, bmax;
-		triangle->computeClippedBounds(&bmin, &bmax);
-		bmin += Vector2(0.5f); // Convert -0.5 to 0.5 range to 0.0 to 1.0
-		bmax += Vector2(0.5f);
-		if (bmin.x < 0.5f && x > 0)
-			chartBitImage->setBitAt(x - 1, y);
-		if (bmax.x > 0.5f && x < (int)chartBitImage->width() - 1)
-			chartBitImage->setBitAt(x + 1, y);
-		if (bmax.y < 0.5f && y > 0)
-			chartBitImage->setBitAt(x, y - 1);
-		if (bmax.y > 0.5f && y < (int)chartBitImage->height() - 1)
-			chartBitImage->setBitAt(x, y + 1);
+		const int xOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
+		const int yOffsets[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+		for (uint32_t y = 0; y < source->height(); y++) {
+			for (uint32_t x = 0; x < source->width(); x++) {
+				// Copy pixels from source.
+				if (source->bitAt(x, y))
+					goto setPixel;
+				// Empty pixel. If none of of the surrounding pixels are set, this pixel can't be sampled by bilinear interpolation.
+				uint32_t s = 0;
+				for (; s < 8; s++) {
+					const int sx = (int)x + xOffsets[s];
+					const int sy = (int)y + yOffsets[s];
+					if (sx < 0 || sy < 0 || sx >= (int)source->width() || sy >= (int)source->height())
+						continue;
+					if (source->bitAt((uint32_t)sx, (uint32_t)sy))
+						break;
+				}
+				if (s == 8)
+					continue;
+				// If a 2x2 square centered on the pixels centroid intersects the triangle, this pixel will be sampled by bilinear interpolation.
+				// See "Precomputed Global Illumination in Frostbite (GDC 2018)" page 95
+				const uint32_t faceCount = chart->indexCount / 3;
+				for (uint32_t f = 0; f < faceCount; f++) {
+					const Vector2 centroid((float)x + 0.5f, (float)y + 0.5f);
+					Vector2 vertices[3];
+					for (uint32_t i = 0; i < 3; i++)
+						vertices[i] = chart->vertices[chart->indices[f * 3 + i]];
+					// Test for triangle vertex in square bounds.
+					for (uint32_t i = 0; i < 3; i++) {
+						const Vector2 &v = vertices[i];
+						if (v.x >= centroid.x - 1.0f && v.x <= centroid.x + 1.0f && v.y >= centroid.y - 1.0f && v.y <= centroid.y + 1.0f)
+							goto setPixel;
+					}
+					// Test for triangle edge intersection with square edge.
+					const Vector2 squareVertices[4] = {
+						Vector2(centroid.x - 1.0f, centroid.y - 1.0f),
+						Vector2(centroid.x + 1.0f, centroid.y - 1.0f),
+						Vector2(centroid.x + 1.0f, centroid.y + 1.0f),
+						Vector2(centroid.x - 1.0f, centroid.y + 1.0f)
+					};
+					for (uint32_t i = 0; i < 3; i++) {
+						for (uint32_t j = 0; j < 4; j++) {
+							if (linesIntersect(vertices[i], vertices[(i + 1) % 3], squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
+								goto setPixel;
+						}
+					}
+				}
+				continue;
+			setPixel:
+				dest->setBitAt(x, y);
+				if (destRotated)
+					destRotated->setBitAt(y, x);
+			}
+		}
 	}
 
 	struct DrawTriangleCallbackArgs
 	{
-		BitImage *chartBitImage, *chartBitImageRotated, *chartBitImageBilinear, *chartBitImageBilinearRotated;
+		BitImage *chartBitImage, *chartBitImageRotated;
 	};
 
-	static bool drawTriangleCallback(void *param, int x, int y, raster::ClippedTriangle *clipped)
+	static bool drawTriangleCallback(void *param, int x, int y)
 	{
 		auto args = (DrawTriangleCallbackArgs *)param;
 		args->chartBitImage->setBitAt(x, y);
 		if (args->chartBitImageRotated)
 			args->chartBitImageRotated->setBitAt(y, x);
-		if (args->chartBitImageBilinear) {
-			args->chartBitImageBilinear->setBitAt(x, y);
-			bilinearExpand(args->chartBitImageBilinear, x, y, clipped);
-		}
-		if (args->chartBitImageBilinearRotated) {
-			args->chartBitImageBilinearRotated->setBitAt(y, x);
-			bilinearExpand(args->chartBitImageBilinearRotated, y, x, clipped);
-		}
 		return true;
 	}
 
