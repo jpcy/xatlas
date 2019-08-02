@@ -6746,12 +6746,10 @@ public:
 					if (image->bitAt(x, y)) {
 						XA_DEBUG_ASSERT(m_data[dataOffset] == 0);
 						m_data[dataOffset] = chartIndex | kImageHasChartIndexBit;
-					}
-					else if (imageBilinear && imageBilinear->bitAt(x, y)) {
+					} else if (imageBilinear && imageBilinear->bitAt(x, y)) {
 						XA_DEBUG_ASSERT(m_data[dataOffset] == 0);
 						m_data[dataOffset] = chartIndex | kImageHasChartIndexBit | kImageIsBilinearBit;
-					}
-					else if (imagePadding && imagePadding->bitAt(x, y)) {
+					} else if (imagePadding && imagePadding->bitAt(x, y)) {
 						XA_DEBUG_ASSERT(m_data[dataOffset] == 0);
 						m_data[dataOffset] = chartIndex | kImageHasChartIndexBit | kImageIsPaddingBit;
 					}
@@ -7635,7 +7633,7 @@ private:
 					// Test for triangle vertex in square bounds.
 					for (uint32_t i = 0; i < 3; i++) {
 						const Vector2 &v = vertices[i];
-						if (v.x >= centroid.x - 1.0f && v.x <= centroid.x + 1.0f && v.y >= centroid.y - 1.0f && v.y <= centroid.y + 1.0f)
+						if (v.x > centroid.x - 1.0f && v.x < centroid.x + 1.0f && v.y > centroid.y - 1.0f && v.y < centroid.y + 1.0f)
 							goto setPixel;
 					}
 					// Test for triangle edge intersection with square edge.
