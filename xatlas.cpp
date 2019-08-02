@@ -6457,7 +6457,7 @@ static void runParameterizeChartsJob(void *userData)
 class Atlas
 {
 public:
-	Atlas() : m_chartsComputed(false), m_chartsParameterized(false), m_meshCount(0) {}
+	Atlas() : m_meshCount(0), m_chartsComputed(false), m_chartsParameterized(false) {}
 
 	~Atlas()
 	{
@@ -7611,21 +7611,22 @@ private:
 				if (source->bitAt(x, y))
 					goto setPixel;
 				// Empty pixel. If none of of the surrounding pixels are set, this pixel can't be sampled by bilinear interpolation.
-				uint32_t s = 0;
-				for (; s < 8; s++) {
-					const int sx = (int)x + xOffsets[s];
-					const int sy = (int)y + yOffsets[s];
-					if (sx < 0 || sy < 0 || sx >= (int)source->width() || sy >= (int)source->height())
+				{
+					uint32_t s = 0;
+					for (; s < 8; s++) {
+						const int sx = (int)x + xOffsets[s];
+						const int sy = (int)y + yOffsets[s];
+						if (sx < 0 || sy < 0 || sx >= (int)source->width() || sy >= (int)source->height())
+							continue;
+						if (source->bitAt((uint32_t)sx, (uint32_t)sy))
+							break;
+					}
+					if (s == 8)
 						continue;
-					if (source->bitAt((uint32_t)sx, (uint32_t)sy))
-						break;
 				}
-				if (s == 8)
-					continue;
 				// If a 2x2 square centered on the pixels centroid intersects the triangle, this pixel will be sampled by bilinear interpolation.
 				// See "Precomputed Global Illumination in Frostbite (GDC 2018)" page 95
-				const uint32_t faceCount = chart->indexCount / 3;
-				for (uint32_t f = 0; f < faceCount; f++) {
+				for (uint32_t f = 0; f < chart->indexCount / 3; f++) {
 					const Vector2 centroid((float)x + 0.5f, (float)y + 0.5f);
 					Vector2 vertices[3];
 					for (uint32_t i = 0; i < 3; i++)
