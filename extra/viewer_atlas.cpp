@@ -865,8 +865,9 @@ static void atlasRenderChartsTextures()
 					continue;
 				color = 0xffff0000;
 			}
-			uint32_t *bgra = (uint32_t *)&s_atlas.chartsTextureData[(x + y * s_atlas.data->width) * 4];
-			*bgra = color;
+			uint8_t *bgra = &s_atlas.chartsTextureData[(x + y * s_atlas.data->width) * 4];
+			decodeRGBA(color, bgra);
+			std::swap(bgra[0], bgra[2]);
 		}
 	}
 	bgfx::updateTexture2D(s_atlas.chartsTexture, 0, 0, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, bgfx::makeRef(s_atlas.chartsTextureData));

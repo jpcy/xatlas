@@ -182,6 +182,7 @@ extern int g_windowSize[2]; // Last known good window size. Not set to 0,0 when 
 
 void randomRGB(uint8_t *color);
 uint32_t encodeRGBA(const uint8_t *rgba);
+void decodeRGBA(uint32_t rgbaIn, uint8_t *rgbaOut);
 void setErrorMessage(const char *format, ...);
 void resetCamera();
 

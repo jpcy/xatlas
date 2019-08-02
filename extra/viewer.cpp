@@ -48,6 +48,14 @@ uint32_t encodeRGBA(const uint8_t *rgba)
 	return rgba[3] << 24 | rgba[2] << 16 | rgba[1] << 8 | rgba[0];
 }
 
+void decodeRGBA(uint32_t rgbaIn, uint8_t *rgbaOut)
+{
+	rgbaOut[0] = rgbaIn & 0xff;
+	rgbaOut[1] = (rgbaIn >> 8) & 0xff;
+	rgbaOut[2] = (rgbaIn >> 16) & 0xff;
+	rgbaOut[3] = (rgbaIn >> 24) & 0xff;
+}
+
 struct
 {
 	char text[1024] = { 0 };
