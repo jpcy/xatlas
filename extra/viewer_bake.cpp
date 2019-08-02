@@ -325,6 +325,7 @@ struct
 	std::vector<float> lightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
 	std::atomic<uint32_t> numSampleLocationsProcessed;
+	std::atomic<uint32_t> samplesPerTexelCount;
 	uint32_t numRaysTraced;
 	bx::RngMwc rng;
 	// denoise thread
@@ -638,10 +639,14 @@ static bool bakeTraceRays()
 	}
 	enkiTaskSet *task = enkiCreateTaskSet(s_bake.taskScheduler, bakeTraceRaysTask);
 	const clock_t start = clock();
+	s_bake.samplesPerTexelCount = 0;
 	for (;;) {
 		enkiAddTaskSetToPipe(s_bake.taskScheduler, task, 0, (int32_t)s_bake.sampleLocations.size());
 		enkiWaitForTaskSet(s_bake.taskScheduler, task);
-		if (s_bake.stopWorker || s_bake.cancelWorker)
+		if (s_bake.cancelWorker)
+			break;
+		s_bake.samplesPerTexelCount++;
+		if (s_bake.stopWorker)
 			break;
 		// Handle lightmap updates.
 		if (s_bake.updateStatus == UpdateStatus::Idle) {
@@ -653,7 +658,7 @@ static bool bakeTraceRays()
 	if (s_bake.cancelWorker)
 		return false;
 	const double elapsedSeconds = (clock() - start) / (double)CLOCKS_PER_SEC;
-	printf("Finished tracing rays in %.2f seconds. %.2f Mrays/s.\n", elapsedSeconds, s_bake.numRaysTraced / elapsedSeconds / 1000000.0);
+	printf("Finished tracing rays in %.2f seconds. %u samples per texel. %.2f Mrays/s.\n", elapsedSeconds, s_bake.samplesPerTexelCount.load(), s_bake.numRaysTraced / elapsedSeconds / 1000000.0);
 	return true;
 }
 
@@ -1024,7 +1029,7 @@ void bakeShowGuiOptions()
 		if (ImGui::Button("Cancel"))
 			shutdownWorkerThread();
 	} else if (s_bake.status == BakeStatus::Tracing) {
-		ImGui::Text("Tracing rays...");
+		ImGui::Text("Tracing rays... %u samples", s_bake.samplesPerTexelCount.load());
 		if (ImGui::Button("Stop", buttonSize))
 			s_bake.stopWorker = true;
 		ImGui::SameLine();
