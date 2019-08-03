@@ -1036,7 +1036,7 @@ void atlasRenderChartsWireframe(const float *modelMatrix)
 	bgfx::submit(kModelView, getWireframeProgram(), 1);
 }
 
-void atlasShowGuiOptions(int progressDots)
+void atlasShowGuiOptions()
 {
 	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
 	ImGui::Text("Atlas");
@@ -1045,11 +1045,10 @@ void atlasShowGuiOptions(int progressDots)
 		int progress;
 		xatlas::ProgressCategory::Enum category;
 		s_atlas.status.getProgress(&category, &progress);
+		ImGui::AlignTextToFramePadding();
 		ImGui::Text("%s", xatlas::StringForEnum(category));
-		for (int i = 0; i < 3; i++) {
-			ImGui::SameLine();
-			ImGui::Text(i < progressDots ? "." : " ");
-		}
+		ImGui::SameLine();
+		ImGui::Spinner("##atlasSpinner");
 		ImGui::ProgressBar(progress / 100.0f);
 		if (ImGui::Button("Cancel", buttonSize))
 			s_atlas.status.setCancel(true);

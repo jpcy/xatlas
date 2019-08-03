@@ -22,8 +22,57 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <GLFW/glfw3native.h>
 #undef Success
 #include <imgui/imgui.h>
+#include <imgui/imgui_internal.h>
 #include "shaders_bin/shaders.h"
 #include "viewer.h"
+
+// Progress spinner by zfedoran
+// https://github.com/ocornut/imgui/issues/1901
+namespace ImGui {
+bool Spinner(const char* label, float radius, float thickness, const ImU32& color) {
+	ImGuiContext& g = *GetCurrentContext();
+	ImGuiWindow* window = g.CurrentWindow;
+	if (window->SkipItems)
+		return false;
+
+	const ImGuiStyle& style = g.Style;
+	const ImGuiID id = window->GetID(label);
+
+	ImVec2 pos = window->DC.CursorPos;
+	ImVec2 size((radius )*2, (radius + style.FramePadding.y)*2);
+
+	const ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
+	ItemSize(bb, style.FramePadding.y);
+	if (!ItemAdd(bb, id))
+		return false;
+
+	// Render
+	window->DrawList->PathClear();
+
+	int num_segments = 30;
+	int start = (int)abs(ImSin((float)g.Time*1.8f)*(num_segments-5));
+
+	const float a_min = IM_PI*2.0f * ((float)start) / (float)num_segments;
+	const float a_max = IM_PI*2.0f * ((float)num_segments-3) / (float)num_segments;
+
+	const ImVec2 centre = ImVec2(pos.x+radius, pos.y+radius+style.FramePadding.y);
+
+	for (int i = 0; i < num_segments; i++) {
+		const float a = a_min + ((float)i / (float)num_segments) * (a_max - a_min);
+		window->DrawList->PathLineTo(ImVec2(centre.x + ImCos(a+(float)g.Time*8) * radius,
+			centre.y + ImSin(a+(float)g.Time*8) * radius));
+	}
+
+	window->DrawList->PathStroke(color, false, thickness);
+	return true;
+}
+
+bool Spinner(const char* label)
+{
+	const ImU32 col = ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+	return Spinner(label, GetCurrentContext()->Font->FontSize * 0.5f, 2.0f, col);
+}
+} // namespace ImGui
 
 #define WINDOW_DEFAULT_WIDTH 1920
 #define WINDOW_DEFAULT_HEIGHT 1080
@@ -449,7 +498,6 @@ int main(int argc, char **argv)
 	glfwSetScrollCallback(g_window, glfw_scrollCallback);
 	if (argc >= 2)
 		modelOpen(argv[1]);
-	int frameCount = 0, progressDots = 0;
 	double lastFrameTime = glfwGetTime();
 	uint32_t bgfxFrameNo = 0;
 	while (!glfwWindowShouldClose(g_window)) {
@@ -593,7 +641,7 @@ int main(int argc, char **argv)
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
-					atlasShowGuiOptions(progressDots);
+					atlasShowGuiOptions();
 					if (atlasIsReady()) {
 						ImGui::Spacing();
 						ImGui::Separator();
@@ -604,7 +652,7 @@ int main(int argc, char **argv)
 				ImGui::PopItemWidth();
 				ImGui::End();
 			}
-			modelShowGuiWindow(progressDots);
+			modelShowGuiWindow();
 			atlasShowGuiWindow();
 			bakeShowGuiWindow();
 		}
@@ -615,9 +663,6 @@ int main(int argc, char **argv)
 		bgfx::touch(kModelView);
 		bgfx::setDebug(s_showBgfxStats ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
 		bgfxFrameNo = bgfx::frame();
-		frameCount++;
-		if (frameCount % 20 == 0)
-			progressDots = (progressDots + 1) % 4;
 		modelFinalize();
 		atlasFinalize();
 	}

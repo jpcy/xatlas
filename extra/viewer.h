@@ -16,6 +16,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <bgfx/bgfx.h>
 #include <objzero/objzero.h>
 
+namespace ImGui {
+	bool Spinner(const char* label);
+}
+
 constexpr bgfx::ViewId kModelView = 0;
 constexpr bgfx::ViewId kModelTransparentView = 1;
 constexpr bgfx::ViewId kGuiView = 2;
@@ -56,7 +60,7 @@ void atlasGenerate();
 void atlasFinalize();
 void atlasRenderCharts(const float *modelMatrix, uint64_t state);
 void atlasRenderChartsWireframe(const float *modelMatrix);
-void atlasShowGuiOptions(int progressDots);
+void atlasShowGuiOptions();
 void atlasShowGuiWindow();
 uint32_t atlasGetCount();
 uint32_t atlasGetWidth();
@@ -132,7 +136,7 @@ void modelOpenDialog();
 void modelDestroy();
 void modelRender(const float *view, const float *projection);
 void modelShowGuiOptions();
-void modelShowGuiWindow(int progressDots);
+void modelShowGuiWindow();
 AABB modelGetAABB();
 const objzModel *modelGetData();
 bx::Vec3 modelGetCentroid();

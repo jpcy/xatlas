@@ -1030,17 +1030,16 @@ void modelShowGuiOptions()
 	s_model.scale = bx::max(0.001f, s_model.scale);
 }
 
-void modelShowGuiWindow(int progressDots)
+void modelShowGuiWindow()
 {
 	const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 	if (s_model.status == ModelStatus::Loading) {
 		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] * 0.5f, g_windowSize[1] * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
 		if (ImGui::Begin("##modelProgress", nullptr, progressWindowFlags)) {
+			ImGui::AlignTextToFramePadding();
 			ImGui::Text("Loading model");
-			for (int i = 0; i < 3; i++) {
-				ImGui::SameLine();
-				ImGui::Text(i < progressDots ? "." : " ");
-			}
+			ImGui::SameLine();
+			ImGui::Spinner("##modelSpinner");
 			ImGui::End();
 		}
 	}
