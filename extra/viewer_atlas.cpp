@@ -1036,13 +1036,26 @@ void atlasRenderChartsWireframe(const float *modelMatrix)
 	bgfx::submit(kModelView, getWireframeProgram(), 1);
 }
 
-void atlasShowGuiOptions()
+void atlasShowGuiOptions(int progressDots)
 {
-	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
-		return;
 	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
 	ImGui::Text("Atlas");
 	ImGui::Spacing();
+	if (s_atlas.status.get() == AtlasStatus::Generating) {
+		int progress;
+		xatlas::ProgressCategory::Enum category;
+		s_atlas.status.getProgress(&category, &progress);
+		ImGui::Text("%s", xatlas::StringForEnum(category));
+		for (int i = 0; i < 3; i++) {
+			ImGui::SameLine();
+			ImGui::Text(i < progressDots ? "." : " ");
+		}
+		ImGui::ProgressBar(progress / 100.0f);
+		if (ImGui::Button("Cancel", buttonSize))
+			s_atlas.status.setCancel(true);
+	}
+	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
+		return;
 	if (ImGui::Button("Generate", buttonSize))
 		atlasGenerate();
 	if (s_atlas.status.get() == AtlasStatus::Ready) {
@@ -1132,29 +1145,10 @@ void atlasShowGuiOptions()
 	}
 }
 
-void atlasShowGuiWindow(int progressDots)
+void atlasShowGuiWindow()
 {
 	const float margin = 4.0f;
-	const ImGuiWindowFlags progressWindowFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
-	const AtlasStatus::Enum atlasStatus = s_atlas.status.get();
-	if (atlasStatus == AtlasStatus::Generating) {
-		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - margin, margin), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
-		ImGui::SetNextWindowSize(ImVec2(300.0f, -1.0f), ImGuiCond_Always);
-		if (ImGui::Begin("##atlasProgress", nullptr, progressWindowFlags)) {
-			int progress;
-			xatlas::ProgressCategory::Enum category;
-			s_atlas.status.getProgress(&category, &progress);
-			ImGui::Text("%s", xatlas::StringForEnum(category));
-			for (int i = 0; i < 3; i++) {
-				ImGui::SameLine();
-				ImGui::Text(i < progressDots ? "." : " ");
-			}
-			ImGui::ProgressBar(progress / 100.0f);
-			if (ImGui::Button("Cancel"))
-				s_atlas.status.setCancel(true);
-			ImGui::End();
-		}
-	} else if (atlasStatus == AtlasStatus::Ready && g_options.showAtlasWindow) {
+	if (s_atlas.status.get() == AtlasStatus::Ready && g_options.showAtlasWindow) {
 		const float size = 500;
 		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - size - margin, margin), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);

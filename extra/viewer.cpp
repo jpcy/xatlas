@@ -593,7 +593,7 @@ int main(int argc, char **argv)
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
-					atlasShowGuiOptions();
+					atlasShowGuiOptions(progressDots);
 					if (atlasIsReady()) {
 						ImGui::Spacing();
 						ImGui::Separator();
@@ -605,7 +605,7 @@ int main(int argc, char **argv)
 				ImGui::End();
 			}
 			modelShowGuiWindow(progressDots);
-			atlasShowGuiWindow(progressDots);
+			atlasShowGuiWindow();
 			bakeShowGuiWindow();
 		}
 		modelRender(view, projection);
