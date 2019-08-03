@@ -81,6 +81,7 @@ bgfx::VertexDecl WireframeVertex::decl;
 Options g_options;
 GLFWwindow *g_window;
 int g_windowSize[2];
+float g_indent = 10.0f;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
 static bool s_showBgfxStats = false;
 
@@ -574,16 +575,19 @@ int main(int argc, char **argv)
 				ImGui::Separator();
 				ImGui::Spacing();
 				ImGui::Text(ICON_FA_CUBE " Model");
+				ImGui::Indent(g_indent);
 				ImGui::Spacing();
 				if (ImGui::Button(ICON_FA_FOLDER_OPEN " Open...", buttonSize))
 					modelOpenDialog();
 				if (modelIsLoaded()) {
 					modelShowGuiOptions();
+					ImGui::Unindent(g_indent);
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
 					ImGui::Text(ICON_FA_EYE " View");
 					ImGui::Spacing();
+					ImGui::Indent(g_indent);
 					ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
 					ImGui::SameLine();
 					ImGui::TextDisabled("(?)");
@@ -638,6 +642,7 @@ int main(int argc, char **argv)
 						ImGui::Checkbox("Show atlas window", &g_options.showAtlasWindow);
 					if (bakeIsLightmapReady())
 						ImGui::Checkbox("Show lightmap window", &g_options.showLightmapWindow);
+					ImGui::Unindent(g_indent);
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
@@ -648,6 +653,8 @@ int main(int argc, char **argv)
 						ImGui::Spacing();
 						bakeShowGuiOptions();
 					}
+				} else {
+					ImGui::Unindent(g_indent);
 				}
 				ImGui::PopItemWidth();
 				ImGui::End();

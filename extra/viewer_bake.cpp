@@ -1014,10 +1014,12 @@ void bakeShowGuiOptions()
 	const ImVec4 red(1.0f, 0.0f, 0.0f, 1.0f);
 	ImGui::Text(ICON_FA_LIGHTBULB_O " Lightmap");
 	ImGui::Spacing();
+	ImGui::Indent(g_indent);
 	if (atlasGetCount() > 1) {
 		ImGui::PushStyleColor(ImGuiCol_Text, red);
 		ImGui::Text("Baking doesn't support multiple atlases");
 		ImGui::PopStyleColor();
+		ImGui::Unindent(g_indent);
 		return;
 	}
 #if BX_ARCH_32BIT
@@ -1075,6 +1077,7 @@ void bakeShowGuiOptions()
 		ImGui::ProgressBar((float)s_bake.denoiseProgress);
 	}
 #endif
+	ImGui::Unindent(g_indent);
 }
 
 void bakeShowGuiWindow()

@@ -1041,6 +1041,7 @@ void atlasShowGuiOptions()
 	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
 	ImGui::Text(ICON_FA_GLOBE " Atlas");
 	ImGui::Spacing();
+	ImGui::Indent(g_indent);
 	if (s_atlas.status.get() == AtlasStatus::Generating) {
 		int progress;
 		xatlas::ProgressCategory::Enum category;
@@ -1142,6 +1143,7 @@ void atlasShowGuiOptions()
 		if (changed)
 			s_atlas.options.packChanged = true;
 	}
+	ImGui::Unindent(g_indent);
 }
 
 void atlasShowGuiWindow()
