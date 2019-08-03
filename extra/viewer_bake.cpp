@@ -662,7 +662,10 @@ static bool bakeTraceRays()
 	return true;
 }
 
-static void bakeDilateCharts(float *data)
+typedef bool (*FilterWritePredicate)(const float *data, uint32_t offset);
+typedef bool (*FilterSamplePredicate)(const float *data, uint32_t offset, uint32_t chart);
+
+static void bakeFilter(float *data, FilterWritePredicate writePredicate, FilterSamplePredicate samplePredicate)
 {
 	const int xOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
 	const int yOffsets[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
@@ -670,24 +673,8 @@ static void bakeDilateCharts(float *data)
 	for (uint32_t y = 0; y < s_bake.lightmapHeight; y++) {
 		for (uint32_t x = 0; x < s_bake.lightmapWidth; x++) {
 			const uint32_t offset = x + y * s_bake.lightmapWidth;
-#if 0
-			if (atlasImage[offset] & xatlas::kImageIsBilinearBit) {
-				float *rgba = &data[offset * 4];
-				rgba[0] = 1.0f;
-				rgba[1] = 0.0f;
-				rgba[2] = 0.0f;
-				rgba[3] = 1.0f;
-			} else if (atlasImage[offset] == 0) {
-				float *rgba = &data[offset * 4];
-				rgba[0] = 0.0f;
-				rgba[1] = 1.0f;
-				rgba[2] = 0.0f;
-				rgba[3] = 1.0f;
-			}
-			continue;
-#endif
-			if (!(atlasImage[offset] & xatlas::kImageIsBilinearBit))
-				continue; // Not sampled by bilinear filtering.
+			if (!writePredicate(data, offset))
+				continue;
 			const uint32_t chart = atlasImage[offset] & xatlas::kImageChartIndexMask;
 			float rgbSum[3] = { 0.0f, 0.0f, 0.0f }, n = 0;
 			for (uint32_t si = 0; si < 8; si++) {
@@ -696,13 +683,10 @@ static void bakeDilateCharts(float *data)
 				if (sx < 0 || sy < 0 || sx >= (int)s_bake.lightmapWidth || sy >= (int)s_bake.lightmapHeight)
 					continue; // Sample position is outside of atlas.
 				const uint32_t sampleOffset = (uint32_t)sx + (uint32_t)sy * s_bake.lightmapWidth;
-				if (atlasImage[sampleOffset] == 0)
+				if (atlasImage[offset] == 0)
 					continue; // Empty space.
-				if (atlasImage[sampleOffset] & (xatlas::kImageIsBilinearBit | xatlas::kImageIsPaddingBit))
-					continue; // Don't sample from bilinear or padding.
-				if ((atlasImage[sampleOffset] & xatlas::kImageChartIndexMask) != chart)
-					continue; // Only sample from matching chart.
-				// Valid sample.
+				if (!samplePredicate(data, sampleOffset, chart))
+					continue;
 				const float *rgba = &data[sampleOffset * 4];
 				rgbSum[0] += (float)rgba[0];
 				rgbSum[1] += (float)rgba[1];
@@ -721,6 +705,46 @@ static void bakeDilateCharts(float *data)
 	}
 }
 
+static bool emptyFilterWritePredicate(const float *data, uint32_t offset)
+{
+	// Pixel in atlas image is a valid chart (but not bilinear or padding), but lightmap data was never sampled by the rasterizer (alpha is 0).
+	const uint32_t imageData = atlasGetImage()[offset];
+	const float *rgba = &data[offset * 4];
+	return imageData & xatlas::kImageHasChartIndexBit && !(imageData & (xatlas::kImageIsBilinearBit | xatlas::kImageIsPaddingBit)) && rgba[3] <= 0.0f;
+}
+
+static bool emptyFilterSamplePredicate(const float * /*data*/, uint32_t offset, uint32_t chart)
+{
+	const uint32_t *atlasImage = atlasGetImage();
+	if (atlasImage[offset] & (xatlas::kImageIsBilinearBit | xatlas::kImageIsPaddingBit))
+		return false; // Don't sample from bilinear or padding.
+	if ((atlasImage[offset] & xatlas::kImageChartIndexMask) != chart)
+		return false; // Only sample from matching chart.
+	return true;
+}
+
+static bool bilinearFilterWritePredicate(const float * /*data*/, uint32_t offset)
+{
+	// Only write to texels sampled by bilinear interpolation..
+	return atlasGetImage()[offset] & xatlas::kImageIsBilinearBit;
+}
+
+static bool bilinearFilterSamplePredicate(const float * /*data*/, uint32_t offset, uint32_t chart)
+{
+	const uint32_t *atlasImage = atlasGetImage();
+	if (atlasImage[offset] & (xatlas::kImageIsBilinearBit | xatlas::kImageIsPaddingBit))
+		return false; // Don't sample from bilinear or padding.
+	if ((atlasImage[offset] & xatlas::kImageChartIndexMask) != chart)
+		return false; // Only sample from matching chart.
+	return true;
+}
+
+static void bakeFilter(float *data)
+{
+	bakeFilter(data, emptyFilterWritePredicate, emptyFilterSamplePredicate);
+	bakeFilter(data, bilinearFilterWritePredicate, bilinearFilterSamplePredicate);
+}
+
 static void bakeWorkerThread()
 {
 	if (!bakeInitEmbree()) {
@@ -737,8 +761,7 @@ static void bakeWorkerThread()
 		s_bake.status = BakeStatus::Cancelled;
 		return;
 	}
-	// Dilate
-	bakeDilateCharts(s_bake.lightmapData.data());
+	bakeFilter(s_bake.lightmapData.data());
 	s_bake.status = BakeStatus::ThreadFinished;
 }
 
@@ -846,8 +869,7 @@ static void bakeDenoiseThread()
 	// Copy alpha channel.
 	for (uint32_t i = 0; i < s_bake.lightmapWidth * s_bake.lightmapHeight; i++)
 		s_bake.denoisedLightmapData[i * 4 + 3] = s_bake.lightmapData[i * 4 + 3];
-	// Dilate
-	bakeDilateCharts(s_bake.denoisedLightmapData.data());
+	bakeFilter(s_bake.denoisedLightmapData.data());
 	s_bake.denoiseStatus = DenoiseStatus::ThreadFinished;
 }
 
