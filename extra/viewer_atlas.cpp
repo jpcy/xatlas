@@ -1039,6 +1039,7 @@ void atlasRenderChartsWireframe(const float *modelMatrix)
 void atlasShowGuiOptions()
 {
 	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
+	const ImVec2 resetButtonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.45f, 0.0f));
 	ImGui::Text(ICON_FA_GLOBE " Atlas");
 	ImGui::Spacing();
 	ImGui::Indent(g_indent);
@@ -1101,7 +1102,7 @@ void atlasShowGuiOptions()
 		changed |= ImGui::InputFloat("Max threshold", &s_atlas.options.chart.maxThreshold);
 		changed |= ImGui::InputInt("Grow face count", (int *)&s_atlas.options.chart.growFaceCount);
 		changed |= ImGui::InputInt("Max iterations", (int *)&s_atlas.options.chart.maxIterations);
-		if (ImGui::Button("Reset to default", buttonSize)) {
+		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
 			s_atlas.options.chart = xatlas::ChartOptions();
 			changed = true;
 		}
@@ -1135,7 +1136,7 @@ void atlasShowGuiOptions()
 		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.options.pack.resolution, 8);
 		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.options.pack.padding, 0, 8);
 		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.options.pack.maxChartSize);
-		if (ImGui::Button("Reset to default", buttonSize)) {
+		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
 			clearPackOptions();
 			changed = true;
 		}
