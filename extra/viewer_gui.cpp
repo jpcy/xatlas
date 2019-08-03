@@ -12,6 +12,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
 #include "viewer.h"
+#include "fontawesome-webfont.cpp"
 
 struct
 {
@@ -53,6 +54,13 @@ void guiInit()
 	io.KeyMap[ImGuiKey_X] = GLFW_KEY_X;
 	io.KeyMap[ImGuiKey_Y] = GLFW_KEY_Y;
 	io.KeyMap[ImGuiKey_Z] = GLFW_KEY_Z;
+	// merge in icons from Font Awesome
+	io.Fonts->AddFontDefault();
+	static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+	ImFontConfig icons_config;
+	icons_config.MergeMode = true;
+	icons_config.PixelSnapH = true;
+	io.Fonts->AddFontFromMemoryCompressedTTF(s_fontAwesome_compressed_data, s_fontAwesome_compressed_size, 13.0f, &icons_config, icons_ranges);
 	// font
 	int fontWidth, fontHeight;
 	uint8_t *fontData;

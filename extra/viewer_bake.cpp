@@ -1012,7 +1012,7 @@ void bakeShowGuiOptions()
 {
 	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.3f, 0.0f));
 	const ImVec4 red(1.0f, 0.0f, 0.0f, 1.0f);
-	ImGui::Text("Lightmap");
+	ImGui::Text(ICON_FA_LIGHTBULB_O " Lightmap");
 	ImGui::Spacing();
 	if (atlasGetCount() > 1) {
 		ImGui::PushStyleColor(ImGuiCol_Text, red);
@@ -1026,11 +1026,11 @@ void bakeShowGuiOptions()
 	ImGui::PopStyleColor();
 #else
 	if ((s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::Finished || s_bake.status == BakeStatus::Cancelled || s_bake.status == BakeStatus::Error) && (s_bake.denoiseStatus == DenoiseStatus::Idle || s_bake.denoiseStatus == DenoiseStatus::Finished || s_bake.denoiseStatus == DenoiseStatus::Error)) {
-		if (ImGui::Button("Bake", buttonSize))
+		if (ImGui::Button(ICON_FA_BOLT " Bake", buttonSize))
 			bakeExecute();
 		if (s_bake.status == BakeStatus::Finished && (s_bake.denoiseStatus == DenoiseStatus::Idle || s_bake.denoiseStatus == DenoiseStatus::Error)) {
 			ImGui::SameLine();
-			if (ImGui::Button("Denoise", buttonSize))
+			if (ImGui::Button(ICON_FA_VOLUME_OFF " Denoise", buttonSize))
 				bakeDenoise();
 		}
 		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
@@ -1054,17 +1054,17 @@ void bakeShowGuiOptions()
 		ImGui::SameLine();
 		ImGui::Spinner("##rasterSpinner");
 		ImGui::ProgressBar(s_bake.numTrianglesRasterized / float(modelGetData()->numIndices / 3));
-		if (ImGui::Button("Cancel"))
+		if (ImGui::Button(ICON_FA_TIMES " Cancel"))
 			shutdownWorkerThread();
 	} else if (s_bake.status == BakeStatus::Tracing) {
 		ImGui::AlignTextToFramePadding();
 		ImGui::Text("Tracing rays [%u samples]", s_bake.samplesPerTexelCount.load());
 		ImGui::SameLine();
 		ImGui::Spinner("##traceSpinner");
-		if (ImGui::Button("Stop", buttonSize))
+		if (ImGui::Button(ICON_FA_STOP " Stop", buttonSize))
 			s_bake.stopWorker = true;
 		ImGui::SameLine();
-		if (ImGui::Button("Cancel", buttonSize))
+		if (ImGui::Button(ICON_FA_TIMES " Cancel", buttonSize))
 			shutdownWorkerThread();
 	}
 	if (s_bake.denoiseStatus == DenoiseStatus::Working) {

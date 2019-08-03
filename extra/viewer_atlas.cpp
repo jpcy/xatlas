@@ -1039,7 +1039,7 @@ void atlasRenderChartsWireframe(const float *modelMatrix)
 void atlasShowGuiOptions()
 {
 	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
-	ImGui::Text("Atlas");
+	ImGui::Text(ICON_FA_GLOBE " Atlas");
 	ImGui::Spacing();
 	if (s_atlas.status.get() == AtlasStatus::Generating) {
 		int progress;
@@ -1050,12 +1050,12 @@ void atlasShowGuiOptions()
 		ImGui::SameLine();
 		ImGui::Spinner("##atlasSpinner");
 		ImGui::ProgressBar(progress / 100.0f);
-		if (ImGui::Button("Cancel", buttonSize))
+		if (ImGui::Button(ICON_FA_TIMES " Cancel", buttonSize))
 			s_atlas.status.setCancel(true);
 	}
 	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
 		return;
-	if (ImGui::Button("Generate", buttonSize))
+	if (ImGui::Button(ICON_FA_COGS " Generate", buttonSize))
 		atlasGenerate();
 	if (s_atlas.status.get() == AtlasStatus::Ready) {
 		uint32_t numIndices = 0, numVertices = 0;

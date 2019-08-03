@@ -573,16 +573,16 @@ int main(int argc, char **argv)
 				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);
 				ImGui::Separator();
 				ImGui::Spacing();
-				ImGui::Text("Model");
+				ImGui::Text(ICON_FA_CUBE " Model");
 				ImGui::Spacing();
-				if (ImGui::Button("Open...", buttonSize))
+				if (ImGui::Button(ICON_FA_FOLDER_OPEN " Open...", buttonSize))
 					modelOpenDialog();
 				if (modelIsLoaded()) {
 					modelShowGuiOptions();
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
-					ImGui::Text("View");
+					ImGui::Text(ICON_FA_EYE " View");
 					ImGui::Spacing();
 					ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
 					ImGui::SameLine();
