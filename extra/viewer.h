@@ -111,6 +111,11 @@ void guiShutdown();
 void guiResize(int width, int height);
 void guiRunFrame(float deltaTime);
 void guiRender();
+bool guiColumnCheckbox(const char *label, const char *id, bool *value);
+bool guiColumnColorEdit(const char *label, const char *id, float *color);
+bool guiColumnInputFloat(const char *label, const char *id, float *value, float step = 0.0f, float stepFast = 0.0f, const char *format = "%.3f");
+bool guiColumnInputInt(const char *label, const char *id, int *value, int step = 1);
+bool guiColumnSliderInt(const char *label, const char *id, int *value, int valueMin, int valueMax);
 
 struct ModelVertex
 {

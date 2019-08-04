@@ -654,7 +654,7 @@ int main(int argc, char **argv)
 			}
 			const float margin = 4.0f;
 			ImGui::SetNextWindowPos(ImVec2(margin, menuBarHeight + margin), ImGuiCond_FirstUseEver);
-			ImGui::SetNextWindowSize(ImVec2(450.0f, io.DisplaySize.y - menuBarHeight - margin * 2.0f), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSize(ImVec2(425.0f, io.DisplaySize.y - menuBarHeight - margin * 2.0f), ImGuiCond_FirstUseEver);
 			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
 				const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
 				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);

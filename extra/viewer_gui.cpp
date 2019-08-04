@@ -155,3 +155,63 @@ void guiRender()
 		}
 	}
 }
+
+bool guiColumnCheckbox(const char *label, const char *id, bool *value)
+{
+	ImGui::AlignTextToFramePadding();
+	ImGui::Text(label);
+	ImGui::NextColumn();
+	ImGui::PushItemWidth(-1);
+	bool result = ImGui::Checkbox(id, value);
+	ImGui::PopItemWidth();
+	ImGui::NextColumn();
+	return result;
+}
+
+bool guiColumnColorEdit(const char *label, const char *id, float *color)
+{
+	ImGui::AlignTextToFramePadding();
+	ImGui::Text(label);
+	ImGui::NextColumn();
+	ImGui::PushItemWidth(-1);
+	bool result = ImGui::ColorEdit3(id, color, ImGuiColorEditFlags_NoInputs);
+	ImGui::PopItemWidth();
+	ImGui::NextColumn();
+	return result;
+}
+
+bool guiColumnInputFloat(const char *label, const char *id, float *value, float step, float stepFast, const char *format)
+{
+	ImGui::AlignTextToFramePadding();
+	ImGui::Text(label);
+	ImGui::NextColumn();
+	ImGui::PushItemWidth(-1);
+	bool result = ImGui::InputFloat(id, value, step, stepFast, format);
+	ImGui::PopItemWidth();
+	ImGui::NextColumn();
+	return result;
+}
+
+bool guiColumnInputInt(const char *label, const char *id, int *value, int step)
+{
+	ImGui::AlignTextToFramePadding();
+	ImGui::Text(label);
+	ImGui::NextColumn();
+	ImGui::PushItemWidth(-1);
+	bool result = ImGui::InputInt(id, value, step);
+	ImGui::PopItemWidth();
+	ImGui::NextColumn();
+	return result;
+}
+
+bool guiColumnSliderInt(const char *label, const char *id, int *value, int valueMin, int valueMax)
+{
+	ImGui::AlignTextToFramePadding();
+	ImGui::Text(label);
+	ImGui::NextColumn();
+	ImGui::PushItemWidth(-1);
+	bool result = ImGui::SliderInt(id, value, valueMin, valueMax);
+	ImGui::PopItemWidth();
+	ImGui::NextColumn();
+	return result;
+}

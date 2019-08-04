@@ -1063,16 +1063,18 @@ void atlasShowGuiOptions()
 	if (ImGui::CollapsingHeader("Chart options", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Indent(indent);
 		bool changed = false;
-		changed |= ImGui::InputFloat("Proxy fit metric weight", &s_atlas.options.chart.proxyFitMetricWeight);
-		changed |= ImGui::InputFloat("Roundness metric weight", &s_atlas.options.chart.roundnessMetricWeight);
-		changed |= ImGui::InputFloat("Straightness metric weight", &s_atlas.options.chart.straightnessMetricWeight);
-		changed |= ImGui::InputFloat("Normal seam metric weight", &s_atlas.options.chart.normalSeamMetricWeight);
-		changed |= ImGui::InputFloat("Texture seam metric weight", &s_atlas.options.chart.textureSeamMetricWeight);
-		changed |= ImGui::InputFloat("Max chart area", &s_atlas.options.chart.maxChartArea);
-		changed |= ImGui::InputFloat("Max boundary length", &s_atlas.options.chart.maxBoundaryLength);
-		changed |= ImGui::InputFloat("Max threshold", &s_atlas.options.chart.maxThreshold);
-		changed |= ImGui::InputInt("Grow face count", (int *)&s_atlas.options.chart.growFaceCount);
-		changed |= ImGui::InputInt("Max iterations", (int *)&s_atlas.options.chart.maxIterations);
+		ImGui::Columns(2, nullptr, false);
+		changed |= guiColumnInputFloat("Proxy fit metric weight", "##chartOption1", &s_atlas.options.chart.proxyFitMetricWeight);
+		changed |= guiColumnInputFloat("Roundness metric weight", "##chartOption2", &s_atlas.options.chart.roundnessMetricWeight);
+		changed |= guiColumnInputFloat("Straightness metric weight", "##chartOption3", &s_atlas.options.chart.straightnessMetricWeight);
+		changed |= guiColumnInputFloat("Normal seam metric weight", "##chartOption4", &s_atlas.options.chart.normalSeamMetricWeight);
+		changed |= guiColumnInputFloat("Texture seam metric weight", "##chartOption5", &s_atlas.options.chart.textureSeamMetricWeight);
+		changed |= guiColumnInputFloat("Max threshold", "##chartOption6", &s_atlas.options.chart.maxThreshold);
+		changed |= guiColumnInputInt("Grow face count", "##chartOption7", (int *)&s_atlas.options.chart.growFaceCount);
+		changed |= guiColumnInputInt("Max iterations", "##chartOption8", (int *)&s_atlas.options.chart.maxIterations);
+		changed |= guiColumnInputFloat("Max chart area", "##chartOption9", &s_atlas.options.chart.maxChartArea);
+		changed |= guiColumnInputFloat("Max boundary length", "##chartOption10", &s_atlas.options.chart.maxBoundaryLength);
+		ImGui::Columns(1);
 		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
 			s_atlas.options.chart = xatlas::ChartOptions();
 			changed = true;
@@ -1104,13 +1106,15 @@ void atlasShowGuiOptions()
 	if (ImGui::CollapsingHeader("Pack options", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Indent(indent);
 		bool changed = false;
-		changed |= ImGui::Checkbox("Bilinear", &s_atlas.options.pack.bilinear);
-		changed |= ImGui::Checkbox("Brute force", &s_atlas.options.pack.bruteForce);
-		changed |= ImGui::Checkbox("Block align", &s_atlas.options.pack.blockAlign);
-		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.options.pack.texelsPerUnit, 0.0f, 32.0f, 2);
-		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.options.pack.resolution, 8);
-		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.options.pack.padding, 0, 8);
-		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.options.pack.maxChartSize);
+		ImGui::Columns(2, nullptr, false);
+		changed |= guiColumnCheckbox("Bilinear", "##packOption1", &s_atlas.options.pack.bilinear);
+		changed |= guiColumnCheckbox("Brute force", "##packOption2", &s_atlas.options.pack.bruteForce);
+		changed |= guiColumnCheckbox("Block align", "##packOption3", &s_atlas.options.pack.blockAlign);
+		changed |= guiColumnInputFloat("Texels per unit", "##packOption4", &s_atlas.options.pack.texelsPerUnit, 0.0f, 32.0f, "%.2f");
+		changed |= guiColumnInputInt("Resolution", "##packOption5", (int *)&s_atlas.options.pack.resolution, 8);
+		changed |= guiColumnSliderInt("Padding", "##packOption6", (int *)&s_atlas.options.pack.padding, 0, 8);
+		changed |= guiColumnInputInt("Max chart size", "##packOption7", (int *)&s_atlas.options.pack.maxChartSize);
+		ImGui::Columns(1);
 		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
 			clearPackOptions();
 			changed = true;

@@ -1032,8 +1032,10 @@ void bakeShowGuiOptions()
 			if (ImGui::Button(ICON_FA_VOLUME_OFF " Denoise", buttonSize))
 				bakeDenoise();
 		}
-		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
-		ImGui::SliderInt("Max depth", &s_bake.options.maxDepth, 1, 16);
+		ImGui::Columns(2, nullptr, false);
+		guiColumnColorEdit("Sky color", "##skyColor", &s_bake.options.skyColor.x);
+		guiColumnSliderInt("Max depth", "##maxDepth", &s_bake.options.maxDepth, 1, 16);
+		ImGui::Columns(1);
 		std::lock_guard<std::mutex> lock(s_bake.errorMessageMutex);
 		if (s_bake.errorMessage[0]) {
 			ImGui::PushStyleColor(ImGuiCol_Text, red);
