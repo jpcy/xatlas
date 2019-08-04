@@ -600,7 +600,9 @@ int main(int argc, char **argv)
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
+					ImGui::PushItemWidth(100.0f);
 					ImGui::DragFloat("Sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
+					ImGui::PopItemWidth();
 					ImGui::EndMenu();
 				}
 				if (ImGui::BeginMenu(ICON_FA_EYE " View")) {
@@ -628,7 +630,9 @@ int main(int argc, char **argv)
 								ImGui::RadioButton("Invalid", (int *)&g_options.chartColorMode, (int)ChartColorMode::Invalid);
 								ImGui::EndMenu();
 							}
+							ImGui::PushItemWidth(100.0f);
 							ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
+							ImGui::PopItemWidth();
 						}
 						if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly) {
 							ImGui::Checkbox("Lightmap point sampling", &g_options.lightmapPointSampling);

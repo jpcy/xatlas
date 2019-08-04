@@ -1021,7 +1021,9 @@ void modelShowGuiMenu()
 {
 	ImGui::Checkbox("Right-handed axis", &s_model.rightHandedAxis);
 	ImGui::Checkbox("Clockwise face winding", &s_model.clockwiseFaceWinding);
+	ImGui::PushItemWidth(100.0f);
 	ImGui::InputFloat("Scale", &s_model.scale, 0.01f, 0.1f);
+	ImGui::PopItemWidth();
 	s_model.scale = bx::max(0.001f, s_model.scale);
 }
 
