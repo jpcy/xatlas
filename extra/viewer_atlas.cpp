@@ -1042,7 +1042,6 @@ void atlasShowGuiOptions()
 	const ImVec2 resetButtonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.45f, 0.0f));
 	ImGui::Text(ICON_FA_GLOBE " Atlas");
 	ImGui::Spacing();
-	ImGui::Indent(g_indent);
 	if (s_atlas.status.get() == AtlasStatus::Generating) {
 		int progress;
 		xatlas::ProgressCategory::Enum category;
@@ -1059,6 +1058,67 @@ void atlasShowGuiOptions()
 		return;
 	if (ImGui::Button(ICON_FA_COGS " Generate", buttonSize))
 		atlasGenerate();
+	ImGui::Spacing();
+	const float indent = 12.0f;
+	if (ImGui::CollapsingHeader("Chart options", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Indent(indent);
+		bool changed = false;
+		changed |= ImGui::InputFloat("Proxy fit metric weight", &s_atlas.options.chart.proxyFitMetricWeight);
+		changed |= ImGui::InputFloat("Roundness metric weight", &s_atlas.options.chart.roundnessMetricWeight);
+		changed |= ImGui::InputFloat("Straightness metric weight", &s_atlas.options.chart.straightnessMetricWeight);
+		changed |= ImGui::InputFloat("Normal seam metric weight", &s_atlas.options.chart.normalSeamMetricWeight);
+		changed |= ImGui::InputFloat("Texture seam metric weight", &s_atlas.options.chart.textureSeamMetricWeight);
+		changed |= ImGui::InputFloat("Max chart area", &s_atlas.options.chart.maxChartArea);
+		changed |= ImGui::InputFloat("Max boundary length", &s_atlas.options.chart.maxBoundaryLength);
+		changed |= ImGui::InputFloat("Max threshold", &s_atlas.options.chart.maxThreshold);
+		changed |= ImGui::InputInt("Grow face count", (int *)&s_atlas.options.chart.growFaceCount);
+		changed |= ImGui::InputInt("Max iterations", (int *)&s_atlas.options.chart.maxIterations);
+		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
+			s_atlas.options.chart = xatlas::ChartOptions();
+			changed = true;
+		}
+		if (changed)
+			s_atlas.options.chartChanged = true;
+		ImGui::Unindent(indent);
+	}
+	ImGui::Spacing();
+#if USE_LIBIGL || USE_OPENNL
+	if (ImGui::CollapsingHeader("Parameterization options", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Indent(indent);
+		const ParamMethod oldParamMethod = s_atlas.options.paramMethod;
+		ImGui::RadioButton("LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::LSCM);
+#if USE_LIBIGL
+		ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_Harmonic);
+		ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_LSCM);
+		ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_ARAP);
+#endif
+#if USE_OPENNL
+		ImGui::RadioButton("OpenNL LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::OpenNL_LSCM);
+#endif
+		if (s_atlas.options.paramMethod != oldParamMethod)
+			s_atlas.options.paramChanged = true;
+		ImGui::Unindent(indent);
+	}
+	ImGui::Spacing();
+#endif
+	if (ImGui::CollapsingHeader("Pack options", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Indent(indent);
+		bool changed = false;
+		changed |= ImGui::Checkbox("Bilinear", &s_atlas.options.pack.bilinear);
+		changed |= ImGui::Checkbox("Brute force", &s_atlas.options.pack.bruteForce);
+		changed |= ImGui::Checkbox("Block align", &s_atlas.options.pack.blockAlign);
+		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.options.pack.texelsPerUnit, 0.0f, 32.0f, 2);
+		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.options.pack.resolution, 8);
+		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.options.pack.padding, 0, 8);
+		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.options.pack.maxChartSize);
+		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
+			clearPackOptions();
+			changed = true;
+		}
+		if (changed)
+			s_atlas.options.packChanged = true;
+		ImGui::Unindent(indent);
+	}
 	if (s_atlas.status.get() == AtlasStatus::Ready) {
 		uint32_t numIndices = 0, numVertices = 0;
 		for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
@@ -1066,6 +1126,9 @@ void atlasShowGuiOptions()
 			numIndices += outputMesh.indexCount;
 			numVertices += outputMesh.vertexCount;
 		}
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::Spacing();
 		ImGui::Columns(2, nullptr, false);
 		if (s_atlas.data->atlasCount == 1)
 			ImGui::Text("%ux%u atlas", s_atlas.data->width, s_atlas.data->height);
@@ -1090,69 +1153,14 @@ void atlasShowGuiOptions()
 				ImGui::Text("%u: %g%% utilization", i, s_atlas.data->utilization[i]);
 		}
 	}
-	if (ImGui::TreeNodeEx("Chart options", ImGuiTreeNodeFlags_FramePadding)) {
-		bool changed = false;
-		changed |= ImGui::InputFloat("Proxy fit metric weight", &s_atlas.options.chart.proxyFitMetricWeight);
-		changed |= ImGui::InputFloat("Roundness metric weight", &s_atlas.options.chart.roundnessMetricWeight);
-		changed |= ImGui::InputFloat("Straightness metric weight", &s_atlas.options.chart.straightnessMetricWeight);
-		changed |= ImGui::InputFloat("Normal seam metric weight", &s_atlas.options.chart.normalSeamMetricWeight);
-		changed |= ImGui::InputFloat("Texture seam metric weight", &s_atlas.options.chart.textureSeamMetricWeight);
-		changed |= ImGui::InputFloat("Max chart area", &s_atlas.options.chart.maxChartArea);
-		changed |= ImGui::InputFloat("Max boundary length", &s_atlas.options.chart.maxBoundaryLength);
-		changed |= ImGui::InputFloat("Max threshold", &s_atlas.options.chart.maxThreshold);
-		changed |= ImGui::InputInt("Grow face count", (int *)&s_atlas.options.chart.growFaceCount);
-		changed |= ImGui::InputInt("Max iterations", (int *)&s_atlas.options.chart.maxIterations);
-		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
-			s_atlas.options.chart = xatlas::ChartOptions();
-			changed = true;
-		}
-		ImGui::TreePop();
-		if (changed)
-			s_atlas.options.chartChanged = true;
-	}
-#if USE_LIBIGL || USE_OPENNL
-	if (ImGui::TreeNodeEx("Parameterization options", ImGuiTreeNodeFlags_FramePadding)) {
-		const ParamMethod oldParamMethod = s_atlas.options.paramMethod;
-		ImGui::RadioButton("LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::LSCM);
-#if USE_LIBIGL
-		ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_Harmonic);
-		ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_LSCM);
-		ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_ARAP);
-#endif
-#if USE_OPENNL
-		ImGui::RadioButton("OpenNL LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::OpenNL_LSCM);
-#endif
-		ImGui::TreePop();
-		if (s_atlas.options.paramMethod != oldParamMethod)
-			s_atlas.options.paramChanged = true;
-	}
-#endif
-	if (ImGui::TreeNodeEx("Pack options", ImGuiTreeNodeFlags_FramePadding)) {
-		bool changed = false;
-		changed |= ImGui::Checkbox("Bilinear", &s_atlas.options.pack.bilinear);
-		changed |= ImGui::Checkbox("Brute force", &s_atlas.options.pack.bruteForce);
-		changed |= ImGui::Checkbox("Block align", &s_atlas.options.pack.blockAlign);
-		changed |= ImGui::InputFloat("Texels per unit", &s_atlas.options.pack.texelsPerUnit, 0.0f, 32.0f, 2);
-		changed |= ImGui::InputInt("Resolution", (int *)&s_atlas.options.pack.resolution, 8);
-		changed |= ImGui::SliderInt("Padding", (int *)&s_atlas.options.pack.padding, 0, 8);
-		changed |= ImGui::InputInt("Max chart size", (int *)&s_atlas.options.pack.maxChartSize);
-		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
-			clearPackOptions();
-			changed = true;
-		}
-		ImGui::TreePop();
-		if (changed)
-			s_atlas.options.packChanged = true;
-	}
-	ImGui::Unindent(g_indent);
 }
 
-void atlasShowGuiWindow()
+void atlasShowGuiWindow(float menuBarHeight)
 {
 	const float margin = 4.0f;
 	if (s_atlas.status.get() == AtlasStatus::Ready && g_options.showAtlasWindow) {
 		const float size = 500;
-		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - size - margin, margin), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - size - margin, menuBarHeight + margin), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 		if (ImGui::Begin("Atlas", &g_options.showAtlasWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 			if (s_atlas.data->atlasCount > 1) {

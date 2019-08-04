@@ -827,6 +827,10 @@ void modelFinalize()
 		delete s_model.thread;
 		s_model.thread = nullptr;
 	}
+	printf("   %u object%s\n", s_model.data->numObjects, s_model.data->numObjects > 1 ? "s" : "");
+	printf("   %u mesh%s\n", s_model.data->numMeshes, s_model.data->numMeshes > 1 ? "es" : "");
+	printf("   %u triangles\n", s_model.data->numIndices / 3);
+	printf("   %u vertices\n", s_model.data->numVertices);
 	textureCreateCachedTextures();
 	s_model.aabb = AABB();
 	s_model.centroid = bx::Vec3(0.0f, 0.0f, 0.0f);
@@ -1013,17 +1017,8 @@ void modelRender(const float *view, const float *projection)
 	}
 }
 
-void modelShowGuiOptions()
+void modelShowGuiMenu()
 {
-	ImGui::Columns(2, nullptr, false);
-	ImGui::Text("%u object%s", s_model.data->numObjects, s_model.data->numObjects > 1 ? "s" : "");
-	ImGui::NextColumn();
-	ImGui::Text("%u mesh%s", s_model.data->numMeshes, s_model.data->numMeshes > 1 ? "es" : "");
-	ImGui::NextColumn();
-	ImGui::Text("%u triangles", s_model.data->numIndices / 3);
-	ImGui::NextColumn();
-	ImGui::Text("%u vertices", s_model.data->numVertices);
-	ImGui::Columns(1);
 	ImGui::Checkbox("Right-handed axis", &s_model.rightHandedAxis);
 	ImGui::Checkbox("Clockwise face winding", &s_model.clockwiseFaceWinding);
 	ImGui::InputFloat("Scale", &s_model.scale, 0.01f, 0.1f);

@@ -62,7 +62,7 @@ void atlasFinalize();
 void atlasRenderCharts(const float *modelMatrix, uint64_t state);
 void atlasRenderChartsWireframe(const float *modelMatrix);
 void atlasShowGuiOptions();
-void atlasShowGuiWindow();
+void atlasShowGuiWindow(float menuBarHeight);
 uint32_t atlasGetCount();
 uint32_t atlasGetWidth();
 uint32_t atlasGetHeight();
@@ -81,10 +81,11 @@ void bakeExecute();
 void bakeFrame(uint32_t frameNo);
 void bakeClear();
 void bakeShowGuiOptions();
-void bakeShowGuiWindow();
+void bakeShowGuiWindow(float menuBarHeight);
 bgfx::TextureHandle bakeGetLightmap();
 uint32_t bakeGetLightmapSamplerFlags();
 bool bakeIsLightmapReady();
+bool bakeIsDenoised();
 
 struct GuiTextureFlags
 {
@@ -136,7 +137,7 @@ void modelOpen(const char *filename);
 void modelOpenDialog();
 void modelDestroy();
 void modelRender(const float *view, const float *projection);
-void modelShowGuiOptions();
+void modelShowGuiMenu();
 void modelShowGuiWindow();
 AABB modelGetAABB();
 const objzModel *modelGetData();
@@ -176,6 +177,7 @@ struct Options
 	ChartColorMode chartColorMode = ChartColorMode::Individual;
 	int chartCellSize = 1;
 	bool lightmapPointSampling = false;
+	bool useDenoisedLightmap = true;
 	bool showAtlasWindow = true;
 	bool showLightmapWindow = true;
 };
@@ -184,7 +186,6 @@ extern Options g_options;
 struct GLFWwindow;
 extern GLFWwindow *g_window;
 extern int g_windowSize[2]; // Last known good window size. Not set to 0,0 when minimized.
-extern float g_indent;
 
 void randomRGB(uint8_t *color);
 uint32_t encodeRGBA(const uint8_t *rgba);

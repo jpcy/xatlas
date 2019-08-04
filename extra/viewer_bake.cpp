@@ -278,7 +278,6 @@ struct BakeOptions
 {
 	bool fitToWindow = true;
 	float scale = 1.0f;
-	bool useDenoisedLightmap = true;
 	bx::Vec3 skyColor = bx::Vec3(1.0f);
 	int maxDepth = 10;
 };
@@ -1014,12 +1013,10 @@ void bakeShowGuiOptions()
 	const ImVec4 red(1.0f, 0.0f, 0.0f, 1.0f);
 	ImGui::Text(ICON_FA_LIGHTBULB_O " Lightmap");
 	ImGui::Spacing();
-	ImGui::Indent(g_indent);
 	if (atlasGetCount() > 1) {
 		ImGui::PushStyleColor(ImGuiCol_Text, red);
 		ImGui::Text("Baking doesn't support multiple atlases");
 		ImGui::PopStyleColor();
-		ImGui::Unindent(g_indent);
 		return;
 	}
 #if BX_ARCH_32BIT
@@ -1037,8 +1034,6 @@ void bakeShowGuiOptions()
 		}
 		ImGui::ColorEdit3("Sky color", &s_bake.options.skyColor.x, ImGuiColorEditFlags_NoInputs);
 		ImGui::SliderInt("Max depth", &s_bake.options.maxDepth, 1, 16);
-		if (s_bake.denoiseStatus == DenoiseStatus::Finished)
-			ImGui::Checkbox("Use denoised lightmap", &s_bake.options.useDenoisedLightmap);
 		std::lock_guard<std::mutex> lock(s_bake.errorMessageMutex);
 		if (s_bake.errorMessage[0]) {
 			ImGui::PushStyleColor(ImGuiCol_Text, red);
@@ -1077,16 +1072,15 @@ void bakeShowGuiOptions()
 		ImGui::ProgressBar((float)s_bake.denoiseProgress);
 	}
 #endif
-	ImGui::Unindent(g_indent);
 }
 
-void bakeShowGuiWindow()
+void bakeShowGuiWindow(float menuBarHeight)
 {
 	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::InitEmbree || s_bake.status == BakeStatus::Error || !g_options.showLightmapWindow)
 		return;
 	const float size = 500;
 	const float margin = 4.0f;
-	ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - size - margin, size + margin * 2.0f), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - size - margin, menuBarHeight + size + margin * 2.0f), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Lightmap", &g_options.showLightmapWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 		ImGui::Checkbox("Fit to window", &s_bake.options.fitToWindow);
@@ -1109,7 +1103,7 @@ void bakeShowGuiWindow()
 
 bgfx::TextureHandle bakeGetLightmap()
 {
-	return (s_bake.denoiseStatus == DenoiseStatus::Finished && s_bake.options.useDenoisedLightmap) ? s_bake.denoisedLightmap : s_bake.lightmap;
+	return (s_bake.denoiseStatus == DenoiseStatus::Finished && g_options.useDenoisedLightmap) ? s_bake.denoisedLightmap : s_bake.lightmap;
 }
 
 uint32_t bakeGetLightmapSamplerFlags()
@@ -1123,4 +1117,9 @@ uint32_t bakeGetLightmapSamplerFlags()
 bool bakeIsLightmapReady()
 {
 	return !(s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::InitEmbree || s_bake.status == BakeStatus::Error);
+}
+
+bool bakeIsDenoised()
+{
+	return s_bake.denoiseStatus == DenoiseStatus::Finished;
 }

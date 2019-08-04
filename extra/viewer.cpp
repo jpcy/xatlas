@@ -81,7 +81,6 @@ bgfx::VertexDecl WireframeVertex::decl;
 Options g_options;
 GLFWwindow *g_window;
 int g_windowSize[2];
-float g_indent = 10.0f;
 static bool s_keyDown[GLFW_KEY_LAST + 1] = { 0 };
 static bool s_showBgfxStats = false;
 
@@ -566,29 +565,23 @@ int main(int argc, char **argv)
 				}
 				ImGui::EndPopup();
 			}
-			const float margin = 4.0f;
-			ImGui::SetNextWindowPos(ImVec2(margin, margin), ImGuiCond_FirstUseEver);
-			ImGui::SetNextWindowSize(ImVec2(400.0f, io.DisplaySize.y - margin * 2.0f), ImGuiCond_FirstUseEver);
-			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
-				const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
-				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);
-				ImGui::Separator();
-				ImGui::Spacing();
-				ImGui::Text(ICON_FA_CUBE " Model");
-				ImGui::Indent(g_indent);
-				ImGui::Spacing();
-				if (ImGui::Button(ICON_FA_FOLDER_OPEN " Open...", buttonSize))
-					modelOpenDialog();
-				if (modelIsLoaded()) {
-					modelShowGuiOptions();
-					ImGui::Unindent(g_indent);
-					ImGui::Spacing();
-					ImGui::Separator();
-					ImGui::Spacing();
-					ImGui::Text(ICON_FA_EYE " View");
-					ImGui::Spacing();
-					ImGui::Indent(g_indent);
-					ImGui::RadioButton("First person camera", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
+			float menuBarHeight = 0.0f;
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 5.0f));
+			if (ImGui::BeginMainMenuBar()) {
+				ImGui::PopStyleVar();
+				if (ImGui::BeginMenu(ICON_FA_CUBE " Model")) {
+					if (ImGui::MenuItem(ICON_FA_FOLDER_OPEN " Open..."))
+						modelOpenDialog();
+					if (modelIsLoaded()) {
+						ImGui::Spacing();
+						ImGui::Separator();
+						ImGui::Spacing();
+						modelShowGuiMenu();
+					}
+					ImGui::EndMenu();
+				}
+				if (ImGui::BeginMenu(ICON_FA_CAMERA " Camera")) {
+					ImGui::RadioButton("First person", (int *)&s_camera.mode, (int)CameraMode::FirstPerson);
 					ImGui::SameLine();
 					ImGui::TextDisabled("(?)");
 					if (ImGui::IsItemHovered()) {
@@ -596,8 +589,7 @@ int main(int argc, char **argv)
 						ImGui::Text("Hold left mouse button on 3D view to enable camera\nW,A,S,D and Q,E to move\nHold SHIFT for faster movement");
 						ImGui::EndTooltip();
 					}
-					ImGui::SameLine();
-					ImGui::RadioButton("Orbit camera", (int *)&s_camera.mode, (int)CameraMode::Orbit);
+					ImGui::RadioButton("Orbit", (int *)&s_camera.mode, (int)CameraMode::Orbit);
 					ImGui::SameLine();
 					ImGui::TextDisabled("(?)");
 					if (ImGui::IsItemHovered()) {
@@ -605,47 +597,68 @@ int main(int argc, char **argv)
 						ImGui::Text("Hold left mouse button on 3D view to enable camera");
 						ImGui::EndTooltip();
 					}
-					ImGui::DragFloat("Camera sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
-					ImGui::Checkbox("Wireframe", &g_options.wireframe);
-					if (g_options.wireframe && atlasIsReady()) {
-						ImGui::SameLine();
-						ImGui::RadioButton("Charts##wireframe", (int *)&g_options.wireframeMode, (int)WireframeMode::Charts);
-						ImGui::SameLine();
-						ImGui::RadioButton("Triangles", (int *)&g_options.wireframeMode, (int)WireframeMode::Triangles);
-					}
-					if (atlasIsReady()) {
-						ImGui::AlignTextToFramePadding();
-						ImGui::Text("Shading");
-						ImGui::SameLine();
-						ImGui::RadioButton("Flat", (int *)&g_options.shadeMode, (int)ShadeMode::Flat);
-						ImGui::SameLine();
-						ImGui::RadioButton("Charts##shading", (int *)&g_options.shadeMode, (int)ShadeMode::Charts);
-						if (bakeIsLightmapReady()) {
-							ImGui::SameLine();
-							ImGui::RadioButton("Lightmap", (int *)&g_options.shadeMode, (int)ShadeMode::Lightmap);
-							ImGui::SameLine();
-							ImGui::RadioButton("Lightmap only", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapOnly);
-						}
-						if (g_options.shadeMode == ShadeMode::Charts) {
-							ImGui::AlignTextToFramePadding();
-							ImGui::Text("Chart color mode");
-							ImGui::SameLine();
-							ImGui::RadioButton("Individual", (int *)&g_options.chartColorMode, (int)ChartColorMode::Individual);
-							ImGui::SameLine();
-							ImGui::RadioButton("Invalid", (int *)&g_options.chartColorMode, (int)ChartColorMode::Invalid);
-							ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
-						}
-						if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly)
-							ImGui::Checkbox("Lightmap point sampling", &g_options.lightmapPointSampling);
-					}
-					if (atlasIsReady())
-						ImGui::Checkbox("Show atlas window", &g_options.showAtlasWindow);
-					if (bakeIsLightmapReady())
-						ImGui::Checkbox("Show lightmap window", &g_options.showLightmapWindow);
-					ImGui::Unindent(g_indent);
 					ImGui::Spacing();
 					ImGui::Separator();
 					ImGui::Spacing();
+					ImGui::DragFloat("Sensitivity", &s_camera.sensitivity, 0.01f, 0.01f, 1.0f);
+					ImGui::EndMenu();
+				}
+				if (ImGui::BeginMenu(ICON_FA_EYE " View")) {
+					ImGui::Checkbox("Wireframe", &g_options.wireframe);
+					if (g_options.wireframe && atlasIsReady()) {
+						if (ImGui::BeginMenu("Wireframe mode")) {
+							ImGui::RadioButton("Charts##wireframe", (int *)&g_options.wireframeMode, (int)WireframeMode::Charts);
+							ImGui::RadioButton("Triangles", (int *)&g_options.wireframeMode, (int)WireframeMode::Triangles);
+							ImGui::EndMenu();
+						}
+					}
+					if (atlasIsReady()) {
+						if (ImGui::BeginMenu("Shading")) {
+							ImGui::RadioButton("Flat", (int *)&g_options.shadeMode, (int)ShadeMode::Flat);
+							ImGui::RadioButton("Charts##shading", (int *)&g_options.shadeMode, (int)ShadeMode::Charts);
+							if (bakeIsLightmapReady()) {
+								ImGui::RadioButton("Lightmap", (int *)&g_options.shadeMode, (int)ShadeMode::Lightmap);
+								ImGui::RadioButton("Lightmap only", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapOnly);
+							}
+							ImGui::EndMenu();
+						}
+						if (g_options.shadeMode == ShadeMode::Charts) {
+							if (ImGui::BeginMenu("Chart color")) {
+								ImGui::RadioButton("Individual", (int *)&g_options.chartColorMode, (int)ChartColorMode::Individual);
+								ImGui::RadioButton("Invalid", (int *)&g_options.chartColorMode, (int)ChartColorMode::Invalid);
+								ImGui::EndMenu();
+							}
+							ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
+						}
+						if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly) {
+							ImGui::Checkbox("Lightmap point sampling", &g_options.lightmapPointSampling);
+							if (bakeIsDenoised())
+								ImGui::Checkbox("Use denoised lightmap", &g_options.useDenoisedLightmap);
+						}
+					}
+					ImGui::EndMenu();
+				}
+				if (atlasIsReady() || bakeIsLightmapReady()) {
+					if (ImGui::BeginMenu(ICON_FA_WINDOWS " Window")) {
+						if (atlasIsReady())
+							ImGui::MenuItem("Atlas", nullptr, &g_options.showAtlasWindow);
+						if (bakeIsLightmapReady())
+							ImGui::MenuItem("Lightmap", nullptr, &g_options.showLightmapWindow);
+						ImGui::EndMenu();
+					}
+				}
+				menuBarHeight = ImGui::GetWindowHeight();
+				ImGui::EndMainMenuBar();
+			} else {
+				ImGui::PopStyleVar();
+			}
+			const float margin = 4.0f;
+			ImGui::SetNextWindowPos(ImVec2(margin, menuBarHeight + margin), ImGuiCond_FirstUseEver);
+			ImGui::SetNextWindowSize(ImVec2(450.0f, io.DisplaySize.y - menuBarHeight - margin * 2.0f), ImGuiCond_FirstUseEver);
+			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
+				const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
+				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);
+				if (modelIsLoaded()) {
 					atlasShowGuiOptions();
 					if (atlasIsReady()) {
 						ImGui::Spacing();
@@ -653,15 +666,13 @@ int main(int argc, char **argv)
 						ImGui::Spacing();
 						bakeShowGuiOptions();
 					}
-				} else {
-					ImGui::Unindent(g_indent);
 				}
 				ImGui::PopItemWidth();
 				ImGui::End();
 			}
 			modelShowGuiWindow();
-			atlasShowGuiWindow();
-			bakeShowGuiWindow();
+			atlasShowGuiWindow(menuBarHeight);
+			bakeShowGuiWindow(menuBarHeight);
 		}
 		modelRender(view, projection);
 		bakeFrame(bgfxFrameNo);
