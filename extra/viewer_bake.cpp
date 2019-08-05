@@ -357,6 +357,7 @@ namespace embree
 	typedef void (*SetSharedGeometryBufferFunc)(RTCGeometry geometry, enum RTCBufferType type, unsigned int slot, enum RTCFormat format, const void* ptr, size_t byteOffset, size_t byteStride, size_t itemCount);
 	typedef void (*CommitGeometryFunc)(RTCGeometry geometry);
 	typedef void (*Intersect1Func)(RTCScene scene, struct RTCIntersectContext* context, struct RTCRayHit* rayhit);
+	typedef void (*Intersect16Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRayHit16* rayhit);
 	typedef void (*Occluded1Func)(RTCScene scene, struct RTCIntersectContext* context, struct RTCRay* ray);
 	typedef void (*Occluded4Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay4* ray);
 	typedef void (*Occluded8Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay8* ray);
@@ -373,6 +374,7 @@ namespace embree
 	SetSharedGeometryBufferFunc SetSharedGeometryBuffer;
 	CommitGeometryFunc CommitGeometry;
 	Intersect1Func Intersect1;
+	Intersect16Func Intersect16;
 	Occluded1Func Occluded1;
 	Occluded4Func Occluded4;
 	Occluded8Func Occluded8;
@@ -406,6 +408,7 @@ static bool bakeInitEmbree()
 		embree::SetSharedGeometryBuffer = (embree::SetSharedGeometryBufferFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetSharedGeometryBuffer");
 		embree::CommitGeometry = (embree::CommitGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitGeometry");
 		embree::Intersect1 = (embree::Intersect1Func)bx::dlsym(s_bake.embreeLibrary, "rtcIntersect1");
+		embree::Intersect16 = (embree::Intersect16Func)bx::dlsym(s_bake.embreeLibrary, "rtcIntersect16");
 		embree::Occluded1 = (embree::Occluded1Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded1");
 		embree::Occluded4 = (embree::Occluded4Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded4");
 		embree::Occluded8 = (embree::Occluded8Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded8");
@@ -551,83 +554,148 @@ static bx::Vec3 accumulateColor(bx::Vec3 *rayDiffuse, bx::Vec3 *rayEmission, int
 	return rayEmission[depth] + rayDiffuse[depth] * accumulateColor(rayDiffuse, rayEmission, depth + 1, n);
 }
 
+struct RayBatchItem
+{
+	TexelData *texel;
+	const SampleLocation *sample;
+	bx::Vec3 rayOrigin, rayDir;
+	int depth;
+	bool finished;
+};
+
 // https://github.com/aras-p/ToyPathTracer
 static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadIndex*/, void * /*args*/)
 {
 	const float kNear = 0.01f * modelGetScale();
-	bx::Vec3 rayDiffuse[kMaxDepth], rayEmission[kMaxDepth];
-	for (uint32_t i = start; i < end; i++) {
-		const SampleLocation &sample = s_bake.sampleLocations[s_bake.sampleLocationRanks[i]];
-		TexelData &texel = s_bake.texels[i];
-		bx::Vec3 rayOrigin = sample.pos;
-		bx::Vec3 rayDir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, sample.normal);
-		int rayCount = 0;
-		for (int depth = 0; depth < s_bake.options.maxDepth; depth++) {
-			RTCIntersectContext context;
-			rtcInitIntersectContext(&context);
-			RTCRayHit rh;
-			rh.ray.org_x = rayOrigin.x;
-			rh.ray.org_y = rayOrigin.y;
-			rh.ray.org_z = rayOrigin.z;
-			rh.ray.dir_x = rayDir.x;
-			rh.ray.dir_y = rayDir.y;
-			rh.ray.dir_z = rayDir.z;
-			rh.ray.tnear = kNear;
-			rh.ray.tfar = FLT_MAX;
-			rh.ray.flags = 0;
-			rh.ray.id = 0;
-			rh.ray.mask = 0;
-			rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
-			rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
-			embree::Intersect1(s_bake.embreeScene, &context, &rh);
-			s_bake.numRaysTraced++;
-			texel.numPathsTraced++;
-			if (rh.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
+	const uint32_t kBatchMaxSize = 16;
+	RayBatchItem batch[kBatchMaxSize];
+	for (uint32_t i = 0; i < kBatchMaxSize; i++)
+		batch[i].texel = nullptr;
+	uint32_t batchSize = 0;
+	bx::Vec3 rayDiffuse[kBatchMaxSize * kMaxDepth], rayEmission[kBatchMaxSize * kMaxDepth];
+	uint32_t current = start;
+	for (;;) {
+		if (s_bake.stopWorker || s_bake.cancelWorker)
+			break;
+		// Try to fill batch by finding texels that want to trace rays.
+		if (batchSize < kBatchMaxSize) {
+			for (; current < end; current++) {
+				// Use the first empty RayBatchItem (null texel).
+				for (uint32_t i = 0; i < kBatchMaxSize; i++) {
+					RayBatchItem &rbi = batch[i];
+					if (rbi.texel != nullptr)
+						continue;
+					rbi.texel = &s_bake.texels[current];
+					rbi.sample = &s_bake.sampleLocations[s_bake.sampleLocationRanks[current]];
+					rbi.rayOrigin = rbi.sample->pos;
+					rbi.rayDir = randomDirHemisphere(rbi.texel->numPathsTraced, rbi.texel->randomOffset, rbi.sample->normal);
+					rbi.depth = 0;
+					rbi.finished = false;
+					break;
+				}
+				batchSize++;
+				if (batchSize == kBatchMaxSize) {
+					current++;
+					break;
+				}
+			}
+		}
+		if (batchSize == 0)
+			break;
+		// Trace rays.
+		RTCIntersectContext context;
+		rtcInitIntersectContext(&context);
+		alignas(64) RTCRayHit16 rh; // docs: "for rtcIntersect16 the alignment must be 64 bytes"
+		int valid[kBatchMaxSize];
+		for (uint32_t i = 0; i < kBatchMaxSize; i++) {
+			RayBatchItem &rbi = batch[i];
+			valid[i] = rbi.texel ? 0 : -1; // docs: "-1 means valid and 0 invalid"
+			if (!rbi.texel)
+				continue;
+			rh.ray.org_x[i] = rbi.rayOrigin.x;
+			rh.ray.org_y[i] = rbi.rayOrigin.y;
+			rh.ray.org_z[i] = rbi.rayOrigin.z;
+			rh.ray.dir_x[i] = rbi.rayDir.x;
+			rh.ray.dir_y[i] = rbi.rayDir.y;
+			rh.ray.dir_z[i] = rbi.rayDir.z;
+			rh.ray.tnear[i] = kNear;
+			rh.ray.tfar[i] = FLT_MAX;
+			rh.ray.flags[i] = 0;
+			rh.ray.id[i] = 0;
+			rh.ray.mask[i] = 0;
+			rh.hit.geomID[i] = RTC_INVALID_GEOMETRY_ID;
+			rh.hit.primID[i] = RTC_INVALID_GEOMETRY_ID;
+		}
+		embree::Intersect16(valid, s_bake.embreeScene, &context, &rh);
+		s_bake.numRaysTraced += kBatchMaxSize;
+		// Process ray hits.
+		for (uint32_t i = 0; i < kBatchMaxSize; i++) {
+			RayBatchItem &rbi = batch[i];
+			if (!rbi.texel)
+				continue;
+			const uint32_t offset = i * kBatchMaxSize + rbi.depth;
+			if (rh.hit.geomID[i] == RTC_INVALID_GEOMETRY_ID) {
 				// Ray missed, use sky color.
-				rayDiffuse[rayCount] = s_bake.options.skyColor;
-				rayEmission[rayCount] = bx::Vec3(0.0f);
-				rayCount++;
-				break;
+				rayDiffuse[offset] = s_bake.options.skyColor;
+				rayEmission[offset] = bx::Vec3(0.0f);
+				rbi.finished = true;
+				rbi.depth++;
+				rbi.texel->numPathsTraced++;
+				continue;
 			}
 			const uint32_t *indices = atlasGetIndices()->data();
 			const ModelVertex *vertices = atlasGetVertices()->data();
-			const ModelVertex &v0 = vertices[indices[rh.hit.primID * 3 + 0]];
-			const ModelVertex &v1 = vertices[indices[rh.hit.primID * 3 + 1]];
-			const ModelVertex &v2 = vertices[indices[rh.hit.primID * 3 + 2]];
+			const ModelVertex &v0 = vertices[indices[rh.hit.primID[i] * 3 + 0]];
+			const ModelVertex &v1 = vertices[indices[rh.hit.primID[i] * 3 + 1]];
+			const ModelVertex &v2 = vertices[indices[rh.hit.primID[i] * 3 + 2]];
 			// we got a new ray bounced from the surface; recursively trace it
 			bx::Vec3 diffuse = bx::Vec3(0.5f);
 			bx::Vec3 emission(0.0f);
-			const objzMaterial *mat = s_bake.triMaterials[rh.hit.primID];
+			const objzMaterial *mat = s_bake.triMaterials[rh.hit.primID[i]];
 			if (mat) {
 				diffuse = bx::Vec3(mat->diffuse[0], mat->diffuse[1], mat->diffuse[2]);
 				emission = bx::Vec3(mat->emission[0], mat->emission[1], mat->emission[2]);
 				float uv[2];
 				for (int j = 0; j < 2; j++)
-					uv[j] = v0.texcoord[j] + (v1.texcoord[j] - v0.texcoord[j]) * rh.hit.u + (v2.texcoord[j] - v0.texcoord[j]) * rh.hit.v;
+					uv[j] = v0.texcoord[j] + (v1.texcoord[j] - v0.texcoord[j]) * rh.hit.u[i] + (v2.texcoord[j] - v0.texcoord[j]) * rh.hit.v[i];
 				bx::Vec3 texelColor;
 				if (modelSampleMaterialDiffuse(mat, uv, &texelColor))
 					diffuse = diffuse * texelColor;
 				if (modelSampleMaterialEmission(mat, uv, &texelColor))
 					emission = texelColor;
 			}
-			rayDiffuse[rayCount] = diffuse;
-			rayEmission[rayCount] = emission;
-			rayCount++;
-			// Using barycentrics should be more precise than "origin + dir * rh.ray.tfar".
-			rayOrigin = v0.pos + (v1.pos - v0.pos) * rh.hit.u + (v2.pos - v0.pos) * rh.hit.v;
-			const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z));
-			rayDir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, hitNormal);
+			rayDiffuse[offset] = diffuse;
+			rayEmission[offset] = emission;
+			rbi.depth++;
+			if (rbi.depth == s_bake.options.maxDepth) {
+				rbi.finished = true;
+			} else {
+				// Using barycentrics should be more precise than "origin + dir * rh.ray.tfar".
+				rbi.rayOrigin = v0.pos + (v1.pos - v0.pos) * rh.hit.u[i] + (v2.pos - v0.pos) * rh.hit.v[i];
+				const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x[i], rh.hit.Ng_y[i], rh.hit.Ng_z[i]));
+				rbi.rayDir = randomDirHemisphere(rbi.texel->numPathsTraced, rbi.texel->randomOffset, hitNormal);
+			}
+			rbi.texel->numPathsTraced++;
 		}
-		texel.accumColor = texel.accumColor + accumulateColor(rayDiffuse, rayEmission, 0, rayCount);
-		texel.numColorSamples++;
-		float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
-		rgba[0] = texel.accumColor.x / (float)texel.numColorSamples;
-		rgba[1] = texel.accumColor.y / (float)texel.numColorSamples;
-		rgba[2] = texel.accumColor.z / (float)texel.numColorSamples;
-		rgba[3] = 1.0f;
-		s_bake.numSampleLocationsProcessed++;
-		if (s_bake.stopWorker || s_bake.cancelWorker)
-			break;
+		// Process finished texels and remove them from the batch.
+		for (uint32_t i = 0; i < kBatchMaxSize; i++) {
+			RayBatchItem &rbi = batch[i];
+			if (!rbi.texel || !rbi.finished)
+				continue;
+			const uint32_t offset = i * kBatchMaxSize;
+			rbi.texel->accumColor = rbi.texel->accumColor + accumulateColor(&rayDiffuse[offset], &rayEmission[offset], 0, rbi.depth);
+			rbi.texel->numColorSamples++;
+			float *rgba = &s_bake.lightmapData[(rbi.sample->uv[0] + rbi.sample->uv[1] * s_bake.lightmapWidth) * 4];
+			const float invn = 1.0f / (float)rbi.texel->numColorSamples;
+			rgba[0] = rbi.texel->accumColor.x * invn;
+			rgba[1] = rbi.texel->accumColor.y * invn;
+			rgba[2] = rbi.texel->accumColor.z * invn;
+			rgba[3] = 1.0f;
+			s_bake.numSampleLocationsProcessed++;
+			// Remove from batch.
+			rbi.texel = nullptr;
+			batchSize--;
+		}
 	}
 }
 
