@@ -282,6 +282,8 @@ struct BakeOptions
 	int maxDepth = 10;
 };
 
+static const int kMaxDepth = 16;
+
 struct SampleLocation
 {
 	bx::Vec3 pos;
@@ -542,71 +544,81 @@ static bx::Vec3 randomDirHemisphere(int index, const float *offset, bx::Vec3 nor
 	return dir;
 }
 
-// https://github.com/aras-p/ToyPathTracer
-static bx::Vec3 bakeTraceRay(bx::Vec3 origin, bx::Vec3 dir, TexelData &texel, int depth, const float near)
+static bx::Vec3 accumulateColor(bx::Vec3 *rayDiffuse, bx::Vec3 *rayEmission, int depth, int n)
 {
-	RTCIntersectContext context;
-	rtcInitIntersectContext(&context);
-	RTCRayHit rh;
-	rh.ray.org_x = origin.x;
-	rh.ray.org_y = origin.y;
-	rh.ray.org_z = origin.z;
-	rh.ray.dir_x = dir.x;
-	rh.ray.dir_y = dir.y;
-	rh.ray.dir_z = dir.z;
-	rh.ray.tnear = near;
-	rh.ray.tfar = FLT_MAX;
-	rh.ray.flags = 0;
-	rh.ray.id = 0;
-	rh.ray.mask = 0;
-	rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
-	rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
-	embree::Intersect1(s_bake.embreeScene, &context, &rh);
-	s_bake.numRaysTraced++;
-	texel.numPathsTraced++;
-	if (rh.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
-		// Ray missed, use sky color.
-		return s_bake.options.skyColor;
-	}
-	if (depth < s_bake.options.maxDepth) {
-		const uint32_t *indices = atlasGetIndices()->data();
-		const ModelVertex *vertices = atlasGetVertices()->data();
-		const ModelVertex &v0 = vertices[indices[rh.hit.primID * 3 + 0]];
-		const ModelVertex &v1 = vertices[indices[rh.hit.primID * 3 + 1]];
-		const ModelVertex &v2 = vertices[indices[rh.hit.primID * 3 + 2]];
-		// we got a new ray bounced from the surface; recursively trace it
-		bx::Vec3 diffuse = bx::Vec3(0.5f);
-		bx::Vec3 emission(0.0f);
-		const objzMaterial *mat = s_bake.triMaterials[rh.hit.primID];
-		if (mat) {
-			diffuse = bx::Vec3(mat->diffuse[0], mat->diffuse[1], mat->diffuse[2]);
-			emission = bx::Vec3(mat->emission[0], mat->emission[1], mat->emission[2]);
-			float uv[2];
-			for (int i = 0; i < 2; i++)
-				uv[i] = v0.texcoord[i] + (v1.texcoord[i] - v0.texcoord[i]) * rh.hit.u + (v2.texcoord[i] - v0.texcoord[i]) * rh.hit.v;
-			bx::Vec3 sample;
-			if (modelSampleMaterialDiffuse(mat, uv, &sample))
-				diffuse = diffuse * sample;
-			if (modelSampleMaterialEmission(mat, uv, &sample))
-				emission = sample;
-		}
-		// Using barycentrics should be more precise than "origin + dir * rh.ray.tfar".
-		const bx::Vec3 hitPos = v0.pos + (v1.pos - v0.pos) * rh.hit.u + (v2.pos - v0.pos) * rh.hit.v;
-		const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z));
-		return emission + diffuse * bakeTraceRay(hitPos, randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, hitNormal), texel, depth + 1, near);
-	}
-	return bx::Vec3(0.0f);
+	if (depth >= n)
+		return bx::Vec3(1.0f);
+	return rayEmission[depth] + rayDiffuse[depth] * accumulateColor(rayDiffuse, rayEmission, depth + 1, n);
 }
 
+// https://github.com/aras-p/ToyPathTracer
 static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadIndex*/, void * /*args*/)
 {
 	const float kNear = 0.01f * modelGetScale();
+	bx::Vec3 rayDiffuse[kMaxDepth], rayEmission[kMaxDepth];
 	for (uint32_t i = start; i < end; i++) {
 		const SampleLocation &sample = s_bake.sampleLocations[s_bake.sampleLocationRanks[i]];
 		TexelData &texel = s_bake.texels[i];
-		const bx::Vec3 dir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, sample.normal);
-		const bx::Vec3 color = bakeTraceRay(sample.pos, dir, texel, 0, kNear);
-		texel.accumColor = texel.accumColor + color;
+		bx::Vec3 rayOrigin = sample.pos;
+		bx::Vec3 rayDir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, sample.normal);
+		int rayCount = 0;
+		for (int depth = 0; depth < s_bake.options.maxDepth; depth++) {
+			RTCIntersectContext context;
+			rtcInitIntersectContext(&context);
+			RTCRayHit rh;
+			rh.ray.org_x = rayOrigin.x;
+			rh.ray.org_y = rayOrigin.y;
+			rh.ray.org_z = rayOrigin.z;
+			rh.ray.dir_x = rayDir.x;
+			rh.ray.dir_y = rayDir.y;
+			rh.ray.dir_z = rayDir.z;
+			rh.ray.tnear = kNear;
+			rh.ray.tfar = FLT_MAX;
+			rh.ray.flags = 0;
+			rh.ray.id = 0;
+			rh.ray.mask = 0;
+			rh.hit.geomID = RTC_INVALID_GEOMETRY_ID;
+			rh.hit.primID = RTC_INVALID_GEOMETRY_ID;
+			embree::Intersect1(s_bake.embreeScene, &context, &rh);
+			s_bake.numRaysTraced++;
+			texel.numPathsTraced++;
+			if (rh.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
+				// Ray missed, use sky color.
+				rayDiffuse[rayCount] = s_bake.options.skyColor;
+				rayEmission[rayCount] = bx::Vec3(0.0f);
+				rayCount++;
+				break;
+			}
+			const uint32_t *indices = atlasGetIndices()->data();
+			const ModelVertex *vertices = atlasGetVertices()->data();
+			const ModelVertex &v0 = vertices[indices[rh.hit.primID * 3 + 0]];
+			const ModelVertex &v1 = vertices[indices[rh.hit.primID * 3 + 1]];
+			const ModelVertex &v2 = vertices[indices[rh.hit.primID * 3 + 2]];
+			// we got a new ray bounced from the surface; recursively trace it
+			bx::Vec3 diffuse = bx::Vec3(0.5f);
+			bx::Vec3 emission(0.0f);
+			const objzMaterial *mat = s_bake.triMaterials[rh.hit.primID];
+			if (mat) {
+				diffuse = bx::Vec3(mat->diffuse[0], mat->diffuse[1], mat->diffuse[2]);
+				emission = bx::Vec3(mat->emission[0], mat->emission[1], mat->emission[2]);
+				float uv[2];
+				for (int j = 0; j < 2; j++)
+					uv[j] = v0.texcoord[j] + (v1.texcoord[j] - v0.texcoord[j]) * rh.hit.u + (v2.texcoord[j] - v0.texcoord[j]) * rh.hit.v;
+				bx::Vec3 texelColor;
+				if (modelSampleMaterialDiffuse(mat, uv, &texelColor))
+					diffuse = diffuse * texelColor;
+				if (modelSampleMaterialEmission(mat, uv, &texelColor))
+					emission = texelColor;
+			}
+			rayDiffuse[rayCount] = diffuse;
+			rayEmission[rayCount] = emission;
+			rayCount++;
+			// Using barycentrics should be more precise than "origin + dir * rh.ray.tfar".
+			rayOrigin = v0.pos + (v1.pos - v0.pos) * rh.hit.u + (v2.pos - v0.pos) * rh.hit.v;
+			const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x, rh.hit.Ng_y, rh.hit.Ng_z));
+			rayDir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, hitNormal);
+		}
+		texel.accumColor = texel.accumColor + accumulateColor(rayDiffuse, rayEmission, 0, rayCount);
 		texel.numColorSamples++;
 		float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
 		rgba[0] = texel.accumColor.x / (float)texel.numColorSamples;
@@ -1034,7 +1046,7 @@ void bakeShowGuiOptions()
 		}
 		ImGui::Columns(2, nullptr, false);
 		guiColumnColorEdit("Sky color", "##skyColor", &s_bake.options.skyColor.x);
-		guiColumnSliderInt("Max depth", "##maxDepth", &s_bake.options.maxDepth, 1, 16);
+		guiColumnSliderInt("Max depth", "##maxDepth", &s_bake.options.maxDepth, 1, kMaxDepth);
 		ImGui::Columns(1);
 		std::lock_guard<std::mutex> lock(s_bake.errorMessageMutex);
 		if (s_bake.errorMessage[0]) {
