@@ -570,18 +570,12 @@ static bx::Vec3 randomDirHemisphere(int index, const float *offset, bx::Vec3 nor
 	return dir;
 }
 
-static bx::Vec3 accumulateColor(bx::Vec3 *rayDiffuse, bx::Vec3 *rayEmission, int depth, int n)
-{
-	if (depth >= n)
-		return bx::Vec3(1.0f);
-	return rayEmission[depth] + rayDiffuse[depth] * accumulateColor(rayDiffuse, rayEmission, depth + 1, n);
-}
-
 struct RayBatchItem
 {
 	TexelData *texel;
 	const SampleLocation *sample;
 	bx::Vec3 rayOrigin, rayDir;
+	bx::Vec3 color, throughput;
 	int depth;
 	bool finished;
 };
@@ -595,7 +589,6 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 	for (uint32_t i = 0; i < kBatchMaxSize; i++)
 		batch[i].texel = nullptr;
 	uint32_t batchSize = 0;
-	bx::Vec3 rayDiffuse[kBatchMaxSize * kMaxDepth], rayEmission[kBatchMaxSize * kMaxDepth];
 	uint32_t current = start;
 	for (;;) {
 		if (s_bake.stopWorker || s_bake.cancelWorker)
@@ -614,6 +607,8 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 					rbi.rayDir = randomDirHemisphere(rbi.texel->numPathsTraced, rbi.texel->randomOffset, rbi.sample->normal);
 					rbi.depth = 0;
 					rbi.finished = false;
+					rbi.color = bx::Vec3(0.0f);
+					rbi.throughput = bx::Vec3(1.0f);
 					break;
 				}
 				batchSize++;
@@ -658,11 +653,9 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 			if (!rbi.texel)
 				continue;
 			rbi.texel->numPathsTraced++;
-			const uint32_t offset = i * kMaxDepth + rbi.depth;
 			if (rh.hit.geomID[i] == RTC_INVALID_GEOMETRY_ID) {
 				// Ray missed, use sky color.
-				rayDiffuse[offset] = s_bake.options.skyColor;
-				rayEmission[offset] = bx::Vec3(0.0f);
+				rbi.color = rbi.color + (rbi.throughput * s_bake.options.skyColor);
 				rbi.finished = true;
 				rbi.depth++;
 				continue;
@@ -688,8 +681,10 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 				if (modelSampleMaterialEmission(mat, uv, &texelColor))
 					emission = texelColor;
 			}
-			rayDiffuse[offset] = diffuse;
-			rayEmission[offset] = emission;
+			if (emission.x > 0.0f || emission.y > 0.0f || emission.z > 0.0f)
+				rbi.color = rbi.color + (rbi.throughput * emission);
+			else
+				rbi.throughput = rbi.throughput * diffuse;
 			rbi.depth++;
 			if (rbi.depth == s_bake.options.maxDepth) {
 				rbi.finished = true;
@@ -706,7 +701,7 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 			if (!rbi.texel || !rbi.finished)
 				continue;
 			const uint32_t offset = i * kMaxDepth;
-			rbi.texel->accumColor = rbi.texel->accumColor + accumulateColor(&rayDiffuse[offset], &rayEmission[offset], 0, rbi.depth);
+			rbi.texel->accumColor = rbi.texel->accumColor + rbi.color;
 			rbi.texel->numColorSamples++;
 			float *rgba = &s_bake.lightmapData[(rbi.sample->uv[0] + rbi.sample->uv[1] * s_bake.lightmapWidth) * 4];
 			const float invn = 1.0f / (float)rbi.texel->numColorSamples;
