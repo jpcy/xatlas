@@ -1002,7 +1002,7 @@ void bakeInit()
 	s_bake.updateStatus = UpdateStatus::Idle;
 	s_bake.stopWorker = false;
 	s_bake.taskScheduler = enkiNewTaskScheduler();
-	enkiInitTaskScheduler(s_bake.taskScheduler);
+	enkiInitTaskSchedulerNumThreads(s_bake.taskScheduler, std::thread::hardware_concurrency());
 }
 
 void bakeShutdown()
