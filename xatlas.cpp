@@ -94,7 +94,8 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_ALLOC_ARRAY(tag, type, num) (type *)internal::Realloc(nullptr, sizeof(type) * num, tag, __FILE__, __LINE__)
 #define XA_REALLOC(tag, ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * num, tag, __FILE__, __LINE__)
 #define XA_FREE(ptr) internal::Realloc(ptr, 0, internal::MemTag::Default, __FILE__, __LINE__)
-#define XA_NEW(tag, type, ...) new (XA_ALLOC(tag, type)) type(__VA_ARGS__)
+#define XA_NEW(tag, type) new (XA_ALLOC(tag, type)) type()
+#define XA_NEW_ARGS(tag, type, ...) new (XA_ALLOC(tag, type)) type(__VA_ARGS__)
 
 #define XA_UNUSED(a) ((void)(a))
 
@@ -3344,7 +3345,7 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, bool
 	if (splitEdges.isEmpty())
 		return nullptr;
 	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW(MemTag::Mesh, Mesh, inputMesh.epsilon(), vertexCount + splitEdges.size(), faceCount);
+	Mesh *mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, inputMesh.epsilon(), vertexCount + splitEdges.size(), faceCount);
 	for (uint32_t v = 0; v < vertexCount; v++)
 		mesh->addVertex(inputMesh.position(v));
 	Array<uint32_t> indexArray;
@@ -3578,7 +3579,7 @@ public:
 		m_workers.resize(std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1);
 		for (uint32_t i = 0; i < m_workers.size(); i++) {
 			m_workers[i].wakeup = false;
-			m_workers[i].thread = XA_NEW(MemTag::Default, std::thread, workerThread, this, &m_workers[i]);
+			m_workers[i].thread = XA_NEW_ARGS(MemTag::Default, std::thread, workerThread, this, &m_workers[i]);
 		}
 	}
 
@@ -5745,8 +5746,8 @@ public:
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
 		// Copy face indices.
-		m_mesh = XA_NEW(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
-		m_unifiedMesh = XA_NEW(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
+		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
+		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(originalMesh->vertexCount(), (uint32_t)~0);
 		Array<uint32_t> unifiedMeshIndices;
@@ -6001,7 +6002,7 @@ static void runCreateChartTask(void *userData)
 {
 	XA_PROFILE_START(createChartMeshesThread)
 	auto args = (CreateChartTaskArgs *)userData;
-	*(args->chart) = XA_NEW(MemTag::Default, Chart, args->mesh, *(args->faceArray), *(args->basis), args->meshId, args->chartGroupId, args->chartId);
+	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, args->mesh, *(args->faceArray), *(args->basis), args->meshId, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMeshesThread)
 }
 
@@ -6052,7 +6053,7 @@ public:
 		}
 		// Only initial meshes have face groups and ignored faces. The only flag we care about is HasNormals.
 		const uint32_t faceCount = m_faceToSourceFaceMap.size();
-		m_mesh = XA_NEW(MemTag::Mesh, Mesh, sourceMesh->epsilon(), faceCount * 3, faceCount, sourceMesh->flags() & MeshFlags::HasNormals);
+		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), faceCount * 3, faceCount, sourceMesh->flags() & MeshFlags::HasNormals);
 		XA_DEBUG_ASSERT(faceCount > 0);
 		Array<uint32_t> meshIndices;
 		meshIndices.resize(sourceMesh->vertexCount(), (uint32_t)~0);
@@ -6192,7 +6193,7 @@ public:
 		chartFaces.resize(m_mesh->faceCount());
 		for (uint32_t i = 0; i < chartFaces.size(); i++)
 			chartFaces[i] = i;
-		Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, chartFaces, m_sourceId, m_id, 0);
+		Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, m_mesh, chartFaces, m_sourceId, m_id, 0);
 		m_chartArray.push_back(chart);
 #else
 		XA_PROFILE_START(atlasBuilder)
@@ -6291,7 +6292,7 @@ public:
 			AtlasBuilder builder(m_mesh, &meshFaces, options);
 			runAtlasBuilder(builder, options);
 			for (uint32_t j = 0; j < builder.chartCount(); j++) {
-				Chart *chart = XA_NEW(MemTag::Default, Chart, m_mesh, builder.chartFaces(j), builder.chartBasis(j), m_sourceId, m_id, m_chartArray.size());
+				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, m_mesh, builder.chartFaces(j), builder.chartBasis(j), m_sourceId, m_id, m_chartArray.size());
 				m_chartArray.push_back(chart);
 				m_paramAddedChartsCount++;
 			}
@@ -6409,7 +6410,7 @@ static void runCreateChartGroupTask(void *userData)
 {
 	XA_PROFILE_START(addMeshCreateChartGroupsThread)
 	auto args = (CreateChartGroupTaskArgs *)userData;
-	*(args->chartGroup) = XA_NEW(MemTag::Default, ChartGroup, args->groupId, args->mesh, args->faceGroup);
+	*(args->chartGroup) = XA_NEW_ARGS(MemTag::Default, ChartGroup, args->groupId, args->mesh, args->faceGroup);
 	XA_PROFILE_END(addMeshCreateChartGroupsThread)
 }
 
@@ -7313,7 +7314,7 @@ struct Atlas
 					atlasSizes.push_back(Vector2i(0, 0));
 					firstChartInBitImage = true;
 					if (createImage)
-						m_atlasImages.push_back(XA_NEW(MemTag::Default, AtlasImage, resolution, resolution));
+						m_atlasImages.push_back(XA_NEW_ARGS(MemTag::Default, AtlasImage, resolution, resolution));
 					// Start positions are per-atlas, so create a new one of those too.
 					chartStartPositions.push_back(Vector2i(0, 0));
 				}
@@ -7899,7 +7900,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 #endif
 	// Don't know how many times AddMesh will be called, so progress needs to adjusted each time.
 	if (!ctx->addMeshProgress) {
-		ctx->addMeshProgress = XA_NEW(internal::MemTag::Default, internal::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
+		ctx->addMeshProgress = XA_NEW_ARGS(internal::MemTag::Default, internal::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
 	}
 	else {
 		ctx->addMeshProgress->setMaxValue(internal::max(ctx->meshCount + 1, meshCountHint));
@@ -7922,7 +7923,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	uint32_t meshFlags = internal::MeshFlags::HasFaceGroups | internal::MeshFlags::HasIgnoredFaces;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
-	internal::Mesh *mesh = XA_NEW(internal::MemTag::Mesh, internal::Mesh, meshDecl.epsilon, meshDecl.vertexCount, indexCount / 3, meshFlags, ctx->meshCount);
+	internal::Mesh *mesh = XA_NEW_ARGS(internal::MemTag::Mesh, internal::Mesh, meshDecl.epsilon, meshDecl.vertexCount, indexCount / 3, meshFlags, ctx->meshCount);
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0.0f);
 		internal::Vector2 texcoord(0.0f);
