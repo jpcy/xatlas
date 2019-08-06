@@ -325,7 +325,6 @@ struct
 	std::vector<TexelData> texels;
 	std::vector<float> lightmapData;
 	std::atomic<uint32_t> numTrianglesRasterized;
-	std::atomic<uint32_t> numSampleLocationsProcessed;
 	std::atomic<uint32_t> samplesPerTexelCount;
 	uint32_t numRaysTraced;
 	bx::RngMwc rng;
@@ -703,24 +702,27 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 			const uint32_t offset = i * kMaxDepth;
 			rbi.texel->accumColor = rbi.texel->accumColor + rbi.color;
 			rbi.texel->numColorSamples++;
-			float *rgba = &s_bake.lightmapData[(rbi.sample->uv[0] + rbi.sample->uv[1] * s_bake.lightmapWidth) * 4];
-			const float invn = 1.0f / (float)rbi.texel->numColorSamples;
-			rgba[0] = rbi.texel->accumColor.x * invn;
-			rgba[1] = rbi.texel->accumColor.y * invn;
-			rgba[2] = rbi.texel->accumColor.z * invn;
-			rgba[3] = 1.0f;
-			s_bake.numSampleLocationsProcessed++;
 			// Remove from batch.
 			rbi.texel = nullptr;
 			batchSize--;
 		}
+	}
+	// Copy texel data to lightmap.
+	for (uint32_t i = start; i < end; i++) {
+		TexelData &texel = s_bake.texels[i];
+		const SampleLocation &sample = s_bake.sampleLocations[s_bake.sampleLocationRanks[i]];
+		float *rgba = &s_bake.lightmapData[(sample.uv[0] + sample.uv[1] * s_bake.lightmapWidth) * 4];
+		const float invn = 1.0f / (float)texel.numColorSamples;
+		rgba[0] = texel.accumColor.x * invn;
+		rgba[1] = texel.accumColor.y * invn;
+		rgba[2] = texel.accumColor.z * invn;
+		rgba[3] = 1.0f;
 	}
 }
 
 static bool bakeTraceRays()
 {
 	s_bake.rng.reset();
-	s_bake.numSampleLocationsProcessed = 0;
 	s_bake.numRaysTraced = 0;
 	s_bake.lightmapData.resize(s_bake.lightmapWidth * s_bake.lightmapHeight * 4);
 	memset(s_bake.lightmapData.data(), 0, s_bake.lightmapData.size() * sizeof(float));
