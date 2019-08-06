@@ -50,7 +50,7 @@ bool Spinner(const char* label, float radius, float thickness, const ImU32& colo
 	window->DrawList->PathClear();
 
 	int num_segments = 30;
-	int start = (int)abs(ImSin((float)g.Time*1.8f)*(num_segments-5));
+	int start = (int)fabsf(ImSin((float)g.Time*1.8f)*(num_segments-5));
 
 	const float a_min = IM_PI*2.0f * ((float)start) / (float)num_segments;
 	const float a_max = IM_PI*2.0f * ((float)num_segments-3) / (float)num_segments;
@@ -660,7 +660,6 @@ int main(int argc, char **argv)
 			ImGui::SetNextWindowPos(ImVec2(margin, menuBarHeight + margin), ImGuiCond_FirstUseEver);
 			ImGui::SetNextWindowSize(ImVec2(425.0f, io.DisplaySize.y - menuBarHeight - margin * 2.0f), ImGuiCond_FirstUseEver);
 			if (ImGui::Begin("##mainWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse)) {
-				const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
 				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);
 				if (modelIsLoaded()) {
 					atlasShowGuiOptions();

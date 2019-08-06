@@ -772,7 +772,7 @@ static bool emptyFilterSamplePredicate(const float * /*data*/, uint32_t offset, 
 static bool bilinearFilterWritePredicate(const float * /*data*/, uint32_t offset)
 {
 	// Only write to texels sampled by bilinear interpolation..
-	return atlasGetImage()[offset] & xatlas::kImageIsBilinearBit;
+	return (atlasGetImage()[offset] & xatlas::kImageIsBilinearBit) != 0;
 }
 
 static bool bilinearFilterSamplePredicate(const float * /*data*/, uint32_t offset, uint32_t chart)

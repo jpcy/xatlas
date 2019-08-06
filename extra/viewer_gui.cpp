@@ -159,7 +159,7 @@ void guiRender()
 bool guiColumnCheckbox(const char *label, const char *id, bool *value)
 {
 	ImGui::AlignTextToFramePadding();
-	ImGui::Text(label);
+	ImGui::Text("%s", label);
 	ImGui::NextColumn();
 	ImGui::PushItemWidth(-1);
 	bool result = ImGui::Checkbox(id, value);
@@ -171,7 +171,7 @@ bool guiColumnCheckbox(const char *label, const char *id, bool *value)
 bool guiColumnColorEdit(const char *label, const char *id, float *color)
 {
 	ImGui::AlignTextToFramePadding();
-	ImGui::Text(label);
+	ImGui::Text("%s", label);
 	ImGui::NextColumn();
 	ImGui::PushItemWidth(-1);
 	bool result = ImGui::ColorEdit3(id, color, ImGuiColorEditFlags_NoInputs);
@@ -183,7 +183,7 @@ bool guiColumnColorEdit(const char *label, const char *id, float *color)
 bool guiColumnInputFloat(const char *label, const char *id, float *value, float step, float stepFast, const char *format)
 {
 	ImGui::AlignTextToFramePadding();
-	ImGui::Text(label);
+	ImGui::Text("%s", label);
 	ImGui::NextColumn();
 	ImGui::PushItemWidth(-1);
 	bool result = ImGui::InputFloat(id, value, step, stepFast, format);
@@ -195,7 +195,7 @@ bool guiColumnInputFloat(const char *label, const char *id, float *value, float 
 bool guiColumnInputInt(const char *label, const char *id, int *value, int step)
 {
 	ImGui::AlignTextToFramePadding();
-	ImGui::Text(label);
+	ImGui::Text("%s", label);
 	ImGui::NextColumn();
 	ImGui::PushItemWidth(-1);
 	bool result = ImGui::InputInt(id, value, step);
@@ -207,7 +207,7 @@ bool guiColumnInputInt(const char *label, const char *id, int *value, int step)
 bool guiColumnSliderInt(const char *label, const char *id, int *value, int valueMin, int valueMax)
 {
 	ImGui::AlignTextToFramePadding();
-	ImGui::Text(label);
+	ImGui::Text("%s", label);
 	ImGui::NextColumn();
 	ImGui::PushItemWidth(-1);
 	bool result = ImGui::SliderInt(id, value, valueMin, valueMax);
