@@ -348,6 +348,7 @@ namespace embree
 	typedef RTCDevice (*NewDeviceFunc)(const char* config);
 	typedef void (*ReleaseDeviceFunc)(RTCDevice device);
 	typedef void (*SetDeviceErrorFunctionFunc)(RTCDevice device, RTCErrorFunction error, void* userPtr);
+	typedef ssize_t (*GetDevicePropertyFunc)(RTCDevice device, enum RTCDeviceProperty prop);
 	typedef RTCScene (*NewSceneFunc)(RTCDevice device);
 	typedef void (*ReleaseSceneFunc)(RTCScene scene);
 	typedef unsigned int (*AttachGeometryFunc)(RTCScene scene, RTCGeometry geometry);
@@ -357,6 +358,8 @@ namespace embree
 	typedef void (*SetSharedGeometryBufferFunc)(RTCGeometry geometry, enum RTCBufferType type, unsigned int slot, enum RTCFormat format, const void* ptr, size_t byteOffset, size_t byteStride, size_t itemCount);
 	typedef void (*CommitGeometryFunc)(RTCGeometry geometry);
 	typedef void (*Intersect1Func)(RTCScene scene, struct RTCIntersectContext* context, struct RTCRayHit* rayhit);
+	typedef void (*Intersect4Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRayHit4* rayhit);
+	typedef void (*Intersect8Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRayHit8* rayhit);
 	typedef void (*Intersect16Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRayHit16* rayhit);
 	typedef void (*Occluded1Func)(RTCScene scene, struct RTCIntersectContext* context, struct RTCRay* ray);
 	typedef void (*Occluded4Func)(const int* valid, RTCScene scene, struct RTCIntersectContext* context, struct RTCRay4* ray);
@@ -365,6 +368,7 @@ namespace embree
 	NewDeviceFunc NewDevice;
 	ReleaseDeviceFunc ReleaseDevice;
 	SetDeviceErrorFunctionFunc SetDeviceErrorFunction;
+	GetDevicePropertyFunc GetDeviceProperty;
 	NewSceneFunc NewScene;
 	ReleaseSceneFunc ReleaseScene;
 	AttachGeometryFunc AttachGeometry;
@@ -374,6 +378,8 @@ namespace embree
 	SetSharedGeometryBufferFunc SetSharedGeometryBuffer;
 	CommitGeometryFunc CommitGeometry;
 	Intersect1Func Intersect1;
+	Intersect4Func Intersect4;
+	Intersect8Func Intersect8;
 	Intersect16Func Intersect16;
 	Occluded1Func Occluded1;
 	Occluded4Func Occluded4;
@@ -399,6 +405,7 @@ static bool bakeInitEmbree()
 		embree::NewDevice = (embree::NewDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewDevice");
 		embree::ReleaseDevice = (embree::ReleaseDeviceFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseDevice");
 		embree::SetDeviceErrorFunction = (embree::SetDeviceErrorFunctionFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetDeviceErrorFunction");
+		embree::GetDeviceProperty = (embree::GetDevicePropertyFunc)bx::dlsym(s_bake.embreeLibrary, "rtcGetDeviceProperty");
 		embree::NewScene = (embree::NewSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcNewScene");
 		embree::ReleaseScene = (embree::ReleaseSceneFunc)bx::dlsym(s_bake.embreeLibrary, "rtcReleaseScene");
 		embree::AttachGeometry = (embree::AttachGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcAttachGeometry");
@@ -408,6 +415,8 @@ static bool bakeInitEmbree()
 		embree::SetSharedGeometryBuffer = (embree::SetSharedGeometryBufferFunc)bx::dlsym(s_bake.embreeLibrary, "rtcSetSharedGeometryBuffer");
 		embree::CommitGeometry = (embree::CommitGeometryFunc)bx::dlsym(s_bake.embreeLibrary, "rtcCommitGeometry");
 		embree::Intersect1 = (embree::Intersect1Func)bx::dlsym(s_bake.embreeLibrary, "rtcIntersect1");
+		embree::Intersect4 = (embree::Intersect4Func)bx::dlsym(s_bake.embreeLibrary, "rtcIntersect4");
+		embree::Intersect8 = (embree::Intersect8Func)bx::dlsym(s_bake.embreeLibrary, "rtcIntersect8");
 		embree::Intersect16 = (embree::Intersect16Func)bx::dlsym(s_bake.embreeLibrary, "rtcIntersect16");
 		embree::Occluded1 = (embree::Occluded1Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded1");
 		embree::Occluded4 = (embree::Occluded4Func)bx::dlsym(s_bake.embreeLibrary, "rtcOccluded4");
@@ -422,6 +431,20 @@ static bool bakeInitEmbree()
 			return false;
 		}
 		embree::SetDeviceErrorFunction(s_bake.embreeDevice, bakeEmbreeError, nullptr);
+		int version[3];
+		for (int i = 0; i < 3; i++)
+			version[i] = (int)embree::GetDeviceProperty(s_bake.embreeDevice, RTCDeviceProperty(RTC_DEVICE_PROPERTY_VERSION_MAJOR + i));
+		printf("Embree version %d.%d.%d\n", version[0], version[1], version[2]);
+		if (version[0] != RTC_VERSION_MAJOR || version[1] != RTC_VERSION_MINOR || version[2] != RTC_VERSION_PATCH)
+			printf("   Expected version is %d.%d.%d\n", RTC_VERSION_MAJOR, RTC_VERSION_MINOR, RTC_VERSION_PATCH);
+		if (embree::GetDeviceProperty(s_bake.embreeDevice, RTC_DEVICE_PROPERTY_NATIVE_RAY4_SUPPORTED))
+			printf("   RTC_DEVICE_PROPERTY_NATIVE_RAY4_SUPPORTED\n");
+		if (embree::GetDeviceProperty(s_bake.embreeDevice, RTC_DEVICE_PROPERTY_NATIVE_RAY8_SUPPORTED))
+			printf("   RTC_DEVICE_PROPERTY_NATIVE_RAY8_SUPPORTED\n");
+		if (embree::GetDeviceProperty(s_bake.embreeDevice, RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED))
+			printf("   RTC_DEVICE_PROPERTY_NATIVE_RAY16_SUPPORTED\n");
+		if (embree::GetDeviceProperty(s_bake.embreeDevice, RTC_DEVICE_PROPERTY_RAY_STREAM_SUPPORTED))
+			printf("   RTC_DEVICE_PROPERTY_RAY_STREAM_SUPPORTED\n");
 		s_bake.embreeGeometry = embree::NewGeometry(s_bake.embreeDevice, RTC_GEOMETRY_TYPE_TRIANGLE);
 		const objzModel *model = modelGetData();
 		embree::SetSharedGeometryBuffer(s_bake.embreeGeometry, RTC_BUFFER_TYPE_VERTEX, 0, RTC_FORMAT_FLOAT3, model->vertices, offsetof(ModelVertex, pos), sizeof(ModelVertex), (size_t)model->numVertices);
@@ -606,7 +629,7 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 		RTCIntersectContext context;
 		rtcInitIntersectContext(&context);
 		alignas(64) RTCRayHit16 rh; // docs: "for rtcIntersect16 the alignment must be 64 bytes"
-		int valid[kBatchMaxSize];
+		alignas(64) int valid[kBatchMaxSize];
 		for (uint32_t i = 0; i < kBatchMaxSize; i++) {
 			RayBatchItem &rbi = batch[i];
 			valid[i] = rbi.texel ? 0 : -1; // docs: "-1 means valid and 0 invalid"
@@ -615,16 +638,17 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 			rh.ray.org_x[i] = rbi.rayOrigin.x;
 			rh.ray.org_y[i] = rbi.rayOrigin.y;
 			rh.ray.org_z[i] = rbi.rayOrigin.z;
+			rh.ray.tnear[i] = kNear;
 			rh.ray.dir_x[i] = rbi.rayDir.x;
 			rh.ray.dir_y[i] = rbi.rayDir.y;
 			rh.ray.dir_z[i] = rbi.rayDir.z;
-			rh.ray.tnear[i] = kNear;
+			rh.ray.time[i] = 0.0f;
 			rh.ray.tfar[i] = FLT_MAX;
-			rh.ray.flags[i] = 0;
+			rh.ray.mask[i] = UINT32_MAX;
 			rh.ray.id[i] = 0;
-			rh.ray.mask[i] = 0;
-			rh.hit.geomID[i] = RTC_INVALID_GEOMETRY_ID;
+			rh.ray.flags[i] = 0;
 			rh.hit.primID[i] = RTC_INVALID_GEOMETRY_ID;
+			rh.hit.geomID[i] = RTC_INVALID_GEOMETRY_ID;
 		}
 		embree::Intersect16(valid, s_bake.embreeScene, &context, &rh);
 		s_bake.numRaysTraced += kBatchMaxSize;
@@ -633,14 +657,14 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 			RayBatchItem &rbi = batch[i];
 			if (!rbi.texel)
 				continue;
-			const uint32_t offset = i * kBatchMaxSize + rbi.depth;
+			rbi.texel->numPathsTraced++;
+			const uint32_t offset = i * kMaxDepth + rbi.depth;
 			if (rh.hit.geomID[i] == RTC_INVALID_GEOMETRY_ID) {
 				// Ray missed, use sky color.
 				rayDiffuse[offset] = s_bake.options.skyColor;
 				rayEmission[offset] = bx::Vec3(0.0f);
 				rbi.finished = true;
 				rbi.depth++;
-				rbi.texel->numPathsTraced++;
 				continue;
 			}
 			const uint32_t *indices = atlasGetIndices()->data();
@@ -675,14 +699,13 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 				const bx::Vec3 hitNormal = bx::normalize(bx::Vec3(rh.hit.Ng_x[i], rh.hit.Ng_y[i], rh.hit.Ng_z[i]));
 				rbi.rayDir = randomDirHemisphere(rbi.texel->numPathsTraced, rbi.texel->randomOffset, hitNormal);
 			}
-			rbi.texel->numPathsTraced++;
 		}
 		// Process finished texels and remove them from the batch.
 		for (uint32_t i = 0; i < kBatchMaxSize; i++) {
 			RayBatchItem &rbi = batch[i];
 			if (!rbi.texel || !rbi.finished)
 				continue;
-			const uint32_t offset = i * kBatchMaxSize;
+			const uint32_t offset = i * kMaxDepth;
 			rbi.texel->accumColor = rbi.texel->accumColor + accumulateColor(&rayDiffuse[offset], &rayEmission[offset], 0, rbi.depth);
 			rbi.texel->numColorSamples++;
 			float *rgba = &s_bake.lightmapData[(rbi.sample->uv[0] + rbi.sample->uv[1] * s_bake.lightmapWidth) * 4];
@@ -720,8 +743,12 @@ static bool bakeTraceRays()
 	const clock_t start = clock();
 	s_bake.samplesPerTexelCount = 0;
 	for (;;) {
+#if 0
+		bakeTraceRaysTask(0, (int32_t)s_bake.sampleLocations.size(), 0, nullptr);
+#else
 		enkiAddTaskSetToPipe(s_bake.taskScheduler, task, 0, (int32_t)s_bake.sampleLocations.size());
 		enkiWaitForTaskSet(s_bake.taskScheduler, task);
+#endif
 		if (s_bake.cancelWorker)
 			break;
 		s_bake.samplesPerTexelCount++;
