@@ -339,6 +339,8 @@ struct
 	uint32_t updateFinishedFrameNo;
 }
 s_bake;
+	
+static thread_local bx::RngMwc s_rng;
 
 #define EMBREE_LIB "embree3.dll"
 
@@ -577,8 +579,8 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 	for (uint32_t i = start; i < end; i++) {
 		TexelData &texel = s_bake.texels[i];
 		const SampleLocation &sample = s_bake.sampleLocations[s_bake.sampleLocationRanks[i]];
-		bx::Vec3 pathColor = bx::Vec3(0.0f);
-		bx::Vec3 pathThroughput = bx::Vec3(1.0f);
+		bx::Vec3 color = bx::Vec3(0.0f);
+		bx::Vec3 throughput = bx::Vec3(1.0f);
 		bx::Vec3 rayOrigin = sample.pos;
 		bx::Vec3 rayDir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, sample.normal);
 		for (int depth = 0; depth < s_bake.options.maxDepth; depth++) {
@@ -604,7 +606,7 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 			texel.numPathsTraced++;
 			if (rh.hit.geomID == RTC_INVALID_GEOMETRY_ID) {
 				// Ray missed, use sky color.
-				pathColor = pathColor + (pathThroughput * s_bake.options.skyColor);
+				color = color + (throughput * s_bake.options.skyColor);
 				break;
 			}
 			const uint32_t *indices = atlasGetIndices()->data();
@@ -629,9 +631,15 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 					emission = texelColor;
 			}
 			if (emission.x > 0.0f || emission.y > 0.0f || emission.z > 0.0f)
-				pathColor = pathColor + (pathThroughput * emission);
+				color = color + (throughput * emission);
 			else
-				pathThroughput = pathThroughput * diffuse;
+				throughput = throughput * diffuse;
+			// Russian Roulette
+			// https://computergraphics.stackexchange.com/questions/2316/is-russian-roulette-really-the-answer
+			const float p = bx::max(throughput.x, bx::max(throughput.y, throughput.z));
+			if (bx::frnd(&s_rng) > p)
+				break;
+			throughput = throughput * (1.0f / p);
 			if (depth + 1 < s_bake.options.maxDepth) {
 				// Using barycentrics should be more precise than "origin + dir * rh.ray.tfar".
 				rayOrigin = v0.pos + (v1.pos - v0.pos) * rh.hit.u + (v2.pos - v0.pos) * rh.hit.v;
@@ -639,7 +647,7 @@ static void bakeTraceRaysTask(uint32_t start, uint32_t end, uint32_t /*threadInd
 				rayDir = randomDirHemisphere(texel.numPathsTraced, texel.randomOffset, normal);
 			}
 		}
-		texel.accumColor = texel.accumColor + pathColor;
+		texel.accumColor = texel.accumColor + color;
 		texel.numColorSamples++;
 	}
 	// Copy texel data to lightmap.
