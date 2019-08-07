@@ -93,6 +93,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_ALLOC(tag, type) (type *)internal::Realloc(nullptr, sizeof(type), tag, __FILE__, __LINE__)
 #define XA_ALLOC_ARRAY(tag, type, num) (type *)internal::Realloc(nullptr, sizeof(type) * num, tag, __FILE__, __LINE__)
 #define XA_REALLOC(tag, ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * num, tag, __FILE__, __LINE__)
+#define XA_REALLOC_SIZE(tag, ptr, size) (uint8_t *)internal::Realloc(ptr, size, tag, __FILE__, __LINE__)
 #define XA_FREE(ptr) internal::Realloc(ptr, 0, internal::MemTag::Default, __FILE__, __LINE__)
 #define XA_NEW(tag, type) new (XA_ALLOC(tag, type)) type()
 #define XA_NEW_ARGS(tag, type, ...) new (XA_ALLOC(tag, type)) type(__VA_ARGS__)
@@ -168,6 +169,7 @@ struct AllocHeader
 	const char *file;
 	int line;
 	int tag;
+	uint32_t id;
 	AllocHeader *prev, *next;
 	bool free;
 };
@@ -175,6 +177,7 @@ struct AllocHeader
 static std::mutex s_allocMutex;
 static AllocHeader *s_allocRoot = nullptr;
 static size_t s_allocTotalSize = 0, s_allocPeakSize = 0, s_allocTotalTagSize[MemTag::Count] = { 0 }, s_allocPeakTagSize[MemTag::Count] = { 0 };
+static uint32_t s_allocId =0 ;
 static constexpr uint32_t kAllocRedzone = 0x12345678;
 
 static void *Realloc(void *ptr, size_t size, int tag, const char *file, int line)
@@ -215,6 +218,7 @@ static void *Realloc(void *ptr, size_t size, int tag, const char *file, int line
 	header->file = file;
 	header->line = line;
 	header->tag = tag;
+	header->id = s_allocId++;
 	header->free = false;
 	if (!s_allocRoot) {
 		s_allocRoot = header;
@@ -243,7 +247,7 @@ static void ReportLeaks()
 	AllocHeader *header = s_allocRoot;
 	while (header) {
 		if (!header->free) {
-			printf("   Leak: %zu bytes %s %d\n", header->size, header->file, header->line);
+			printf("   Leak: ID %u, %zu bytes, %s %d\n", header->id, header->size, header->file, header->line);
 			anyLeaks = true;
 		}
 		auto redzone = (const uint32_t *)((const uint8_t *)header + header->size - sizeof(kAllocRedzone));
@@ -955,252 +959,177 @@ struct AABB
 	Vector3 min, max;
 };
 
-template <typename T>
-static void construct_range(T * ptr, uint32_t new_size, uint32_t old_size) {
-	for (uint32_t i = old_size; i < new_size; i++) {
-		new(ptr+i) T; // placement new
-	}
-}
+struct ArrayBase
+{
+	ArrayBase(uint32_t elementSize, int memTag = MemTag::Default) : buffer(nullptr), elementSize(elementSize), size(0), capacity(0), memTag(memTag) {}
 
-template <typename T>
-static void construct_range(T * ptr, uint32_t new_size, uint32_t old_size, const T & elem) {
-	for (uint32_t i = old_size; i < new_size; i++) {
-		new(ptr+i) T(elem); // placement new
-	}
-}
-
-template <typename T>
-static void construct_range(T * ptr, uint32_t new_size, uint32_t old_size, const T * src) {
-	for (uint32_t i = old_size; i < new_size; i++) {
-		new(ptr+i) T(src[i]); // placement new
-	}
-}
-
-template <typename T>
-static void destroy_range(T * ptr, uint32_t new_size, uint32_t old_size) {
-	for (uint32_t i = new_size; i < old_size; i++) {
-		(ptr+i)->~T(); // Explicit call to the destructor
-	}
-}
-
-/**
-* Replacement for std::vector that is easier to debug and provides
-* some nice foreach enumerators. 
-*/
-template<typename T>
-class Array {
-public:
-	typedef uint32_t size_type;
-
-	Array(int memTag = MemTag::Default) : m_memTag(memTag), m_buffer(nullptr), m_capacity(0), m_size(0) {}
-
-	Array(const Array &a) : m_memTag(a.m_memTag), m_buffer(nullptr), m_capacity(0), m_size(0)
+	~ArrayBase()
 	{
-		copy(a.m_buffer, a.m_size);
+		XA_FREE(buffer);
 	}
 
-	~Array()
+	void clear()
 	{
-		destroy();
+		size = 0;
 	}
 
-	const Array<T> &operator=(const Array<T> &other)
+	void copyTo(ArrayBase &other) const
 	{
-		m_memTag = other.m_memTag;
-		m_buffer = other.m_buffer;
-		m_capacity = other.m_capacity;
-		m_size = other.m_size;
-		return *this;
+		XA_DEBUG_ASSERT(elementSize == other.elementSize);
+		other.resize(size);
+		memcpy(other.buffer, buffer, size * elementSize);
 	}
 
-	const T & operator[]( uint32_t index ) const
+	void destroy()
 	{
-		XA_DEBUG_ASSERT(index < m_size);
-		return m_buffer[index];
-	}
-	
-	T & operator[] ( uint32_t index )
-	{
-		XA_DEBUG_ASSERT(index < m_size);
-		return m_buffer[index];
+		size = 0;
+		XA_FREE(buffer);
+		buffer = nullptr;
+		capacity = 0;
+		size = 0;
 	}
 
-	uint32_t size() const { return m_size; }
-	const T * data() const { return m_buffer; }
-	T * data() { return m_buffer; }
-	T * begin() { return m_buffer; }
-	T * end() { return m_buffer + m_size; }
-	const T * begin() const { return m_buffer; }
-	const T * end() const { return m_buffer + m_size; }
-	bool isEmpty() const { return m_size == 0; }
-
-	void push_back( const T & val )
+	// Insert the given element at the given index shifting all the elements up.
+	void insertAt(uint32_t index, const uint8_t *value)
 	{
-		XA_DEBUG_ASSERT(&val < m_buffer || &val >= m_buffer+m_size);
-		uint32_t old_size = m_size;
-		uint32_t new_size = m_size + 1;
-		setArraySize(new_size);
-		construct_range(m_buffer, new_size, old_size, val);
+		XA_DEBUG_ASSERT(index >= 0 && index <= size);
+		resize(size + 1);
+		if (index < size - 1)
+			memmove(buffer + elementSize * (index + 1), buffer + elementSize * index, elementSize * (size - 1 - index));
+		memcpy(&buffer[index * elementSize], value, elementSize);
+	}
+
+	void moveTo(ArrayBase &other)
+	{
+		XA_DEBUG_ASSERT(elementSize == other.elementSize);
+		other.destroy();
+		other.buffer = buffer;
+		other.elementSize = elementSize;
+		other.size = size;
+		other.capacity = capacity;
+		other.memTag = memTag;
+		buffer = nullptr;
+		elementSize = size = capacity = 0;
 	}
 
 	void pop_back()
 	{
-		XA_DEBUG_ASSERT( m_size > 0 );
-		resize( m_size - 1 );
+		XA_DEBUG_ASSERT(size > 0);
+		resize(size - 1);
 	}
 
-	const T & back() const
+	void push_back(const uint8_t *value)
 	{
-		XA_DEBUG_ASSERT( m_size > 0 );
-		return m_buffer[m_size-1];
-	}
-
-	T & back()
-	{
-		XA_DEBUG_ASSERT( m_size > 0 );
-		return m_buffer[m_size-1];
-	}
-
-	const T & front() const
-	{
-		XA_DEBUG_ASSERT( m_size > 0 );
-		return m_buffer[0];
-	}
-
-	T & front()
-	{
-		XA_DEBUG_ASSERT( m_size > 0 );
-		return m_buffer[0];
+		XA_DEBUG_ASSERT(value < buffer || value >= buffer + size);
+		resize(size + 1);
+		memcpy(&buffer[(size - 1) * elementSize], value, elementSize);
 	}
 
 	// Remove the element at the given index. This is an expensive operation!
 	void removeAt(uint32_t index)
 	{
-		XA_DEBUG_ASSERT(index >= 0 && index < m_size);
-		if (m_size == 1) {
-			clear();
-		}
-		else {
-			m_buffer[index].~T();
-			memmove(m_buffer+index, m_buffer+index+1, sizeof(T) * (m_size - 1 - index));
-			m_size--;
-		}
+		XA_DEBUG_ASSERT(index >= 0 && index < size);
+		if (size != 1)
+			memmove(buffer + elementSize * index, buffer + elementSize * (index + 1), elementSize * (size - 1 - index));
+		size--;
 	}
 
-	// Insert the given element at the given index shifting all the elements up.
-	void insertAt(uint32_t index, const T & val = T())
+	void reserve(uint32_t desiredSize)
 	{
-		XA_DEBUG_ASSERT( index >= 0 && index <= m_size );
-		setArraySize(m_size + 1);
-		if (index < m_size - 1) {
-			memmove(m_buffer+index+1, m_buffer+index, sizeof(T) * (m_size - 1 - index));
-		}
-		// Copy-construct into the newly opened slot.
-		new(m_buffer+index) T(val);
+		if (desiredSize > capacity)
+			setArrayCapacity(desiredSize);
 	}
 
-	void append(const Array<T> & other)
+	void resize(uint32_t newSize)
 	{
-		append(other.m_buffer, other.m_size);
-	}
-
-	void resize(uint32_t new_size)
-	{
-		uint32_t old_size = m_size;
-		// Destruct old elements (if we're shrinking).
-		destroy_range(m_buffer, new_size, old_size);
-		setArraySize(new_size);
-		// Call default constructors
-		construct_range(m_buffer, new_size, old_size);
-	}
-
-	void resize(uint32_t new_size, const T & elem)
-	{
-		XA_DEBUG_ASSERT(&elem < m_buffer || &elem > m_buffer+m_size);
-		uint32_t old_size = m_size;
-		// Destruct old elements (if we're shrinking).
-		destroy_range(m_buffer, new_size, old_size);
-		setArraySize(new_size);
-		// Call copy constructors
-		construct_range(m_buffer, new_size, old_size, elem);
-	}
-
-	void clear()
-	{
-		// Destruct old elements
-		destroy_range(m_buffer, 0, m_size);
-		m_size = 0;
-	}
-
-	void destroy()
-	{
-		clear();
-		XA_FREE(m_buffer);
-		m_buffer = nullptr;
-		m_capacity = 0;
-		m_size = 0;
-	}
-
-	void reserve(uint32_t desired_size)
-	{
-		if (desired_size > m_capacity) {
-			setArrayCapacity(desired_size);
+		size = newSize;
+		if (size > capacity) {
+			// First allocation is exact. Following allocations grow array by 2x
+			uint32_t newBufferSize;
+			if (capacity == 0)
+				newBufferSize = size;
+			else
+				newBufferSize = size * 2;
+			setArrayCapacity(newBufferSize);
 		}
 	}
 
-	void copy(const T * data, uint32_t count)
+	void setArrayCapacity(uint32_t newCapacity)
 	{
-		destroy_range(m_buffer, 0, m_size);
-		setArraySize(count);
-		construct_range(m_buffer, count, 0, data);
-	}
-
-	void moveTo(Array<T> &other)
-	{
-		other.destroy();
-		swap(m_buffer, other.m_buffer);
-		swap(m_capacity, other.m_capacity);
-		swap(m_size, other.m_size);
-	}
-
-protected:
-	void setArraySize(uint32_t new_size)
-	{
-		m_size = new_size;
-		if (new_size > m_capacity) {
-			uint32_t new_buffer_size;
-			if (m_capacity == 0) {
-				// first allocation is exact
-				new_buffer_size = new_size;
-			}
-			else {
-				// following allocations grow array by 25%
-				new_buffer_size = new_size + (new_size >> 2);
-			}
-			setArrayCapacity( new_buffer_size );
-		}
-	}
-	void setArrayCapacity(uint32_t new_capacity)
-	{
-		XA_DEBUG_ASSERT(new_capacity >= m_size);
-		if (new_capacity == 0) {
+		XA_DEBUG_ASSERT(newCapacity >= size);
+		if (newCapacity == 0) {
 			// free the buffer.
-			if (m_buffer != nullptr) {
-				XA_FREE(m_buffer);
-				m_buffer = nullptr;
+			if (buffer != nullptr) {
+				XA_FREE(buffer);
+				buffer = nullptr;
 			}
-		}
-		else {
+		} else {
 			// realloc the buffer
-			m_buffer = XA_REALLOC(m_memTag, m_buffer, T, new_capacity);
+			buffer = XA_REALLOC_SIZE(memTag, buffer, newCapacity * elementSize);
 		}
-		m_capacity = new_capacity;
+		capacity = newCapacity;
 	}
 
-	int m_memTag;
-	T * m_buffer;
-	uint32_t m_capacity;
-	uint32_t m_size;
+	uint8_t *buffer;
+	uint32_t elementSize;
+	uint32_t size;
+	uint32_t capacity;
+	int memTag;
+};
+
+template<typename T>
+class Array
+{
+public:
+	Array(int memTag = MemTag::Default) : m_base(sizeof(T), memTag) {}
+	Array(const Array&) = delete;
+	const Array &operator=(const Array &) = delete;
+
+	const T &operator[](uint32_t index) const
+	{
+		XA_DEBUG_ASSERT(index < m_base.size);
+		return ((const T *)m_base.buffer)[index];
+	}
+
+	T &operator[](uint32_t index)
+	{
+		XA_DEBUG_ASSERT(index < m_base.size);
+		return ((T *)m_base.buffer)[index];
+	}
+
+	const T &back() const
+	{
+		XA_DEBUG_ASSERT(!isEmpty());
+		return ((const T *)m_base.buffer)[m_base.size - 1];
+	}
+
+	T *begin() { return (T *)m_base.buffer; }
+	void clear() { m_base.clear(); }
+	void copyTo(Array &other) const { m_base.copyTo(other.m_base); }
+	const T *data() const { return (const T *)m_base.buffer; }
+	T *data() { return (T *)m_base.buffer; }
+	T *end() { return (T *)m_base.buffer + m_base.size; }
+	bool isEmpty() const { return m_base.size == 0; }
+	void insertAt(uint32_t index, const T &value) { m_base.insertAt(index, (const uint8_t *)&value); }
+	void moveTo(Array &other) { m_base.moveTo(other.m_base); }
+	void push_back(const T &value) { m_base.push_back((const uint8_t *)&value); }
+	void pop_back() { m_base.pop_back(); }
+	void removeAt(uint32_t index) { m_base.removeAt(index); }
+	void reserve(uint32_t desiredSize) { m_base.reserve(desiredSize); }
+	void resize(uint32_t newSize) { m_base.resize(newSize); }
+
+	void setAll(const T &value)
+	{
+		auto buffer = (T *)m_base.buffer;
+		for (uint32_t i = 0; i < m_base.size; i++)
+			buffer[i] = value;
+	}
+
+	uint32_t size() const { return m_base.size; }
+	void zeroOutMemory() { memset(m_base.buffer, 0, m_base.elementSize * m_base.size); }
+
+private:
+	ArrayBase m_base;
 };
 
 /// Basis class to compute tangent space basis, ortogonalizations and to
@@ -1252,7 +1181,7 @@ public:
 	void resize(uint32_t new_size)
 	{
 		m_size = new_size;
-		m_wordArray.resize( (m_size + 31) >> 5 );
+		m_wordArray.resize((m_size + 31) >> 5);
 	}
 
 	/// Get bit.
@@ -1292,32 +1221,20 @@ public:
 	{
 		m_rowStride = (m_width + 63) >> 6;
 		m_data.resize(m_rowStride * m_height);
+		m_data.zeroOutMemory();
 	}
 
-	BitImage(const BitImage &other)
-	{
-		copy(other);
-	}
-
-	const BitImage &operator=(const BitImage &other)
-	{
-		m_width = other.m_width;
-		m_height = other.m_height;
-		m_rowStride = other.m_rowStride;
-		m_data = other.m_data;
-		return *this;
-	}
-
+	BitImage(const BitImage &other) = delete;
+	const BitImage &operator=(const BitImage &other) = delete;
 	uint32_t width() const { return m_width; }
 	uint32_t height() const { return m_height; }
 
-	void copy(const BitImage &other)
+	void copyTo(BitImage &other)
 	{
-		m_width = other.m_width;
-		m_height = other.m_height;
-		m_rowStride = other.m_rowStride;
-		m_data.resize(m_rowStride * m_height);
-		memcpy(m_data.data(), other.m_data.data(), m_rowStride * m_height * sizeof(uint64_t));
+		other.m_width = m_width;
+		other.m_height = m_height;
+		other.m_rowStride = m_rowStride;
+		m_data.copyTo(other.m_data);
 	}
 
 	void resize(uint32_t w, uint32_t h, bool discard)
@@ -1325,7 +1242,7 @@ public:
 		const uint32_t rowStride = (w + 63) >> 6;
 		if (discard) {
 			m_data.resize(rowStride * h);
-			memset(m_data.data(), 0, m_data.size() * sizeof(uint64_t));
+			m_data.zeroOutMemory();
 		} else {
 			Array<uint64_t> tmp;
 			tmp.resize(rowStride * h);
@@ -1362,7 +1279,7 @@ public:
 
 	void clearAll()
 	{
-		memset(m_data.data(), 0, m_data.size() * sizeof(uint64_t));
+		m_data.zeroOutMemory();
 	}
 
 	bool canBlit(const BitImage &image, uint32_t offsetX, uint32_t offsetY) const
@@ -1416,7 +1333,7 @@ public:
 						tmp.setBitAt(x, y);
 				}
 			}
-			swap(m_data, tmp.m_data);
+			tmp.m_data.copyTo(m_data);
 		}
 	}
 
@@ -1765,25 +1682,17 @@ class FullVector
 {
 public:
 	FullVector(uint32_t dim) { m_array.resize(dim); }
-	FullVector(const FullVector &v) : m_array(v.m_array) {}
-
-	const FullVector &operator=(const FullVector &v)
-	{
-		XA_ASSERT(dimension() == v.dimension());
-		m_array = v.m_array;
-		return *this;
-	}
-
+	FullVector(const FullVector &v) { v.m_array.copyTo(m_array); }
+	const FullVector &operator=(const FullVector &v) = delete;
 	uint32_t dimension() const { return m_array.size(); }
-	const float &operator[]( uint32_t index ) const { return m_array[index]; }
-	float &operator[] ( uint32_t index ) { return m_array[index]; }
+	const float &operator[](uint32_t index) const { return m_array[index]; }
+	float &operator[](uint32_t index) { return m_array[index]; }
 
 	void fill(float f)
 	{
 		const uint32_t dim = dimension();
-		for (uint32_t i = 0; i < dim; i++) {
+		for (uint32_t i = 0; i < dim; i++)
 			m_array[i] = f;
-		}
 	}
 
 private:
@@ -2201,7 +2110,7 @@ private:
 			}
 		}
 		// Remove duplicate element.
-		XA_DEBUG_ASSERT(output.front() == output.back());
+		XA_DEBUG_ASSERT(output.size() > 0);
 		output.pop_back();
 	}
 
@@ -2312,7 +2221,9 @@ public:
 		Array<uint32_t> colocals;
 		Array<uint32_t> potential;
 		m_colocalVertexCount = 0;
-		m_nextColocalVertex.resize(vertexCount, UINT32_MAX);
+		m_nextColocalVertex.resize(vertexCount);
+		for (uint32_t i = 0; i < vertexCount; i++)
+			m_nextColocalVertex[i] = UINT32_MAX;
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			if (m_nextColocalVertex[i] != UINT32_MAX)
 				continue; // Already linked.
@@ -3578,6 +3489,7 @@ public:
 		}
 		m_workers.resize(std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1);
 		for (uint32_t i = 0; i < m_workers.size(); i++) {
+			new (&m_workers[i]) Worker();
 			m_workers[i].wakeup = false;
 			m_workers[i].thread = XA_NEW_ARGS(MemTag::Default, std::thread, workerThread, this, &m_workers[i]);
 		}
@@ -4074,18 +3986,28 @@ public:
 		float v; // value
 	};
 
-	Matrix(uint32_t d) : m_width(d) { m_array.resize(d); }
-	Matrix(uint32_t w, uint32_t h) : m_width(w) { m_array.resize(h); }
-	Matrix(const Matrix &m) : m_width(m.m_width) { m_array = m.m_array; }
-
-	const Matrix &operator=(const Matrix &m)
+	Matrix(uint32_t d) : m_width(d)
 	{
-		XA_ASSERT(width() == m.width());
-		XA_ASSERT(height() == m.height());
-		m_array = m.m_array;
-		return *this;
+		m_array.resize(d);
+		for (uint32_t i = 0; i < m_array.size(); i++)
+			new (&m_array[i]) Array<Coefficient>();
+	}
+	
+	Matrix(uint32_t w, uint32_t h) : m_width(w)
+	{
+		m_array.resize(h);
+		for (uint32_t i = 0; i < m_array.size(); i++)
+			new (&m_array[i]) Array<Coefficient>();
+	}
+	
+	~Matrix()
+	{
+		for (uint32_t i = 0; i < m_array.size(); i++)
+			m_array[i].~Array();
 	}
 
+	Matrix(const Matrix &m) = delete;
+	const Matrix &operator=(const Matrix &m) = delete;
 	uint32_t width() const { return m_width; }
 	uint32_t height() const { return m_array.size(); }
 	bool isSquare() const { return width() == height(); }
@@ -4738,6 +4660,7 @@ struct PriorityQueue
 
 	uint32_t pop()
 	{
+		XA_DEBUG_ASSERT(!pairs.isEmpty());
 		uint32_t f = pairs.back().face;
 		pairs.pop_back();
 		return f;
@@ -4803,22 +4726,28 @@ struct AtlasBuilder
 		XA_PROFILE_START(atlasBuilderInit)
 		const uint32_t faceCount = m_mesh->faceCount();
 		if (meshFaces) {
-			m_ignoreFaces.resize(faceCount, true);
+			m_ignoreFaces.resize(faceCount);
+			m_ignoreFaces.setAll(true);
 			for (uint32_t f = 0; f < meshFaces->size(); f++)
 				m_ignoreFaces[(*meshFaces)[f]] = false;
 			m_facesLeft = meshFaces->size();
 		} else {
-			m_ignoreFaces.resize(faceCount, false);
+			m_ignoreFaces.resize(faceCount);
+			m_ignoreFaces.setAll(false);
 		}
-		m_faceChartArray.resize(faceCount, -1);
-		m_faceCandidateArray.resize(faceCount, (uint32_t)-1);
+		m_faceChartArray.resize(faceCount);
+		m_faceChartArray.setAll(-1);
+		m_faceCandidateArray.resize(faceCount);
+		m_faceCandidateArray.setAll((uint32_t)-1);
 		m_texcoords.resize(faceCount * 3);
 		// @@ Floyd for the whole mesh is too slow. We could compute floyd progressively per patch as the patch grows. We need a better solution to compute most central faces.
 		//computeShortestPaths();
 		// Precompute edge lengths and face areas.
 		const uint32_t edgeCount = m_mesh->edgeCount();
-		m_edgeLengths.resize(edgeCount, 0.0f);
-		m_faceAreas.resize(m_mesh->faceCount(), 0.0f);
+		m_edgeLengths.resize(edgeCount);
+		m_edgeLengths.zeroOutMemory();
+		m_faceAreas.resize(m_mesh->faceCount());
+		m_faceAreas.zeroOutMemory();
 		m_faceNormals.resize(m_mesh->faceCount());
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_ignoreFaces[f])
@@ -4965,11 +4894,14 @@ struct AtlasBuilder
 					continue;
 				float externalBoundaryLength = 0.0f;
 				sharedBoundaryLengths.clear();
-				sharedBoundaryLengths.resize(chartCount, 0.0f);
+				sharedBoundaryLengths.resize(chartCount);
+				sharedBoundaryLengths.zeroOutMemory();
 				sharedBoundaryLengthsNoSeams.clear();
-				sharedBoundaryLengthsNoSeams.resize(chartCount, 0.0f);
+				sharedBoundaryLengthsNoSeams.resize(chartCount);
+				sharedBoundaryLengthsNoSeams.zeroOutMemory();
 				sharedBoundaryEdgeCountNoSeams.clear();
-				sharedBoundaryEdgeCountNoSeams.resize(chartCount, 0u);
+				sharedBoundaryEdgeCountNoSeams.resize(chartCount);
+				sharedBoundaryEdgeCountNoSeams.zeroOutMemory();
 				const uint32_t faceCount = chart->faces.size();
 				for (uint32_t i = 0; i < faceCount; i++) {
 					const uint32_t f = chart->faces[i];
@@ -5689,7 +5621,8 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 		// If more than half the triangles are flipped, reverse the flipped / not flipped classification.
 		quality.flippedTriangleCount = quality.totalTriangleCount - quality.flippedTriangleCount;
 		if (flippedFaces) {
-			Array<uint32_t> temp(*flippedFaces);
+			Array<uint32_t> temp;
+			flippedFaces->copyTo(temp);
 			flippedFaces->clear();
 			for (uint32_t f = 0; f < faceCount; f++) {
 				bool match = false;
@@ -5740,18 +5673,21 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, const Basis &basis, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_faceArray(faceArray)
+	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, const Basis &basis, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
+		faceArray.copyTo(m_faceArray);
 		// Copy face indices.
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
 		Array<uint32_t> chartMeshIndices;
-		chartMeshIndices.resize(originalMesh->vertexCount(), (uint32_t)~0);
+		chartMeshIndices.resize(originalMesh->vertexCount());
+		chartMeshIndices.setAll(UINT32_MAX);
 		Array<uint32_t> unifiedMeshIndices;
-		unifiedMeshIndices.resize(originalMesh->vertexCount(), (uint32_t)~0);
+		unifiedMeshIndices.resize(originalMesh->vertexCount());
+		unifiedMeshIndices.setAll(UINT32_MAX);
 		// Add vertices.
 		const uint32_t faceCount = m_initialFaceCount = faceArray.size();
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -6056,7 +5992,8 @@ public:
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), faceCount * 3, faceCount, sourceMesh->flags() & MeshFlags::HasNormals);
 		XA_DEBUG_ASSERT(faceCount > 0);
 		Array<uint32_t> meshIndices;
-		meshIndices.resize(sourceMesh->vertexCount(), (uint32_t)~0);
+		meshIndices.resize(sourceMesh->vertexCount());
+		meshIndices.setAll((uint32_t)~0);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const uint32_t face = m_faceToSourceFaceMap[f];
 			for (uint32_t i = 0; i < 3; i++) {
@@ -6729,7 +6666,7 @@ public:
 			memcpy(&data[y * width], &m_data[y * m_width], min(m_width, width) * sizeof(uint32_t));
 		m_width = width;
 		m_height = height;
-		swap(m_data, data);
+		data.moveTo(m_data);
 	}
 
 	void addChart(uint32_t chartIndex, const BitImage *image, const BitImage *imageBilinear, const BitImage *imagePadding, int atlas_w, int atlas_h, int offset_x, int offset_y)
@@ -7268,10 +7205,16 @@ struct Atlas
 			if (options.padding > 0) {
 				// Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
 				XA_PROFILE_START(packChartsDilate)
-				chartImagePadding.copy(options.bilinear ? chartImageBilinear : chartImage);
+				if (options.bilinear)
+					chartImageBilinear.copyTo(chartImagePadding);
+				else
+					chartImage.copyTo(chartImagePadding);
 				chartImagePadding.dilate(options.padding);
 				if (chart->allowRotate) {
-					chartImagePaddingRotated.copy(options.bilinear ? chartImageBilinearRotated : chartImageRotated);
+					if (options.bilinear)
+						chartImageBilinearRotated.copyTo(chartImagePaddingRotated);
+					else
+						chartImageRotated.copyTo(chartImagePaddingRotated);
 					chartImagePaddingRotated.dilate(options.padding);
 				}
 				XA_PROFILE_END(packChartsDilate)
@@ -7308,8 +7251,7 @@ struct Atlas
 				XA_UNUSED(firstChartInBitImage);
 				if (currentAtlas + 1 > m_bitImages.size()) {
 					// Chart doesn't fit in the current bitImage, create a new one.
-					BitImage *bi = XA_NEW(MemTag::Default, BitImage);
-					bi->resize(resolution, resolution, true);
+					BitImage *bi = XA_NEW_ARGS(MemTag::Default, BitImage, resolution, resolution);
 					m_bitImages.push_back(bi);
 					atlasSizes.push_back(Vector2i(0, 0));
 					firstChartInBitImage = true;
