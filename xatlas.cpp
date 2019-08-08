@@ -976,7 +976,7 @@ struct ArrayBase
 	void copyTo(ArrayBase &other) const
 	{
 		XA_DEBUG_ASSERT(elementSize == other.elementSize);
-		other.resize(size);
+		other.resize(size, true);
 		memcpy(other.buffer, buffer, size * elementSize);
 	}
 
@@ -993,7 +993,7 @@ struct ArrayBase
 	void insertAt(uint32_t index, const uint8_t *value)
 	{
 		XA_DEBUG_ASSERT(index >= 0 && index <= size);
-		resize(size + 1);
+		resize(size + 1, false);
 		if (index < size - 1)
 			memmove(buffer + elementSize * (index + 1), buffer + elementSize * index, elementSize * (size - 1 - index));
 		memcpy(&buffer[index * elementSize], value, elementSize);
@@ -1015,13 +1015,13 @@ struct ArrayBase
 	void pop_back()
 	{
 		XA_DEBUG_ASSERT(size > 0);
-		resize(size - 1);
+		resize(size - 1, false);
 	}
 
 	void push_back(const uint8_t *value)
 	{
 		XA_DEBUG_ASSERT(value < buffer || value >= buffer + size);
-		resize(size + 1);
+		resize(size + 1, false);
 		memcpy(&buffer[(size - 1) * elementSize], value, elementSize);
 	}
 
@@ -1040,16 +1040,16 @@ struct ArrayBase
 			setArrayCapacity(desiredSize);
 	}
 
-	void resize(uint32_t newSize)
+	void resize(uint32_t newSize, bool exact)
 	{
 		size = newSize;
 		if (size > capacity) {
-			// First allocation is exact. Following allocations grow array by 2x
+			// First allocation is always exact. Otherwise, following allocations grow array to 150% of desired size.
 			uint32_t newBufferSize;
-			if (capacity == 0)
+			if (capacity == 0 || exact)
 				newBufferSize = size;
 			else
-				newBufferSize = size * 2;
+				newBufferSize = size + (size >> 2);
 			setArrayCapacity(newBufferSize);
 		}
 	}
@@ -1116,7 +1116,7 @@ public:
 	void pop_back() { m_base.pop_back(); }
 	void removeAt(uint32_t index) { m_base.removeAt(index); }
 	void reserve(uint32_t desiredSize) { m_base.reserve(desiredSize); }
-	void resize(uint32_t newSize) { m_base.resize(newSize); }
+	void resize(uint32_t newSize) { m_base.resize(newSize, true); }
 
 	void setAll(const T &value)
 	{
