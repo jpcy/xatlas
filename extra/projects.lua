@@ -21,6 +21,8 @@ project "example"
 	files "example.cpp"
 	includedirs(THIRDPARTY_DIR)
 	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
+	filter "action:vs*"
+		files "xatlas.natvis"
 	filter "system:linux"
 		links { "pthread" }
 		
@@ -34,6 +36,8 @@ project "example_repack"
 	files "example_repack.cpp"
 	includedirs(THIRDPARTY_DIR)
 	links { "stb_image", "stb_image_write", "objzero", "xatlas" }
+	filter "action:vs*"
+		files "xatlas.natvis"
 	filter "system:linux"
 		links { "pthread" }
 		
@@ -47,6 +51,8 @@ project "example_uvmesh"
 	files "example_uvmesh.cpp"
 	includedirs(THIRDPARTY_DIR)
 	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
+	filter "action:vs*"
+		files "xatlas.natvis"
 	filter "system:linux"
 		links { "pthread" }
 
@@ -60,6 +66,8 @@ project "test"
 	includedirs(THIRDPARTY_DIR)
 	files "test.cpp"
 	links { "tiny_obj_loader", "xatlas" }
+	filter "action:vs*"
+		files "xatlas.natvis"
 	filter "system:linux"
 		links { "pthread" }
 
@@ -91,6 +99,7 @@ project "viewer"
 	filter "system:linux"
 		links { "dl", "GL", "gtk-3", "gobject-2.0", "glib-2.0", "pthread", "X11", "Xcursor", "Xinerama", "Xrandr" }
 	filter "action:vs*"
+		files "xatlas.natvis"
 		includedirs { path.join(BX_DIR, "include/compat/msvc") }
 	filter { "system:windows", "action:gmake" }
 		includedirs { path.join(BX_DIR, "include/compat/mingw") }

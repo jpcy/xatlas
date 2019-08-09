@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+	<Type Name="xatlas::internal::Array&lt;*&gt;">
+    <DisplayString Condition="m_base.size == 0">empty</DisplayString>
+    <DisplayString>{{ size={m_base.size} }}</DisplayString>
+    <Expand>
+      <Item Name="[size]" ExcludeView="simple">m_base.size</Item>
+      <Item Name="[capacity]" ExcludeView="simple">m_base.capacity</Item>
+      <ArrayItems>
+        <Size>m_base.size</Size>
+        <ValuePointer>($T1*)m_base.buffer</ValuePointer>
+      </ArrayItems>
+    </Expand>
+	</Type>
+</AutoVisualizer>
