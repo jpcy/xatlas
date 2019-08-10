@@ -320,9 +320,13 @@ struct ProfileData
 	std::atomic<clock_t> computeChartsThread;
 	std::atomic<clock_t> buildAtlas;
 	std::atomic<clock_t> buildAtlasInit;
-	std::atomic<clock_t> buildAtlasCreateInitialCharts;
+	std::atomic<clock_t> buildAtlasPlaceSeeds;
+	std::atomic<clock_t> buildAtlasUpdateProxies;
+	std::atomic<clock_t> buildAtlasRelocateSeeds;
+	std::atomic<clock_t> buildAtlasResetCharts;
 	std::atomic<clock_t> buildAtlasGrowCharts;
 	std::atomic<clock_t> buildAtlasMergeCharts;
+	std::atomic<clock_t> buildAtlasFillHoles;
 	std::atomic<clock_t> createChartMeshesReal;
 	std::atomic<clock_t> createChartMeshesThread;
 	std::atomic<clock_t> fixChartMeshTJunctions;
@@ -4358,6 +4362,7 @@ struct Atlas
 
 	void placeSeeds(float threshold)
 	{
+		XA_PROFILE_START(buildAtlasPlaceSeeds)
 		// Instead of using a predefiened number of seeds:
 		// - Add seeds one by one, growing chart until a certain treshold.
 		// - Undo charts and restart growing process.
@@ -4366,6 +4371,7 @@ struct Atlas
 		//   - how do we weight the probabilities?
 		while (m_facesLeft > 0)
 			createRandomChart(threshold);
+		XA_PROFILE_END(buildAtlasPlaceSeeds)
 	}
 
 	// Returns true if any of the charts can grow more.
@@ -4393,6 +4399,7 @@ struct Atlas
 
 	void resetCharts()
 	{
+		XA_PROFILE_START(buildAtlasResetCharts)
 		const uint32_t faceCount = m_mesh->faceCount();
 		for (uint32_t i = 0; i < faceCount; i++) {
 			m_faceChartArray[i] = -1;
@@ -4419,6 +4426,7 @@ struct Atlas
 			growChartCoplanar(chart);
 		}
 #endif
+		XA_PROFILE_END(buildAtlasResetCharts)
 	}
 
 	void updateCandidates(Chart *chart, uint32_t f)
@@ -4432,13 +4440,16 @@ struct Atlas
 
 	void updateProxies()
 	{
+		XA_PROFILE_START(buildAtlasUpdateProxies)
 		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++)
 			updateProxy(m_chartArray[i]);
+		XA_PROFILE_END(buildAtlasUpdateProxies)
 	}
 
 	bool relocateSeeds()
 	{
+		XA_PROFILE_START(buildAtlasRelocateSeeds)
 		bool anySeedChanged = false;
 		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
@@ -4446,13 +4457,16 @@ struct Atlas
 				anySeedChanged = true;
 			}
 		}
+		XA_PROFILE_END(buildAtlasRelocateSeeds)
 		return anySeedChanged;
 	}
 
 	void fillHoles(float threshold)
 	{
+		XA_PROFILE_START(buildAtlasFillHoles)
 		while (m_facesLeft > 0)
 			createRandomChart(threshold);
+		XA_PROFILE_END(buildAtlasFillHoles)
 	}
 
 #if XA_MERGE_CHARTS
@@ -6274,19 +6288,15 @@ private:
 	{
 		if (atlas.facesLeft() == 0)
 			return;
-		// This seems a reasonable estimate.
-		XA_PROFILE_START(buildAtlasCreateInitialCharts)
 		// Create initial charts greedely.
 		atlas.placeSeeds(options.maxThreshold * 0.5f);
 		if (options.maxIterations == 0) {
 			XA_DEBUG_ASSERT(atlas.facesLeft() == 0);
-			XA_PROFILE_END(buildAtlasCreateInitialCharts)
 			return;
 		}
 		atlas.updateProxies();
 		atlas.relocateSeeds();
 		atlas.resetCharts();
-		XA_PROFILE_END(buildAtlasCreateInitialCharts)
 		// Restart process growing charts in parallel.
 		uint32_t iteration = 0;
 		while (true) {
@@ -8176,9 +8186,13 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", computeChartsThread)
 	XA_PROFILE_PRINT_AND_RESET("      Build atlas: ", buildAtlas)
 	XA_PROFILE_PRINT_AND_RESET("         Init: ", buildAtlasInit)
-	XA_PROFILE_PRINT_AND_RESET("         Create initial charts: ", buildAtlasCreateInitialCharts)
+	XA_PROFILE_PRINT_AND_RESET("         Place seeds: ", buildAtlasPlaceSeeds)
+	XA_PROFILE_PRINT_AND_RESET("         Update proxies: ", buildAtlasUpdateProxies)
+	XA_PROFILE_PRINT_AND_RESET("         Relocate seeds: ", buildAtlasRelocateSeeds)
+	XA_PROFILE_PRINT_AND_RESET("         Reset charts: ", buildAtlasResetCharts)
 	XA_PROFILE_PRINT_AND_RESET("         Grow charts: ", buildAtlasGrowCharts)
 	XA_PROFILE_PRINT_AND_RESET("         Merge charts: ", buildAtlasMergeCharts)
+	XA_PROFILE_PRINT_AND_RESET("         Fill holes: ", buildAtlasFillHoles)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (real): ", createChartMeshesReal)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (thread): ", createChartMeshesThread)
 	XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
