@@ -17,6 +17,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 struct
 {
+	GLFWcursor *cursors[ImGuiMouseCursor_COUNT];
+	GLFWcursor *currentCursor = nullptr;
 	bgfx::VertexDecl vertexDecl;
 	bgfx::TextureHandle font;
 	bgfx::ProgramHandle program;
@@ -55,6 +57,14 @@ void guiInit()
 	io.KeyMap[ImGuiKey_X] = GLFW_KEY_X;
 	io.KeyMap[ImGuiKey_Y] = GLFW_KEY_Y;
 	io.KeyMap[ImGuiKey_Z] = GLFW_KEY_Z;
+	// cursors
+	for (uint32_t i = 0; i < ImGuiMouseCursor_COUNT; i++)
+		s_gui.cursors[i] = nullptr;
+	s_gui.cursors[ImGuiMouseCursor_Arrow] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
+	s_gui.cursors[ImGuiMouseCursor_TextInput] = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
+	s_gui.cursors[ImGuiMouseCursor_ResizeNS] = glfwCreateStandardCursor(GLFW_VRESIZE_CURSOR);
+	s_gui.cursors[ImGuiMouseCursor_ResizeEW] = glfwCreateStandardCursor(GLFW_HRESIZE_CURSOR);
+	s_gui.cursors[ImGuiMouseCursor_Hand] = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
 	// merge in icons from Font Awesome
 	const float fontSize = 16.0f;
 	io.Fonts->AddFontFromMemoryCompressedTTF(s_robotoRegular_compressed_data, s_robotoRegular_compressed_size, fontSize);
@@ -115,6 +125,11 @@ void guiRunFrame(float deltaTime)
 
 void guiRender()
 {
+	GLFWcursor *cursor = s_gui.cursors[ImGui::GetMouseCursor()];
+	if (cursor != s_gui.currentCursor) {
+		glfwSetCursor(g_window, cursor ? cursor : s_gui.cursors[ImGuiMouseCursor_Arrow]);
+		s_gui.currentCursor = cursor;
+	}
 	ImGui::Render();
 	ImDrawData *drawData = ImGui::GetDrawData();
 	if (drawData->CmdListsCount == 0)
