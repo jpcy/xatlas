@@ -98,6 +98,12 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_NEW(tag, type) new (XA_ALLOC(tag, type)) type()
 #define XA_NEW_ARGS(tag, type, ...) new (XA_ALLOC(tag, type)) type(__VA_ARGS__)
 
+#ifdef _MSC_VER
+#define XA_INLINE __forceinline
+#else
+#define XA_INLINE inline
+#endif
+
 #define XA_UNUSED(a) ((void)(a))
 
 #define XA_GROW_CHARTS_COPLANAR 1
@@ -972,7 +978,7 @@ struct ArrayBase
 		XA_FREE(buffer);
 	}
 
-	void clear()
+	XA_INLINE void clear()
 	{
 		size = 0;
 	}
@@ -1089,31 +1095,31 @@ public:
 	Array(const Array&) = delete;
 	const Array &operator=(const Array &) = delete;
 
-	const T &operator[](uint32_t index) const
+	XA_INLINE const T &operator[](uint32_t index) const
 	{
 		XA_DEBUG_ASSERT(index < m_base.size);
 		return ((const T *)m_base.buffer)[index];
 	}
 
-	T &operator[](uint32_t index)
+	XA_INLINE T &operator[](uint32_t index)
 	{
 		XA_DEBUG_ASSERT(index < m_base.size);
 		return ((T *)m_base.buffer)[index];
 	}
 
-	const T &back() const
+	XA_INLINE const T &back() const
 	{
 		XA_DEBUG_ASSERT(!isEmpty());
 		return ((const T *)m_base.buffer)[m_base.size - 1];
 	}
 
-	T *begin() { return (T *)m_base.buffer; }
-	void clear() { m_base.clear(); }
+	XA_INLINE T *begin() { return (T *)m_base.buffer; }
+	XA_INLINE void clear() { m_base.clear(); }
 	void copyTo(Array &other) const { m_base.copyTo(other.m_base); }
-	const T *data() const { return (const T *)m_base.buffer; }
-	T *data() { return (T *)m_base.buffer; }
-	T *end() { return (T *)m_base.buffer + m_base.size; }
-	bool isEmpty() const { return m_base.size == 0; }
+	XA_INLINE const T *data() const { return (const T *)m_base.buffer; }
+	XA_INLINE T *data() { return (T *)m_base.buffer; }
+	XA_INLINE T *end() { return (T *)m_base.buffer + m_base.size; }
+	XA_INLINE bool isEmpty() const { return m_base.size == 0; }
 	void insertAt(uint32_t index, const T &value) { m_base.insertAt(index, (const uint8_t *)&value); }
 	void moveTo(Array &other) { m_base.moveTo(other.m_base); }
 	void push_back(const T &value) { m_base.push_back((const uint8_t *)&value); }
@@ -1129,8 +1135,8 @@ public:
 			buffer[i] = value;
 	}
 
-	uint32_t size() const { return m_base.size; }
-	void zeroOutMemory() { memset(m_base.buffer, 0, m_base.elementSize * m_base.size); }
+	XA_INLINE uint32_t size() const { return m_base.size; }
+	XA_INLINE void zeroOutMemory() { memset(m_base.buffer, 0, m_base.elementSize * m_base.size); }
 
 private:
 	ArrayBase m_base;
@@ -1688,9 +1694,9 @@ public:
 	FullVector(uint32_t dim) { m_array.resize(dim); }
 	FullVector(const FullVector &v) { v.m_array.copyTo(m_array); }
 	const FullVector &operator=(const FullVector &v) = delete;
-	uint32_t dimension() const { return m_array.size(); }
-	const float &operator[](uint32_t index) const { return m_array[index]; }
-	float &operator[](uint32_t index) { return m_array[index]; }
+	XA_INLINE uint32_t dimension() const { return m_array.size(); }
+	XA_INLINE const float &operator[](uint32_t index) const { return m_array[index]; }
+	XA_INLINE float &operator[](uint32_t index) { return m_array[index]; }
 
 	void fill(float f)
 	{
@@ -2728,24 +2734,24 @@ public:
 		return false;
 	}
 
-	float epsilon() const { return m_epsilon; }
-	uint32_t edgeCount() const { return m_indices.size(); }
-	uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
-	bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
-	bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
-	uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
-	uint32_t vertexCount() const { return m_positions.size(); }
-	uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
-	const Vector3 &position(uint32_t vertex) const { return m_positions[vertex]; }
-	const Vector3 &normal(uint32_t vertex) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasNormals); return m_normals[vertex]; }
-	const Vector2 &texcoord(uint32_t vertex) const { return m_texcoords[vertex]; }
-	Vector2 &texcoord(uint32_t vertex) { return m_texcoords[vertex]; }
-	Vector2 *texcoords() { return m_texcoords.data(); }
-	uint32_t faceCount() const { return m_indices.size() / 3; }
-	uint32_t faceGroupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups.size(); }
-	uint32_t faceGroupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups[face]; }
-	const uint32_t *indices() const { return m_indices.data(); }
-	uint32_t indexCount() const { return m_indices.size(); }
+	XA_INLINE float epsilon() const { return m_epsilon; }
+	XA_INLINE uint32_t edgeCount() const { return m_indices.size(); }
+	XA_INLINE uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
+	XA_INLINE bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
+	XA_INLINE bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
+	XA_INLINE uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
+	XA_INLINE uint32_t vertexCount() const { return m_positions.size(); }
+	XA_INLINE uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
+	XA_INLINE const Vector3 &position(uint32_t vertex) const { return m_positions[vertex]; }
+	XA_INLINE const Vector3 &normal(uint32_t vertex) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasNormals); return m_normals[vertex]; }
+	XA_INLINE const Vector2 &texcoord(uint32_t vertex) const { return m_texcoords[vertex]; }
+	XA_INLINE Vector2 &texcoord(uint32_t vertex) { return m_texcoords[vertex]; }
+	XA_INLINE Vector2 *texcoords() { return m_texcoords.data(); }
+	XA_INLINE uint32_t faceCount() const { return m_indices.size() / 3; }
+	XA_INLINE uint32_t faceGroupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups.size(); }
+	XA_INLINE uint32_t faceGroupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups[face]; }
+	XA_INLINE const uint32_t *indices() const { return m_indices.data(); }
+	XA_INLINE uint32_t indexCount() const { return m_indices.size(); }
 
 private:
 	bool isFaceIgnored(uint32_t face) const { return (m_flags & MeshFlags::HasIgnoredFaces) && m_faceIgnore[face]; }
@@ -4255,12 +4261,12 @@ struct PriorityQueue
 		std::sort(pairs.begin(), pairs.end());
 	}
 
-	void clear()
+	XA_INLINE void clear()
 	{
 		pairs.clear();
 	}
 
-	uint32_t count() const
+	XA_INLINE uint32_t count() const
 	{
 		return pairs.size();
 	}
