@@ -1040,8 +1040,6 @@ void atlasShowGuiOptions()
 {
 	const ImVec2 buttonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.35f, 0.0f));
 	const ImVec2 resetButtonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.45f, 0.0f));
-	ImGui::Text(ICON_FA_GLOBE " Atlas");
-	ImGui::Spacing();
 	if (s_atlas.status.get() == AtlasStatus::Generating) {
 		int progress;
 		xatlas::ProgressCategory::Enum category;
@@ -1159,13 +1157,9 @@ void atlasShowGuiOptions()
 	}
 }
 
-void atlasShowGuiWindow(float menuBarHeight)
+void atlasShowGuiWindow()
 {
-	const float margin = 4.0f;
 	if (s_atlas.status.get() == AtlasStatus::Ready && g_options.showAtlasWindow) {
-		const float size = 500;
-		ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - size - margin, menuBarHeight + margin), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 		if (ImGui::Begin("Atlas", &g_options.showAtlasWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 			if (s_atlas.data->atlasCount > 1) {
 				ImGui::Text("Atlas %d of %u", s_atlas.options.selectedAtlas + 1, s_atlas.data->atlasCount);
@@ -1205,8 +1199,14 @@ void atlasShowGuiWindow(float menuBarHeight)
 			GuiTexture texture;
 			texture.bgfx.handle = bgfx::getTexture(s_atlas.chartsFrameBuffer);
 			texture.bgfx.flags = GuiTextureFlags::PointSampler;
-			if (s_atlas.options.fitToWindow)
-				ImGui::Image(texture.imgui, ImGui::GetContentRegionAvail());
+			if (s_atlas.options.fitToWindow) {
+				// Fit to content while maintaining aspect ratio.
+				ImVec2 size((float)s_atlas.data->width, (float)s_atlas.data->height);
+				const float scale = bx::min(ImGui::GetContentRegionAvail().x / size.x, ImGui::GetContentRegionAvail().y / size.y);
+				size.x *= scale;
+				size.y *= scale;
+				ImGui::Image(texture.imgui, size);
+			}
 			else 
 				ImGui::Image(texture.imgui, ImVec2((float)s_atlas.data->width * s_atlas.options.scale, (float)s_atlas.data->height * s_atlas.options.scale));
 			if (ImGui::IsItemHovered()) {

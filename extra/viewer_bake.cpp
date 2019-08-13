@@ -1123,14 +1123,10 @@ void bakeShowGuiOptions()
 #endif
 }
 
-void bakeShowGuiWindow(float menuBarHeight)
+void bakeShowGuiWindow()
 {
 	if (s_bake.status == BakeStatus::Idle || s_bake.status == BakeStatus::InitEmbree || s_bake.status == BakeStatus::Error || !g_options.showLightmapWindow)
 		return;
-	const float size = 500;
-	const float margin = 4.0f;
-	ImGui::SetNextWindowPos(ImVec2(g_windowSize[0] - size - margin, menuBarHeight + size + margin * 2.0f), ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowSize(ImVec2(size, size), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Lightmap", &g_options.showLightmapWindow, ImGuiWindowFlags_HorizontalScrollbar)) {
 		ImGui::Checkbox("Fit to window", &s_bake.options.fitToWindow);
 		if (!s_bake.options.fitToWindow) {
@@ -1142,8 +1138,14 @@ void bakeShowGuiWindow(float menuBarHeight)
 		GuiTexture texture;
 		texture.bgfx.handle = bakeGetLightmap();
 		texture.bgfx.flags = GuiTextureFlags::PointSampler;
-		if (s_bake.options.fitToWindow)
-			ImGui::Image(texture.imgui, ImGui::GetContentRegionAvail());
+		if (s_bake.options.fitToWindow) {
+			// Fit to content while maintaining aspect ratio.
+			ImVec2 size((float)s_bake.lightmapWidth, (float)s_bake.lightmapHeight);
+			const float scale = bx::min(ImGui::GetContentRegionAvail().x / size.x, ImGui::GetContentRegionAvail().y / size.y);
+			size.x *= scale;
+			size.y *= scale;
+			ImGui::Image(texture.imgui, size);
+		}
 		else
 			ImGui::Image(texture.imgui, ImVec2((float)s_bake.lightmapWidth * s_bake.options.scale, (float)s_bake.lightmapHeight * s_bake.options.scale));
 		ImGui::End();

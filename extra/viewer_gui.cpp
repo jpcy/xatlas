@@ -33,8 +33,10 @@ void guiInit()
 	ImGui::CreateContext();
 	int w, h;
 	glfwGetWindowSize(g_window, &w, &h);
-	ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.9f;
 	ImGuiIO &io = ImGui::GetIO();
+	io.BackendFlags |= ImGuiBackendFlags_HasMouseCursors;
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	io.ConfigWindowsResizeFromEdges = true;
 	io.DisplaySize.x = (float)w;
 	io.DisplaySize.y = (float)h;
 	io.IniFilename = nullptr;
