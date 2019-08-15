@@ -110,6 +110,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_MERGE_CHARTS 1
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 #define XA_RECOMPUTE_CHARTS 1
+#define XA_SKIP_PARAMETERIZATION 0 // Use the orthogonal parameterization from segment::Atlas
 #define XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION 0
 
 #define XA_DEBUG_HEAP 0
@@ -4365,6 +4366,7 @@ struct Atlas
 	uint32_t chartCount() const { return m_chartArray.size(); }
 	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_chartArray[i]->faces; }
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartArray[chartIndex]->basis; }
+	const Vector2 *faceTexcoords(uint32_t face) const { return &m_texcoords[face * 3]; }
 
 	void placeSeeds(float threshold)
 	{
@@ -5687,15 +5689,16 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Mesh *originalMesh, const Array<uint32_t> &faceArray, const Basis &basis, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(const segment::Atlas *atlas, const Mesh *originalMesh, uint32_t chartIndex, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
-		faceArray.copyTo(m_faceArray);
+		m_basis = atlas->chartBasis(chartIndex);
+		atlas->chartFaces(chartIndex).copyTo(m_faceArray);
 		// Copy face indices.
-		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
-		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), faceArray.size() * 3, faceArray.size());
+		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
+		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
 		Array<uint32_t> chartMeshIndices;
 		chartMeshIndices.resize(originalMesh->vertexCount());
 		chartMeshIndices.setAll(UINT32_MAX);
@@ -5703,15 +5706,19 @@ public:
 		unifiedMeshIndices.resize(originalMesh->vertexCount());
 		unifiedMeshIndices.setAll(UINT32_MAX);
 		// Add vertices.
-		const uint32_t faceCount = m_initialFaceCount = faceArray.size();
+		const uint32_t faceCount = m_initialFaceCount = m_faceArray.size();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t vertex = originalMesh->vertexAt(faceArray[f] * 3 + i);
+				const uint32_t vertex = originalMesh->vertexAt(m_faceArray[f] * 3 + i);
 				const uint32_t unifiedVertex = originalMesh->firstColocal(vertex);
 				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
 					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
 					XA_DEBUG_ASSERT(equal(originalMesh->position(vertex), originalMesh->position(unifiedVertex), originalMesh->epsilon()));
+#if XA_SKIP_PARAMETERIZATION
+					m_unifiedMesh->addVertex(originalMesh->position(vertex), Vector3(0.0f), atlas->faceTexcoords(m_faceArray[f])[i]);
+#else
 					m_unifiedMesh->addVertex(originalMesh->position(vertex));
+#endif
 				}
 				if (chartMeshIndices[vertex] == (uint32_t)~0) {
 					chartMeshIndices[vertex] = m_mesh->vertexCount();
@@ -5725,7 +5732,7 @@ public:
 		for (uint32_t f = 0; f < faceCount; f++) {
 			uint32_t indices[3], unifiedIndices[3];
 			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t vertex = originalMesh->vertexAt(faceArray[f] * 3 + i);
+				const uint32_t vertex = originalMesh->vertexAt(m_faceArray[f] * 3 + i);
 				indices[i] = chartMeshIndices[vertex];
 				unifiedIndices[i] = unifiedMeshIndices[originalMesh->firstColocal(vertex)];
 			}
@@ -5784,7 +5791,7 @@ public:
 				// - Use minimal spanning trees or seamster.
 				Array<uint32_t> holeFaceCounts;
 				XA_PROFILE_START(closeChartMeshHoles)
-				failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, basis.normal, holeFaceCounts);
+				failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, holeFaceCounts);
 				XA_PROFILE_END(closeChartMeshHoles)
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
@@ -5939,9 +5946,9 @@ private:
 
 struct CreateChartTaskArgs
 {
+	const segment::Atlas *atlas;
 	const Mesh *mesh;
-	const Array<uint32_t> *faceArray;
-	const Basis *basis;
+	uint32_t chartIndex; // In the atlas.
 	uint32_t meshId;
 	uint32_t chartGroupId;
 	uint32_t chartId;
@@ -5952,7 +5959,7 @@ static void runCreateChartTask(void *userData)
 {
 	XA_PROFILE_START(createChartMeshesThread)
 	auto args = (CreateChartTaskArgs *)userData;
-	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, args->mesh, *(args->faceArray), *(args->basis), args->meshId, args->chartGroupId, args->chartId);
+	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, args->atlas, args->mesh, args->chartIndex, args->meshId, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMeshesThread)
 }
 
@@ -6157,9 +6164,9 @@ public:
 		taskArgs.resize(chartCount);
 		for (uint32_t i = 0; i < chartCount; i++) {
 			CreateChartTaskArgs &args = taskArgs[i];
+			args.atlas = &atlas;
 			args.mesh = m_mesh;
-			args.faceArray = &atlas.chartFaces(i);
-			args.basis = &atlas.chartBasis(i);
+			args.chartIndex = i;
 			args.meshId = m_sourceId;
 			args.chartGroupId = m_id;
 			args.chartId = i;
@@ -6200,6 +6207,16 @@ public:
 	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func)
 	{
 		const uint32_t chartCount = m_chartArray.size();
+#if XA_SKIP_PARAMETERIZATION
+		XA_UNUSED(taskScheduler);
+		XA_UNUSED(func);
+		for (uint32_t i = 0; i < chartCount; i++) {
+			Chart *chart = m_chartArray[i];
+			chart->evaluateOrthoParameterizationQuality();
+			chart->evaluateParameterizationQuality();
+			chart->transferParameterization();
+		}
+#else
 		Array<ParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
@@ -6243,7 +6260,7 @@ public:
 			segment::Atlas atlas(m_mesh, &meshFaces, options);
 			buildAtlas(atlas, options);
 			for (uint32_t j = 0; j < atlas.chartCount(); j++) {
-				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, m_mesh, atlas.chartFaces(j), atlas.chartBasis(j), m_sourceId, m_id, m_chartArray.size());
+				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, &atlas, m_mesh, j, m_sourceId, m_id, m_chartArray.size());
 				m_chartArray.push_back(chart);
 				m_paramAddedChartsCount++;
 			}
@@ -6286,7 +6303,8 @@ public:
 			XA_FREE(chart);
 			m_paramDeletedChartsCount++;
 		}
-#endif
+#endif // XA_RECOMPUTE_CHARTS
+#endif // XA_SKIP_PARAMETERIZATION
 	}
 
 private:
