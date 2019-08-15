@@ -4555,16 +4555,19 @@ struct Atlas
 					continue;
 				merge:
 					// Create texcoords for chart 2 using chart 1 basis. Backup chart 2 texcoords for restoration if charts cannot be merged.
-					tempTexcoords.resize(chart2->faces.size());
+					tempTexcoords.resize(chart2->faces.size() * 3);
 					for (uint32_t i = 0; i < chart2->faces.size(); i++) {
 						const uint32_t face = chart2->faces[i];
-						tempTexcoords[i] = m_texcoords[face];
+						for (uint32_t j = 0; j < 3; j++)
+							tempTexcoords[i * 3 + j] = m_texcoords[face * 3 + j];
 						createFaceTexcoords(chart, face);
 					}
 					if (!canMergeCharts(chart, chart2)) {
 						// Restore chart 2 texcoords.
-						for (uint32_t i = 0; i < chart2->faces.size(); i++)
-							m_texcoords[chart2->faces[i]] = tempTexcoords[i];
+						for (uint32_t i = 0; i < chart2->faces.size(); i++) {
+							for (uint32_t j = 0; j < 3; j++)
+								m_texcoords[chart2->faces[i] * 3 + j] = tempTexcoords[i * 3 + j];
+						}
 						continue;
 					}
 					mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]);
