@@ -4437,13 +4437,23 @@ struct Atlas
 		XA_PROFILE_END(buildAtlasResetCharts)
 	}
 
-	void updateCandidates(Chart *chart, uint32_t f)
+	void updateChartCandidates(Chart *chart, uint32_t f)
 	{
 		// Traverse neighboring faces, add the ones that do not belong to any chart yet.
 		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			if (!it.isBoundary() && !m_ignoreFaces[it.oppositeFace()] && m_faceChartArray[it.oppositeFace()] == -1)
 				chart->candidates.push(it.oppositeFace());
 		}
+		// Re-evaluate all candidate priorities.
+		uint32_t candidateCount = chart->candidates.count();
+		for (uint32_t i = 0; i < candidateCount; i++) {
+			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
+			pair.priority = evaluateCost(chart, pair.face);
+			// Update the global candidates.
+			if (m_faceChartArray[pair.face] == -1)
+				updateCandidate(chart, pair.face, pair.priority);
+		}
+		chart->candidates.sort();
 	}
 
 	void updateProxies()
@@ -4620,7 +4630,18 @@ private:
 		growChartCoplanar(chart);
 #endif
 		// Grow the chart as much as possible within the given threshold.
-		growChart(chart, threshold, m_facesLeft);
+		for (uint32_t i = 0; i < m_facesLeft; ) {
+			if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold)
+				break;
+			const uint32_t f = chart->candidates.pop();
+			if (m_faceChartArray[f] != -1)
+				continue;
+			createFaceTexcoords(chart, f);
+			if (!canAddFaceToChart(chart, f))
+				continue;
+			addFaceToChart(chart, f);
+			i++;
+		}
 	}
 
 	void createFaceTexcoords(Chart *chart, uint32_t face)
@@ -4724,28 +4745,7 @@ private:
 		}
 		// Update candidates.
 		removeCandidate(f);
-		updateCandidates(chart, f);
-		updatePriorities(chart);
-	}
-
-	bool growChart(Chart *chart, float threshold, uint32_t faceCount)
-	{
-		// Try to add faceCount faces within threshold to chart.
-		for (uint32_t i = 0; i < faceCount; ) {
-			if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold)
-				return false;
-			const uint32_t f = chart->candidates.pop();
-			if (m_faceChartArray[f] != -1)
-				continue;
-			createFaceTexcoords(chart, f);
-			if (!canAddFaceToChart(chart, f))
-				continue;
-			addFaceToChart(chart, f);
-			i++;
-		}
-		if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold)
-			return false;
-		return true;
+		updateChartCandidates(chart, f);
 	}
 
 #if XA_GROW_CHARTS_COPLANAR
@@ -4815,20 +4815,6 @@ private:
 		// Append new seed.
 		chart->seeds.push_back(leastCentral);
 		return true;
-	}
-
-	void updatePriorities(Chart *chart)
-	{
-		// Re-evaluate candidate priorities.
-		uint32_t candidateCount = chart->candidates.count();
-		for (uint32_t i = 0; i < candidateCount; i++) {
-			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
-			pair.priority = evaluateCost(chart, pair.face);
-			if (m_faceChartArray[pair.face] == -1)
-				updateCandidate(chart, pair.face, pair.priority);
-		}
-		// Sort candidates.
-		chart->candidates.sort();
 	}
 
 	// Evaluate combined metric.
