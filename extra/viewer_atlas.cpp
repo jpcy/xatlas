@@ -1068,10 +1068,9 @@ void atlasShowGuiOptions()
 		changed |= guiColumnInputFloat("Normal seam metric weight", "##chartOption4", &s_atlas.options.chart.normalSeamMetricWeight);
 		changed |= guiColumnInputFloat("Texture seam metric weight", "##chartOption5", &s_atlas.options.chart.textureSeamMetricWeight);
 		changed |= guiColumnInputFloat("Max threshold", "##chartOption6", &s_atlas.options.chart.maxThreshold);
-		changed |= guiColumnInputInt("Grow face count", "##chartOption7", (int *)&s_atlas.options.chart.growFaceCount);
-		changed |= guiColumnInputInt("Max iterations", "##chartOption8", (int *)&s_atlas.options.chart.maxIterations);
-		changed |= guiColumnInputFloat("Max chart area", "##chartOption9", &s_atlas.options.chart.maxChartArea);
-		changed |= guiColumnInputFloat("Max boundary length", "##chartOption10", &s_atlas.options.chart.maxBoundaryLength);
+		changed |= guiColumnInputInt("Max iterations", "##chartOption7", (int *)&s_atlas.options.chart.maxIterations);
+		changed |= guiColumnInputFloat("Max chart area", "##chartOption8", &s_atlas.options.chart.maxChartArea);
+		changed |= guiColumnInputFloat("Max boundary length", "##chartOption9", &s_atlas.options.chart.maxBoundaryLength);
 		ImGui::Columns(1);
 		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
 			s_atlas.options.chart = xatlas::ChartOptions();

@@ -4327,8 +4327,8 @@ struct Atlas
 		}
 		m_faceChartArray.resize(faceCount);
 		m_faceChartArray.setAll(-1);
-		m_faceCandidateArray.resize(faceCount);
-		m_faceCandidateArray.setAll((uint32_t)-1);
+		m_faceCandidateCharts.resize(faceCount);
+		m_faceCandidateCosts.resize(faceCount);
 		m_texcoords.resize(faceCount * 3);
 		// @@ Floyd for the whole mesh is too slow. We could compute floyd progressively per patch as the patch grows. We need a better solution to compute most central faces.
 		//computeShortestPaths();
@@ -4383,22 +4383,24 @@ struct Atlas
 	}
 
 	// Returns true if any of the charts can grow more.
-	bool growCharts(float threshold, uint32_t faceCount)
+	bool growCharts(float threshold)
 	{
 		XA_PROFILE_START(buildAtlasGrowCharts)
-		// Using one global list.
-		faceCount = min(faceCount, m_facesLeft);
+		// Build global candidate list.
+		m_faceCandidateCharts.zeroOutMemory();
+		for (uint32_t i = 0; i < m_chartArray.size(); i++)
+			addChartCandidateToGlobalCandidates(m_chartArray[i]);
+		// Add one candidate face per chart (threshold permitting).
+		const uint32_t faceCount = m_mesh->faceCount();
 		bool canAddAny = false;
-		for (uint32_t i = 0; i < faceCount; i++) {
-			const Candidate &candidate = getBestCandidate();
-			if (candidate.metric > threshold) {
-				XA_PROFILE_END(buildAtlasGrowCharts)
-				return false; // Can't grow more.
-			}
-			createFaceTexcoords(candidate.chart, candidate.face);
-			if (!canAddFaceToChart(candidate.chart, candidate.face))
+		for (uint32_t f = 0; f < faceCount; f++) {
+			Chart *chart = m_faceCandidateCharts[f];
+			if (!chart || m_faceCandidateCosts[f] > threshold)
 				continue;
-			addFaceToChart(candidate.chart, candidate.face);
+			createFaceTexcoords(chart, f);
+			if (!canAddFaceToChart(chart, f))
+				continue;
+			addFaceToChart(chart, f);
 			canAddAny = true;
 		}
 		XA_PROFILE_END(buildAtlasGrowCharts)
@@ -4409,12 +4411,9 @@ struct Atlas
 	{
 		XA_PROFILE_START(buildAtlasResetCharts)
 		const uint32_t faceCount = m_mesh->faceCount();
-		for (uint32_t i = 0; i < faceCount; i++) {
+		for (uint32_t i = 0; i < faceCount; i++)
 			m_faceChartArray[i] = -1;
-			m_faceCandidateArray[i] = (uint32_t)-1;
-		}
 		m_facesLeft = m_meshFaces ? m_meshFaces->size() : faceCount;
-		m_candidateArray.clear();
 		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_chartArray[i];
@@ -4449,9 +4448,6 @@ struct Atlas
 		for (uint32_t i = 0; i < candidateCount; i++) {
 			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
 			pair.priority = evaluateCost(chart, pair.face);
-			// Update the global candidates.
-			if (m_faceChartArray[pair.face] == -1)
-				updateCandidate(chart, pair.face, pair.priority);
 		}
 		chart->candidates.sort();
 	}
@@ -4644,6 +4640,32 @@ private:
 		}
 	}
 
+	void addChartCandidateToGlobalCandidates(Chart *chart)
+	{
+		if (chart->candidates.count() == 0)
+			return;
+		const float cost = chart->candidates.firstPriority();
+		const uint32_t face = chart->candidates.pop();
+		if (m_faceChartArray[face] != -1) {
+			addChartCandidateToGlobalCandidates(chart);
+		} else if (!m_faceCandidateCharts[face]) {
+			// No candidate assigned to this face yet.
+			m_faceCandidateCharts[face] = chart;
+			m_faceCandidateCosts[face] = cost;
+		} else {
+			if (cost < m_faceCandidateCosts[face]) {
+				// This is a better candidate for this face (lower cost). The other chart can choose another candidate.
+				Chart *otherChart = m_faceCandidateCharts[face];
+				m_faceCandidateCharts[face] = chart;
+				m_faceCandidateCosts[face] = cost;
+				addChartCandidateToGlobalCandidates(otherChart);
+			} else {
+				// Existing candidate is better. This chart can choose another candidate.
+				addChartCandidateToGlobalCandidates(chart);
+			}
+		}
+	}
+
 	void createFaceTexcoords(Chart *chart, uint32_t face)
 	{
 		for (uint32_t i = 0; i < 3; i++) {
@@ -4744,7 +4766,6 @@ private:
 			updateProxy(chart);
 		}
 		// Update candidates.
-		removeCandidate(f);
 		updateChartCandidates(chart, f);
 	}
 
@@ -4985,67 +5006,6 @@ private:
 		return max(0.0f, boundaryLength);  // @@ Hack!
 	}
 
-	// @@ Cleanup.
-	struct Candidate {
-		Chart *chart;
-		uint32_t face;
-		float metric;
-	};
-
-	// @@ Get N best candidates in one pass.
-	const Candidate &getBestCandidate() const
-	{
-		uint32_t best = 0;
-		float bestCandidateMetric = FLT_MAX;
-		const uint32_t candidateCount = m_candidateArray.size();
-		XA_ASSERT(candidateCount > 0);
-		for (uint32_t i = 0; i < candidateCount; i++) {
-			const Candidate &candidate = m_candidateArray[i];
-			if (candidate.metric < bestCandidateMetric) {
-				bestCandidateMetric = candidate.metric;
-				best = i;
-			}
-		}
-		return m_candidateArray[best];
-	}
-
-	void removeCandidate(uint32_t f)
-	{
-		int c = m_faceCandidateArray[f];
-		if (c != -1) {
-			m_faceCandidateArray[f] = (uint32_t)-1;
-			if (c == int(m_candidateArray.size() - 1)) {
-				m_candidateArray.pop_back();
-			} else {
-				// Replace with last.
-				m_candidateArray[c] = m_candidateArray[m_candidateArray.size() - 1];
-				m_candidateArray.pop_back();
-				m_faceCandidateArray[m_candidateArray[c].face] = c;
-			}
-		}
-	}
-
-	void updateCandidate(Chart *chart, uint32_t f, float metric)
-	{
-		if (m_faceCandidateArray[f] == (uint32_t)-1) {
-			const uint32_t index = m_candidateArray.size();
-			m_faceCandidateArray[f] = index;
-			m_candidateArray.resize(index + 1);
-			m_candidateArray[index].face = f;
-			m_candidateArray[index].chart = chart;
-			m_candidateArray[index].metric = metric;
-		} else {
-			const uint32_t c = m_faceCandidateArray[f];
-			XA_DEBUG_ASSERT(c != (uint32_t)-1);
-			Candidate &candidate = m_candidateArray[c];
-			XA_DEBUG_ASSERT(candidate.face == f);
-			if (metric < candidate.metric || chart == candidate.chart) {
-				candidate.metric = metric;
-				candidate.chart = chart;
-			}
-		}
-	}
-
 	void mergeChart(Chart *owner, Chart *chart, float sharedBoundaryLength)
 	{
 		const uint32_t faceCount = chart->faces.size();
@@ -5077,11 +5037,11 @@ private:
 	uint32_t m_facesLeft;
 	Array<int> m_faceChartArray;
 	Array<Chart *> m_chartArray;
-	Array<Candidate> m_candidateArray;
-	Array<uint32_t> m_faceCandidateArray; // Map face index to candidate index.
 	PriorityQueue m_bestTriangles;
 	KISSRng m_rand;
 	ChartOptions m_options;
+	Array<Chart *> m_faceCandidateCharts;
+	Array<float> m_faceCandidateCosts;
 };
 
 } // namespace segment
@@ -6313,7 +6273,7 @@ private:
 		// Restart process growing charts in parallel.
 		uint32_t iteration = 0;
 		while (true) {
-			if (!atlas.growCharts(options.maxThreshold, options.growFaceCount)) {
+			if (!atlas.growCharts(options.maxThreshold)) {
 				// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
 				atlas.fillHoles(options.maxThreshold * 0.5f);
 				atlas.updateProxies();

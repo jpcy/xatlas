@@ -174,7 +174,6 @@ struct ChartOptions
 	float textureSeamMetricWeight = 0.5f;
 
 	float maxThreshold = 2.0f; // If total of all metrics * weights > maxThreshold, don't grow chart. Lower values result in more charts.
-	uint32_t growFaceCount = 32; // Grow this many faces at a time.
 	uint32_t maxIterations = 1; // Number of iterations of the chart growing and seeding phases. Higher values result in better charts.
 };
 
