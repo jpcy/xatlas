@@ -104,6 +104,14 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_INLINE inline
 #endif
 
+#if defined(__clang__) || defined(__GNUC__)
+#define XA_NODISCARD [[nodiscard]]
+#elif defined(_MSC_VER)
+#define XA_NODISCARD _Check_return_
+#else
+#define XA_NODISCARD
+#endif
+
 #define XA_UNUSED(a) ((void)(a))
 
 #define XA_GROW_CHARTS_COPLANAR 1
@@ -759,11 +767,6 @@ static Vector3 operator*(const Vector3 &v, float s)
 	return Vector3(v.x * s, v.y * s, v.z * s);
 }
 
-static Vector3 operator*(float s, const Vector3 &v)
-{
-	return Vector3(v.x * s, v.y * s, v.z * s);
-}
-
 static Vector3 operator/(const Vector3 &v, float s)
 {
 	return v * (1.0f / s);
@@ -1143,34 +1146,29 @@ private:
 	ArrayBase m_base;
 };
 
-/// Basis class to compute tangent space basis, ortogonalizations and to
-/// transform vectors from one space to another.
+/// Basis class to compute tangent space basis, ortogonalizations and to transform vectors from one space to another.
 struct Basis
 {
-	void buildFrameForDirection(const Vector3 &d, float angle = 0)
+	XA_NODISCARD static Vector3 computeTangent(const Vector3 &normal)
 	{
-		XA_ASSERT(isNormalized(d));
-		normal = d;
+		XA_ASSERT(isNormalized(normal));
 		// Choose minimum axis.
-		if (fabsf(normal.x) < fabsf(normal.y) && fabsf(normal.x) < fabsf(normal.z)) {
+		Vector3 tangent;
+		if (fabsf(normal.x) < fabsf(normal.y) && fabsf(normal.x) < fabsf(normal.z))
 			tangent = Vector3(1, 0, 0);
-		} else if (fabsf(normal.y) < fabsf(normal.z)) {
+		else if (fabsf(normal.y) < fabsf(normal.z))
 			tangent = Vector3(0, 1, 0);
-		} else {
+		else
 			tangent = Vector3(0, 0, 1);
-		}
 		// Ortogonalize
 		tangent -= normal * dot(normal, tangent);
 		tangent = normalize(tangent, kEpsilon);
-		bitangent = cross(normal, tangent);
-		// Rotate frame around normal according to angle.
-		if (angle != 0.0f) {
-			float c = cosf(angle);
-			float s = sinf(angle);
-			Vector3 tmp = c * tangent - s * bitangent;
-			bitangent = s * tangent + c * bitangent;
-			tangent = tmp;
-		}
+		return tangent;
+	}
+
+	XA_NODISCARD static Vector3 computeBitangent(const Vector3 &normal, const Vector3 &tangent)
+	{
+		return cross(normal, tangent);
 	}
 
 	Vector3 tangent = Vector3(0.0f);
@@ -4339,6 +4337,8 @@ struct Atlas
 		m_faceAreas.resize(m_mesh->faceCount());
 		m_faceAreas.zeroOutMemory();
 		m_faceNormals.resize(m_mesh->faceCount());
+		m_faceTangents.resize(m_mesh->faceCount());
+		m_faceBitangents.resize(m_mesh->faceCount());
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_ignoreFaces[f])
 				continue;
@@ -4349,6 +4349,8 @@ struct Atlas
 			m_faceAreas[f] = mesh->faceArea(f);
 			XA_DEBUG_ASSERT(m_faceAreas[f] > 0.0f);
 			m_faceNormals[f] = m_mesh->triangleNormal(f);
+			m_faceTangents[f] = Basis::computeTangent(m_faceNormals[f]);
+			m_faceBitangents[f] = Basis::computeBitangent(m_faceNormals[f], m_faceTangents[f]);
 		}
 		XA_PROFILE_END(buildAtlasInit)
 	}
@@ -4748,7 +4750,9 @@ private:
 	{
 		// Use the first face normal as the chart basis.
 		if (chart->faces.isEmpty()) {
-			chart->basis.buildFrameForDirection(m_faceNormals[f]);
+			chart->basis.normal = m_faceNormals[f];
+			chart->basis.tangent = m_faceTangents[f];
+			chart->basis.bitangent = m_faceBitangents[f];
 			createFaceTexcoords(chart, f);
 		}
 		// Add face to chart.
@@ -5032,6 +5036,8 @@ private:
 	Array<float> m_edgeLengths;
 	Array<float> m_faceAreas;
 	Array<Vector3> m_faceNormals;
+	Array<Vector3> m_faceTangents;
+	Array<Vector3> m_faceBitangents;
 	Array<Vector2> m_texcoords;
 	Array<uint32_t> m_growFaces;
 	uint32_t m_facesLeft;
