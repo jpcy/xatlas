@@ -1,5 +1,6 @@
-local SHADERS_DIR = "extra/shaders"
-local SHADERS_BIN_DIR = "extra/shaders_bin"
+local BASE_PATH = path.getabsolute("..")
+local SHADERS_DIR = path.join(BASE_PATH, "extra", "shaders")
+local SHADERS_BIN_DIR = path.join(BASE_PATH, "extra", "shaders_bin")
 
 --[[
 type
@@ -14,9 +15,9 @@ variableName
 function compileShader(args)
 	local command = nil
 	if os.ishost("windows") then
-		command = "bin\\shaderc.exe"
+		command = path.join(BASE_PATH, "bin", "shaderc.exe")
 	elseif os.ishost("linux") then
-		command = "`./bin/shaderc"
+		command = path.join(BASE_PATH, "bin", "shaderc")
 	end
 	command = command .. string.format(" -i \"%s\" -f \"%s\" -o \"%s\" --varyingdef \"%s\" --type %s", args.includeDirs, args.inputFilename, args.outputFilename, args.varyingFilename, args.type)
 	if args.bin2c then
@@ -39,9 +40,6 @@ function compileShader(args)
 			command = command .. "5_0"
 		end
 		command = command .. " -O 3 --Werror"
-	end
-	if os.ishost("linux") then
-		command = command .. "`"
 	end
 	os.execute(command)
 end
@@ -87,7 +85,7 @@ newaction
 						type = shaderType,
 						renderer = renderer,
 						inputFilename = path.join(SHADERS_DIR, shader) .. ".sc",
-						includeDirs = "extra/thirdparty/bgfx/src",
+						includeDirs = path.join(BASE_PATH, "extra/thirdparty/bgfx/src"),
 						varyingFilename = path.join(SHADERS_DIR, "varying.def.sc"),
 						outputFilename = path.join(SHADERS_BIN_DIR, renderer, shader) .. ".h",
 						bin2c = true,
