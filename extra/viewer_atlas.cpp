@@ -56,6 +56,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include <thread>
 #include <unordered_map>
 #include <imgui/imgui.h>
+#if USE_MIMALLOC
+#include <mimalloc.h>
+#endif
 
 #define USE_LIBIGL 0
 #define USE_OPENNL 1
@@ -600,6 +603,9 @@ static void atlasGenerateThread()
 	if (firstRun) {
 		// Create xatlas context on first run only.
 		s_atlas.data = xatlas::Create();
+#if USE_MIMALLOC
+		xatlas::SetRealloc(mi_reallocf);
+#endif
 		xatlas::SetProgressCallback(s_atlas.data, atlasProgressCallback);
 		std::vector<uint8_t> ignoreFaces; // Should be bool, workaround stupid C++ specialization.
 		for (uint32_t i = 0; i < model->numObjects; i++) {

@@ -7,6 +7,8 @@ local EMBREE_DIR = path.join(THIRDPARTY_DIR, "embree3")
 local ENKITS_DIR = path.join(THIRDPARTY_DIR, "enkiTS")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
 local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
+local MIMALLOC_DIR = path.join(THIRDPARTY_DIR, "mimalloc")
+local MIMALLOC_ENABLED = not (os.ishost("windows") and _ACTION == "gmake")
 local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
 local OPENFBX_DIR = path.join(THIRDPARTY_DIR, "OpenFBX")
 local OPENNL_DIR = path.join(THIRDPARTY_DIR, "OpenNL")
@@ -94,6 +96,11 @@ project "viewer"
 		OPENNL_DIR
 	}
 	links { "bgfx", "bimg", "bx", "cgltf", "enkiTS", "glfw", "imgui", "nativefiledialog", "objzero", "OpenFBX", "OpenNL", "stb_image", "stb_image_resize", "xatlas" }
+if MIMALLOC_ENABLED then
+	defines("USE_MIMALLOC")
+	includedirs(path.join(MIMALLOC_DIR, "include"))
+	links("mimalloc")
+end
 	filter "system:windows"
 		links { "gdi32", "ole32", "psapi", "uuid" }
 	filter "system:linux"
@@ -264,6 +271,22 @@ project "imgui"
 	exceptionhandling "Off"
 	rtti "Off"
 	files(path.join(THIRDPARTY_DIR, "imgui/*.*"))
+	
+if MIMALLOC_ENABLED then
+project "mimalloc"
+	kind "StaticLib"
+	language "C++"
+	exceptionhandling "Off"
+	rtti "Off"
+	includedirs(path.join(MIMALLOC_DIR, "include"))
+	files(path.join(MIMALLOC_DIR, "src/*.*"))
+	excludes
+	{
+		path.join(MIMALLOC_DIR, "src/alloc-override*"),
+		path.join(MIMALLOC_DIR, "src/page-queue.c"),
+		path.join(MIMALLOC_DIR, "src/static.c")
+	}
+end
 	
 project "nativefiledialog"
 	kind "StaticLib"
