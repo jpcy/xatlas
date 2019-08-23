@@ -8,7 +8,7 @@ local ENKITS_DIR = path.join(THIRDPARTY_DIR, "enkiTS")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
 local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
 local MIMALLOC_DIR = path.join(THIRDPARTY_DIR, "mimalloc")
-local MIMALLOC_ENABLED = not (os.ishost("windows") and (_ACTION == "gmake" or _ACTION == "vs2015" or _ACTION == "vs2017")
+local MIMALLOC_ENABLED = not (os.ishost("windows") and (_ACTION == "gmake" or _ACTION == "vs2015" or _ACTION == "vs2017"))
 local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
 local OPENFBX_DIR = path.join(THIRDPARTY_DIR, "OpenFBX")
 local OPENNL_DIR = path.join(THIRDPARTY_DIR, "OpenNL")
@@ -275,9 +275,7 @@ project "imgui"
 if MIMALLOC_ENABLED then
 project "mimalloc"
 	kind "StaticLib"
-	language "C++"
-	exceptionhandling "Off"
-	rtti "Off"
+	language "C"
 	includedirs(path.join(MIMALLOC_DIR, "include"))
 	files(path.join(MIMALLOC_DIR, "src/*.*"))
 	excludes
