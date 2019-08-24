@@ -8,7 +8,6 @@ local ENKITS_DIR = path.join(THIRDPARTY_DIR, "enkiTS")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
 local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
 local MIMALLOC_DIR = path.join(THIRDPARTY_DIR, "mimalloc")
-local MIMALLOC_ENABLED = not (os.ishost("windows") and (_ACTION == "gmake" or _ACTION == "vs2015" or _ACTION == "vs2017"))
 local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
 local OPENFBX_DIR = path.join(THIRDPARTY_DIR, "OpenFBX")
 local OPENNL_DIR = path.join(THIRDPARTY_DIR, "OpenNL")
@@ -91,16 +90,12 @@ project "viewer"
 		ENKITS_DIR,
 		path.join(GLFW_DIR, "include"),
 		path.join(IGL_DIR, "include"),
+		path.join(MIMALLOC_DIR, "include"),
 		path.join(OIDN_DIR, "include"),
 		OPENFBX_DIR,
 		OPENNL_DIR
 	}
-	links { "bgfx", "bimg", "bx", "cgltf", "enkiTS", "glfw", "imgui", "nativefiledialog", "objzero", "OpenFBX", "OpenNL", "stb_image", "stb_image_resize", "xatlas" }
-if MIMALLOC_ENABLED then
-	defines("USE_MIMALLOC")
-	includedirs(path.join(MIMALLOC_DIR, "include"))
-	links("mimalloc")
-end
+	links { "bgfx", "bimg", "bx", "cgltf", "enkiTS", "glfw", "imgui", "mimalloc", "nativefiledialog", "objzero", "OpenFBX", "OpenNL", "stb_image", "stb_image_resize", "xatlas" }
 	filter "system:windows"
 		links { "gdi32", "ole32", "psapi", "uuid" }
 	filter "system:linux"
@@ -272,7 +267,6 @@ project "imgui"
 	rtti "Off"
 	files(path.join(THIRDPARTY_DIR, "imgui/*.*"))
 	
-if MIMALLOC_ENABLED then
 project "mimalloc"
 	kind "StaticLib"
 	language "C"
@@ -284,7 +278,6 @@ project "mimalloc"
 		path.join(MIMALLOC_DIR, "src/page-queue.c"),
 		path.join(MIMALLOC_DIR, "src/static.c")
 	}
-end
 	
 project "nativefiledialog"
 	kind "StaticLib"

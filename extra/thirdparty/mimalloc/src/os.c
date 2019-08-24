@@ -91,7 +91,7 @@ static size_t mi_os_good_alloc_size(size_t size, size_t alignment) {
 // We use VirtualAlloc2 for aligned allocation, but it is only supported on Windows 10 and Windows Server 2016.
 // So, we need to look it up dynamically to run on older systems. (use __stdcall for 32-bit compatibility)
 // Same for DiscardVirtualMemory
-typedef PVOID(__stdcall *PVirtualAlloc2)(HANDLE, PVOID, SIZE_T, ULONG, ULONG, MEM_EXTENDED_PARAMETER*, ULONG);
+typedef PVOID(__stdcall *PVirtualAlloc2)(HANDLE, PVOID, SIZE_T, ULONG, ULONG, /*MEM_EXTENDED_PARAMETER*/ void*, ULONG);
 typedef DWORD(__stdcall *PDiscardVirtualMemory)(PVOID,SIZE_T);
 static PVirtualAlloc2 pVirtualAlloc2 = NULL;
 static PDiscardVirtualMemory pDiscardVirtualMemory = NULL;
