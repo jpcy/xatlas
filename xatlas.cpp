@@ -6870,6 +6870,10 @@ struct Atlas
 {
 	~Atlas()
 	{
+		for (uint32_t i = 0; i < m_atlasImages.size(); i++) {
+			m_atlasImages[i]->~AtlasImage();
+			XA_FREE(m_atlasImages[i]);
+		}
 		for (uint32_t i = 0; i < m_bitImages.size(); i++) {
 			m_bitImages[i]->~BitImage();
 			XA_FREE(m_bitImages[i]);
