@@ -3516,6 +3516,7 @@ public:
 				worker.thread->join();
 			worker.thread->~thread();
 			XA_FREE(worker.thread);
+			worker.~Worker();
 		}
 		for (uint32_t i = 0; i < m_maxGroups; i++)
 			m_groups[i].~TaskGroup();
