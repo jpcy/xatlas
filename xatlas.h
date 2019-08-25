@@ -243,7 +243,8 @@ void SetProgressCallback(Atlas *atlas, ProgressFunc progressFunc = nullptr, void
 
 // Custom memory allocation.
 typedef void *(*ReallocFunc)(void *, size_t);
-void SetRealloc(ReallocFunc reallocFunc);
+typedef void (*FreeFunc)(void *);
+void SetAlloc(ReallocFunc reallocFunc, FreeFunc freeFunc = nullptr);
 
 // Custom print function.
 typedef int (*PrintFunc)(const char *, ...);

@@ -605,7 +605,7 @@ static void atlasGenerateThread()
 	if (firstRun) {
 		// Create xatlas context on first run only.
 #if USE_MIMALLOC
-		xatlas::SetRealloc(mi_realloc);
+		xatlas::SetAlloc(mi_realloc);
 #endif
 		s_atlas.data = xatlas::Create();
 		xatlas::SetProgressCallback(s_atlas.data, atlasProgressCallback);

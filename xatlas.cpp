@@ -157,6 +157,7 @@ namespace xatlas {
 namespace internal {
 
 static ReallocFunc s_realloc = realloc;
+static FreeFunc s_free = free;
 static PrintFunc s_print = printf;
 static bool s_printVerbose = false;
 
@@ -307,6 +308,10 @@ static void PrintMemoryUsage()
 #else
 static void *Realloc(void *ptr, size_t size, int /*tag*/, const char * /*file*/, int /*line*/)
 {
+	if (ptr && size == 0 && s_free) {
+		s_free(ptr);
+		return nullptr;
+	}
 	void *mem = s_realloc(ptr, size);
 	if (size > 0) {
 		XA_DEBUG_ASSERT(mem);
@@ -8586,9 +8591,10 @@ void SetProgressCallback(Atlas *atlas, ProgressFunc progressFunc, void *progress
 	ctx->progressUserData = progressUserData;
 }
 
-void SetRealloc(ReallocFunc reallocFunc)
+void SetAlloc(ReallocFunc reallocFunc, FreeFunc freeFunc)
 {
 	internal::s_realloc = reallocFunc;
+	internal::s_free = freeFunc;
 }
 
 void SetPrint(PrintFunc print, bool verbose)
