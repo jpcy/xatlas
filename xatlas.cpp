@@ -341,7 +341,6 @@ struct ProfileData
 	std::atomic<clock_t> buildAtlas;
 	std::atomic<clock_t> buildAtlasInit;
 	std::atomic<clock_t> buildAtlasPlaceSeeds;
-	std::atomic<clock_t> buildAtlasUpdateProxies;
 	std::atomic<clock_t> buildAtlasRelocateSeeds;
 	std::atomic<clock_t> buildAtlasResetCharts;
 	std::atomic<clock_t> buildAtlasGrowCharts;
@@ -4460,15 +4459,6 @@ struct Atlas
 		chart->candidates.sort();
 	}
 
-	void updateProxies()
-	{
-		XA_PROFILE_START(buildAtlasUpdateProxies)
-		const uint32_t chartCount = m_chartArray.size();
-		for (uint32_t i = 0; i < chartCount; i++)
-			updateProxy(m_chartArray[i]);
-		XA_PROFILE_END(buildAtlasUpdateProxies)
-	}
-
 	bool relocateSeeds()
 	{
 		XA_PROFILE_START(buildAtlasRelocateSeeds)
@@ -4629,7 +4619,7 @@ private:
 				face = 0;
 		}
 		chart->seeds.push_back(face);
-		addFaceToChart(chart, face, true);
+		addFaceToChart(chart, face);
 #if XA_GROW_CHARTS_COPLANAR
 		growChartCoplanar(chart);
 #endif
@@ -4752,7 +4742,7 @@ private:
 		return true;
 	}
 
-	void addFaceToChart(Chart *chart, uint32_t f, bool recomputeProxy = false)
+	void addFaceToChart(Chart *chart, uint32_t f)
 	{
 		// Use the first face normal as the chart basis.
 		if (chart->faces.isEmpty()) {
@@ -4770,11 +4760,9 @@ private:
 		chart->area = chart->area + m_faceAreas[f];
 		chart->boundaryLength = computeBoundaryLength(chart, f);
 		chart->normalSum += m_mesh->triangleNormalAreaScaled(f);
+		chart->averageNormal = normalizeSafe(chart->normalSum, Vector3(0), 0.0f);
 		chart->centroidSum += m_mesh->triangleCenter(f);
-		if (recomputeProxy) {
-			// Update proxy and candidate's priorities.
-			updateProxy(chart);
-		}
+		chart->centroid = chart->centroidSum / float(chart->faces.size());
 		// Update candidates.
 		updateChartCandidates(chart, f);
 	}
@@ -4804,13 +4792,6 @@ private:
 		}
 	}
 #endif
-
-	void updateProxy(Chart *chart) const
-	{
-		//#pragma message(NV_FILE_LINE "TODO: Use best fit plane instead of average normal.")
-		chart->averageNormal = normalizeSafe(chart->normalSum, Vector3(0), 0.0f);
-		chart->centroid = chart->centroidSum / float(chart->faces.size());
-	}
 
 	bool relocateSeed(Chart *chart)
 	{
@@ -5029,7 +5010,7 @@ private:
 		owner->area += chart->area;
 		owner->boundaryLength += chart->boundaryLength - sharedBoundaryLength;
 		owner->normalSum += chart->normalSum;
-		updateProxy(owner);
+		owner->averageNormal = normalizeSafe(owner->normalSum, Vector3(0), 0.0f);
 		// Delete chart.
 		m_chartArray[chart->id] = nullptr;
 		chart->~Chart();
@@ -6279,7 +6260,6 @@ private:
 			XA_DEBUG_ASSERT(atlas.facesLeft() == 0);
 			return;
 		}
-		atlas.updateProxies();
 		atlas.relocateSeeds();
 		atlas.resetCharts();
 		// Restart process growing charts in parallel.
@@ -6288,7 +6268,6 @@ private:
 			if (!atlas.growCharts(options.maxThreshold)) {
 				// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
 				atlas.fillHoles(options.maxThreshold * 0.5f);
-				atlas.updateProxies();
 #if XA_MERGE_CHARTS
 				atlas.mergeCharts();
 #endif
@@ -8176,7 +8155,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT_AND_RESET("      Build atlas: ", buildAtlas)
 	XA_PROFILE_PRINT_AND_RESET("         Init: ", buildAtlasInit)
 	XA_PROFILE_PRINT_AND_RESET("         Place seeds: ", buildAtlasPlaceSeeds)
-	XA_PROFILE_PRINT_AND_RESET("         Update proxies: ", buildAtlasUpdateProxies)
 	XA_PROFILE_PRINT_AND_RESET("         Relocate seeds: ", buildAtlasRelocateSeeds)
 	XA_PROFILE_PRINT_AND_RESET("         Reset charts: ", buildAtlasResetCharts)
 	XA_PROFILE_PRINT_AND_RESET("         Grow charts: ", buildAtlasGrowCharts)
