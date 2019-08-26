@@ -1712,11 +1712,11 @@ private:
 	Array<float> m_array;
 };
 
-template<typename Key, typename Value, typename H = Hash<Key>, typename E = Equal<Key> >
+template<typename Key, typename H = Hash<Key>, typename E = Equal<Key> >
 class HashMap
 {
 public:
-	HashMap(int memTag, uint32_t size) : m_memTag(memTag), m_size(size), m_numSlots(0), m_slots(nullptr), m_keys(memTag), m_values(memTag), m_next(memTag)
+	HashMap(int memTag, uint32_t size) : m_memTag(memTag), m_size(size), m_numSlots(0), m_slots(nullptr), m_keys(memTag), m_next(memTag)
 	{
 	}
 
@@ -1726,15 +1726,12 @@ public:
 			XA_FREE(m_slots);
 	}
 
-	const Value &value(uint32_t index) const { return m_values[index]; }
-
-	void add(const Key &key, const Value &value)
+	void add(const Key &key)
 	{
 		if (!m_slots)
 			alloc();
 		const uint32_t hash = computeHash(key);
 		m_keys.push_back(key);
-		m_values.push_back(value);
 		m_next.push_back(m_slots[hash]);
 		m_slots[hash] = m_next.size() - 1;
 	}
@@ -1775,7 +1772,6 @@ private:
 		for (uint32_t i = 0; i < m_numSlots; i++)
 			m_slots[i] = UINT32_MAX;
 		m_keys.reserve(m_size);
-		m_values.reserve(m_size);
 		m_next.reserve(m_size);
 	}
 
@@ -1790,7 +1786,6 @@ private:
 	uint32_t m_numSlots;
 	uint32_t *m_slots;
 	Array<Key> m_keys;
-	Array<Value> m_values;
 	Array<uint32_t> m_next;
 };
 
@@ -2217,7 +2212,7 @@ public:
 				const EdgeKey key(vertex0, vertex1);
 				if (m_edgeMap.get(key) != UINT32_MAX)
 					result = AddFaceResult::DuplicateEdge;
-				m_edgeMap.add(key, firstIndex + i);
+				m_edgeMap.add(key);
 			}
 		}
 		return result;
@@ -2402,12 +2397,10 @@ public:
 	void linkBoundaries()
 	{
 		const uint32_t edgeCount = m_indices.size();
-		HashMap<uint32_t, uint32_t> vertexToEdgeMap(MemTag::Mesh, edgeCount);
+		HashMap<uint32_t> vertexToEdgeMap(MemTag::Mesh, edgeCount); // Edge is index / 2
 		for (uint32_t i = 0; i < edgeCount; i++) {
-			const uint32_t vertex0 = m_indices[meshEdgeIndex0(i)];
-			const uint32_t vertex1 = m_indices[meshEdgeIndex1(i)];
-			vertexToEdgeMap.add(vertex0, i);
-			vertexToEdgeMap.add(vertex1, i);
+			vertexToEdgeMap.add(m_indices[meshEdgeIndex0(i)]);
+			vertexToEdgeMap.add(m_indices[meshEdgeIndex1(i)]);
 		}
 		m_nextBoundaryEdges.resize(edgeCount);
 		for (uint32_t i = 0; i < edgeCount; i++)
@@ -2432,9 +2425,9 @@ public:
 				const uint32_t startVertex = m_indices[meshEdgeIndex1(currentEdge)];
 				uint32_t bestNextEdge = UINT32_MAX;
 				for (ColocalVertexIterator it(this, startVertex); !it.isDone(); it.advance()) {
-					uint32_t mapOtherEdgeIndex = vertexToEdgeMap.get(it.vertex());
-					while (mapOtherEdgeIndex != UINT32_MAX) {
-						const uint32_t otherEdge = vertexToEdgeMap.value(mapOtherEdgeIndex);
+					uint32_t mapIndex = vertexToEdgeMap.get(it.vertex());
+					while (mapIndex != UINT32_MAX) {
+						const uint32_t otherEdge = mapIndex / 2; // Two vertices added per edge.
 						if (m_oppositeEdges[otherEdge] != UINT32_MAX)
 							goto next; // Not a boundary edge.
 						if (linkedEdges.bitAt(otherEdge))
@@ -2450,7 +2443,7 @@ public:
 						if (bestNextEdge != firstEdge && (bestNextEdge == UINT32_MAX || it.vertex() == startVertex))
 							bestNextEdge = otherEdge;
 					next:
-						mapOtherEdgeIndex = vertexToEdgeMap.getNext(mapOtherEdgeIndex);
+						mapIndex = vertexToEdgeMap.getNext(mapIndex);
 					}
 				}
 				if (bestNextEdge == UINT32_MAX) {
@@ -2502,9 +2495,8 @@ public:
 		uint32_t result = UINT32_MAX;
 		if (m_nextColocalVertex.isEmpty()) {
 			EdgeKey key(vertex0, vertex1);
-			uint32_t mapEdgeIndex = m_edgeMap.get(key);
-			while (mapEdgeIndex != UINT32_MAX) {
-				const uint32_t edge = m_edgeMap.value(mapEdgeIndex);
+			uint32_t edge = m_edgeMap.get(key);
+			while (edge != UINT32_MAX) {
 				// Don't find edges of ignored faces.
 				if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
 					//XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
@@ -2513,15 +2505,14 @@ public:
 					return result;
 #endif
 				}
-				mapEdgeIndex = m_edgeMap.getNext(mapEdgeIndex);
+				edge = m_edgeMap.getNext(edge);
 			}
 		} else {
 			for (ColocalVertexIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
 				for (ColocalVertexIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 					EdgeKey key(it0.vertex(), it1.vertex());
-					uint32_t mapEdgeIndex = m_edgeMap.get(key);
-					while (mapEdgeIndex != UINT32_MAX) {
-						const uint32_t edge = m_edgeMap.value(mapEdgeIndex);
+					uint32_t edge = m_edgeMap.get(key);
+					while (edge != UINT32_MAX) {
 						// Don't find edges of ignored faces.
 						if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
 							XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
@@ -2530,7 +2521,7 @@ public:
 							return result;
 #endif
 						}
-						mapEdgeIndex = m_edgeMap.getNext(mapEdgeIndex);
+						edge = m_edgeMap.getNext(edge);
 					}
 				}
 			}
@@ -2800,7 +2791,7 @@ private:
 		uint32_t v1;
 	};
 
-	HashMap<EdgeKey, uint32_t> m_edgeMap;
+	HashMap<EdgeKey> m_edgeMap;
 
 public:
 	class BoundaryEdgeIterator
@@ -2885,37 +2876,37 @@ public:
 
 		bool isDone() const
 		{
-			return m_vertex0It.isDone() && m_vertex1It.isDone() && m_mapEdgeIndex == UINT32_MAX;
+			return m_vertex0It.isDone() && m_vertex1It.isDone() && m_edge == UINT32_MAX;
 		}
 
 		uint32_t edge() const
 		{
-			return m_mesh->m_edgeMap.value(m_mapEdgeIndex);
+			return m_edge;
 		}
 
 	private:
 		void resetElement()
 		{
-			m_mapEdgeIndex = m_mesh->m_edgeMap.get(Mesh::EdgeKey(m_vertex0It.vertex(), m_vertex1It.vertex()));
-			while (m_mapEdgeIndex != UINT32_MAX) {
+			m_edge = m_mesh->m_edgeMap.get(Mesh::EdgeKey(m_vertex0It.vertex(), m_vertex1It.vertex()));
+			while (m_edge != UINT32_MAX) {
 				if (!isIgnoredFace())
 					break;
-				m_mapEdgeIndex = m_mesh->m_edgeMap.getNext(m_mapEdgeIndex);
+				m_edge = m_mesh->m_edgeMap.getNext(m_edge);
 			}
-			if (m_mapEdgeIndex == UINT32_MAX)
+			if (m_edge == UINT32_MAX)
 				advanceVertex1();
 		}
 
 		void advanceElement()
 		{
 			for (;;) {
-				m_mapEdgeIndex = m_mesh->m_edgeMap.getNext(m_mapEdgeIndex);
-				if (m_mapEdgeIndex == UINT32_MAX)
+				m_edge = m_mesh->m_edgeMap.getNext(m_edge);
+				if (m_edge == UINT32_MAX)
 					break;
 				if (!isIgnoredFace())
 					break;
 			}
-			if (m_mapEdgeIndex == UINT32_MAX)
+			if (m_edge == UINT32_MAX)
 				advanceVertex1();
 		}
 
@@ -2939,14 +2930,13 @@ public:
 
 		bool isIgnoredFace() const
 		{
-			const uint32_t edge = m_mesh->m_edgeMap.value(m_mapEdgeIndex);
-			return m_mesh->m_faceIgnore[meshEdgeFace(edge)];
+			return m_mesh->m_faceIgnore[meshEdgeFace(m_edge)];
 		}
 
 		const Mesh *m_mesh;
 		ColocalVertexIterator m_vertex0It, m_vertex1It;
 		const uint32_t m_vertex1;
-		uint32_t m_mapEdgeIndex;
+		uint32_t m_edge;
 	};
 
 	class FaceEdgeIterator 
@@ -8037,10 +8027,10 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		for (uint32_t i = 0; i < mesh->vertexToChartMap.size(); i++)
 			mesh->vertexToChartMap[i] = UINT32_MAX;
 		// Calculate charts (incident faces).
-		internal::HashMap<internal::Vector2, uint32_t> vertexToFaceMap(internal::MemTag::Default, indexCount);
+		internal::HashMap<internal::Vector2> vertexToFaceMap(internal::MemTag::Default, indexCount); // Face is index / 3
 		const uint32_t faceCount = indexCount / 3;
 		for (uint32_t i = 0; i < indexCount; i++)
-			vertexToFaceMap.add(meshInstance->texcoords[mesh->indices[i]], i / 3);
+			vertexToFaceMap.add(meshInstance->texcoords[mesh->indices[i]]);
 		internal::BitArray faceAssigned(faceCount);
 		faceAssigned.clearAll();
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -8059,16 +8049,16 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 					const uint32_t face = chart->faces[f2];
 					for (uint32_t i = 0; i < 3; i++) {
 						const internal::Vector2 &texcoord = meshInstance->texcoords[meshInstance->mesh->indices[face * 3 + i]];
-						uint32_t mapFaceIndex = vertexToFaceMap.get(texcoord);
-						while (mapFaceIndex != UINT32_MAX) {
-							const uint32_t face2 = vertexToFaceMap.value(mapFaceIndex);
+						uint32_t mapIndex = vertexToFaceMap.get(texcoord);
+						while (mapIndex != UINT32_MAX) {
+							const uint32_t face2 = mapIndex / 3; // 3 vertices added per face.
 							// Materials must match.
 							if (!faceAssigned.bitAt(face2) && (!decl.faceMaterialData || decl.faceMaterialData[face] == decl.faceMaterialData[face2])) {
 								faceAssigned.setBitAt(face2);
 								chart->faces.push_back(face2);
 								newFaceAssigned = true;
 							}
-							mapFaceIndex = vertexToFaceMap.getNext(mapFaceIndex);
+							mapIndex = vertexToFaceMap.getNext(mapIndex);
 						}
 					}
 				}
