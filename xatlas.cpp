@@ -4329,11 +4329,11 @@ struct Atlas
 		const uint32_t edgeCount = m_mesh->edgeCount();
 		m_edgeLengths.resize(edgeCount);
 		m_edgeLengths.zeroOutMemory();
-		m_faceAreas.resize(m_mesh->faceCount());
+		m_faceAreas.resize(faceCount);
 		m_faceAreas.zeroOutMemory();
-		m_faceNormals.resize(m_mesh->faceCount());
-		m_faceTangents.resize(m_mesh->faceCount());
-		m_faceBitangents.resize(m_mesh->faceCount());
+		m_faceNormals.resize(faceCount);
+		m_faceTangents.resize(faceCount);
+		m_faceBitangents.resize(faceCount);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_ignoreFaces[f])
 				continue;
@@ -4347,6 +4347,41 @@ struct Atlas
 			m_faceTangents[f] = Basis::computeTangent(m_faceNormals[f]);
 			m_faceBitangents[f] = Basis::computeBitangent(m_faceNormals[f], m_faceTangents[f]);
 		}
+#if XA_GROW_CHARTS_COPLANAR
+		// Precompute regions of coplanar incident faces.
+		m_nextPlanarRegionFace.resize(faceCount);
+		for (uint32_t f = 0; f < faceCount; f++)
+			m_nextPlanarRegionFace[f] = f;
+		Array<uint32_t> faceStack;
+		faceStack.reserve(min(faceCount, 16u));
+		for (uint32_t f = 0; f < faceCount; f++) {
+			if (m_nextPlanarRegionFace[f] != f)
+				continue; // Already assigned.
+			if (m_ignoreFaces[f])
+				continue;
+			faceStack.clear();
+			faceStack.push_back(f);
+			for (;;) {
+				if (faceStack.isEmpty())
+					break;
+				const uint32_t face = faceStack.back();
+				faceStack.pop_back();
+				for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
+					const uint32_t oface = it.oppositeFace();
+					if (it.isBoundary() || m_ignoreFaces[oface])
+						continue;
+					if (m_nextPlanarRegionFace[oface] != oface)
+						continue; // Already assigned.
+					if (!equal(dot(m_faceNormals[face], m_faceNormals[oface]), 1.0f, kEpsilon))
+						continue; // Not coplanar.
+					const uint32_t next = m_nextPlanarRegionFace[face];
+					m_nextPlanarRegionFace[face] = oface;
+					m_nextPlanarRegionFace[oface] = next;
+					faceStack.push_back(oface);
+				}
+			}
+		}
+#endif
 		XA_PROFILE_END(buildAtlasInit)
 	}
 
@@ -4761,23 +4796,16 @@ private:
 	void growChartCoplanar(Chart *chart)
 	{
 		XA_DEBUG_ASSERT(!chart->faces.isEmpty());
-		const Vector3 chartNormal = m_faceNormals[chart->faces[0]];
-		m_growFaces.clear();
-		for (uint32_t f = 0; f < chart->faces.size(); f++)
-			m_growFaces.push_back(chart->faces[f]);
-		for (;;) {
-			if (m_growFaces.isEmpty())
-				break;
-			const uint32_t face = m_growFaces.back();
-			m_growFaces.pop_back();
-			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
-				if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()] || m_faceChartArray[it.oppositeFace()] != -1)
-					continue;
-				if (equal(dot(chartNormal, m_faceNormals[it.oppositeFace()]), 1.0f, kEpsilon)) {
-					createFaceTexcoords(chart, it.oppositeFace());
-					addFaceToChart(chart, it.oppositeFace());
-					m_growFaces.push_back(it.oppositeFace());
+		for (uint32_t i = 0; i < chart->faces.size(); i++) {
+			const uint32_t chartFace = chart->faces[i];
+			uint32_t face = m_nextPlanarRegionFace[chartFace];
+			while (face != chartFace) { 
+				// Not assigned to a chart?
+				if (m_faceChartArray[face] == -1) {
+					createFaceTexcoords(chart, face);
+					addFaceToChart(chart, face);
 				}
+				face = m_nextPlanarRegionFace[face];
 			}
 		}
 	}
@@ -5016,7 +5044,6 @@ private:
 	Array<Vector3> m_faceTangents;
 	Array<Vector3> m_faceBitangents;
 	Array<Vector2> m_texcoords;
-	Array<uint32_t> m_growFaces;
 	uint32_t m_facesLeft;
 	Array<int> m_faceChartArray;
 	Array<Chart *> m_chartArray;
@@ -5025,6 +5052,9 @@ private:
 	ChartOptions m_options;
 	Array<Chart *> m_faceCandidateCharts;
 	Array<float> m_faceCandidateCosts;
+#if XA_GROW_CHARTS_COPLANAR
+	Array<uint32_t> m_nextPlanarRegionFace;
+#endif
 };
 
 } // namespace segment
