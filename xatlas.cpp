@@ -4697,30 +4697,71 @@ private:
 		}
 	}
 
-	bool isChartBoundaryEdge(Chart *chart, uint32_t edge) const
+	bool isChartBoundaryEdge(const Chart *chart, uint32_t edge) const
 	{
 		const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
 		const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
 		return oppositeEdge == UINT32_MAX || m_ignoreFaces[oppositeFace] || m_faceChartArray[oppositeFace] != chart->id;
 	}
 
+	bool edgeArraysIntersect(const uint32_t *edges1, uint32_t edges1Count, const uint32_t *edges2, uint32_t edges2Count)
+	{
+		for (uint32_t i = 0; i < edges1Count; i++) {
+			const uint32_t edge1 = edges1[i];
+			for (uint32_t j = 0; j < edges2Count; j++) {
+				const uint32_t edge2 = edges2[j];
+				const Vector2 &a1 = m_texcoords[meshEdgeIndex0(edge1)];
+				const Vector2 &a2 = m_texcoords[meshEdgeIndex1(edge1)];
+				const Vector2 &b1 = m_texcoords[meshEdgeIndex0(edge2)];
+				const Vector2 &b2 = m_texcoords[meshEdgeIndex1(edge2)];
+				if (linesIntersect(a1, a2, b1, b2, m_mesh->epsilon()))
+					return true;
+			}
+		}
+		return false;
+	}
+
+	bool isFaceFlipped(uint32_t face) const
+	{
+		const float t1 = m_texcoords[face * 3 + 0].x;
+		const float s1 = m_texcoords[face * 3 + 0].y;
+		const float t2 = m_texcoords[face * 3 + 1].x;
+		const float s2 = m_texcoords[face * 3 + 1].y;
+		const float t3 = m_texcoords[face * 3 + 2].x;
+		const float s3 = m_texcoords[face * 3 + 2].y;
+		const float parametricArea = ((s2 - s1) * (t3 - t1) - (s3 - s1) * (t2 - t1)) / 2;
+		return parametricArea < 0.0f;
+	}
+
+	void computeChartBoundaryEdges(const Chart *chart, Array<uint32_t> *dest) const
+	{
+		dest->clear();
+		for (uint32_t f = 0; f < chart->faces.size(); f++) {
+			const uint32_t face = chart->faces[f];
+			for (uint32_t i = 0; i < 3; i++) {
+				const uint32_t edge = face * 3 + i;
+				if (isChartBoundaryEdge(chart, edge))
+					dest->push_back(edge);
+			}
+		}
+	}
+
 	bool canAddFaceToChart(Chart *chart, uint32_t face)
 	{
-		// Find face edges that are on a mesh boundary or form a boundary with another chart.
-		uint32_t edgesToCompare[3];
+		// Check for flipped triangles.
+		if (isFaceFlipped(face))
+			return false;
+		// Find face edges that don't border this chart.
+		m_tempEdges1.clear();
 		for (uint32_t i = 0; i < 3; i++) {
 			const uint32_t edge = face * 3 + i;
-			const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
-			const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
-			if (oppositeEdge == UINT32_MAX || m_ignoreFaces[oppositeFace] || m_faceChartArray[oppositeFace] != chart->id)
-				edgesToCompare[i] = edge;
-			else
-				edgesToCompare[i] = UINT32_MAX;
+			if (isChartBoundaryEdge(chart, edge))
+				m_tempEdges1.push_back(edge);
 		}
-		// All edges on boundary? This can happen if the face is surrounded by the chart.
-		if (edgesToCompare[0] == UINT32_MAX && edgesToCompare[1] == UINT32_MAX && edgesToCompare[2] == UINT32_MAX)
-			return true;
-		// Check if any valid face edge intersects the chart boundary.
+		if (m_tempEdges1.isEmpty())
+			return true; // This can happen if the face is surrounded by the chart.
+		// Get chart boundary edges, except those that border the face.
+		m_tempEdges2.clear();
 		for (uint32_t i = 0; i < chart->faces.size(); i++) {
 			const uint32_t chartFace = chart->faces[i];
 			for (uint32_t j = 0; j < 3; j++) {
@@ -4731,46 +4772,62 @@ private:
 				const uint32_t oppositeChartEdge = m_mesh->oppositeEdge(chartEdge);
 				if (meshEdgeFace(oppositeChartEdge) == face)
 					continue;
-				for (uint32_t k = 0; k < 3; k++) {
-					if (edgesToCompare[k] == UINT32_MAX)
-						continue;
-					const uint32_t e1 = chartEdge;
-					const uint32_t e2 = edgesToCompare[k];
-					if (linesIntersect(m_texcoords[meshEdgeIndex0(e1)], m_texcoords[meshEdgeIndex1(e1)], m_texcoords[meshEdgeIndex0(e2)], m_texcoords[meshEdgeIndex1(e2)], m_mesh->epsilon()))
-						return false;
-				}
+				m_tempEdges2.push_back(chartEdge);
 			}
 		}
-		return true;
+		const bool intersect = edgeArraysIntersect(m_tempEdges1.data(), m_tempEdges1.size(), m_tempEdges2.data(), m_tempEdges2.size());
+#if 0
+		if (intersect) {
+			static std::atomic<uint32_t> count = 0;
+			char filename[256];
+			XA_SPRINTF(filename, sizeof(filename), "intersect%04u.obj", count.fetch_add(1));
+			FILE *file;
+			XA_FOPEN(file, filename, "w");
+			if (file) {
+				for (uint32_t i = 0; i < m_texcoords.size(); i++)
+					fprintf(file, "v %g %g 0.0\n", m_texcoords[i].x, m_texcoords[i].y);
+				fprintf(file, "s off\n");
+				fprintf(file, "o face\n");
+				{
+					fprintf(file, "f ");
+					for (uint32_t j = 0; j < 3; j++) {
+						const uint32_t index = face * 3 + j + 1; // 1-indexed
+						fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
+					}
+				}
+				fprintf(file, "s off\n");
+				fprintf(file, "o chart\n");
+				for (uint32_t i = 0; i < chart->faces.size(); i++) {
+					const uint32_t chartFace = chart->faces[i];
+					fprintf(file, "f ");
+					for (uint32_t j = 0; j < 3; j++) {
+						const uint32_t index = chartFace * 3 + j + 1; // 1-indexed
+						fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
+					}
+				}
+				fclose(file);
+			}
+		}
+#endif
+		return !intersect;
 	}
 
 	bool canMergeCharts(Chart *chart1, Chart *chart2)
 	{
-		for (uint32_t f1 = 0; f1 < chart1->faces.size(); f1++) {
-			const uint32_t face1 = chart1->faces[f1];
-			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t edge1 = face1 * 3 + i;
-				if (!isChartBoundaryEdge(chart1, edge1))
-					continue;
-				for (uint32_t f2 = 0; f2 < chart2->faces.size(); f2++) {
-					const uint32_t face2 = chart2->faces[f2];
-					for (uint32_t j = 0; j < 3; j++) {
-						const uint32_t edge2 = face2 * 3 + j;
-						if (!isChartBoundaryEdge(chart2, edge2))
-							continue;
-						if (linesIntersect(m_texcoords[meshEdgeIndex0(edge1)], m_texcoords[meshEdgeIndex1(edge1)], m_texcoords[meshEdgeIndex0(edge2)], m_texcoords[meshEdgeIndex1(edge2)], m_mesh->epsilon()))
-							return false;
-					}
-				}
-			}
+		for (uint32_t i = 0; i < chart2->faces.size(); i++) {
+			if (isFaceFlipped(chart2->faces[i]))
+				return false;
 		}
-		return true;
+		computeChartBoundaryEdges(chart1, &m_tempEdges1);
+		computeChartBoundaryEdges(chart2, &m_tempEdges2);
+		return !edgeArraysIntersect(m_tempEdges1.data(), m_tempEdges1.size(), m_tempEdges2.data(), m_tempEdges2.size());
 	}
 
 	void addFaceToChart(Chart *chart, uint32_t f)
 	{
+		const bool firstFace = chart->faces.isEmpty();
 		// Use the first face normal as the chart basis.
-		if (chart->faces.isEmpty()) {
+		if (firstFace) {
 			chart->basis.normal = m_faceNormals[f];
 			chart->basis.tangent = m_faceTangents[f];
 			chart->basis.bitangent = m_faceBitangents[f];
@@ -5055,6 +5112,7 @@ private:
 #if XA_GROW_CHARTS_COPLANAR
 	Array<uint32_t> m_nextPlanarRegionFace;
 #endif
+	Array<uint32_t> m_tempEdges1, m_tempEdges2;
 };
 
 } // namespace segment
@@ -5505,6 +5563,7 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 	for (uint32_t e = 0; e < mesh->edgeCount(); e++) {
 		if (mesh->isBoundaryEdge(e)) {
 			firstBoundaryEdge = e;
+			break;
 		}
 	}
 	XA_DEBUG_ASSERT(firstBoundaryEdge != UINT32_MAX);
