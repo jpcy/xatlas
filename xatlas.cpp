@@ -7154,7 +7154,7 @@ struct Atlas
 				extents.y = (float)height;
 			}
 			// Limit chart size, either to PackOptions::maxChartSize or maxResolution (if set), whichever is smaller.
-			// If limiting chart size to maxResolution print a warning, since that may not be desirable to the user.
+			// If limiting chart size to maxResolution, print a warning, since that may not be desirable to the user.
 			uint32_t maxChartSize = options.maxChartSize;
 			bool warnChartResized = false;
 			if (maxResolution > 0 && (maxChartSize == 0 || maxResolution < maxChartSize)) {
@@ -7167,16 +7167,14 @@ struct Atlas
 					if (warnChartResized)
 						XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y, maxChartSize, maxChartSize);
 					scale = realMaxChartSize / max(extents.x, extents.y);
-					extents.x = extents.y = 0.0f;
 					for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
 						Vector2 &texcoord = chart->uniqueVertexAt(i);
-						texcoord *= scale;
-						extents = max(extents, texcoord);
+						texcoord = min(texcoord * scale, Vector2(realMaxChartSize));
 					}
-					XA_DEBUG_ASSERT(extents.x <= realMaxChartSize && extents.y <= realMaxChartSize);
 				}
 			}
 			// Align to texel centers and add padding offset.
+			extents.x = extents.y = 0.0f;
 			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(v);
 				texcoord.x += 0.5f + options.padding;
