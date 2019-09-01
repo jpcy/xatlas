@@ -4860,6 +4860,7 @@ private:
 		return true;
 	}
 
+	// Returns true if the seed has changed.
 	bool relocateSeed(Chart *chart)
 	{
 		// Find the first N triangles that fit the proxy best.
@@ -4884,7 +4885,8 @@ private:
 		XA_DEBUG_ASSERT(maxDistance >= 0);
 		// In order to prevent k-means cyles we record all the previously chosen seeds.
 		for (uint32_t i = 0; i < chart->seeds.size(); i++) {
-			if (chart->seeds[i] == leastCentral) {
+			// Treat seeds belong to the same planar region as equal.
+			if (chart->seeds[i] == leastCentral || m_facePlanarRegionId[chart->seeds[i]] == m_facePlanarRegionId[leastCentral]) {
 				// Move new seed to the end of the seed array.
 				uint32_t last = chart->seeds.size() - 1;
 				swap(chart->seeds[i], chart->seeds[last]);
