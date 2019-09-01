@@ -114,7 +114,6 @@ Copyright (c) 2012 Brandon Pelfrey
 
 #define XA_UNUSED(a) ((void)(a))
 
-#define XA_GROW_CHARTS_COPLANAR 1
 #define XA_MERGE_CHARTS 1
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 #define XA_RECOMPUTE_CHARTS 1
@@ -4347,13 +4346,16 @@ struct Atlas
 			m_faceTangents[f] = Basis::computeTangent(m_faceNormals[f]);
 			m_faceBitangents[f] = Basis::computeBitangent(m_faceNormals[f], m_faceTangents[f]);
 		}
-#if XA_GROW_CHARTS_COPLANAR
 		// Precompute regions of coplanar incident faces.
 		m_nextPlanarRegionFace.resize(faceCount);
-		for (uint32_t f = 0; f < faceCount; f++)
+		m_facePlanarRegionId.resize(faceCount);
+		for (uint32_t f = 0; f < faceCount; f++) {
 			m_nextPlanarRegionFace[f] = f;
+			m_facePlanarRegionId[f] = UINT32_MAX;
+		}
 		Array<uint32_t> faceStack;
 		faceStack.reserve(min(faceCount, 16u));
+		uint32_t planarRegionCount = 0;
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_nextPlanarRegionFace[f] != f)
 				continue; // Already assigned.
@@ -4377,11 +4379,13 @@ struct Atlas
 					const uint32_t next = m_nextPlanarRegionFace[face];
 					m_nextPlanarRegionFace[face] = oface;
 					m_nextPlanarRegionFace[oface] = next;
+					m_facePlanarRegionId[face] = planarRegionCount;
+					m_facePlanarRegionId[oface] = planarRegionCount;
 					faceStack.push_back(oface);
 				}
 			}
+			planarRegionCount++;
 		}
-#endif
 		XA_PROFILE_END(buildAtlasInit)
 	}
 
@@ -4427,12 +4431,10 @@ struct Atlas
 		bool canAddAny = false;
 		for (uint32_t f = 0; f < faceCount; f++) {
 			Chart *chart = m_faceCandidateCharts[f];
-			if (!chart || m_faceCandidateCosts[f] > threshold)
+			if (!chart || m_faceCandidateCosts[f] > threshold || m_faceChartArray[f] != -1)
 				continue;
-			createFaceTexcoords(chart, f);
-			if (!canAddFaceToChart(chart, f))
+			if (!addFaceToChart(chart, f))
 				continue;
-			addFaceToChart(chart, f);
 			canAddAny = true;
 		}
 		XA_PROFILE_END(buildAtlasGrowCharts)
@@ -4459,29 +4461,7 @@ struct Atlas
 			chart->candidates.clear();
 			addFaceToChart(chart, seed);
 		}
-#if XA_GROW_CHARTS_COPLANAR
-		for (uint32_t i = 0; i < chartCount; i++) {
-			Chart *chart = m_chartArray[i];
-			growChartCoplanar(chart);
-		}
-#endif
 		XA_PROFILE_END(buildAtlasResetCharts)
-	}
-
-	void updateChartCandidates(Chart *chart, uint32_t f)
-	{
-		// Traverse neighboring faces, add the ones that do not belong to any chart yet.
-		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			if (!it.isBoundary() && !m_ignoreFaces[it.oppositeFace()] && m_faceChartArray[it.oppositeFace()] == -1)
-				chart->candidates.push(it.oppositeFace());
-		}
-		// Re-evaluate all candidate priorities.
-		uint32_t candidateCount = chart->candidates.count();
-		for (uint32_t i = 0; i < candidateCount; i++) {
-			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
-			pair.priority = evaluateCost(chart, pair.face);
-		}
-		chart->candidates.sort();
 	}
 
 	bool relocateSeeds()
@@ -4645,21 +4625,15 @@ private:
 		}
 		chart->seeds.push_back(face);
 		addFaceToChart(chart, face);
-#if XA_GROW_CHARTS_COPLANAR
-		growChartCoplanar(chart);
-#endif
 		// Grow the chart as much as possible within the given threshold.
-		for (uint32_t i = 0; i < m_facesLeft; ) {
+		for (;;) {
 			if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold)
 				break;
 			const uint32_t f = chart->candidates.pop();
 			if (m_faceChartArray[f] != -1)
 				continue;
-			createFaceTexcoords(chart, f);
-			if (!canAddFaceToChart(chart, f))
+			if (!addFaceToChart(chart, f))
 				continue;
-			addFaceToChart(chart, f);
-			i++;
 		}
 	}
 
@@ -4823,50 +4797,68 @@ private:
 		return !edgeArraysIntersect(m_tempEdges1.data(), m_tempEdges1.size(), m_tempEdges2.data(), m_tempEdges2.size());
 	}
 
-	void addFaceToChart(Chart *chart, uint32_t f)
+	bool addFaceToChart(Chart *chart, uint32_t face)
 	{
-		const bool firstFace = chart->faces.isEmpty();
-		// Use the first face normal as the chart basis.
-		if (firstFace) {
-			chart->basis.normal = m_faceNormals[f];
-			chart->basis.tangent = m_faceTangents[f];
-			chart->basis.bitangent = m_faceBitangents[f];
-			createFaceTexcoords(chart, f);
+		XA_DEBUG_ASSERT(m_faceChartArray[face] == -1);
+		const uint32_t oldFaceCount = chart->faces.size();
+		if (oldFaceCount == 0) {
+			// Use the first face normal as the chart basis.
+			chart->basis.normal = m_faceNormals[face];
+			chart->basis.tangent = m_faceTangents[face];
+			chart->basis.bitangent = m_faceBitangents[face];
 		}
-		// Add face to chart.
-		chart->faces.push_back(f);
-		XA_DEBUG_ASSERT(m_faceChartArray[f] == -1);
-		m_faceChartArray[f] = chart->id;
-		m_facesLeft--;
-		// Update area and boundary length.
-		chart->area = chart->area + m_faceAreas[f];
-		chart->boundaryLength = computeBoundaryLength(chart, f);
-		chart->normalSum += m_mesh->triangleNormalAreaScaled(f);
-		chart->averageNormal = normalizeSafe(chart->normalSum, Vector3(0), 0.0f);
-		chart->centroidSum += m_mesh->triangleCenter(f);
-		chart->centroid = chart->centroidSum / float(chart->faces.size());
-		// Update candidates.
-		updateChartCandidates(chart, f);
-	}
-
-#if XA_GROW_CHARTS_COPLANAR
-	void growChartCoplanar(Chart *chart)
-	{
-		XA_DEBUG_ASSERT(!chart->faces.isEmpty());
-		for (uint32_t i = 0; i < chart->faces.size(); i++) {
-			const uint32_t chartFace = chart->faces[i];
-			uint32_t face = m_nextPlanarRegionFace[chartFace];
-			while (face != chartFace) { 
-				// Not assigned to a chart?
-				if (m_faceChartArray[face] == -1) {
-					createFaceTexcoords(chart, face);
-					addFaceToChart(chart, face);
+		createFaceTexcoords(chart, face);
+		chart->faces.push_back(face);
+		// Also add any coplanar connected faces.
+		uint32_t coplanarFace = m_nextPlanarRegionFace[face];
+		while (coplanarFace != face) { 
+			XA_DEBUG_ASSERT(m_faceChartArray[coplanarFace] == -1);
+			createFaceTexcoords(chart, coplanarFace);
+			chart->faces.push_back(coplanarFace);
+			coplanarFace = m_nextPlanarRegionFace[coplanarFace];
+		}
+		// If this isn't the first face added to this chart, check for flipped faces in the parameterization.
+		if (oldFaceCount > 0) {
+			for (uint32_t i = oldFaceCount; i < chart->faces.size(); i++) {
+				if (isFaceFlipped(chart->faces[i])) {
+					chart->faces.resize(oldFaceCount);
+					return false;
 				}
-				face = m_nextPlanarRegionFace[face];
 			}
 		}
+		// If this isn't the first face added to this chart, check for boundary intersection in the parameterization between the existing face(s) and the new one(s).
+		if (oldFaceCount > 0) {
+		}
+		// Add face(s) to chart.
+		for (uint32_t i = oldFaceCount; i < chart->faces.size(); i++) {
+			const uint32_t f = chart->faces[i];
+			m_faceChartArray[f] = chart->id;
+			m_facesLeft--;
+			chart->area = chart->area + m_faceAreas[f];
+			chart->boundaryLength = computeBoundaryLength(chart, f);
+			chart->normalSum += m_mesh->triangleNormalAreaScaled(f);
+			chart->centroidSum += m_mesh->triangleCenter(f);
+		}
+		chart->averageNormal = normalizeSafe(chart->normalSum, Vector3(0), 0.0f);
+		chart->centroid = chart->centroidSum / float(chart->faces.size());
+		// Update candidates.
+		for (uint32_t i = oldFaceCount; i < chart->faces.size(); i++) {
+			const uint32_t f = chart->faces[i];
+			// Traverse neighboring faces, add the ones that do not belong to any chart yet.
+			for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
+				if (!it.isBoundary() && !m_ignoreFaces[it.oppositeFace()] && m_faceChartArray[it.oppositeFace()] == -1)
+					chart->candidates.push(it.oppositeFace());
+			}
+		}
+		// Re-evaluate all candidate priorities.
+		uint32_t candidateCount = chart->candidates.count();
+		for (uint32_t i = 0; i < candidateCount; i++) {
+			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
+			pair.priority = evaluateCost(chart, pair.face);
+		}
+		chart->candidates.sort();
+		return true;
 	}
-#endif
 
 	bool relocateSeed(Chart *chart)
 	{
@@ -5109,9 +5101,8 @@ private:
 	ChartOptions m_options;
 	Array<Chart *> m_faceCandidateCharts;
 	Array<float> m_faceCandidateCosts;
-#if XA_GROW_CHARTS_COPLANAR
 	Array<uint32_t> m_nextPlanarRegionFace;
-#endif
+	Array<uint32_t> m_facePlanarRegionId;
 	Array<uint32_t> m_tempEdges1, m_tempEdges2;
 };
 
