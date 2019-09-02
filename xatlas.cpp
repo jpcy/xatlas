@@ -4367,6 +4367,7 @@ struct Atlas
 				if (faceStack.isEmpty())
 					break;
 				const uint32_t face = faceStack.back();
+				m_facePlanarRegionId[face] = planarRegionCount;
 				faceStack.pop_back();
 				for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
 					const uint32_t oface = it.oppositeFace();
@@ -4379,7 +4380,6 @@ struct Atlas
 					const uint32_t next = m_nextPlanarRegionFace[face];
 					m_nextPlanarRegionFace[face] = oface;
 					m_nextPlanarRegionFace[oface] = next;
-					m_facePlanarRegionId[face] = planarRegionCount;
 					m_facePlanarRegionId[oface] = planarRegionCount;
 					faceStack.push_back(oface);
 				}
