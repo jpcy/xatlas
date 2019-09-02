@@ -1493,9 +1493,115 @@ private:
 	Array<Node> m_nodes;
 };
 
-class Fit
+struct Fit
 {
-public:
+	static bool computeBasis(const Vector3 *points, uint32_t pointsCount, Basis *basis)
+	{
+		/*if (computeLeastSquaresNormal(points, pointsCount, &basis->normal)) {
+			basis->tangent = Basis::computeTangent(basis->normal);
+			basis->bitangent = Basis::computeBitangent(basis->normal, basis->tangent);
+			return true;
+		}*/
+		return computeEigen(points, pointsCount, basis);
+	}
+
+private:
+	// Fit a plane to a collection of points.
+	// Fast, and accurate to within a few degrees.
+	// Returns None if the points do not span a plane.
+	// https://www.ilikebigbits.com/2015_03_04_plane_from_points.html
+	static bool computeLeastSquaresNormal(const Vector3 *points, uint32_t pointsCount, Vector3 *normal)
+	{
+		XA_DEBUG_ASSERT(pointsCount >= 3);
+		if (pointsCount == 3) {
+			*normal = normalize(cross(points[2] - points[0], points[1] - points[0]), kEpsilon);
+			return true;
+		}
+		const float invN = 1.0f / float(pointsCount);
+		Vector3 centroid(0.0f);
+		for (uint32_t i = 0; i < pointsCount; i++)
+			centroid += points[i];
+		centroid *= invN;
+		// Calculate full 3x3 covariance matrix, excluding symmetries:
+		float xx = 0.0f, xy = 0.0f, xz = 0.0f, yy = 0.0f, yz = 0.0f, zz = 0.0f;
+		for (uint32_t i = 0; i < pointsCount; i++) {
+			Vector3 r = points[i] - centroid;
+			xx += r.x * r.x;
+			xy += r.x * r.y;
+			xz += r.x * r.z;
+			yy += r.y * r.y;
+			yz += r.y * r.z;
+			zz += r.z * r.z;
+		}
+#if 0
+		xx *= invN;
+		xy *= invN;
+		xz *= invN;
+		yy *= invN;
+		yz *= invN;
+		zz *= invN;
+		Vector3 weighted_dir(0.0f);
+		{
+			float det_x = yy * zz - yz * yz;
+			const Vector3 axis_dir(det_x, xz * yz - xy * zz, xy * yz - xz * yy);
+			float weight = det_x * det_x;
+			if (dot(weighted_dir, axis_dir) < 0.0f)
+				weight = -weight;
+			weighted_dir += axis_dir * weight;
+		}
+		{
+			float det_y = xx * zz - xz * xz;
+			const Vector3 axis_dir(xz * yz - xy * zz, det_y, xy * xz - yz * xx);
+			float weight = det_y * det_y;
+			if (dot(weighted_dir, axis_dir) < 0.0f)
+				weight = -weight;
+			weighted_dir += axis_dir * weight;
+		}
+		{
+			float det_z = xx * yy - xy * xy;
+			const Vector3 axis_dir(xy * yz - xz * yy, xy * xz - yz * xx, det_z);
+			float weight = det_z * det_z;
+			if (dot(weighted_dir, axis_dir) < 0.0f)
+				weight = -weight;
+			weighted_dir += axis_dir * weight;
+		}
+		*normal = normalize(weighted_dir, kEpsilon);
+#else
+		const float det_x = yy * zz - yz * yz;
+		const float det_y = xx * zz - xz * xz;
+		const float det_z = xx * yy - xy * xy;
+		const float det_max = max(det_x, max(det_y, det_z));
+		if (det_max <= 0.0f)
+			return false; // The points don't span a plane
+		// Pick path with best conditioning:
+		Vector3 dir;
+		if (det_max == det_x)
+			dir = Vector3(det_x,xz * yz - xy * zz,xy * yz - xz * yy);
+		else if (det_max == det_y)
+			dir = Vector3(xz * yz - xy * zz, det_y, xy * xz - yz * xx);
+		else if (det_max == det_z)
+			dir = Vector3(xy * yz - xz * yy, xy * xz - yz * xx, det_z);
+		*normal = normalize(dir, kEpsilon);
+#endif
+		return isNormalized(*normal);
+	}
+
+	static bool computeEigen(const Vector3 *points, uint32_t pointsCount, Basis *basis)
+	{
+		float matrix[6];
+		Fit::computeCovariance(pointsCount, points, matrix);
+		if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0)
+			return false;
+		float eigenValues[3];
+		Vector3 eigenVectors[3];
+		if (!Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors))
+			return false;
+		basis->normal = normalize(eigenVectors[2], kEpsilon);
+		basis->tangent = normalize(eigenVectors[0], kEpsilon);
+		basis->bitangent = normalize(eigenVectors[1], kEpsilon);
+		return true;
+	}
+
 	static Vector3 computeCentroid(int n, const Vector3 * points)
 	{
 		Vector3 centroid(0.0f);
@@ -5514,22 +5620,13 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 
 static bool computeOrthogonalProjectionMap(Mesh *mesh)
 {
-	uint32_t vertexCount = mesh->vertexCount();
-	// Avoid redundant computations.
-	float matrix[6];
-	Fit::computeCovariance(vertexCount, &mesh->position(0), matrix);
-	if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0)
+	const uint32_t vertexCount = mesh->vertexCount();
+	Basis basis;
+	if (!Fit::computeBasis(&mesh->position(0), vertexCount, &basis))
 		return false;
-	float eigenValues[3];
-	Vector3 eigenVectors[3];
-	if (!Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors))
-		return false;
-	Vector3 axis[2];
-	axis[0] = normalize(eigenVectors[0], kEpsilon);
-	axis[1] = normalize(eigenVectors[1], kEpsilon);
 	// Project vertices to plane.
 	for (uint32_t i = 0; i < vertexCount; i++)
-		mesh->texcoord(i) = Vector2(dot(axis[0], mesh->position(i)), dot(axis[1], mesh->position(i)));
+		mesh->texcoord(i) = Vector2(dot(basis.tangent, mesh->position(i)), dot(basis.bitangent, mesh->position(i)));
 	return true;
 }
 
@@ -5989,7 +6086,9 @@ static void runParameterizeChartTask(void *userData)
 	Mesh *mesh = args->chart->unifiedMesh();
 	XA_PROFILE_START(parameterizeChartsOrthogonal)
 #if 1
-	computeOrthogonalProjectionMap(mesh);
+	if (!computeOrthogonalProjectionMap(mesh)) {
+		XA_ASSERT(false);
+	}
 #else
 	for (uint32_t i = 0; i < vertexCount; i++)
 		mesh->texcoord(i) = Vector2(dot(args->chart->basis().tangent, mesh->position(i)), dot(args->chart->basis().bitangent, mesh->position(i)));
