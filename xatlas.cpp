@@ -1497,11 +1497,11 @@ struct Fit
 {
 	static bool computeBasis(const Vector3 *points, uint32_t pointsCount, Basis *basis)
 	{
-		/*if (computeLeastSquaresNormal(points, pointsCount, &basis->normal)) {
+		if (computeLeastSquaresNormal(points, pointsCount, &basis->normal)) {
 			basis->tangent = Basis::computeTangent(basis->normal);
 			basis->bitangent = Basis::computeBitangent(basis->normal, basis->tangent);
 			return true;
-		}*/
+		}
 		return computeEigen(points, pointsCount, basis);
 	}
 
@@ -4394,16 +4394,14 @@ struct PriorityQueue
 struct Chart
 {
 	int id = -1;
-	Vector3 averageNormal = Vector3(0.0f);
+	Basis basis; // Best fit normal.
 	float area = 0.0f;
 	float boundaryLength = 0.0f;
-	Vector3 normalSum = Vector3(0.0f);
 	Vector3 centroidSum = Vector3(0.0f); // Sum of chart face centroids.
 	Vector3 centroid = Vector3(0.0f); // Average centroid of chart faces.
 	Array<uint32_t> seeds;
 	Array<uint32_t> faces;
 	PriorityQueue candidates;
-	Basis basis; // Of first face.
 };
 
 struct Atlas
@@ -4560,7 +4558,9 @@ struct Atlas
 			const uint32_t seed = chart->seeds.back();
 			chart->area = 0.0f;
 			chart->boundaryLength = 0.0f;
-			chart->normalSum = Vector3(0.0f);
+			chart->basis.normal = Vector3(0.0f);
+			chart->basis.tangent = Vector3(0.0f);
+			chart->basis.bitangent = Vector3(0.0f);
 			chart->centroidSum = Vector3(0.0f);
 			chart->centroid = Vector3(0.0f);
 			chart->faces.clear();
@@ -4646,7 +4646,7 @@ struct Atlas
 					if (chart2 == nullptr)
 						continue;
 					// Compare proxies.
-					if (dot(chart2->averageNormal, chart->averageNormal) < XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION)
+					if (dot(chart2->basis.normal, chart->basis.normal) < XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION)
 						continue;
 					// Obey max chart area and boundary length.
 					if (m_options.maxChartArea > 0.0f && chart->area + chart2->area > m_options.maxChartArea)
@@ -4675,7 +4675,7 @@ struct Atlas
 						const uint32_t face = chart2->faces[i];
 						for (uint32_t j = 0; j < 3; j++)
 							tempTexcoords[i * 3 + j] = m_texcoords[face * 3 + j];
-						createFaceTexcoords(chart, face);
+						createFaceTexcoords(chart->basis, face);
 					}
 					if (!canMergeCharts(chart, chart2)) {
 						// Restore chart 2 texcoords.
@@ -4769,11 +4769,11 @@ private:
 		}
 	}
 
-	void createFaceTexcoords(Chart *chart, uint32_t face)
+	void createFaceTexcoords(const Basis &basis, uint32_t face)
 	{
 		for (uint32_t i = 0; i < 3; i++) {
 			const Vector3 &pos = m_mesh->position(m_mesh->vertexAt(face * 3 + i));
-			m_texcoords[face * 3 + i] = Vector2(dot(chart->basis.tangent, pos), dot(chart->basis.bitangent, pos));
+			m_texcoords[face * 3 + i] = Vector2(dot(basis.tangent, pos), dot(basis.bitangent, pos));
 		}
 	}
 
@@ -4782,6 +4782,25 @@ private:
 		const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
 		const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
 		return oppositeEdge == UINT32_MAX || m_ignoreFaces[oppositeFace] || m_faceChartArray[oppositeFace] != chart->id;
+	}
+
+	bool boundaryEdgesIntersect(const uint32_t *edges, uint32_t edgesCount)
+	{
+		for (uint32_t i = 0; i < edgesCount; i++) {
+			const uint32_t edge1 = edges[i];
+			for (uint32_t j = 0; j < edgesCount; j++) {
+				const uint32_t edge2 = edges[j];
+				if (edge1 == edge2)
+					continue;
+				const Vector2 &a1 = m_texcoords[meshEdgeIndex0(edge1)];
+				const Vector2 &a2 = m_texcoords[meshEdgeIndex1(edge1)];
+				const Vector2 &b1 = m_texcoords[meshEdgeIndex0(edge2)];
+				const Vector2 &b2 = m_texcoords[meshEdgeIndex1(edge2)];
+				if (linesIntersect(a1, a2, b1, b2, m_mesh->epsilon()))
+					return true;
+			}
+		}
+		return false;
 	}
 
 	bool edgeArraysIntersect(const uint32_t *edges1, uint32_t edges1Count, const uint32_t *edges2, uint32_t edges2Count)
@@ -4826,72 +4845,6 @@ private:
 		}
 	}
 
-	bool canAddFaceToChart(Chart *chart, uint32_t face)
-	{
-		// Check for flipped triangles.
-		if (isFaceFlipped(face))
-			return false;
-		// Find face edges that don't border this chart.
-		m_tempEdges1.clear();
-		for (uint32_t i = 0; i < 3; i++) {
-			const uint32_t edge = face * 3 + i;
-			if (isChartBoundaryEdge(chart, edge))
-				m_tempEdges1.push_back(edge);
-		}
-		if (m_tempEdges1.isEmpty())
-			return true; // This can happen if the face is surrounded by the chart.
-		// Get chart boundary edges, except those that border the face.
-		m_tempEdges2.clear();
-		for (uint32_t i = 0; i < chart->faces.size(); i++) {
-			const uint32_t chartFace = chart->faces[i];
-			for (uint32_t j = 0; j < 3; j++) {
-				const uint32_t chartEdge = chartFace * 3 + j;
-				if (!isChartBoundaryEdge(chart, chartEdge))
-					continue;
-				// Don't check chart boundary edges that border the face.
-				const uint32_t oppositeChartEdge = m_mesh->oppositeEdge(chartEdge);
-				if (meshEdgeFace(oppositeChartEdge) == face)
-					continue;
-				m_tempEdges2.push_back(chartEdge);
-			}
-		}
-		const bool intersect = edgeArraysIntersect(m_tempEdges1.data(), m_tempEdges1.size(), m_tempEdges2.data(), m_tempEdges2.size());
-#if 0
-		if (intersect) {
-			static std::atomic<uint32_t> count = 0;
-			char filename[256];
-			XA_SPRINTF(filename, sizeof(filename), "intersect%04u.obj", count.fetch_add(1));
-			FILE *file;
-			XA_FOPEN(file, filename, "w");
-			if (file) {
-				for (uint32_t i = 0; i < m_texcoords.size(); i++)
-					fprintf(file, "v %g %g 0.0\n", m_texcoords[i].x, m_texcoords[i].y);
-				fprintf(file, "s off\n");
-				fprintf(file, "o face\n");
-				{
-					fprintf(file, "f ");
-					for (uint32_t j = 0; j < 3; j++) {
-						const uint32_t index = face * 3 + j + 1; // 1-indexed
-						fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
-					}
-				}
-				fprintf(file, "s off\n");
-				fprintf(file, "o chart\n");
-				for (uint32_t i = 0; i < chart->faces.size(); i++) {
-					const uint32_t chartFace = chart->faces[i];
-					fprintf(file, "f ");
-					for (uint32_t j = 0; j < 3; j++) {
-						const uint32_t index = chartFace * 3 + j + 1; // 1-indexed
-						fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
-					}
-				}
-				fclose(file);
-			}
-		}
-#endif
-		return !intersect;
-	}
-
 	bool canMergeCharts(Chart *chart1, Chart *chart2)
 	{
 		for (uint32_t i = 0; i < chart2->faces.size(); i++) {
@@ -4907,48 +4860,82 @@ private:
 	{
 		XA_DEBUG_ASSERT(m_faceChartArray[face] == -1);
 		const uint32_t oldFaceCount = chart->faces.size();
-		if (oldFaceCount == 0) {
-			// Use the first face normal as the chart basis.
-			chart->basis.normal = m_faceNormals[face];
-			chart->basis.tangent = m_faceTangents[face];
-			chart->basis.bitangent = m_faceBitangents[face];
-		}
-		createFaceTexcoords(chart, face);
+		const bool firstFace = oldFaceCount == 0;
+		// Append the face and any coplanar connected faces to the chart faces array.
 		chart->faces.push_back(face);
-		// Also add any coplanar connected faces.
 		uint32_t coplanarFace = m_nextPlanarRegionFace[face];
 		while (coplanarFace != face) { 
 			XA_DEBUG_ASSERT(m_faceChartArray[coplanarFace] == -1);
-			createFaceTexcoords(chart, coplanarFace);
 			chart->faces.push_back(coplanarFace);
 			coplanarFace = m_nextPlanarRegionFace[coplanarFace];
 		}
-		// If this isn't the first face added to this chart, check for flipped faces in the parameterization.
-		if (oldFaceCount > 0) {
-			for (uint32_t i = oldFaceCount; i < chart->faces.size(); i++) {
-				if (isFaceFlipped(chart->faces[i])) {
-					chart->faces.resize(oldFaceCount);
-					return false;
-				}
+		const uint32_t faceCount = chart->faces.size();
+		// Compute basis.
+		Basis basis;
+		if (firstFace) {
+			// Use the first face normal.
+			basis.normal = m_faceNormals[face];
+			basis.tangent = m_faceTangents[face];
+			basis.bitangent = m_faceBitangents[face];
+		} else {
+			// Use best fit normal.
+			m_tempPoints.resize(chart->faces.size() * 3);
+			for (uint32_t i = 0; i < faceCount; i++) {
+				const uint32_t f = chart->faces[i];
+				for (uint32_t j = 0; j < 3; j++)
+					m_tempPoints[i * 3 + j] = m_mesh->position(m_mesh->vertexAt(f * 3 + j));
+			}
+			if (!Fit::computeBasis(m_tempPoints.data(), m_tempPoints.size(), &basis)) {
+				chart->faces.resize(oldFaceCount);
+				return false;
 			}
 		}
-		// If this isn't the first face added to this chart, check for boundary intersection in the parameterization between the existing face(s) and the new one(s).
-		if (oldFaceCount > 0) {
+		if (dot(basis.normal, m_faceNormals[face]) < 0.0f) // Flip normal if oriented in the wrong direction.
+			basis.normal = -basis.normal;
+		// Compute orthogonal parameterization.
+		for (uint32_t i = 0; i < faceCount; i++)
+			createFaceTexcoords(basis, chart->faces[i]);
+		// Check for flipped faces in the parameterization. OK if all are flipped.
+		uint32_t flippedFaceCount = 0;
+		for (uint32_t i = 0; i < faceCount; i++) {
+			if (isFaceFlipped(chart->faces[i]))
+				flippedFaceCount++;
+		}
+		if (flippedFaceCount != 0 && flippedFaceCount != faceCount) {
+			chart->faces.resize(oldFaceCount);
+			return false;
+		}
+		// Check for boundary intersection in the parameterization.
+		for (uint32_t i = oldFaceCount; i < faceCount; i++)
+			m_faceChartArray[chart->faces[i]] = chart->id;
+		m_tempEdges1.clear();
+		for (uint32_t i = 0; i < faceCount; i++) {
+			const uint32_t f = chart->faces[i];
+			for (uint32_t j = 0; j < 3; j++) {
+				const uint32_t edge = f * 3 + j;
+				if (isChartBoundaryEdge(chart, edge))
+					m_tempEdges1.push_back(edge);
+			}
+		}
+		if (boundaryEdgesIntersect(m_tempEdges1.data(), m_tempEdges1.size())) {
+			for (uint32_t i = oldFaceCount; i < faceCount; i++)
+				m_faceChartArray[chart->faces[i]] = -1;
+			chart->faces.resize(oldFaceCount);
+			return false;
 		}
 		// Add face(s) to chart.
-		for (uint32_t i = oldFaceCount; i < chart->faces.size(); i++) {
+		chart->basis = basis;
+		for (uint32_t i = oldFaceCount; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
-			m_faceChartArray[f] = chart->id;
+			//m_faceChartArray[f] = chart->id;
 			m_facesLeft--;
 			chart->area = chart->area + m_faceAreas[f];
 			chart->boundaryLength = computeBoundaryLength(chart, f);
-			chart->normalSum += m_mesh->triangleNormalAreaScaled(f);
 			chart->centroidSum += m_mesh->triangleCenter(f);
 		}
-		chart->averageNormal = normalizeSafe(chart->normalSum, Vector3(0), 0.0f);
 		chart->centroid = chart->centroidSum / float(chart->faces.size());
 		// Update candidates.
-		for (uint32_t i = oldFaceCount; i < chart->faces.size(); i++) {
+		for (uint32_t i = oldFaceCount; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
 			// Traverse neighboring faces, add the ones that do not belong to any chart yet.
 			for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
@@ -5015,7 +5002,7 @@ private:
 			return FLT_MAX;
 		if (m_options.maxBoundaryLength > 0.0f && newBoundaryLength > m_options.maxBoundaryLength)
 			return FLT_MAX;
-		if (dot(m_faceNormals[face], chart->averageNormal) < 0.5f)
+		if (dot(m_faceNormals[face], chart->basis.normal) < 0.5f)
 			return FLT_MAX;
 		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
 		// Make sure normal seams are fully respected:
@@ -5045,7 +5032,7 @@ private:
 	{
 		const Vector3 faceNormal = m_faceNormals[f];
 		// Use plane fitting metric for now:
-		return 1 - dot(faceNormal, chart->averageNormal); // @@ normal deviations should be weighted by face area
+		return 1 - dot(faceNormal, chart->basis.normal); // @@ normal deviations should be weighted by face area
 	}
 
 	float evaluateRoundnessMetric(Chart *chart, uint32_t /*face*/, float newBoundaryLength, float newChartArea) const
@@ -5184,8 +5171,6 @@ private:
 		// Update adjacencies?
 		owner->area += chart->area;
 		owner->boundaryLength += chart->boundaryLength - sharedBoundaryLength;
-		owner->normalSum += chart->normalSum;
-		owner->averageNormal = normalizeSafe(owner->normalSum, Vector3(0), 0.0f);
 		// Delete chart.
 		m_chartArray[chart->id] = nullptr;
 		chart->~Chart();
@@ -5212,6 +5197,7 @@ private:
 	Array<uint32_t> m_nextPlanarRegionFace;
 	Array<uint32_t> m_facePlanarRegionId;
 	Array<uint32_t> m_tempEdges1, m_tempEdges2;
+	Array<Vector3> m_tempPoints;
 };
 
 } // namespace segment
