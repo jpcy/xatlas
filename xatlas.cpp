@@ -4889,61 +4889,67 @@ private:
 				chart->faces.resize(oldFaceCount);
 				return false;
 			}
+			if (dot(basis.normal, m_faceNormals[face]) < 0.0f) // Flip normal if oriented in the wrong direction.
+				basis.normal = -basis.normal;
 		}
-		if (dot(basis.normal, m_faceNormals[face]) < 0.0f) // Flip normal if oriented in the wrong direction.
-			basis.normal = -basis.normal;
-		// Compute orthogonal parameterization.
-		for (uint32_t i = 0; i < faceCount; i++)
-			createFaceTexcoords(basis, chart->faces[i]);
-		// Check for flipped faces in the parameterization. OK if all are flipped.
-		uint32_t flippedFaceCount = 0;
-		for (uint32_t i = 0; i < faceCount; i++) {
-			if (isFaceFlipped(chart->faces[i]))
-				flippedFaceCount++;
-		}
-		if (flippedFaceCount != 0 && flippedFaceCount != faceCount) {
-			chart->faces.resize(oldFaceCount);
-			return false;
-		}
-		// Check for boundary intersection in the parameterization.
-		for (uint32_t i = oldFaceCount; i < faceCount; i++)
-			m_faceChartArray[chart->faces[i]] = chart->id;
-		m_tempEdges1.clear();
-		for (uint32_t i = 0; i < faceCount; i++) {
-			const uint32_t f = chart->faces[i];
-			for (uint32_t j = 0; j < 3; j++) {
-				const uint32_t edge = f * 3 + j;
-				if (isChartBoundaryEdge(chart, edge))
-					m_tempEdges1.push_back(edge);
+		if (!firstFace) {
+			// Compute orthogonal parameterization.
+			for (uint32_t i = 0; i < faceCount; i++)
+				createFaceTexcoords(basis, chart->faces[i]);
+			// Check for flipped faces in the parameterization. OK if all are flipped.
+			uint32_t flippedFaceCount = 0;
+			for (uint32_t i = 0; i < faceCount; i++) {
+				if (isFaceFlipped(chart->faces[i]))
+					flippedFaceCount++;
 			}
-		}
-		if (boundaryEdgesIntersect(m_tempEdges1.data(), m_tempEdges1.size())) {
+			if (flippedFaceCount != 0 && flippedFaceCount != faceCount) {
+				chart->faces.resize(oldFaceCount);
+				return false;
+			}
+			// Check for boundary intersection in the parameterization.
 			for (uint32_t i = oldFaceCount; i < faceCount; i++)
-				m_faceChartArray[chart->faces[i]] = -1;
-			chart->faces.resize(oldFaceCount);
-			return false;
+				m_faceChartArray[chart->faces[i]] = chart->id;
+			m_tempEdges1.clear();
+			for (uint32_t i = 0; i < faceCount; i++) {
+				const uint32_t f = chart->faces[i];
+				for (uint32_t j = 0; j < 3; j++) {
+					const uint32_t edge = f * 3 + j;
+					if (isChartBoundaryEdge(chart, edge))
+						m_tempEdges1.push_back(edge);
+				}
+			}
+			if (boundaryEdgesIntersect(m_tempEdges1.data(), m_tempEdges1.size())) {
+				for (uint32_t i = oldFaceCount; i < faceCount; i++)
+					m_faceChartArray[chart->faces[i]] = -1;
+				chart->faces.resize(oldFaceCount);
+				return false;
+			}
 		}
 		// Add face(s) to chart.
 		chart->basis = basis;
 		for (uint32_t i = oldFaceCount; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
-			//m_faceChartArray[f] = chart->id;
+			m_faceChartArray[f] = chart->id;
 			m_facesLeft--;
 			chart->area = chart->area + m_faceAreas[f];
 			chart->boundaryLength = computeBoundaryLength(chart, f);
 			chart->centroidSum += m_mesh->triangleCenter(f);
 		}
 		chart->centroid = chart->centroidSum / float(chart->faces.size());
-		// Update candidates.
-		for (uint32_t i = oldFaceCount; i < faceCount; i++) {
-			const uint32_t f = chart->faces[i];
+		// Refresh candidates.
+		chart->candidates.clear();
+		for (uint32_t i = 0; i < faceCount; i++) {
 			// Traverse neighboring faces, add the ones that do not belong to any chart yet.
-			for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-				if (!it.isBoundary() && !m_ignoreFaces[it.oppositeFace()] && m_faceChartArray[it.oppositeFace()] == -1)
-					chart->candidates.push(it.oppositeFace());
+			const uint32_t f = chart->faces[i];
+			for (uint32_t j = 0; j < 3; j++) {
+				const uint32_t edge = f * 3 + j;
+				const uint32_t oedge = m_mesh->oppositeEdge(edge);
+				const uint32_t oface = meshEdgeFace(oedge);
+				if (oedge != UINT32_MAX && !m_ignoreFaces[oface] && m_faceChartArray[oface] == -1)
+					chart->candidates.push(oface);
 			}
 		}
-		// Re-evaluate all candidate priorities.
+		// Evaluate candidate priorities.
 		uint32_t candidateCount = chart->candidates.count();
 		for (uint32_t i = 0; i < candidateCount; i++) {
 			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
