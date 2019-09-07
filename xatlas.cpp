@@ -2845,6 +2845,7 @@ public:
 	XA_INLINE const Vector3 &normal(uint32_t vertex) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasNormals); return m_normals[vertex]; }
 	XA_INLINE const Vector2 &texcoord(uint32_t vertex) const { return m_texcoords[vertex]; }
 	XA_INLINE Vector2 &texcoord(uint32_t vertex) { return m_texcoords[vertex]; }
+	XA_INLINE const Vector2 *texcoords() const { return m_texcoords.data(); }
 	XA_INLINE Vector2 *texcoords() { return m_texcoords.data(); }
 	XA_INLINE uint32_t faceCount() const { return m_indices.size() / 3; }
 	XA_INLINE uint32_t faceGroupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups.size(); }
@@ -4391,6 +4392,47 @@ struct PriorityQueue
 	Array<Pair> pairs;
 };
 
+class ChartBoundary
+{
+public:
+	ChartBoundary() {}
+
+	void reset(const Vector2 *texcoords)
+	{
+		m_edges.clear();
+		m_texcoords = texcoords;
+	}
+
+	void append(uint32_t edge)
+	{
+		m_edges.push_back(edge);
+	}
+
+	bool computeIntersection(float epsilon) const
+	{
+		const uint32_t edgeCount = m_edges.size();
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			const uint32_t edge1 = m_edges[i];
+			for (uint32_t j = 0; j < edgeCount; j++) {
+				const uint32_t edge2 = m_edges[j];
+				if (edge1 == edge2)
+					continue;
+				const Vector2 &a1 = m_texcoords[meshEdgeIndex0(edge1)];
+				const Vector2 &a2 = m_texcoords[meshEdgeIndex1(edge1)];
+				const Vector2 &b1 = m_texcoords[meshEdgeIndex0(edge2)];
+				const Vector2 &b2 = m_texcoords[meshEdgeIndex1(edge2)];
+				if (linesIntersect(a1, a2, b1, b2, epsilon))
+					return true;
+			}
+		}
+		return false;
+	}
+
+private:
+	Array<uint32_t> m_edges;
+	const Vector2 *m_texcoords;
+};
+
 struct Chart
 {
 	int id = -1;
@@ -4784,25 +4826,6 @@ private:
 		return oppositeEdge == UINT32_MAX || m_ignoreFaces[oppositeFace] || m_faceChartArray[oppositeFace] != chart->id;
 	}
 
-	bool boundaryEdgesIntersect(const uint32_t *edges, uint32_t edgesCount)
-	{
-		for (uint32_t i = 0; i < edgesCount; i++) {
-			const uint32_t edge1 = edges[i];
-			for (uint32_t j = 0; j < edgesCount; j++) {
-				const uint32_t edge2 = edges[j];
-				if (edge1 == edge2)
-					continue;
-				const Vector2 &a1 = m_texcoords[meshEdgeIndex0(edge1)];
-				const Vector2 &a2 = m_texcoords[meshEdgeIndex1(edge1)];
-				const Vector2 &b1 = m_texcoords[meshEdgeIndex0(edge2)];
-				const Vector2 &b2 = m_texcoords[meshEdgeIndex1(edge2)];
-				if (linesIntersect(a1, a2, b1, b2, m_mesh->epsilon()))
-					return true;
-			}
-		}
-		return false;
-	}
-
 	bool edgeArraysIntersect(const uint32_t *edges1, uint32_t edges1Count, const uint32_t *edges2, uint32_t edges2Count)
 	{
 		for (uint32_t i = 0; i < edges1Count; i++) {
@@ -4909,16 +4932,16 @@ private:
 			// Check for boundary intersection in the parameterization.
 			for (uint32_t i = oldFaceCount; i < faceCount; i++)
 				m_faceChartArray[chart->faces[i]] = chart->id;
-			m_tempEdges1.clear();
+			m_chartBoundary.reset(m_mesh->texcoords());
 			for (uint32_t i = 0; i < faceCount; i++) {
 				const uint32_t f = chart->faces[i];
 				for (uint32_t j = 0; j < 3; j++) {
 					const uint32_t edge = f * 3 + j;
 					if (isChartBoundaryEdge(chart, edge))
-						m_tempEdges1.push_back(edge);
+						m_chartBoundary.append(edge);
 				}
 			}
-			if (boundaryEdgesIntersect(m_tempEdges1.data(), m_tempEdges1.size())) {
+			if (m_chartBoundary.computeIntersection(m_mesh->epsilon())) {
 				for (uint32_t i = oldFaceCount; i < faceCount; i++)
 					m_faceChartArray[chart->faces[i]] = -1;
 				chart->faces.resize(oldFaceCount);
@@ -5204,6 +5227,7 @@ private:
 	Array<uint32_t> m_facePlanarRegionId;
 	Array<uint32_t> m_tempEdges1, m_tempEdges2;
 	Array<Vector3> m_tempPoints;
+	ChartBoundary m_chartBoundary;
 };
 
 } // namespace segment
