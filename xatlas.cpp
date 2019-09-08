@@ -836,6 +836,28 @@ bool isFinite(const Vector3 &v)
 }
 #endif
 
+struct Extents2
+{
+	Vector2 min, max;
+
+	void reset()
+	{
+		min.x = min.y = FLT_MAX;
+		max.x = max.y = -FLT_MAX;
+	}
+
+	void add(Vector2 p)
+	{
+		min = xatlas::internal::min(min, p);
+		max = xatlas::internal::max(max, p);
+	}
+
+	static bool intersect(Extents2 e1, Extents2 e2)
+	{
+		return e1.min.x <= e2.max.x && e1.max.x >= e2.min.x && e1.min.y <= e2.max.y && e1.max.y >= e2.min.y;
+	}
+};
+
 struct Plane
 {
 	Plane() = default;
@@ -1581,7 +1603,10 @@ private:
 			dir = Vector3(xz * yz - xy * zz, det_y, xy * xz - yz * xx);
 		else if (det_max == det_z)
 			dir = Vector3(xy * yz - xz * yy, xy * xz - yz * xx, det_z);
-		*normal = normalize(dir, kEpsilon);
+		const float len = length(dir);
+		if (isZero(len, kEpsilon))
+			return false;
+		*normal = dir * (1.0f / len);
 #endif
 		return isNormalized(*normal);
 	}
@@ -4408,29 +4433,162 @@ public:
 		m_edges.push_back(edge);
 	}
 
-	bool computeIntersection(float epsilon) const
+	bool computeIntersection(float epsilon)
 	{
 		const uint32_t edgeCount = m_edges.size();
+		const bool bruteForce = edgeCount <= 4;
+		if (!bruteForce)
+			createBVH();
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			const uint32_t edge1 = m_edges[i];
-			for (uint32_t j = 0; j < edgeCount; j++) {
-				const uint32_t edge2 = m_edges[j];
-				if (edge1 == edge2)
-					continue;
-				const Vector2 &a1 = m_texcoords[meshEdgeIndex0(edge1)];
-				const Vector2 &a2 = m_texcoords[meshEdgeIndex1(edge1)];
-				const Vector2 &b1 = m_texcoords[meshEdgeIndex0(edge2)];
-				const Vector2 &b2 = m_texcoords[meshEdgeIndex1(edge2)];
-				if (linesIntersect(a1, a2, b1, b2, epsilon))
+			if (bruteForce) {
+				for (uint32_t j = 0; j < edgeCount; j++) {
+					const uint32_t edge2 = m_edges[j];
+					if (computeEdgeIntersection(edge1, edge2, epsilon))
+						return true;
+				}
+			} else {
+				Extents2 extents;
+				extents.reset();
+				extents.add(m_texcoords[meshEdgeIndex0(edge1)]);
+				extents.add(m_texcoords[meshEdgeIndex1(edge1)]);
+				if (computeBVHIntersection(edge1, extents, epsilon, 0)) {
 					return true;
+				}
 			}
 		}
 		return false;
 	}
 
 private:
+	struct BVHNode
+	{
+		Extents2 extents;
+		uint32_t firstEdge, edgeCount;
+		uint32_t children[2];
+	};
+
+	void createBVH()
+	{
+		m_bvhNodes.clear();
+		m_bvhEdges.clear();
+		m_bvhTempEdges.resize(m_edges.size());
+		memcpy(m_bvhTempEdges.data(), m_edges.data(), m_edges.size() * sizeof(uint32_t));
+		createBVHNode(0, m_bvhTempEdges.size(), 0);
+	}
+
+	uint32_t createBVHNode(uint32_t firstEdge, uint32_t edgeCount, int depth)
+	{
+		const uint32_t nodeIndex = m_bvhNodes.size();
+		m_bvhNodes.push_back(BVHNode());
+		// Compute extents.
+		m_bvhNodes[nodeIndex].extents.reset();
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			const uint32_t edge = m_bvhTempEdges[firstEdge + i];
+			m_bvhNodes[nodeIndex].extents.add(m_texcoords[meshEdgeIndex0(edge)]);
+			m_bvhNodes[nodeIndex].extents.add(m_texcoords[meshEdgeIndex1(edge)]);
+		}
+		if (depth < 8) {
+			// Find splitting axis and position.
+			// Position is closest point to midpoint of axis.
+			const float w = m_bvhNodes[nodeIndex].extents.max.x - m_bvhNodes[nodeIndex].extents.min.x;
+			const float h = m_bvhNodes[nodeIndex].extents.max.y - m_bvhNodes[nodeIndex].extents.min.y;
+			const int axis = depth % 2; // 0 = x, 1 = y.
+			const float midpoint = axis == 0 ? m_bvhNodes[nodeIndex].extents.min.x + w * 0.5f : m_bvhNodes[nodeIndex].extents.min.y + h * 0.5f;
+			float split = midpoint, closestDistance = FLT_MAX;
+			for (uint32_t i = 0; i < edgeCount; i++) {
+				const uint32_t edge = m_bvhTempEdges[firstEdge + i];
+				const Vector2 &v1 = m_texcoords[meshEdgeIndex0(edge)];
+				const Vector2 &v2 = m_texcoords[meshEdgeIndex1(edge)];
+				const float v[2] = { axis == 0 ? min(v1.x, v2.x) : min(v1.y, v2.y), axis == 0 ? max(v1.x, v2.x) : max(v1.y, v2.y) };
+				for (int j = 0; j < 2; j++) {
+					const float d = fabsf(v[j] - midpoint);
+					if (d < closestDistance) {
+						// Move split slightly so the edge lies entirely on one side of it.
+						closestDistance = d;
+						split = v[j] + (j == 0 ? FLT_EPSILON : -FLT_EPSILON);
+					}
+				}
+			}
+			// Assign edges to children based on split.
+			uint32_t childrenFirstEdges[2], childrenEdgeCounts[2];
+			for (int i = 0; i < 2; i++) {
+				childrenFirstEdges[i] = m_bvhTempEdges.size();
+				childrenEdgeCounts[i] = 0;
+				for (uint32_t j = 0; j < edgeCount; j++) {
+					const uint32_t edge = m_bvhTempEdges[firstEdge + j];
+					const Vector2 &v1 = m_texcoords[meshEdgeIndex0(edge)];
+					const Vector2 &v2 = m_texcoords[meshEdgeIndex1(edge)];
+					const float a1 = axis == 0 ? v1.x : v1.y;
+					const float a2 = axis == 0 ? v2.x : v2.y;
+					if (i == 0 && a1 > split && a2 > split)
+						continue;
+					if (i == 1 && a1 < split && a2 < split)
+						continue;
+					m_bvhTempEdges.push_back(edge);
+					childrenEdgeCounts[i]++;
+				}
+			}
+			// Give up and create a leaf instead if splitting fails.
+			if (childrenEdgeCounts[0] != edgeCount && childrenEdgeCounts[1] != edgeCount && childrenEdgeCounts[0] != 0 && childrenEdgeCounts[1] != 0) {
+				m_bvhNodes[nodeIndex].firstEdge = m_bvhNodes[nodeIndex].edgeCount = 0;
+#if 1
+				const uint32_t c1 = createBVHNode(childrenFirstEdges[0], childrenEdgeCounts[0], depth + 1);
+				const uint32_t c2 = createBVHNode(childrenFirstEdges[1], childrenEdgeCounts[1], depth + 1);
+				m_bvhNodes[nodeIndex].children[0] = c1;
+				m_bvhNodes[nodeIndex].children[1] = c2;
+#else
+				m_bvhNodes[nodeIndex].children[0] = createBVHNode(childrenFirstEdges[0], childrenEdgeCounts[0], depth + 1);
+				m_bvhNodes[nodeIndex].children[1] = createBVHNode(childrenFirstEdges[1], childrenEdgeCounts[1], depth + 1);
+#endif
+				return nodeIndex;
+			}
+		}
+		// Create leaf.
+		m_bvhNodes[nodeIndex].firstEdge = m_bvhEdges.size();
+		m_bvhNodes[nodeIndex].edgeCount = edgeCount;
+		for (uint32_t i = 0; i < edgeCount; i++)
+			m_bvhEdges.push_back(m_bvhTempEdges[firstEdge + i]);
+		m_bvhNodes[nodeIndex].children[0] = m_bvhNodes[nodeIndex].children[1] = UINT32_MAX;
+		return nodeIndex;
+	}
+
+	bool computeBVHIntersection(uint32_t edge, Extents2 edgeExtents, float epsilon, uint32_t nodeIndex) const
+	{
+		const BVHNode &node = m_bvhNodes[nodeIndex];
+		if (!Extents2::intersect(edgeExtents, node.extents))
+			return false;
+		if (node.children[0] != UINT32_MAX) {
+			if (computeBVHIntersection(edge, edgeExtents, epsilon, node.children[0]))
+				return true;
+			if (computeBVHIntersection(edge, edgeExtents, epsilon, node.children[1]))
+				return true;
+		} else {
+			for (uint32_t i = 0; i < node.edgeCount; i++) {
+				const uint32_t edge2 = m_bvhEdges[node.firstEdge + i];
+				if (computeEdgeIntersection(edge, edge2, epsilon))
+					return true;
+			}
+		}
+		return false;
+	}
+
+	bool computeEdgeIntersection(uint32_t edge1, uint32_t edge2, float epsilon) const
+	{
+		if (edge1 == edge2)
+			return false;
+		const Vector2 &a1 = m_texcoords[meshEdgeIndex0(edge1)];
+		const Vector2 &a2 = m_texcoords[meshEdgeIndex1(edge1)];
+		const Vector2 &b1 = m_texcoords[meshEdgeIndex0(edge2)];
+		const Vector2 &b2 = m_texcoords[meshEdgeIndex1(edge2)];
+		return linesIntersect(a1, a2, b1, b2, epsilon);
+	}
+
 	Array<uint32_t> m_edges;
 	const Vector2 *m_texcoords;
+	Array<BVHNode> m_bvhNodes;
+	Array<uint32_t> m_bvhEdges;
+	Array<uint32_t> m_bvhTempEdges;
 };
 
 struct Chart
