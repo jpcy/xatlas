@@ -1064,6 +1064,16 @@ struct ArrayBase
 		memcpy(&buffer[(size - 1) * elementSize], value, elementSize);
 	}
 
+	void push_back(const ArrayBase &other)
+	{
+		XA_DEBUG_ASSERT(elementSize == other.elementSize);
+		if (other.size == 0)
+			return;
+		const uint32_t oldSize = size;
+		resize(size + other.size, false);
+		memcpy(buffer + oldSize * elementSize, other.buffer, other.size * other.elementSize);
+	}
+
 	// Remove the element at the given index. This is an expensive operation!
 	void removeAt(uint32_t index)
 	{
@@ -1162,6 +1172,7 @@ public:
 	void insertAt(uint32_t index, const T &value) { m_base.insertAt(index, (const uint8_t *)&value); }
 	void moveTo(Array &other) { m_base.moveTo(other.m_base); }
 	void push_back(const T &value) { m_base.push_back((const uint8_t *)&value); }
+	void push_back(const Array &other) { m_base.push_back(other.m_base); }
 	void pop_back() { m_base.pop_back(); }
 	void removeAt(uint32_t index) { m_base.removeAt(index); }
 	void reserve(uint32_t desiredSize) { m_base.reserve(desiredSize); }
@@ -5374,11 +5385,7 @@ private:
 			m_faceChartArray[f] = owner->id;
 			owner->faces.push_back(f);
 		}
-		if (!chart->failedPlanarRegions.isEmpty()) {
-			const uint32_t oldSize = owner->failedPlanarRegions.size();
-			owner->failedPlanarRegions.resize(owner->failedPlanarRegions.size() + chart->failedPlanarRegions.size());
-			memcpy(&owner->failedPlanarRegions[oldSize], chart->failedPlanarRegions.data(), chart->failedPlanarRegions.size() * sizeof(uint32_t));
-		}
+		owner->failedPlanarRegions.push_back(chart->failedPlanarRegions);
 		// Update adjacencies?
 		owner->area += chart->area;
 		owner->boundaryLength += chart->boundaryLength - sharedBoundaryLength;
