@@ -281,6 +281,12 @@ namespace bx
 	/// enough space had been available.
 	int32_t snprintf(char* _out, int32_t _max, const char* _format, ...);
 
+	///
+	int32_t vprintf(const char* _format, va_list _argList);
+
+	///
+	int32_t printf(const char* _format, ...);
+
 	/// Templatized snprintf.
 	template <typename Ty>
 	void stringPrintfVargs(Ty& _out, const char* _format, va_list _argList);

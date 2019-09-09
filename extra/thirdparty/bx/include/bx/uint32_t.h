@@ -182,6 +182,42 @@ namespace bx
 	BX_CONSTEXPR_FUNC uint32_t uint64_cnttz(uint64_t _val);
 
 	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_li(uint64_t _a);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_dec(uint64_t _a);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_inc(uint64_t _a);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_not(uint64_t _a);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_neg(uint64_t _a);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_ext(uint64_t _a);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_and(uint64_t _a, uint64_t _b);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_andc(uint64_t _a, uint64_t _b);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_xor(uint64_t _a, uint64_t _b);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_xorl(uint64_t _a, uint64_t _b);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_or(uint64_t _a, uint64_t _b);
+
+	///
+	BX_CONSTEXPR_FUNC uint64_t uint64_orc(uint64_t _a, uint64_t _b);
+
+	///
 	BX_CONSTEXPR_FUNC uint64_t uint64_sll(uint64_t _a, int32_t _sa);
 
 	///

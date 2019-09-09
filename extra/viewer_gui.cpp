@@ -19,7 +19,7 @@ struct
 {
 	GLFWcursor *cursors[ImGuiMouseCursor_COUNT];
 	GLFWcursor *currentCursor = nullptr;
-	bgfx::VertexDecl vertexDecl;
+	bgfx::VertexLayout vertexFormat;
 	bgfx::TextureHandle font;
 	bgfx::ProgramHandle program;
 	bgfx::UniformHandle s_texture;
@@ -82,7 +82,7 @@ void guiInit()
 	s_gui.font = bgfx::createTexture2D((uint16_t)fontWidth, (uint16_t)fontHeight, false, 0, bgfx::TextureFormat::RGBA8, 0, bgfx::makeRef(fontData, fontWidth * fontHeight * 4));
 	io.Fonts->TexID = (ImTextureID)(intptr_t)s_gui.font.idx;
 	// ImDrawVert vertex decl
-	s_gui.vertexDecl
+	s_gui.vertexFormat
 		.begin()
 		.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
 		.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
@@ -144,9 +144,9 @@ void guiRender()
 		const ImDrawList* cmd_list = drawData->CmdLists[n];
 		bgfx::TransientVertexBuffer tvb;
 		bgfx::TransientIndexBuffer tib;
-		if (!bgfx::allocTransientBuffers(&tvb, s_gui.vertexDecl, cmd_list->VtxBuffer.Size, &tib, cmd_list->IdxBuffer.Size))
+		if (!bgfx::allocTransientBuffers(&tvb, s_gui.vertexFormat, cmd_list->VtxBuffer.Size, &tib, cmd_list->IdxBuffer.Size))
 			return;
-		assert(sizeof(ImDrawVert) == s_gui.vertexDecl.getStride());
+		assert(sizeof(ImDrawVert) == s_gui.vertexFormat.getStride());
 		memcpy(tvb.data, cmd_list->VtxBuffer.Data, tvb.size);
 		assert(sizeof(ImDrawIdx) == sizeof(uint16_t));
 		memcpy(tib.data, cmd_list->IdxBuffer.Data, tib.size);

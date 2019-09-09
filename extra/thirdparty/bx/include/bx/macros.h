@@ -115,11 +115,11 @@
 
 /// The return value of the function is solely a function of the arguments.
 ///
-#if (BX_COMPILER_MSVC && (BX_COMPILER_MSVC <= 1900)) || (BX_COMPILER_GCC && (__cplusplus < 201402L))
+#if __cplusplus < 201402
 #	define BX_CONSTEXPR_FUNC BX_CONST_FUNC
 #else
 #	define BX_CONSTEXPR_FUNC constexpr BX_CONST_FUNC
-#endif // BX_COMPILER_MSVC && (BX_COMPILER_MSVC <= 1900)
+#endif // __cplusplus < 201402
 
 ///
 #define BX_STATIC_ASSERT(_condition, ...) static_assert(_condition, "" __VA_ARGS__)

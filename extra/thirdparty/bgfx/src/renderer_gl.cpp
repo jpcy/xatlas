@@ -1055,10 +1055,22 @@ namespace bgfx { namespace gl
 
 	typedef void (*PostSwapBuffersFn)(uint32_t _width, uint32_t _height);
 
+	void flushGlError()
+	{
+		for (GLenum err = glGetError(); err != 0; err = glGetError() );
+	}
+
+	GLenum getGlError()
+	{
+		GLenum err = glGetError();
+		flushGlError();
+		return err;
+	}
+
 	static const char* getGLString(GLenum _name)
 	{
 		const char* str = (const char*)glGetString(_name);
-		glGetError(); // ignore error if glGetString returns NULL.
+		getGlError(); // ignore error if glGetString returns NULL.
 		if (NULL != str)
 		{
 			return str;
@@ -1070,7 +1082,7 @@ namespace bgfx { namespace gl
 	static uint32_t getGLStringHash(GLenum _name)
 	{
 		const char* str = (const char*)glGetString(_name);
-		glGetError(); // ignore error if glGetString returns NULL.
+		getGlError(); // ignore error if glGetString returns NULL.
 		if (NULL != str)
 		{
 			return bx::hash<bx::HashMurmur2A>(str, (uint32_t)bx::strLen(str) );
@@ -1155,7 +1167,7 @@ namespace bgfx { namespace gl
 	{
 		GLint result = 0;
 		glGetIntegerv(_pname, &result);
-		GLenum err = glGetError();
+		GLenum err = getGlError();
 		BX_WARN(0 == err, "glGetIntegerv(0x%04x, ...) failed with GL error: 0x%04x.", _pname, err);
 		return 0 == err ? result : 0;
 	}
@@ -1166,11 +1178,6 @@ namespace bgfx { namespace gl
 		tfi.m_internalFmt = _internalFmt;
 		tfi.m_fmt         = _fmt;
 		tfi.m_type        = _type;
-	}
-
-	void flushGlError()
-	{
-		for (GLenum err = glGetError(); err != 0; err = glGetError() );
 	}
 
 	static void texSubImage(
@@ -1457,7 +1464,7 @@ namespace bgfx { namespace gl
 				uint32_t block = bx::uint32_max(4, dim);
 				size = (block*block*bpp)/8;
 				compressedTexImage(target, ii, internalFmt, dim, dim, 0, 0, size, data);
-				err |= glGetError();
+				err |= getGlError();
 			}
 		}
 		else
@@ -1467,7 +1474,7 @@ namespace bgfx { namespace gl
 				dim = bx::uint32_max(1, dim);
 				size = (dim*dim*bpp)/8;
 				texImage(target, 0, ii, internalFmt, dim, dim, 0, 0, tfi.m_fmt, tfi.m_type, data);
-				err |= glGetError();
+				err |= getGlError();
 			}
 		}
 
@@ -1513,7 +1520,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 				, _dim
 				, _dim
 				);
-			err = glGetError();
+			err = getGlError();
 		}
 
 		if (0 == err)
@@ -1532,7 +1539,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			&&  _mipAutogen)
 			{
 				glGenerateMipmap(target);
-				err = glGetError();
+				err = getGlError();
 			}
 		}
 
@@ -1556,7 +1563,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 		GLenum err = 0;
 
 		glTexStorage2D(GL_TEXTURE_2D, 1, s_imageFormat[_format], _dim, _dim);
-		err |= glGetError();
+		err |= getGlError();
 		if (0 == err)
 		{
 			glBindImageTexture(0
@@ -1567,7 +1574,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 				, GL_READ_WRITE
 				, s_imageFormat[_format]
 				);
-			err |= glGetError();
+			err |= getGlError();
 		}
 
 		GL_CHECK(glDeleteTextures(1, &id) );
@@ -1606,7 +1613,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			glBindRenderbuffer(GL_RENDERBUFFER, 0);
 			glDeleteRenderbuffers(1, &rbo);
 
-			GLenum err = glGetError();
+			GLenum err = getGlError();
 			return 0 == err;
 		}
 
@@ -1648,7 +1655,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 				, id
 				, 0
 				);
-		err = glGetError();
+		err = getGlError();
 
 		if (0 == err)
 		{
@@ -1892,7 +1899,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			if (BX_ENABLED(BGFX_CONFIG_RENDERER_USE_EXTENSIONS) )
 			{
 				const char* extensions = (const char*)glGetString(GL_EXTENSIONS);
-				glGetError(); // ignore error if glGetString returns NULL.
+				getGlError(); // ignore error if glGetString returns NULL.
 				if (NULL != extensions)
 				{
 					bx::StringView ext(extensions);
@@ -1912,7 +1919,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 				{
 					GLint numExtensions = 0;
 					glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
-					glGetError(); // ignore error if glGetIntegerv returns NULL.
+					getGlError(); // ignore error if glGetIntegerv returns NULL.
 
 					for (GLint index = 0; index < numExtensions; ++index)
 					{
@@ -2205,7 +2212,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 							, 1
 							, &maxSamples
 							);
-						GLenum err = glGetError();
+						GLenum err = getGlError();
 						supported |= 0 == err && maxSamples > 0
 							? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA
 							: BGFX_CAPS_FORMAT_TEXTURE_NONE
@@ -2217,7 +2224,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 							, 1
 							, &maxSamples
 							);
-						err = glGetError();
+						err = getGlError();
 						supported |= 0 == err && maxSamples > 0
 							? BGFX_CAPS_FORMAT_TEXTURE_MSAA
 							: BGFX_CAPS_FORMAT_TEXTURE_NONE
@@ -2679,20 +2686,20 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			m_indexBuffers[_handle.idx].destroy();
 		}
 
-		void createVertexDecl(VertexDeclHandle _handle, const VertexDecl& _decl) override
+		void createVertexLayout(VertexLayoutHandle _handle, const VertexLayout& _layout) override
 		{
-			VertexDecl& decl = m_vertexDecls[_handle.idx];
-			bx::memCopy(&decl, &_decl, sizeof(VertexDecl) );
-			dump(decl);
+			VertexLayout& layout = m_vertexLayouts[_handle.idx];
+			bx::memCopy(&layout, &_layout, sizeof(VertexLayout) );
+			dump(layout);
 		}
 
-		void destroyVertexDecl(VertexDeclHandle /*_handle*/) override
+		void destroyVertexLayout(VertexLayoutHandle /*_handle*/) override
 		{
 		}
 
-		void createVertexBuffer(VertexBufferHandle _handle, const Memory* _mem, VertexDeclHandle _declHandle, uint16_t _flags) override
+		void createVertexBuffer(VertexBufferHandle _handle, const Memory* _mem, VertexLayoutHandle _layoutHandle, uint16_t _flags) override
 		{
-			m_vertexBuffers[_handle.idx].create(_mem->size, _mem->data, _declHandle, _flags);
+			m_vertexBuffers[_handle.idx].create(_mem->size, _mem->data, _layoutHandle, _flags);
 		}
 
 		void destroyVertexBuffer(VertexBufferHandle _handle) override
@@ -2717,8 +2724,8 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 
 		void createDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _size, uint16_t _flags) override
 		{
-			VertexDeclHandle decl = BGFX_INVALID_HANDLE;
-			m_vertexBuffers[_handle.idx].create(_size, NULL, decl, _flags);
+			VertexLayoutHandle layoutHandle = BGFX_INVALID_HANDLE;
+			m_vertexBuffers[_handle.idx].create(_size, NULL, layoutHandle, _flags);
 		}
 
 		void updateDynamicVertexBuffer(VertexBufferHandle _handle, uint32_t _offset, uint32_t _size, const Memory* _mem) override
@@ -3074,7 +3081,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			GL_CHECK(glUniform1i(program.m_sampler[0], 0) );
 
 			float proj[16];
-			bx::mtxOrtho(proj, 0.0f, (float)width, (float)height, 0.0f, 0.0f, 1000.0f, 0.0f, true);
+			bx::mtxOrtho(proj, 0.0f, (float)width, (float)height, 0.0f, 0.0f, 1000.0f, 0.0f, g_caps.homogeneousDepth);
 
 			GL_CHECK(glUniformMatrix4fv(program.m_predefined[0].m_loc
 				, 1
@@ -3104,7 +3111,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			if (0 < numVertices)
 			{
 				m_indexBuffers[_blitter.m_ib->handle.idx].update(0, _numIndices*2, _blitter.m_ib->data);
-				m_vertexBuffers[_blitter.m_vb->handle.idx].update(0, numVertices*_blitter.m_decl.m_stride, _blitter.m_vb->data);
+				m_vertexBuffers[_blitter.m_vb->handle.idx].update(0, numVertices*_blitter.m_layout.m_stride, _blitter.m_vb->data);
 
 				VertexBufferGL& vb = m_vertexBuffers[_blitter.m_vb->handle.idx];
 				GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, vb.m_id) );
@@ -3114,7 +3121,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 
 				ProgramGL& program = m_program[_blitter.m_program.idx];
 				program.bindAttributesBegin();
-				program.bindAttributes(_blitter.m_decl, 0);
+				program.bindAttributes(_blitter.m_layout, 0);
 				program.bindAttributesEnd();
 
 				GL_CHECK(glDrawElements(GL_TRIANGLES
@@ -3277,11 +3284,16 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			if (0 == m_msaaBackBufferFbo // iOS
 			&&  1 < _msaa)
 			{
+				GLenum storageFormat = (m_resolution.reset & BGFX_RESET_SRGB_BACKBUFFER)
+					? GL_SRGB8_ALPHA8
+					: GL_RGBA8
+					;
+
 				GL_CHECK(glGenFramebuffers(1, &m_msaaBackBufferFbo) );
 				GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, m_msaaBackBufferFbo) );
 				GL_CHECK(glGenRenderbuffers(BX_COUNTOF(m_msaaBackBufferRbos), m_msaaBackBufferRbos) );
 				GL_CHECK(glBindRenderbuffer(GL_RENDERBUFFER, m_msaaBackBufferRbos[0]) );
-				GL_CHECK(glRenderbufferStorageMultisample(GL_RENDERBUFFER, _msaa, GL_RGBA8, _width, _height) );
+				GL_CHECK(glRenderbufferStorageMultisample(GL_RENDERBUFFER, _msaa, storageFormat, _width, _height) );
 				GL_CHECK(glBindRenderbuffer(GL_RENDERBUFFER, m_msaaBackBufferRbos[1]) );
 				GL_CHECK(glRenderbufferStorageMultisample(GL_RENDERBUFFER, _msaa, GL_DEPTH24_STENCIL8, _width, _height) );
 				GL_CHECK(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, m_msaaBackBufferRbos[0]) );
@@ -3782,14 +3794,14 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 				}
 
 				VertexBufferGL& vb = m_vertexBuffers[_clearQuad.m_vb.idx];
-				VertexDecl& vertexDecl = _clearQuad.m_decl;
+				VertexLayout& layout = _clearQuad.m_layout;
 
 				GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, vb.m_id) );
 
 				ProgramGL& program = m_program[_clearQuad.m_program[numMrt-1].idx];
 				GL_CHECK(glUseProgram(program.m_id) );
 				program.bindAttributesBegin();
-				program.bindAttributes(vertexDecl, 0);
+				program.bindAttributes(layout, 0);
 				program.bindAttributesEnd();
 
 				if (m_clearQuadColor.idx == kInvalidHandle)
@@ -3806,7 +3818,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 						m_clearQuadDepth = infoClearDepth->m_handle;
 				}
 
-				float mrtClearDepth[4] = { _clear.m_depth * 2.0f - 1.0f };
+				float mrtClearDepth[4] = { g_caps.homogeneousDepth ? (_clear.m_depth * 2.0f - 1.0f) : _clear.m_depth };
 				updateUniform(m_clearQuadDepth.idx, mrtClearDepth, sizeof(float)*4);
 
 				float mrtClearColor[BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS][4];
@@ -3856,7 +3868,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 		ShaderGL m_shaders[BGFX_CONFIG_MAX_SHADERS];
 		ProgramGL m_program[BGFX_CONFIG_MAX_PROGRAMS];
 		TextureGL m_textures[BGFX_CONFIG_MAX_TEXTURES];
-		VertexDecl m_vertexDecls[BGFX_CONFIG_MAX_VERTEX_DECLS];
+		VertexLayout m_vertexLayouts[BGFX_CONFIG_MAX_VERTEX_LAYOUTS];
 		FrameBufferGL m_frameBuffers[BGFX_CONFIG_MAX_FRAME_BUFFERS];
 		UniformRegistry m_uniformReg;
 		void* m_uniforms[BGFX_CONFIG_MAX_UNIFORMS];
@@ -4496,7 +4508,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 		m_instanceData[used] = 0xffff;
 	}
 
-	void ProgramGL::bindAttributes(const VertexDecl& _vertexDecl, uint32_t _baseVertex)
+	void ProgramGL::bindAttributes(const VertexLayout& _layout, uint32_t _baseVertex)
 	{
 		for (uint32_t ii = 0, iiEnd = m_usedCount; ii < iiEnd; ++ii)
 		{
@@ -4507,16 +4519,16 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			AttribType::Enum type;
 			bool normalized;
 			bool asInt;
-			_vertexDecl.decode(attr, num, type, normalized, asInt);
+			_layout.decode(attr, num, type, normalized, asInt);
 
 			if (-1 != loc)
 			{
-				if (UINT16_MAX != _vertexDecl.m_attributes[attr])
+				if (UINT16_MAX != _layout.m_attributes[attr])
 				{
 					GL_CHECK(glEnableVertexAttribArray(loc) );
 					GL_CHECK(glVertexAttribDivisor(loc, 0) );
 
-					uint32_t baseVertex = _baseVertex*_vertexDecl.m_stride + _vertexDecl.m_offset[attr];
+					uint32_t baseVertex = _baseVertex*_layout.m_stride + _layout.m_offset[attr];
 					if ( (BX_ENABLED(BGFX_CONFIG_RENDERER_OPENGL >= 30) ||  BX_ENABLED(BGFX_CONFIG_RENDERER_OPENGLES >= 31) )
 					&& (AttribType::Uint8 == type || AttribType::Int16 == type)
 					&&  !normalized)
@@ -4524,7 +4536,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 						GL_CHECK(glVertexAttribIPointer(loc
 							, num
 							, s_attribType[type]
-							, _vertexDecl.m_stride
+							, _layout.m_stride
 							, (void*)(uintptr_t)baseVertex)
 							);
 					}
@@ -4534,7 +4546,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 							, num
 							, s_attribType[type]
 							, normalized
-							, _vertexDecl.m_stride
+							, _layout.m_stride
 							, (void*)(uintptr_t)baseVertex)
 							);
 					}
@@ -5334,8 +5346,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 
 		if (0 != m_id)
 		{
-			if (GL_COMPUTE_SHADER != m_type
-			&&  0 != bx::strCmp(code, "#version 430", 12) )
+			if (GL_COMPUTE_SHADER != m_type)
 			{
 				int32_t tempLen = code.getLength() + (4<<10);
 				char* temp = (char*)alloca(tempLen);
@@ -5527,7 +5538,22 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 						&& s_extension[Extension::ARB_shader_texture_lod].m_supported
 						&& !bx::findIdentifierMatch(code, s_ARB_shader_texture_lod).isEmpty()
 						;
-					const bool usesGpuShader4   = !bx::findIdentifierMatch(code, s_EXT_gpu_shader4).isEmpty();
+
+					const bool usesVertexID = true
+						&& !s_extension[Extension::EXT_gpu_shader4].m_supported
+						&& !bx::findIdentifierMatch(code, "gl_VertexID").isEmpty()
+						;
+
+					const bool usesInstanceID = true
+						&& !s_extension[Extension::EXT_gpu_shader4].m_supported
+						&& !bx::findIdentifierMatch(code, "gl_InstanceID").isEmpty()
+						;
+
+					const bool usesGpuShader4 = true
+						&& s_extension[Extension::EXT_gpu_shader4].m_supported
+						&& !bx::findIdentifierMatch(code, s_EXT_gpu_shader4).isEmpty()
+						;
+
 					const bool usesGpuShader5   = !bx::findIdentifierMatch(code, s_ARB_gpu_shader5).isEmpty();
 					const bool usesIUsamplers   = !bx::findIdentifierMatch(code, s_uisamplers).isEmpty();
 					const bool usesUint         = !bx::findIdentifierMatch(code, s_uint).isEmpty();
@@ -5542,6 +5568,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 						:  usesTextureArray
 						|| usesTexture3D
 						|| usesIUsamplers
+						|| usesVertexID
 						|| usesUint
 						|| usesTexelFetch
 						|| usesGpuShader5
@@ -5550,12 +5577,11 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 						: 120
 						;
 
-					if (0 != version)
-					{
-						bx::write(&writer, &err, "#version %d\n", version);
-					}
+					version = 0 == bx::strCmp(code, "#version 430", 12) ? 430 : version;
 
-					if (usesTextureLod)
+					bx::write(&writer, &err, "#version %d\n", version);
+
+					if (430 > version && usesTextureLod)
 					{
 						if (m_type == GL_FRAGMENT_SHADER)
 						{
@@ -5566,6 +5592,11 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 								  "#define textureCubeGrad   textureCubeGradARB\n"
 								);
 						}
+					}
+
+					if (usesInstanceID)
+					{
+						bx::write(&writer, "#extension GL_ARB_draw_instanced : enable\n");
 					}
 
 					if (usesGpuShader4)
@@ -5594,7 +5625,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 
 						if (BX_ENABLED(BX_PLATFORM_OSX) )
 						{
-							bx::write(&writer, "#define texture2DArrayLodEXT texture2DArray\n");
+							bx::write(&writer, "#define texture2DArrayLod texture2DArray\n");
 						}
 						else
 						{
@@ -5618,14 +5649,17 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 
 					if (130 <= version)
 					{
-						if (m_type == GL_FRAGMENT_SHADER)
+						if (430 > version)
 						{
-							bx::write(&writer, "#define varying in\n");
-						}
-						else
-						{
-							bx::write(&writer, "#define attribute in\n");
-							bx::write(&writer, "#define varying out\n");
+							if (m_type == GL_FRAGMENT_SHADER)
+							{
+								bx::write(&writer, "#define varying in\n");
+							}
+							else
+							{
+								bx::write(&writer, "#define attribute in\n");
+								bx::write(&writer, "#define varying out\n");
+							}
 						}
 
 						uint32_t fragData = 0;
@@ -5647,7 +5681,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 							bx::write(&writer, &err, "out vec4 bgfx_FragData[%d];\n", fragData);
 							bx::write(&writer, "#define gl_FragData bgfx_FragData\n");
 						}
-						else
+						else if (!bx::findIdentifierMatch(code, "gl_FragColor").isEmpty() )
 						{
 							bx::write(&writer, "out vec4 bgfx_FragColor;\n");
 							bx::write(&writer, "#define gl_FragColor bgfx_FragColor\n");
@@ -5684,7 +5718,16 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 							);
 					}
 
-					bx::write(&writer, code);
+					if (version == 430)
+					{
+						int32_t verLen = bx::strLen("#version 430\n");
+						bx::write(&writer, code.getPtr()+verLen, code.getLength()-verLen);
+					}
+					else
+					{
+						bx::write(&writer, code);
+					}
+					
 					bx::write(&writer, '\0');
 				}
 				else if (BX_ENABLED(BGFX_CONFIG_RENDERER_OPENGL   >= 31)
@@ -5801,7 +5844,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 
 				code.set(temp);
 			}
-			else if (GL_COMPUTE_SHADER == m_type)
+			else // GL_COMPUTE_SHADER
 			{
 				int32_t codeLen = (int32_t)bx::strLen(code);
 				int32_t tempLen = codeLen + (4<<10);
@@ -5821,7 +5864,8 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 					  "#define textureCubeGrad          textureGrad\n"
 					);
 
-				bx::write(&writer, code.getPtr()+bx::strLen("#version 430"), codeLen);
+				int32_t verLen = bx::strLen("#version 430\n");
+				bx::write(&writer, code.getPtr()+verLen, codeLen-verLen);
 				bx::write(&writer, '\0');
 
 				code = temp;
@@ -6355,6 +6399,8 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			renderDocTriggerCapture();
 		}
 
+		m_glctx.makeCurrent(NULL);
+
 		BGFX_GL_PROFILER_BEGIN_LITERAL("rendererSubmit", kColorView);
 
 		if (1 < m_numWindows
@@ -6365,8 +6411,6 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 			GL_CHECK(glDeleteVertexArrays(1, &m_vao) );
 			m_vao = 0;
 		}
-
-		m_glctx.makeCurrent(NULL);
 
 		const GLuint defaultVao = m_vao;
 		if (0 != defaultVao)
@@ -6500,6 +6544,13 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 					view = key.m_view;
 					currentProgram = BGFX_INVALID_HANDLE;
 
+					if (item > 1)
+					{
+						profiler.end();
+					}
+
+					BGFX_GL_PROFILER_END();
+
 					if (_render->m_view[view].m_fbh.idx != fbh.idx)
 					{
 						fbh = _render->m_view[view].m_fbh;
@@ -6507,12 +6558,6 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 						resolutionHeight = setFrameBuffer(fbh, resolutionHeight, discardFlags);
 					}
 
-					if (item > 1)
-					{
-						profiler.end();
-					}
-
-					BGFX_GL_PROFILER_END();
 					setViewType(view, "  ");
 					BGFX_GL_PROFILER_BEGIN(view, kColorView);
 
@@ -6629,6 +6674,7 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 
 							if (isValid(compute.m_indirectBuffer) )
 							{
+								barrier |= GL_COMMAND_BARRIER_BIT;
 								const VertexBufferGL& vb = m_vertexBuffers[compute.m_indirectBuffer.idx];
 								if (currentState.m_indirectBuffer.idx != compute.m_indirectBuffer.idx)
 								{
@@ -7217,9 +7263,11 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 										currentState.m_stream[idx].m_startVertex = draw.m_stream[idx].m_startVertex;
 
 										const VertexBufferGL& vb = m_vertexBuffers[draw.m_stream[idx].m_handle.idx];
-										uint16_t decl = !isValid(vb.m_decl) ? draw.m_stream[idx].m_decl.idx : vb.m_decl.idx;
+										const uint16_t decl = isValid(draw.m_stream[idx].m_layoutHandle)
+											? draw.m_stream[idx].m_layoutHandle.idx
+											: vb.m_layoutHandle.idx;
 										GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, vb.m_id) );
-										program.bindAttributes(m_vertexDecls[decl], draw.m_stream[idx].m_startVertex);
+										program.bindAttributes(m_vertexLayouts[decl], draw.m_stream[idx].m_startVertex);
 									}
 								}
 
@@ -7249,10 +7297,10 @@ BX_TRACE("%d, %d, %d, %s", _array, _srgb, _mipAutogen, getName(_format) );
 								idx         += ntz;
 
 								const VertexBufferGL& vb = m_vertexBuffers[draw.m_stream[idx].m_handle.idx];
-								uint16_t decl = !isValid(vb.m_decl) ? draw.m_stream[idx].m_decl.idx : vb.m_decl.idx;
-								const VertexDecl& vertexDecl = m_vertexDecls[decl];
+								uint16_t decl = !isValid(vb.m_layoutHandle) ? draw.m_stream[idx].m_layoutHandle.idx : vb.m_layoutHandle.idx;
+								const VertexLayout& layout = m_vertexLayouts[decl];
 
-								numVertices = bx::uint32_min(numVertices, vb.m_size/vertexDecl.m_stride);
+								numVertices = bx::uint32_min(numVertices, vb.m_size/layout.m_stride);
 							}
 						}
 

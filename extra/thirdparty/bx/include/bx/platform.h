@@ -48,6 +48,7 @@
 #define BX_PLATFORM_ANDROID    0
 #define BX_PLATFORM_BSD        0
 #define BX_PLATFORM_EMSCRIPTEN 0
+#define BX_PLATFORM_HAIKU      0
 #define BX_PLATFORM_HURD       0
 #define BX_PLATFORM_IOS        0
 #define BX_PLATFORM_LINUX      0
@@ -219,6 +220,9 @@
 #elif defined(__NX__)
 #	undef  BX_PLATFORM_NX
 #	define BX_PLATFORM_NX 1
+#elif defined(__HAIKU__)
+#	undef  BX_PLATFORM_HAIKU
+#	define BX_PLATFORM_HAIKU 1
 #endif //
 
 #if !BX_CRT_NONE
@@ -235,7 +239,7 @@
 #	elif defined(__MINGW32__) || defined(__MINGW64__)
 #		undef  BX_CRT_MINGW
 #		define BX_CRT_MINGW 1
-#	elif defined(__apple_build_version__) || defined(__ORBIS__) || defined(__EMSCRIPTEN__) || defined(__llvm__)
+#	elif defined(__apple_build_version__) || defined(__ORBIS__) || defined(__EMSCRIPTEN__) || defined(__llvm__) || defined(__HAIKU__)
 #		undef  BX_CRT_LIBCXX
 #		define BX_CRT_LIBCXX 1
 #	endif //
@@ -257,6 +261,7 @@
 	||  BX_PLATFORM_ANDROID    \
 	||  BX_PLATFORM_BSD        \
 	||  BX_PLATFORM_EMSCRIPTEN \
+	||  BX_PLATFORM_HAIKU      \
 	||  BX_PLATFORM_HURD       \
 	||  BX_PLATFORM_IOS        \
 	||  BX_PLATFORM_LINUX      \
@@ -272,6 +277,7 @@
 	||  BX_PLATFORM_ANDROID    \
 	||  BX_PLATFORM_BSD        \
 	||  BX_PLATFORM_EMSCRIPTEN \
+	||  BX_PLATFORM_HAIKU      \
 	||  BX_PLATFORM_HURD       \
 	||  BX_PLATFORM_IOS        \
 	||  BX_PLATFORM_LINUX      \
@@ -296,6 +302,7 @@
 ///
 #define BX_PLATFORM_OS_DESKTOP  (0 \
 	||  BX_PLATFORM_BSD            \
+	||  BX_PLATFORM_HAIKU          \
 	||  BX_PLATFORM_HURD           \
 	||  BX_PLATFORM_LINUX          \
 	||  BX_PLATFORM_OSX            \
@@ -331,7 +338,9 @@
 		BX_STRINGIZE(__clang_minor__) "." \
 		BX_STRINGIZE(__clang_patchlevel__)
 #elif BX_COMPILER_MSVC
-#	if BX_COMPILER_MSVC >= 1910 // Visual Studio 2017
+#	if BX_COMPILER_MSVC >= 1920 // Visual Studio 2019
+#		define BX_COMPILER_NAME "MSVC 16.0"
+#	elif BX_COMPILER_MSVC >= 1910 // Visual Studio 2017
 #		define BX_COMPILER_NAME "MSVC 15.0"
 #	elif BX_COMPILER_MSVC >= 1900 // Visual Studio 2015
 #		define BX_COMPILER_NAME "MSVC 14.0"
@@ -358,6 +367,8 @@
 		BX_STRINGIZE(__EMSCRIPTEN_major__) "." \
 		BX_STRINGIZE(__EMSCRIPTEN_minor__) "." \
 		BX_STRINGIZE(__EMSCRIPTEN_tiny__)
+#elif BX_PLATFORM_HAIKU
+#	define BX_PLATFORM_NAME "Haiku"
 #elif BX_PLATFORM_HURD
 #	define BX_PLATFORM_NAME "Hurd"
 #elif BX_PLATFORM_IOS
@@ -425,5 +436,24 @@
 #elif BX_ARCH_64BIT
 #	define BX_ARCH_NAME "64-bit"
 #endif // BX_ARCH_
+
+#if BX_COMPILER_MSVC
+#	define BX_CPP_NAME "C++MsvcUnknown"
+#elif defined(__cplusplus)
+#	if __cplusplus < 201103L
+#		error "Pre-C++11 compiler is not supported!"
+#	elif __cplusplus < 201402L
+#		define BX_CPP_NAME "C++11"
+#	elif __cplusplus < 201703L
+#		define BX_CPP_NAME "C++14"
+#	elif __cplusplus < 201704L
+#		define BX_CPP_NAME "C++17"
+#	else
+// See: https://gist.github.com/bkaradzic/2e39896bc7d8c34e042b#orthodox-c
+#		define BX_CPP_NAME "C++WayTooModern"
+#	endif // BX_CPP_NAME
+#else
+#	define BX_CPP_NAME "C++Unknown"
+#endif // defined(__cplusplus)
 
 #endif // BX_PLATFORM_H_HEADER_GUARD

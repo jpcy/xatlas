@@ -267,13 +267,16 @@ namespace enki
                 }
                 else
                 {
-                    // pTailPlus1 is the head, attempt swap with tail
                     tail.pNext = NULL;
-                    if( !pHead.compare_exchange_weak( pTailPlus1, &tail ) )
+                    T* pCompare = pTailPlus1; // we need preserve pTailPlus1 as compare will alter it on failure
+                    // pTailPlus1 is the head, attempt swap with tail
+                    if( !pHead.compare_exchange_strong( pCompare, &tail ) )
                     {
+                        // pCompare receives the revised pHead on failure.
                         // pTailPlus1 is no longer the head, so pTailPlus1->pNext should be non NULL
-                        assert( pTailPlus1->pNext );
+                        while( (T*)NULL == pTailPlus1->pNext ) {;} // wait for pNext to be updated as head may have just changed.
                         tail.pNext = pTailPlus1->pNext.load();
+                        pTailPlus1->pNext = NULL;
                     }
                 }
             }

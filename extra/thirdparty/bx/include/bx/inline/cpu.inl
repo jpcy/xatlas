@@ -12,7 +12,9 @@
 #		include <windows.h>
 #	endif // BX_PLATFORM_WINRT
 
-#	include <emmintrin.h> // _mm_fence
+#	if BX_CPU_X86
+#		include <emmintrin.h> // _mm_fence
+#	endif
 
 extern "C" void _ReadBarrier();
 #	pragma intrinsic(_ReadBarrier)

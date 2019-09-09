@@ -5,8 +5,8 @@
 
 #include "bx_p.h"
 #include <bx/allocator.h>
+#include <bx/file.h>
 #include <bx/hash.h>
-#include <bx/readerwriter.h>
 #include <bx/string.h>
 
 namespace bx
@@ -1153,10 +1153,10 @@ namespace bx
 		SizerWriter sizer;
 		va_list argListCopy;
 		va_copy(argListCopy, _argList);
-		int32_t size = write(&sizer, _format, argListCopy, &err);
+		int32_t total = write(&sizer, _format, argListCopy, &err);
 		va_end(argListCopy);
 
-		return size;
+		return total;
 	}
 
 	int32_t snprintf(char* _out, int32_t _max, const char* _format, ...)
@@ -1165,6 +1165,28 @@ namespace bx
 		va_start(argList, _format);
 		int32_t total = vsnprintf(_out, _max, _format, argList);
 		va_end(argList);
+
+		return total;
+	}
+
+	int32_t vprintf(const char* _format, va_list _argList)
+	{
+		Error err;
+		va_list argListCopy;
+		va_copy(argListCopy, _argList);
+		int32_t total = write(getStdOut(), _format, argListCopy, &err);
+		va_end(argListCopy);
+
+		return total;
+	}
+
+	int32_t printf(const char* _format, ...)
+	{
+		va_list argList;
+		va_start(argList, _format);
+		int32_t total = vprintf(_format, argList);
+		va_end(argList);
+
 		return total;
 	}
 

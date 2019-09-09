@@ -39,7 +39,7 @@ namespace bx
 			switch (state)
 			{
 				case SkipWhitespace:
-					for (; isSpace(*curr); ++curr) {}; // skip whitespace
+					for (; isSpace(*curr) && *curr!=_term; ++curr) {}; // skip whitespace
 					state = SetTerm;
 					break;
 

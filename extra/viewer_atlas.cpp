@@ -237,10 +237,10 @@ struct
 	std::vector<uint32_t> chartIndices;
 	std::vector<bool> boundaryEdges;
 	std::vector<WireframeVertex> chartBoundaryVertices;
-	bgfx::VertexDecl atlasVertexDecl;
-	bgfx::VertexDecl blitVertexDecl;
-	bgfx::VertexDecl chartColorDecl;
-	bgfx::VertexDecl wireVertexDecl;
+	bgfx::VertexLayout atlasVertexLayout;
+	bgfx::VertexLayout blitVertexLayout;
+	bgfx::VertexLayout chartColorDecl;
+	bgfx::VertexLayout wireVertexLayout;
 	// Blit.
 	bgfx::ProgramHandle blitProgram;
 	bgfx::UniformHandle s_texture;
@@ -261,18 +261,18 @@ static void clearPackOptions()
 
 void atlasInit()
 {
-	s_atlas.atlasVertexDecl.begin()
+	s_atlas.atlasVertexLayout.begin()
 		.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
 		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
 		.end();
-	s_atlas.blitVertexDecl.begin()
+	s_atlas.blitVertexLayout.begin()
 		.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
 		.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
 		.end();
 	s_atlas.chartColorDecl.begin()
 		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Uint8, true)
 		.end();
-	s_atlas.wireVertexDecl
+	s_atlas.wireVertexLayout
 		.begin()
 		.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 		.end();
@@ -879,9 +879,9 @@ static void atlasRenderChartsTextures()
 		}
 	}
 	bgfx::updateTexture2D(s_atlas.chartsTexture, 0, 0, 0, 0, (uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, bgfx::makeRef(s_atlas.chartsTextureData));
-	if (bgfx::getAvailTransientVertexBuffer(3, s_atlas.blitVertexDecl) == 3) {
+	if (bgfx::getAvailTransientVertexBuffer(3, s_atlas.blitVertexLayout) == 3) {
 		bgfx::TransientVertexBuffer tvb;
-		bgfx::allocTransientVertexBuffer(&tvb, 3, s_atlas.blitVertexDecl);
+		bgfx::allocTransientVertexBuffer(&tvb, 3, s_atlas.blitVertexLayout);
 		auto vertices = (BlitVertex *)tvb.data;
 		const float w = (float)s_atlas.data->width;
 		const float h = (float)s_atlas.data->height;
@@ -918,7 +918,7 @@ static void atlasRenderChartsTextures()
 						}
 					}
 					bgfx::TransientVertexBuffer tvb;
-					bgfx::allocTransientVertexBuffer(&tvb, nVertices, s_atlas.atlasVertexDecl);
+					bgfx::allocTransientVertexBuffer(&tvb, nVertices, s_atlas.atlasVertexLayout);
 					auto vertices = (AtlasVertex *)tvb.data;
 					nVertices = 0;
 					for (uint32_t k = 0; k < chart.faceCount; k++) {
@@ -952,10 +952,10 @@ static void atlasRenderChartsTextures()
 	// Render 4x4 block grid.
 	if (s_atlas.options.showBlockGrid) {
 		const uint32_t nVertices = ((s_atlas.data->width + 1) / 4 + (s_atlas.data->height + 1) / 4) * 2;
-		if (bgfx::getAvailTransientVertexBuffer(nVertices, s_atlas.atlasVertexDecl) != nVertices)
+		if (bgfx::getAvailTransientVertexBuffer(nVertices, s_atlas.atlasVertexLayout) != nVertices)
 			return;
 		bgfx::TransientVertexBuffer tvb;
-		bgfx::allocTransientVertexBuffer(&tvb, nVertices, s_atlas.atlasVertexDecl);
+		bgfx::allocTransientVertexBuffer(&tvb, nVertices, s_atlas.atlasVertexLayout);
 		auto vertices = (AtlasVertex *)tvb.data;
 		uint32_t i = 0;
 		for (uint32_t x = 0; x < s_atlas.data->width; x += 4) {
@@ -993,13 +993,13 @@ void atlasFinalize()
 		s_atlas.thread = nullptr;
 	}
 	// Charts geometry.
-	s_atlas.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.vertices), ModelVertex::decl);
+	s_atlas.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.vertices), ModelVertex::layout);
 	s_atlas.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.indices), BGFX_BUFFER_INDEX32);
 	s_atlas.chartColorVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartColorVertices), s_atlas.chartColorDecl);
 	s_atlas.chartInvalidColorVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartInvalidColorVertices), s_atlas.chartColorDecl);
 	s_atlas.chartIb = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.chartIndices), BGFX_BUFFER_INDEX32);
 	// Chart boundaries.
-	s_atlas.chartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartBoundaryVertices), WireframeVertex::decl);
+	s_atlas.chartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartBoundaryVertices), WireframeVertex::layout);
 	// Create framebuffer/texture for atlas.
 	bgfx::TextureHandle texture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack));
 	s_atlas.chartsFrameBuffer = bgfx::createFrameBuffer(1, &texture, true);

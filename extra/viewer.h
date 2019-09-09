@@ -122,16 +122,16 @@ struct ModelVertex
 	bx::Vec3 pos;
 	bx::Vec3 normal;
 	float texcoord[4];
-	static bgfx::VertexDecl decl;
+	static bgfx::VertexLayout layout;
 
 	static void init()
 	{
-		decl.begin()
+		layout.begin()
 			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::TexCoord0, 4, bgfx::AttribType::Float)
 			.end();
-		assert(decl.getStride() == sizeof(ModelVertex));
+		assert(layout.getStride() == sizeof(ModelVertex));
 	}
 };
 
@@ -224,15 +224,15 @@ struct WireframeVertex
 {
 	bx::Vec3 pos;
 	bx::Vec3 barycentric;
-	static bgfx::VertexDecl decl;
+	static bgfx::VertexLayout layout;
 
 	static void init()
 	{
-		decl.begin()
+		layout.begin()
 			.add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
 			.add(bgfx::Attrib::TexCoord0, 3, bgfx::AttribType::Float)
 			.end();
-		assert(decl.getStride() == sizeof(WireframeVertex));
+		assert(layout.getStride() == sizeof(WireframeVertex));
 	}
 };
 
