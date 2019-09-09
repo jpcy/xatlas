@@ -1144,6 +1144,16 @@ public:
 
 	XA_INLINE T *begin() { return (T *)m_base.buffer; }
 	XA_INLINE void clear() { m_base.clear(); }
+
+	bool contains(const T &value) const
+	{
+		for (uint32_t i = 0; i < m_base.size; i++) {
+			if (((const T *)m_base.buffer)[i] == value)
+				return true;
+		}
+		return false;
+	}
+
 	void copyTo(Array &other) const { m_base.copyTo(other.m_base); }
 	XA_INLINE const T *data() const { return (const T *)m_base.buffer; }
 	XA_INLINE T *data() { return (T *)m_base.buffer; }
@@ -4601,6 +4611,7 @@ struct Chart
 	Vector3 centroid = Vector3(0.0f); // Average centroid of chart faces.
 	Array<uint32_t> seeds;
 	Array<uint32_t> faces;
+	Array<uint32_t> failedPlanarRegions;
 	PriorityQueue candidates;
 };
 
@@ -4737,8 +4748,10 @@ struct Atlas
 			Chart *chart = m_faceCandidateCharts[f];
 			if (!chart || m_faceCandidateCosts[f] > threshold || m_faceChartArray[f] != -1)
 				continue;
-			if (!addFaceToChart(chart, f))
+			if (!addFaceToChart(chart, f)) {
+				chart->failedPlanarRegions.push_back(m_facePlanarRegionId[f]);
 				continue;
+			}
 			canAddAny = true;
 		}
 		XA_PROFILE_END(buildAtlasGrowCharts)
@@ -4765,6 +4778,7 @@ struct Atlas
 			chart->centroid = Vector3(0.0f);
 			chart->faces.clear();
 			chart->candidates.clear();
+			chart->failedPlanarRegions.clear();
 			addFaceToChart(chart, seed);
 		}
 		XA_PROFILE_END(buildAtlasResetCharts)
@@ -4938,8 +4952,10 @@ private:
 			const uint32_t f = chart->candidates.pop();
 			if (m_faceChartArray[f] != -1)
 				continue;
-			if (!addFaceToChart(chart, f))
+			if (!addFaceToChart(chart, f)) {
+				chart->failedPlanarRegions.push_back(m_facePlanarRegionId[f]);
 				continue;
+			}
 		}
 	}
 
@@ -5126,8 +5142,11 @@ private:
 				const uint32_t edge = f * 3 + j;
 				const uint32_t oedge = m_mesh->oppositeEdge(edge);
 				const uint32_t oface = meshEdgeFace(oedge);
-				if (oedge != UINT32_MAX && !m_ignoreFaces[oface] && m_faceChartArray[oface] == -1)
-					chart->candidates.push(oface);
+				if (oedge != UINT32_MAX && !m_ignoreFaces[oface] && m_faceChartArray[oface] == -1) {
+					// Don't add candidate face if failed to add its planar region to the chart before.
+					if (!chart->failedPlanarRegions.contains(m_facePlanarRegionId[oface]))
+						chart->candidates.push(oface);
+				}
 			}
 		}
 		// Evaluate candidate priorities.
@@ -5354,6 +5373,11 @@ private:
 			XA_DEBUG_ASSERT(m_faceChartArray[f] == chart->id);
 			m_faceChartArray[f] = owner->id;
 			owner->faces.push_back(f);
+		}
+		if (!chart->failedPlanarRegions.isEmpty()) {
+			const uint32_t oldSize = owner->failedPlanarRegions.size();
+			owner->failedPlanarRegions.resize(owner->failedPlanarRegions.size() + chart->failedPlanarRegions.size());
+			memcpy(&owner->failedPlanarRegions[oldSize], chart->failedPlanarRegions.data(), chart->failedPlanarRegions.size() * sizeof(uint32_t));
 		}
 		// Update adjacencies?
 		owner->area += chart->area;
