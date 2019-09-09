@@ -30,7 +30,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #define ONE_GLTF_OBJECT_PER_MESH 0
 
-bgfx::VertexDecl ModelVertex::decl;
+bgfx::VertexLayout ModelVertex::layout;
 
 enum class ModelStatus
 {
@@ -844,9 +844,9 @@ void modelFinalize()
 		}
 	}
 	s_model.centroid = bx::mul(s_model.centroid, 1.0f / centroidCount);
-	s_model.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.data->vertices, s_model.data->numVertices * sizeof(ModelVertex)), ModelVertex::decl);
+	s_model.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.data->vertices, s_model.data->numVertices * sizeof(ModelVertex)), ModelVertex::layout);
 	s_model.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_model.data->indices, s_model.data->numIndices * sizeof(uint32_t)), BGFX_BUFFER_INDEX32);
-	s_model.wireframeVb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.wireframeVertices.data(), uint32_t(s_model.wireframeVertices.size() * sizeof(WireframeVertex))), WireframeVertex::decl);
+	s_model.wireframeVb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.wireframeVertices.data(), uint32_t(s_model.wireframeVertices.size() * sizeof(WireframeVertex))), WireframeVertex::layout);
 	resetCamera();
 	g_options.shadeMode = ShadeMode::Flat;
 	g_options.wireframeMode = WireframeMode::Triangles;

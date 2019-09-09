@@ -18,6 +18,10 @@ namespace bimg
 			Highest,
 			Fastest,
 
+			NormalMapDefault,  // Treat the source as a normal map
+			NormalMapHighest,
+			NormalMapFastest,
+
 			Count
 		};
 	};

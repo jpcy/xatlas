@@ -252,6 +252,11 @@ namespace bimg
 
 	const char* getName(TextureFormat::Enum _format)
 	{
+		if (_format >= TextureFormat::Count)
+		{
+			return "Unknown?!";
+		}
+
 		return s_textureFormatName[_format];
 	}
 
@@ -1014,7 +1019,7 @@ namespace bimg
 
 		for (uint32_t zz = 0; zz < _depth; ++zz, src += _srcPitch*_height, dst += _dstPitch*_height)
 		{
-			bx::memCopy(dst, src, pitch, _height, _srcPitch, _dstPitch);
+			bx::memCopy(dst, _dstPitch, src, _srcPitch, pitch, _height);
 		}
 	}
 
@@ -4539,7 +4544,7 @@ namespace bimg
 			{
 				const uint32_t srcPitch = _width * 4;
 				const uint32_t size = bx::uint32_min(srcPitch, _dstPitch);
-				bx::memCopy(_dst, _src, size, _height, srcPitch, _dstPitch);
+				bx::memCopy(_dst, _dstPitch, _src, srcPitch, size, _height);
 			}
 			break;
 
@@ -4565,7 +4570,7 @@ namespace bimg
 			{
 				const uint32_t srcPitch = _width * 4;
 				const uint32_t size = bx::uint32_min(srcPitch, _dstPitch);
-				bx::memCopy(_dst, _src, size, _height, srcPitch, _dstPitch);
+				bx::memCopy(_dst, _dstPitch, _src, srcPitch, size, _height);
 			}
 			break;
 

@@ -77,7 +77,7 @@ bool Spinner(const char* label)
 #define WINDOW_DEFAULT_WIDTH 1920
 #define WINDOW_DEFAULT_HEIGHT 1080
 
-bgfx::VertexDecl WireframeVertex::decl;
+bgfx::VertexLayout WireframeVertex::layout;
 Options g_options;
 GLFWwindow *g_window;
 int g_windowSize[2];
