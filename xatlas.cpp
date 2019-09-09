@@ -852,6 +852,11 @@ struct Extents2
 		max = xatlas::internal::max(max, p);
 	}
 
+	Vector2 midpoint() const
+	{
+		return Vector2(min.x + (max.x - min.x) * 0.5f, min.y + (max.y - min.y) * 0.5f);
+	}
+
 	static bool intersect(Extents2 e1, Extents2 e2)
 	{
 		return e1.min.x <= e2.max.x && e1.max.x >= e2.min.x && e1.min.y <= e2.max.y && e1.max.y >= e2.min.y;
@@ -4502,20 +4507,21 @@ private:
 	{
 		const uint32_t nodeIndex = m_bvhNodes.size();
 		m_bvhNodes.push_back(BVHNode());
+		BVHNode *node = &m_bvhNodes[nodeIndex];
 		// Compute extents.
-		m_bvhNodes[nodeIndex].extents.reset();
+		node->extents.reset();
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			const uint32_t edge = m_bvhTempEdges[firstEdge + i];
-			m_bvhNodes[nodeIndex].extents.add(m_texcoords[meshEdgeIndex0(edge)]);
-			m_bvhNodes[nodeIndex].extents.add(m_texcoords[meshEdgeIndex1(edge)]);
+			node->extents.add(m_texcoords[meshEdgeIndex0(edge)]);
+			node->extents.add(m_texcoords[meshEdgeIndex1(edge)]);
 		}
 		if (depth < 8) {
 			// Find splitting axis and position.
 			// Position is closest point to midpoint of axis.
-			const float w = m_bvhNodes[nodeIndex].extents.max.x - m_bvhNodes[nodeIndex].extents.min.x;
-			const float h = m_bvhNodes[nodeIndex].extents.max.y - m_bvhNodes[nodeIndex].extents.min.y;
+			const float w = node->extents.max.x - node->extents.min.x;
+			const float h = node->extents.max.y - node->extents.min.y;
 			const int axis = depth % 2; // 0 = x, 1 = y.
-			const float midpoint = axis == 0 ? m_bvhNodes[nodeIndex].extents.min.x + w * 0.5f : m_bvhNodes[nodeIndex].extents.min.y + h * 0.5f;
+			const float midpoint = axis == 0 ? node->extents.midpoint().x : node->extents.midpoint().y;
 			float split = midpoint, closestDistance = FLT_MAX;
 			for (uint32_t i = 0; i < edgeCount; i++) {
 				const uint32_t edge = m_bvhTempEdges[firstEdge + i];
@@ -4552,25 +4558,22 @@ private:
 			}
 			// Give up and create a leaf instead if splitting fails.
 			if (childrenEdgeCounts[0] != edgeCount && childrenEdgeCounts[1] != edgeCount && childrenEdgeCounts[0] != 0 && childrenEdgeCounts[1] != 0) {
-				m_bvhNodes[nodeIndex].firstEdge = m_bvhNodes[nodeIndex].edgeCount = 0;
-#if 1
+				node->firstEdge = node->edgeCount = 0;
 				const uint32_t c1 = createBVHNode(childrenFirstEdges[0], childrenEdgeCounts[0], depth + 1);
 				const uint32_t c2 = createBVHNode(childrenFirstEdges[1], childrenEdgeCounts[1], depth + 1);
-				m_bvhNodes[nodeIndex].children[0] = c1;
-				m_bvhNodes[nodeIndex].children[1] = c2;
-#else
-				m_bvhNodes[nodeIndex].children[0] = createBVHNode(childrenFirstEdges[0], childrenEdgeCounts[0], depth + 1);
-				m_bvhNodes[nodeIndex].children[1] = createBVHNode(childrenFirstEdges[1], childrenEdgeCounts[1], depth + 1);
-#endif
+				// Creating child nodes may reallocate m_bvhNodes, invalidating node pointer, so refresh it.
+				node = &m_bvhNodes[nodeIndex];
+				node->children[0] = c1;
+				node->children[1] = c2;
 				return nodeIndex;
 			}
 		}
 		// Create leaf.
-		m_bvhNodes[nodeIndex].firstEdge = m_bvhEdges.size();
-		m_bvhNodes[nodeIndex].edgeCount = edgeCount;
+		node->firstEdge = m_bvhEdges.size();
+		node->edgeCount = edgeCount;
 		for (uint32_t i = 0; i < edgeCount; i++)
 			m_bvhEdges.push_back(m_bvhTempEdges[firstEdge + i]);
-		m_bvhNodes[nodeIndex].children[0] = m_bvhNodes[nodeIndex].children[1] = UINT32_MAX;
+		node->children[0] = node->children[1] = UINT32_MAX;
 		return nodeIndex;
 	}
 
