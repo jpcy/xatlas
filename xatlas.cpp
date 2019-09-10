@@ -1640,12 +1640,12 @@ private:
 	static bool computeEigen(const Vector3 *points, uint32_t pointsCount, Basis *basis)
 	{
 		float matrix[6];
-		Fit::computeCovariance(pointsCount, points, matrix);
+		computeCovariance(pointsCount, points, matrix);
 		if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0)
 			return false;
 		float eigenValues[3];
 		Vector3 eigenVectors[3];
-		if (!Fit::eigenSolveSymmetric3(matrix, eigenValues, eigenVectors))
+		if (!eigenSolveSymmetric3(matrix, eigenValues, eigenVectors))
 			return false;
 		basis->normal = normalize(eigenVectors[2], kEpsilon);
 		basis->tangent = normalize(eigenVectors[0], kEpsilon);
@@ -5826,18 +5826,6 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 	return true;
 }
 
-static bool computeOrthogonalProjectionMap(Mesh *mesh)
-{
-	const uint32_t vertexCount = mesh->vertexCount();
-	Basis basis;
-	if (!Fit::computeBasis(&mesh->position(0), vertexCount, &basis))
-		return false;
-	// Project vertices to plane.
-	for (uint32_t i = 0; i < vertexCount; i++)
-		mesh->texcoord(i) = Vector2(dot(basis.tangent, mesh->position(i)), dot(basis.bitangent, mesh->position(i)));
-	return true;
-}
-
 // Estimate quality of existing parameterization.
 struct ParameterizationQuality
 {
@@ -6293,14 +6281,13 @@ static void runParameterizeChartTask(void *userData)
 	auto args = (ParameterizeChartTaskArgs *)userData;
 	Mesh *mesh = args->chart->unifiedMesh();
 	XA_PROFILE_START(parameterizeChartsOrthogonal)
-#if 1
-	if (!computeOrthogonalProjectionMap(mesh)) {
-		XA_ASSERT(false);
+	{
+		// Project vertices to plane.
+		const uint32_t vertexCount = mesh->vertexCount();
+		const Basis &basis = args->chart->basis();
+		for (uint32_t i = 0; i < vertexCount; i++)
+			mesh->texcoord(i) = Vector2(dot(basis.tangent, mesh->position(i)), dot(basis.bitangent, mesh->position(i)));
 	}
-#else
-	for (uint32_t i = 0; i < vertexCount; i++)
-		mesh->texcoord(i) = Vector2(dot(args->chart->basis().tangent, mesh->position(i)), dot(args->chart->basis().bitangent, mesh->position(i)));
-#endif
 	XA_PROFILE_END(parameterizeChartsOrthogonal)
 	args->chart->evaluateOrthoParameterizationQuality();
 	if (!args->chart->isOrtho() && !args->chart->isPlanar()) {
