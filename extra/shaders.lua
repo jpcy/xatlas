@@ -40,6 +40,8 @@ function compileShader(args)
 			command = command .. "5_0"
 		end
 		command = command .. " -O 3 --Werror"
+	elseif args.renderer == "vk" then
+		command = command .. " --platform linux -p spirv"
 	end
 	os.execute(command)
 end
@@ -66,9 +68,9 @@ newaction
 		}
 		local renderers = nil
 		if os.ishost("windows") then
-			renderers = { "d3d11", "gl" }
+			renderers = { "d3d11", "gl", "vk" }
 		else
-			renderers = { "gl" }
+			renderers = { "gl", "vk" }
 		end
 		for _,renderer in pairs(renderers) do
 			os.mkdir(path.join(SHADERS_BIN_DIR, renderer))
