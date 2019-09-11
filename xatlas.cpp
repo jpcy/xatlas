@@ -1622,7 +1622,7 @@ private:
 		if (det_max <= 0.0f)
 			return false; // The points don't span a plane
 		// Pick path with best conditioning:
-		Vector3 dir;
+		Vector3 dir(0.0f);
 		if (det_max == det_x)
 			dir = Vector3(det_x,xz * yz - xy * zz,xy * yz - xz * yy);
 		else if (det_max == det_y)
@@ -4521,8 +4521,6 @@ private:
 		if (depth < 8) {
 			// Find splitting axis and position.
 			// Position is closest point to midpoint of axis.
-			const float w = node->extents.max.x - node->extents.min.x;
-			const float h = node->extents.max.y - node->extents.min.y;
 			const int axis = depth % 2; // 0 = x, 1 = y.
 			const float midpoint = axis == 0 ? node->extents.midpoint().x : node->extents.midpoint().y;
 			float split = midpoint, closestDistance = FLT_MAX;
