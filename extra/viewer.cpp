@@ -329,12 +329,13 @@ struct ShaderSourceBundle
 	ShaderSource d3d11;
 #endif
 	ShaderSource gl;
+	ShaderSource vk;
 };
 
 #if BX_PLATFORM_WINDOWS
-#define SHADER_SOURCE_BUNDLE(name) { BX_STRINGIZE(name), { name##_d3d11, sizeof(name##_d3d11) }, { name##_gl, sizeof(name##_gl) }}
+#define SHADER_SOURCE_BUNDLE(name) { BX_STRINGIZE(name), { name##_d3d11, sizeof(name##_d3d11) }, { name##_gl, sizeof(name##_gl) }, { name##_vk, sizeof(name##_vk) }}
 #else
-#define SHADER_SOURCE_BUNDLE(name) { BX_STRINGIZE(name), { name##_gl, sizeof(name##_gl) }}
+#define SHADER_SOURCE_BUNDLE(name) { BX_STRINGIZE(name), { name##_gl, sizeof(name##_gl) }, { name##_vk, sizeof(name##_vk) }}
 #endif
 
 // Sync with ShaderId
@@ -364,6 +365,8 @@ bgfx::ShaderHandle loadShader(ShaderId id)
 	else if (bgfx::getRendererType() == bgfx::RendererType::Direct3D11)
 		source = sourceBundle.d3d11;
 #endif
+	else if (bgfx::getRendererType() == bgfx::RendererType::Vulkan)
+		source = sourceBundle.vk;
 	else {
 		fprintf(stderr, "Unsupported renderer type.");
 		exit(EXIT_FAILURE);
