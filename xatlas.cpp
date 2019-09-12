@@ -2890,7 +2890,6 @@ public:
 	XA_INLINE bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
 	XA_INLINE bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
 	XA_INLINE uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
-	XA_INLINE const uint32_t *nextColocalVertex() const { return m_nextColocalVertex.data(); }
 	XA_INLINE uint32_t vertexCount() const { return m_positions.size(); }
 	XA_INLINE uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
 	XA_INLINE const Vector3 &position(uint32_t vertex) const { return m_positions[vertex]; }
@@ -4449,12 +4448,10 @@ class ChartBoundary
 public:
 	ChartBoundary() {}
 
-	void reset(const Vector2 *texcoords, const uint32_t *indices = nullptr, const uint32_t *colocals = nullptr)
+	void reset(const Vector2 *texcoords)
 	{
 		m_edges.clear();
 		m_texcoords = texcoords;
-		m_indices = indices;
-		m_colocals = colocals;
 	}
 
 	void append(uint32_t edge)
@@ -4605,36 +4602,13 @@ private:
 		const uint32_t ai[2] = { meshEdgeIndex0(edge1), meshEdgeIndex1(edge1) };
 		const uint32_t bi[2] = { meshEdgeIndex0(edge2), meshEdgeIndex1(edge2) };
 		// Ignore connected edges, since they can't intersect (only overlap), and may be detected as false positives.
-		if (m_indices && m_colocals) {
-			for (uint32_t i = 0; i < 2; i++) {
-				uint32_t colocal1 = ai[i];
-				for (;;) {
-					for (uint32_t j = 0; j < 2; j++) {
-						uint32_t colocal2 = bi[j];
-						for (;;) {
-							if (colocal1 == colocal2)
-								return false;
-							colocal2 = m_colocals[m_indices[colocal2]];
-							if (colocal2 == bi[j])
-								break;
-						}
-					}
-					colocal1 = m_colocals[m_indices[colocal1]];
-					if (colocal1 == ai[i])
-						break;
-				}
-			}
-		} else {
-			if (ai[0] == bi[0] || ai[0] == bi[1] || ai[1] == bi[0] || ai[1] == bi[1])
-				return false;
-		}
+		if (ai[0] == bi[0] || ai[0] == bi[1] || ai[1] == bi[0] || ai[1] == bi[1])
+			return false;
 		return linesIntersect(m_texcoords[ai[0]], m_texcoords[ai[1]], m_texcoords[bi[0]], m_texcoords[bi[1]], epsilon);
 	}
 
 	Array<uint32_t> m_edges;
 	const Vector2 *m_texcoords;
-	const uint32_t *m_indices;
-	const uint32_t *m_colocals;
 	Array<BVHNode> m_bvhNodes;
 	Array<uint32_t> m_bvhEdges;
 	Array<uint32_t> m_bvhTempEdges;
@@ -5065,7 +5039,7 @@ private:
 		if (flippedFaceCount != 0 && flippedFaceCount != faceCount)
 			return false;
 		// Check for boundary intersection in the parameterization.
-		m_chartBoundary.reset(m_texcoords.data(), m_mesh->nextColocalVertex());
+		m_chartBoundary.reset(m_texcoords.data());
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
 			for (uint32_t j = 0; j < 3; j++) {
