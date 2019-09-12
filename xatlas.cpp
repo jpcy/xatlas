@@ -1183,6 +1183,18 @@ public:
 	void reserve(uint32_t desiredSize) { m_base.reserve(desiredSize); }
 	void resize(uint32_t newSize) { m_base.resize(newSize, true); }
 
+	void runCtors()
+	{
+		for (uint32_t i = 0; i < m_base.size; i++)
+			new (&((T *)m_base.buffer)[i]) T;
+	}
+
+	void runDtors()
+	{
+		for (uint32_t i = 0; i < m_base.size; i++)
+			((T *)m_base.buffer)[i].~T();
+	}
+
 	void setAll(const T &value)
 	{
 		auto buffer = (T *)m_base.buffer;
@@ -4165,21 +4177,18 @@ public:
 	Matrix(uint32_t d) : m_width(d)
 	{
 		m_array.resize(d);
-		for (uint32_t i = 0; i < m_array.size(); i++)
-			new (&m_array[i]) Array<Coefficient>();
+		m_array.runCtors();
 	}
 	
 	Matrix(uint32_t w, uint32_t h) : m_width(w)
 	{
 		m_array.resize(h);
-		for (uint32_t i = 0; i < m_array.size(); i++)
-			new (&m_array[i]) Array<Coefficient>();
+		m_array.runCtors();
 	}
 	
 	~Matrix()
 	{
-		for (uint32_t i = 0; i < m_array.size(); i++)
-			m_array[i].~Array();
+		m_array.runDtors();
 	}
 
 	Matrix(const Matrix &m) = delete;
@@ -7259,8 +7268,7 @@ struct Atlas
 		uint32_t chartIndex = 0;
 		Array<BoundingBox2D> boundingBox;
 		boundingBox.resize(taskScheduler->threadCount());
-		for (uint32_t i = 0; i < boundingBox.size(); i++)
-			new (&boundingBox[i]) BoundingBox2D;
+		boundingBox.runCtors();
 		for (uint32_t i = 0; i < chartGroupsCount; i++) {
 			const param::ChartGroup *chartGroup = paramAtlas->chartGroupAt(i);
 			if (chartGroup->isVertexMap())
@@ -7278,8 +7286,7 @@ struct Atlas
 			}
 		}
 		taskScheduler->wait(&taskGroup);
-		for (uint32_t i = 0; i < boundingBox.size(); i++)
-			boundingBox[i].~BoundingBox2D();
+		boundingBox.runDtors();
 		// Get task output.
 		m_charts.resize(chartCount);
 		for (uint32_t i = 0; i < chartCount; i++)
