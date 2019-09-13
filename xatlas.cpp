@@ -7480,6 +7480,8 @@ struct Atlas
 				texcoord.y += 0.5f + options.padding;
 				extents = max(extents, texcoord);
 			}
+			if (extents.x > resolution || extents.y > resolution)
+				XA_PRINT("   Chart %u extents are large (%gx%g)\n", c, extents.x, extents.y);
 			chartExtents[c] = extents;
 			chartOrderArray[c] = extents.x + extents.y; // Use perimeter for chart sort key.
 			minChartPerimeter = min(minChartPerimeter, chartOrderArray[c]);
