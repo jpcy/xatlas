@@ -4895,6 +4895,9 @@ struct Atlas
 					Chart *chart2 = m_chartArray[cc];
 					if (chart2 == nullptr)
 						continue;
+					// Must share a boundary.
+					if (sharedBoundaryLengths[cc] <= 0.0f)
+						continue;
 					// Compare proxies.
 					if (dot(chart2->basis.normal, chart->basis.normal) < XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION)
 						continue;
