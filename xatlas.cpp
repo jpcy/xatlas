@@ -3607,7 +3607,7 @@ struct TaskGroupHandle
 
 struct Task
 {
-	void (*func)(uint32_t threadIndex, void *userData);
+	void (*func)(void *userData);
 	void *userData;
 };
 
@@ -3712,7 +3712,7 @@ public:
 			group.queueLock.unlock();
 			if (!task)
 				break;
-			task->func(m_threadIndex, task->userData);
+			task->func(task->userData);
 			group.ref--;
 		}
 		// Even though the task queue is empty, workers can still be running tasks.
@@ -3721,6 +3721,8 @@ public:
 		group.free = true;
 		handle->value = UINT32_MAX;
 	}
+
+	static uint32_t currentThreadIndex() { return m_threadIndex; }
 
 private:
 	struct TaskGroup
@@ -3773,7 +3775,7 @@ private:
 				}
 				if (!task)
 					break;
-				task->func(m_threadIndex, task->userData);
+				task->func(task->userData);
 				group->ref--;
 			}
 		}
@@ -3824,6 +3826,8 @@ public:
 		destroyGroup(*handle);
 		handle->value = UINT32_MAX;
 	}
+
+	static uint32_t currentThreadIndex() { return 0; }
 
 private:
 	void destroyGroup(TaskGroupHandle handle)
@@ -6234,7 +6238,7 @@ struct CreateChartTaskArgs
 	Chart **chart;
 };
 
-static void runCreateChartTask(uint32_t /*threadIndex*/, void *userData)
+static void runCreateChartTask(void *userData)
 {
 	XA_PROFILE_START(createChartMeshesThread)
 	auto args = (CreateChartTaskArgs *)userData;
@@ -6248,7 +6252,7 @@ struct ParameterizeChartTaskArgs
 	ParameterizeFunc func;
 };
 
-static void runParameterizeChartTask(uint32_t /*threadIndex*/, void *userData)
+static void runParameterizeChartTask(void *userData)
 {
 	auto args = (ParameterizeChartTaskArgs *)userData;
 	Mesh *mesh = args->chart->unifiedMesh();
@@ -6649,7 +6653,7 @@ struct CreateChartGroupTaskArgs
 	ChartGroup **chartGroup;
 };
 
-static void runCreateChartGroupTask(uint32_t /*threadIndex*/, void *userData)
+static void runCreateChartGroupTask(void *userData)
 {
 	XA_PROFILE_START(addMeshCreateChartGroupsThread)
 	auto args = (CreateChartGroupTaskArgs *)userData;
@@ -6665,7 +6669,7 @@ struct ComputeChartsTaskArgs
 	Progress *progress;
 };
 
-static void runComputeChartsJob(uint32_t /*threadIndex*/, void *userData)
+static void runComputeChartsJob(void *userData)
 {
 	auto args = (ComputeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
@@ -6685,7 +6689,7 @@ struct ParameterizeChartsTaskArgs
 	Progress *progress;
 };
 
-static void runParameterizeChartsJob(uint32_t /*threadIndex*/, void *userData)
+static void runParameterizeChartsJob(void *userData)
 {
 	auto args = (ParameterizeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
@@ -7080,7 +7084,7 @@ struct AddChartTaskArgs
 	Chart *chart; // out
 };
 
-static void runAddChartTask(uint32_t threadIndex, void *userData)
+static void runAddChartTask(void *userData)
 {
 	XA_PROFILE_START(packChartsAddChartsThread)
 	auto args = (AddChartTaskArgs *)userData;
@@ -7113,7 +7117,7 @@ static void runAddChartTask(uint32_t threadIndex, void *userData)
 	}
 	XA_DEBUG_ASSERT(boundary.size() > 0);
 	// Compute bounding box of chart.
-	BoundingBox2D &bb = (*args->boundingBox)[threadIndex];
+	BoundingBox2D &bb = (*args->boundingBox)[TaskScheduler::currentThreadIndex()];
 	bb.compute(boundary.data(), boundary.size(), mesh->texcoords(), mesh->vertexCount());
 	chart->majorAxis = bb.majorAxis();
 	chart->minorAxis = bb.minorAxis();
@@ -7951,7 +7955,7 @@ struct AddMeshTaskArgs
 	internal::Mesh *mesh;
 };
 
-static void runAddMeshTask(uint32_t /*threadIndex*/, void *userData)
+static void runAddMeshTask(void *userData)
 {
 	XA_PROFILE_START(addMeshThread)
 	auto args = (AddMeshTaskArgs *)userData; // Responsible for freeing this.
