@@ -859,7 +859,7 @@ static void atlasRenderChartsTextures()
 	memset(s_atlas.chartsTextureData.data(), 0, s_atlas.chartsTextureData.size());
 	for (uint32_t y = 0; y < s_atlas.data->height; y++) {
 		for (uint32_t x = 0; x < s_atlas.data->width; x++) {
-			const uint32_t data = s_atlas.data->image[(x + y * s_atlas.data->width) * (s_atlas.options.selectedAtlas + 1)];
+			const uint32_t data = s_atlas.data->image[(x + y * s_atlas.data->width) + (s_atlas.data->width * s_atlas.data->height * s_atlas.options.selectedAtlas)];
 			if (data == 0)
 				continue;
 			const uint32_t chartIndex = data & xatlas::kImageChartIndexMask;
@@ -909,7 +909,7 @@ static void atlasRenderChartsTextures()
 			const xatlas::Mesh &mesh = s_atlas.data->meshes[mi];
 			for (uint32_t ci = 0; ci < mesh.chartCount; ci++) {
 				const xatlas::Chart &chart = mesh.chartArray[ci];
-				if (chartIndex == s_atlas.options.selectedChart) {
+				if (chartIndex == s_atlas.options.selectedChart && (int)chart.atlasIndex == s_atlas.options.selectedAtlas) {
 					uint32_t nVertices = 0;
 					for (uint32_t k = 0; k < chart.faceCount; k++) {
 						for (int l = 0; l < 3; l++) {
