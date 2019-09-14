@@ -57,7 +57,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #endif
 
 #ifndef XA_PROFILE
-#define XA_PROFILE 1
+#define XA_PROFILE 0
 #endif
 #if XA_PROFILE
 #include <time.h>
@@ -3849,6 +3849,42 @@ private:
 };
 #endif
 
+template<typename T>
+class ThreadLocal
+{
+public:
+	ThreadLocal()
+	{
+#if XA_MULTITHREADED
+		const uint32_t n = std::thread::hardware_concurrency();
+#else
+		const uint32_t n = 1;
+#endif
+		m_array = XA_ALLOC_ARRAY(MemTag::Default, T, n);
+		for (uint32_t i = 0; i < n; i++)
+			new (&m_array[i]) T;
+	}
+
+	~ThreadLocal()
+	{
+#if XA_MULTITHREADED
+		const uint32_t n = std::thread::hardware_concurrency();
+#else
+		const uint32_t n = 1;
+#endif
+		for (uint32_t i = 0; i < n; i++)
+			m_array[i].~T();
+	}
+
+	T &get() const
+	{
+		return m_array[TaskScheduler::currentThreadIndex()];
+	}
+
+private:
+	T *m_array;
+};
+
 struct UvMeshChart
 {
 	Array<uint32_t> faces;
@@ -7079,7 +7115,7 @@ struct Chart
 
 struct AddChartTaskArgs
 {
-	Array<BoundingBox2D> *boundingBox;
+	ThreadLocal<BoundingBox2D> *boundingBox;
 	param::Chart *paramChart;
 	Chart *chart; // out
 };
@@ -7117,7 +7153,7 @@ static void runAddChartTask(void *userData)
 	}
 	XA_DEBUG_ASSERT(boundary.size() > 0);
 	// Compute bounding box of chart.
-	BoundingBox2D &bb = (*args->boundingBox)[TaskScheduler::currentThreadIndex()];
+	BoundingBox2D &bb = args->boundingBox->get();
 	bb.compute(boundary.data(), boundary.size(), mesh->texcoords(), mesh->vertexCount());
 	chart->majorAxis = bb.majorAxis();
 	chart->minorAxis = bb.minorAxis();
@@ -7171,9 +7207,7 @@ struct Atlas
 		taskArgs.resize(chartCount);
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
 		uint32_t chartIndex = 0;
-		Array<BoundingBox2D> boundingBox;
-		boundingBox.resize(taskScheduler->threadCount());
-		boundingBox.runCtors();
+		ThreadLocal<BoundingBox2D> boundingBox;
 		for (uint32_t i = 0; i < chartGroupsCount; i++) {
 			const param::ChartGroup *chartGroup = paramAtlas->chartGroupAt(i);
 			if (chartGroup->isVertexMap())
@@ -7191,7 +7225,6 @@ struct Atlas
 			}
 		}
 		taskScheduler->wait(&taskGroup);
-		boundingBox.runDtors();
 		// Get task output.
 		m_charts.resize(chartCount);
 		for (uint32_t i = 0; i < chartCount; i++)
