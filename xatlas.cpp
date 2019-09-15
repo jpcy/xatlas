@@ -117,7 +117,6 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_MERGE_CHARTS 1
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 #define XA_RECOMPUTE_CHARTS 1
-#define XA_SKIP_PARAMETERIZATION 0 // Use the orthogonal parameterization from segment::Atlas
 #define XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION 0
 
 #define XA_DEBUG_HEAP 0
@@ -4760,7 +4759,6 @@ struct Atlas
 	uint32_t chartCount() const { return m_chartArray.size(); }
 	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_chartArray[i]->faces; }
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartArray[chartIndex]->basis; }
-	const Vector2 *faceTexcoords(uint32_t face) const { return &m_texcoords[face * 3]; }
 
 	void placeSeeds(float threshold)
 	{
@@ -6033,11 +6031,7 @@ public:
 				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
 					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
 					XA_DEBUG_ASSERT(equal(originalMesh->position(vertex), originalMesh->position(unifiedVertex), originalMesh->epsilon()));
-#if XA_SKIP_PARAMETERIZATION
-					m_unifiedMesh->addVertex(originalMesh->position(vertex), Vector3(0.0f), atlas->faceTexcoords(m_faceArray[f])[i]);
-#else
 					m_unifiedMesh->addVertex(originalMesh->position(vertex));
-#endif
 				}
 				if (chartMeshIndices[vertex] == (uint32_t)~0) {
 					chartMeshIndices[vertex] = m_mesh->vertexCount();
@@ -6527,16 +6521,6 @@ public:
 	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func)
 	{
 		const uint32_t chartCount = m_chartArray.size();
-#if XA_SKIP_PARAMETERIZATION
-		XA_UNUSED(taskScheduler);
-		XA_UNUSED(func);
-		for (uint32_t i = 0; i < chartCount; i++) {
-			Chart *chart = m_chartArray[i];
-			chart->evaluateOrthoParameterizationQuality();
-			chart->evaluateParameterizationQuality();
-			chart->transferParameterization();
-		}
-#else
 		Array<ParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
@@ -6624,7 +6608,6 @@ public:
 			m_paramDeletedChartsCount++;
 		}
 #endif // XA_RECOMPUTE_CHARTS
-#endif // XA_SKIP_PARAMETERIZATION
 	}
 
 private:
