@@ -54,10 +54,10 @@ See the [viewer](https://github.com/jpcy/xatlas/tree/master/extra) for example c
 
 ## TODO
 
-* Adding meshes: check for overlapping and intersecting geometry
-* Parameterization: use a better hole filling argorithm for non-planar holes
-* Packing: bilinear-aware rasterization
-* Viewer: bake lightmaps with simple path tracer
+* Segmentation: improve chart merging by using similar metrics to chart growing
+* Segmentation/Parameterization: detect geometry with zero Gaussian curvature (e.g. a cylinder) and unwrap as a single chart
+* Parameterization: subdivide charts with invalid parameterizations
+* Viewer: better lightmap baking
 * Viewer: chart picking in scene and texture views
 
 ## Technical information
