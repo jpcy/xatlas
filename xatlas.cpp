@@ -4688,8 +4688,6 @@ struct Atlas
 		m_faceAreas.resize(faceCount);
 		m_faceAreas.zeroOutMemory();
 		m_faceNormals.resize(faceCount);
-		m_faceTangents.resize(faceCount);
-		m_faceBitangents.resize(faceCount);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_ignoreFaces[f])
 				continue;
@@ -4700,8 +4698,6 @@ struct Atlas
 			m_faceAreas[f] = mesh->faceArea(f);
 			XA_DEBUG_ASSERT(m_faceAreas[f] > 0.0f);
 			m_faceNormals[f] = m_mesh->triangleNormal(f);
-			m_faceTangents[f] = Basis::computeTangent(m_faceNormals[f]);
-			m_faceBitangents[f] = Basis::computeBitangent(m_faceNormals[f], m_faceTangents[f]);
 		}
 		// Precompute regions of coplanar incident faces.
 		m_nextPlanarRegionFace.resize(faceCount);
@@ -5102,9 +5098,10 @@ private:
 		Basis basis;
 		if (firstFace) {
 			// Use the first face normal.
+			// Use any edge as the tangent vector.
 			basis.normal = m_faceNormals[face];
-			basis.tangent = m_faceTangents[face];
-			basis.bitangent = m_faceBitangents[face];
+			basis.tangent = normalize(m_mesh->position(m_mesh->vertexAt(face * 3 + 0)) - m_mesh->position(m_mesh->vertexAt(face * 3 + 1)), kEpsilon);
+			basis.bitangent = cross(basis.normal, basis.tangent);
 		} else {
 			// Use best fit normal.
 			if (!computeChartBasis(chart, &basis)) {
@@ -5415,8 +5412,6 @@ private:
 	Array<float> m_edgeLengths;
 	Array<float> m_faceAreas;
 	Array<Vector3> m_faceNormals;
-	Array<Vector3> m_faceTangents;
-	Array<Vector3> m_faceBitangents;
 	Array<Vector2> m_texcoords;
 	uint32_t m_facesLeft;
 	Array<int> m_faceChartArray;
