@@ -124,6 +124,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
 #define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
+#define XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
 #define XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR 0
@@ -135,6 +136,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_DEBUG_EXPORT_OBJ (0 \
 	|| XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES \
 	|| XA_DEBUG_EXPORT_OBJ_CHART_GROUPS \
+	|| XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
 	|| XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION \
 	|| XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR \
@@ -4660,8 +4662,10 @@ struct Chart
 struct Atlas
 {
 	// @@ Hardcoded to 10?
-	Atlas(const Mesh *mesh, Array<uint32_t> *meshFaces, const ChartOptions &options) : m_mesh(mesh), m_meshFaces(meshFaces), m_facesLeft(mesh->faceCount()), m_bestTriangles(10), m_options(options)
+	Atlas(uint32_t meshId, uint32_t chartGroupId, const Mesh *mesh, Array<uint32_t> *meshFaces, const ChartOptions &options) : m_mesh(mesh), m_meshFaces(meshFaces), m_facesLeft(mesh->faceCount()), m_bestTriangles(10), m_options(options)
 	{
+		XA_UNUSED(meshId);
+		XA_UNUSED(chartGroupId);
 		XA_PROFILE_START(buildAtlasInit)
 		const uint32_t faceCount = m_mesh->faceCount();
 		if (meshFaces) {
@@ -4739,6 +4743,24 @@ struct Atlas
 			}
 			planarRegionCount++;
 		}
+#if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
+		char filename[256];
+		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_planar_regions.obj", meshId, chartGroupId);
+		FILE *file;
+		XA_FOPEN(file, filename, "w");
+		if (file) {
+			m_mesh->writeObjVertices(file);
+			fprintf(file, "s off\n");
+			for (uint32_t i = 0; i < planarRegionCount; i++) {
+				fprintf(file, "o region%u\n", i);
+				for (uint32_t j = 0; j < faceCount; j++) {
+					if (m_facePlanarRegionId[j] == i)
+						m_mesh->writeObjFace(file, j);
+				}
+			}
+			fclose(file);
+		}
+#endif
 		XA_PROFILE_END(buildAtlasInit)
 	}
 
@@ -6464,7 +6486,7 @@ public:
 		m_chartArray.push_back(chart);
 #else
 		XA_PROFILE_START(buildAtlas)
-		segment::Atlas atlas(m_mesh, nullptr, options);
+		segment::Atlas atlas(m_sourceId, m_id, m_mesh, nullptr, options);
 		buildAtlas(atlas, options);
 		XA_PROFILE_END(buildAtlas)
 		const uint32_t chartCount = atlas.chartCount();
@@ -6556,7 +6578,7 @@ public:
 			options.maxChartArea = invalidChartArea * 0.2f;
 			options.maxThreshold = 0.25f;
 			options.maxIterations = 3;
-			segment::Atlas atlas(m_mesh, &meshFaces, options);
+			segment::Atlas atlas(m_sourceId, m_id, m_mesh, &meshFaces, options);
 			buildAtlas(atlas, options);
 			for (uint32_t j = 0; j < atlas.chartCount(); j++) {
 				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, &atlas, m_mesh, j, m_sourceId, m_id, m_chartArray.size());
