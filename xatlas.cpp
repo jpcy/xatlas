@@ -2927,7 +2927,12 @@ private:
 		uint32_t v1;
 	};
 
-	HashMap<EdgeKey> m_edgeMap;
+	struct EdgeHash
+	{
+		uint32_t operator()(const EdgeKey &k) const { return k.v0 * 32768u + k.v1; }
+	};
+
+	HashMap<EdgeKey, EdgeHash> m_edgeMap;
 
 public:
 	class BoundaryEdgeIterator
