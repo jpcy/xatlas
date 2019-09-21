@@ -6284,11 +6284,19 @@ struct ParameterizeChartTaskArgs
 };
 
 #if XA_USE_PIECEWISE_PARAM
+static float parametricArea(const Vector2 *texcoords)
+{
+	const Vector2 &v1 = texcoords[0];
+	const Vector2 &v2 = texcoords[1];
+	const Vector2 &v3 = texcoords[2];
+	return ((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f;
+}
+
 static void orthoProjectFace(const Mesh *mesh, uint32_t face, Vector2 *texcoords)
 {
 	const Vector3 normal = mesh->triangleNormal(face);
-	const Vector3 tangent = Basis::computeTangent(normal); // Could use any face edge instead.
-	const Vector3 bitangent = Basis::computeBitangent(normal, tangent);
+	const Vector3 tangent = normalize(mesh->position(mesh->vertexAt(face * 3 + 1)) - mesh->position(mesh->vertexAt(face * 3 + 0)), kEpsilon);
+	const Vector3 bitangent = cross(normal, tangent);
 	for (uint32_t i = 0; i < 3; i++) {
 		const Vector3 &pos = mesh->position(mesh->vertexAt(face * 3 + i));
 		texcoords[i] = Vector2(dot(tangent, pos), dot(bitangent, pos));
@@ -6337,10 +6345,9 @@ static void runParameterizeChartTask(void *userData)
 		patch.push_back(seed);
 		assignedFaces.setBitAt(seed);
 		orthoProjectFace(mesh, seed, texcoords);
-		for (uint32_t i = 0; i < 3; i++) {
-			printf("(%g,%g)\n", texcoords[i].x, texcoords[i].y);
+		const float areaScale = parametricArea(texcoords) > 0.0f ? 1.0f : -1.0f;
+		for (uint32_t i = 0; i < 3; i++)
 			mesh->texcoord(mesh->vertexAt(seed * 3 + i)) = texcoords[i];
-		}
 		Array<NewFace> newFaces;
 		for (;;) {
 			// Find the first active edge on the patch front.
@@ -6375,8 +6382,6 @@ static void runParameterizeChartTask(void *userData)
 						if (!containsFreeVertex)
 							continue;
 					}
-					printf("active edge is %u\n", it.edge());
-					printf("new face %u\n", oface);
 					NewFace newFace;
 					newFace.activeEdge = it.edge();
 					newFace.face = oface;
@@ -6392,7 +6397,7 @@ static void runParameterizeChartTask(void *userData)
 			for (uint32_t i = 0; i < newFaces.size(); i++) {
 				NewFace &newFace = newFaces[i];
 				patch.push_back(newFace.face);
-				orthoProjectFace(mesh, newFace.face, texcoords);
+				XA_DEBUG_ASSERT(parametricArea(texcoords) * areaScale > 0.0f);
 				// Find corresponding vertices in the new face.
 				const uint32_t activeVertex0 = mesh->vertexAt(meshEdgeIndex0(newFace.activeEdge));
 				const uint32_t activeVertex1 = mesh->vertexAt(meshEdgeIndex1(newFace.activeEdge));
@@ -6406,22 +6411,37 @@ static void runParameterizeChartTask(void *userData)
 					else
 						localOtherVertex = j;
 				}
-				printf("candidate %u original position is (%g,%g)\n", i, texcoords[localOtherVertex].x, texcoords[localOtherVertex].y);
 				// Scale orthogonal projection to match the active edge.
-				const Vector2 activeEdgeDir = mesh->texcoord(activeVertex1) - mesh->texcoord(activeVertex0);
-				const float len1 = length(activeEdgeDir);
-				const float len2 = length(texcoords[localActiveVertex0] - texcoords[localActiveVertex1]);
+				const Vector2 activeEdgeVector = mesh->texcoord(activeVertex1) - mesh->texcoord(activeVertex0);
+				const Vector2 localActiveEdgeVector = texcoords[localActiveVertex1] - texcoords[localActiveVertex0]; // Opposite winding to active edge.
+				const float len1 = length(activeEdgeVector);
+				const float len2 = length(localActiveEdgeVector);
 				const float scale = len1 / len2;
-				printf("candidate %u scale is %g\n", i, scale);
 				XA_DEBUG_ASSERT(scale > 0.0f);
 				for (uint32_t j = 0; j < 3; j++)
 					texcoords[j] *= scale;
-				// Compute the angle between 
-				const Vector2 translate = mesh->texcoord(activeVertex0) - texcoords[localActiveVertex1];
+				// Translate to the first vertex on the active edge.
+				const Vector2 translate = mesh->texcoord(activeVertex0) - texcoords[localActiveVertex0];
 				for (uint32_t j = 0; j < 3; j++)
 					texcoords[j] += translate;
+				// Compute the angle between the active edge and the matching local edge.
+				const float dp = dot(activeEdgeVector, localActiveEdgeVector);
+				const float angle = acosf(dp / (len1 * len2));
+				const float angle2 = atan2f(activeEdgeVector.y, activeEdgeVector.x) - atan2f(localActiveEdgeVector.y, localActiveEdgeVector.x);
+				// Rotate so the active edge and the matching local edge occupy the same space.
+				for (uint32_t j = 0; j < 3; j++) {
+					if (j == localActiveVertex0)
+						continue;
+					Vector2 &uv = texcoords[j];
+					uv -= texcoords[localActiveVertex0]; // Active vertex is the pivot point.
+					const float c = cosf(angle2);
+					const float s = sinf(angle2);
+					const float x = uv.x * c - uv.y * s;
+					const float y = uv.y * c + uv.x * s;
+					uv.x = x + texcoords[localActiveVertex0].x;
+					uv.y = y + texcoords[localActiveVertex0].y;
+				}
 				newFace.candidate = texcoords[localOtherVertex];
-				printf("candidate %u transformed position is (%g,%g)\n", i, newFace.candidate.x, newFace.candidate.y);
 				XA_DEBUG_ASSERT(!isNan(newFace.candidate.x));
 				XA_DEBUG_ASSERT(!isNan(newFace.candidate.y));
 			}
@@ -6431,7 +6451,6 @@ static void runParameterizeChartTask(void *userData)
 				freeVertexPosition += newFaces[i].candidate;
 			freeVertexPosition *= 1.0f / (float)newFaces.size();
 			mesh->texcoord(freeVertex) = freeVertexPosition;
-			printf("free vertex position (%u) is (%g,%g)\n", freeVertex, freeVertexPosition.x, freeVertexPosition.y);
 		}
 		XA_PROFILE_END(parameterizeChartsLSCM)
 		args->chart->evaluateParameterizationQuality();
