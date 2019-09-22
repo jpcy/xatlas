@@ -6305,6 +6305,7 @@ static void orthoProjectFace(const Mesh *mesh, uint32_t face, Vector2 *texcoords
 
 struct NewFace
 {
+	uint32_t patchFace;
 	uint32_t activeEdge;
 	uint32_t face, edge;
 	Vector2 candidate;
@@ -6383,6 +6384,7 @@ static void runParameterizeChartTask(void *userData)
 							continue;
 					}
 					NewFace newFace;
+					newFace.patchFace = patch[i];
 					newFace.activeEdge = it.edge();
 					newFace.face = oface;
 					newFace.edge = it.oppositeEdge();
@@ -6394,30 +6396,32 @@ static void runParameterizeChartTask(void *userData)
 			if (newFaces.isEmpty())
 				break;
 			// For each new face, compute candidate positions for the free vertex.
+			const uint32_t oldPatchSize = patch.size();
 			for (uint32_t i = 0; i < newFaces.size(); i++) {
 				NewFace &newFace = newFaces[i];
 				patch.push_back(newFace.face);
-				XA_DEBUG_ASSERT(parametricArea(texcoords) * areaScale > 0.0f);
+				orthoProjectFace(mesh, newFace.face, texcoords);
+				XA_ASSERT(parametricArea(texcoords) * areaScale > 0.0f);
 				// Find corresponding vertices in the new face.
 				const uint32_t activeVertex0 = mesh->vertexAt(meshEdgeIndex0(newFace.activeEdge));
 				const uint32_t activeVertex1 = mesh->vertexAt(meshEdgeIndex1(newFace.activeEdge));
 				uint32_t localActiveVertex0 = UINT32_MAX, localActiveVertex1 = UINT32_MAX, localOtherVertex = UINT32_MAX;
 				for (uint32_t j = 0; j < 3; j++) {
 					const uint32_t vertex = mesh->vertexAt(newFace.face * 3 + j);
-					if (vertex == activeVertex0)
+					if (vertex == mesh->vertexAt(meshEdgeIndex1(newFace.edge)))
 						localActiveVertex0 = j;
-					else if (vertex == activeVertex1)
+					else if (vertex == mesh->vertexAt(meshEdgeIndex0(newFace.edge)))
 						localActiveVertex1 = j;
 					else
 						localOtherVertex = j;
 				}
 				// Scale orthogonal projection to match the active edge.
 				const Vector2 activeEdgeVector = mesh->texcoord(activeVertex1) - mesh->texcoord(activeVertex0);
-				const Vector2 localActiveEdgeVector = texcoords[localActiveVertex1] - texcoords[localActiveVertex0]; // Opposite winding to active edge.
+				const Vector2 localActiveEdgeVector = texcoords[localActiveVertex1] - texcoords[localActiveVertex0];
 				const float len1 = length(activeEdgeVector);
 				const float len2 = length(localActiveEdgeVector);
 				const float scale = len1 / len2;
-				XA_DEBUG_ASSERT(scale > 0.0f);
+				XA_ASSERT(scale > 0.0f);
 				for (uint32_t j = 0; j < 3; j++)
 					texcoords[j] *= scale;
 				// Translate to the first vertex on the active edge.
@@ -6426,16 +6430,15 @@ static void runParameterizeChartTask(void *userData)
 					texcoords[j] += translate;
 				// Compute the angle between the active edge and the matching local edge.
 				const float dp = dot(activeEdgeVector, localActiveEdgeVector);
-				const float angle = acosf(dp / (len1 * len2));
-				const float angle2 = atan2f(activeEdgeVector.y, activeEdgeVector.x) - atan2f(localActiveEdgeVector.y, localActiveEdgeVector.x);
+				const float angle = atan2f(activeEdgeVector.y, activeEdgeVector.x) - atan2f(localActiveEdgeVector.y, localActiveEdgeVector.x);
 				// Rotate so the active edge and the matching local edge occupy the same space.
 				for (uint32_t j = 0; j < 3; j++) {
 					if (j == localActiveVertex0)
 						continue;
 					Vector2 &uv = texcoords[j];
 					uv -= texcoords[localActiveVertex0]; // Active vertex is the pivot point.
-					const float c = cosf(angle2);
-					const float s = sinf(angle2);
+					const float c = cosf(angle);
+					const float s = sinf(angle);
 					const float x = uv.x * c - uv.y * s;
 					const float y = uv.y * c + uv.x * s;
 					uv.x = x + texcoords[localActiveVertex0].x;
