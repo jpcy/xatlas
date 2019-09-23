@@ -3111,16 +3111,8 @@ public:
 			return meshEdgeFace(oedge);
 		}
 
-		uint32_t vertex0() const
-		{
-			return m_mesh->m_indices[m_face * 3 + m_relativeEdge];
-		}
-
-		uint32_t vertex1() const
-		{
-			return m_mesh->m_indices[m_face * 3 + (m_relativeEdge + 1) % 3];
-		}
-
+		uint32_t vertex0() const { return m_mesh->m_indices[m_face * 3 + m_relativeEdge]; }
+		uint32_t vertex1() const { return m_mesh->m_indices[m_face * 3 + (m_relativeEdge + 1) % 3]; }
 		const Vector3 &position0() const { return m_mesh->m_positions[vertex0()]; }
 		const Vector3 &position1() const { return m_mesh->m_positions[vertex1()]; }
 		const Vector3 &normal0() const { return m_mesh->m_normals[vertex0()]; }
@@ -6338,8 +6330,9 @@ static void runParameterizeChartTask(void *userData)
 		const uint32_t faceCount = mesh->faceCount();
 		Array<uint32_t> patch;
 		patch.reserve(faceCount);
-		BitArray assignedFaces(faceCount);
+		BitArray assignedFaces(faceCount), assignedVertices(vertexCount);
 		assignedFaces.clearAll();
+		assignedVertices.clearAll();
 		Vector2 texcoords[3];
 		// Add the seed face (first face) to the patch.
 		const uint32_t seed = 0;
@@ -6347,13 +6340,14 @@ static void runParameterizeChartTask(void *userData)
 		assignedFaces.setBitAt(seed);
 		orthoProjectFace(mesh, seed, texcoords);
 		const float areaScale = parametricArea(texcoords) > 0.0f ? 1.0f : -1.0f;
-		for (uint32_t i = 0; i < 3; i++)
-			mesh->texcoord(mesh->vertexAt(seed * 3 + i)) = texcoords[i];
+		for (uint32_t i = 0; i < 3; i++) {
+			const uint32_t vertex = mesh->vertexAt(seed * 3 + i);
+			assignedVertices.setBitAt(vertex);
+			mesh->texcoord(vertex) = texcoords[i];
+		}
 		Array<NewFace> newFaces;
 		for (;;) {
 			// Find the first active edge on the patch front.
-			// Add the incident face to newFaces. The one face vertex that isn't on the active edge is now the free vertex.
-			// Keep searching the patch front for any incident faces that also contain the free vertex.
 			newFaces.clear();
 			const uint32_t patchCount = patch.size();
 			uint32_t freeVertex = UINT32_MAX;
@@ -6362,27 +6356,54 @@ static void runParameterizeChartTask(void *userData)
 					const uint32_t oface = it.oppositeFace();
 					if (oface == UINT32_MAX || assignedFaces.bitAt(oface))
 						continue;
-					if (freeVertex == UINT32_MAX) {
-						// Found an active edge. Find the free vertex (the vertex that isn't on the active edge).
-						for (uint32_t j = 0; j < 3; j++) {
-							const uint32_t vertex = mesh->vertexAt(oface * 3 + j);
-							if (vertex != it.vertex0() && vertex != it.vertex1()) {
-								freeVertex = vertex;
-								break;
-							}
+					// Found an active edge. Find the free vertex (the vertex that isn't on the active edge).
+					for (uint32_t j = 0; j < 3; j++) {
+						const uint32_t vertex = mesh->vertexAt(oface * 3 + j);
+						if (vertex != it.vertex0() && vertex != it.vertex1()) {
+							freeVertex = vertex;
+							break;
 						}
-					} else {
-						// Face must contain the free vertex.
-						bool containsFreeVertex = false;
-						for (uint32_t j = 0; j < 3; j++) {
-							if (mesh->vertexAt(oface * 3 + j) == freeVertex) {
-								containsFreeVertex = true;
-								break;
-							}
-						}
-						if (!containsFreeVertex)
-							continue;
 					}
+					// If the free vertex is already in the patch, the face is enclosed by the patch. Add the face to the patch - don't need to assign texcoords.
+					if (assignedVertices.bitAt(freeVertex)) {
+						freeVertex = UINT32_MAX;
+						patch.push_back(oface);
+						assignedFaces.setBitAt(oface);
+						continue;
+					}
+					assignedVertices.setBitAt(freeVertex);
+					// Add the incident face to newFaces.
+					NewFace newFace;
+					newFace.patchFace = patch[i];
+					newFace.activeEdge = it.edge();
+					newFace.face = oface;
+					newFace.edge = it.oppositeEdge();
+					newFaces.push_back(newFace);
+					assignedFaces.setBitAt(newFace.face);
+					break;
+				}
+				if (freeVertex != UINT32_MAX)
+					break;
+			}
+			// Finished when no faces left on the patch front.
+			if (freeVertex == UINT32_MAX)
+				break;
+			// Searching the patch front for any incident faces that also contain the free vertex.
+			for (uint32_t i = 0; i < patchCount; i++) {
+				for (Mesh::FaceEdgeIterator it(mesh, patch[i]); !it.isDone(); it.advance()) {
+					const uint32_t oface = it.oppositeFace();
+					if (oface == UINT32_MAX || assignedFaces.bitAt(oface))
+						continue;
+					// Face must contain the free vertex.
+					bool containsFreeVertex = false;
+					for (uint32_t j = 0; j < 3; j++) {
+						if (mesh->vertexAt(oface * 3 + j) == freeVertex) {
+							containsFreeVertex = true;
+							break;
+						}
+					}
+					if (!containsFreeVertex)
+						continue;
 					NewFace newFace;
 					newFace.patchFace = patch[i];
 					newFace.activeEdge = it.edge();
@@ -6392,9 +6413,6 @@ static void runParameterizeChartTask(void *userData)
 					assignedFaces.setBitAt(newFace.face);
 				}
 			}
-			// Finished when no faces left on the patch front.
-			if (newFaces.isEmpty())
-				break;
 			// For each new face, compute candidate positions for the free vertex.
 			const uint32_t oldPatchSize = patch.size();
 			for (uint32_t i = 0; i < newFaces.size(); i++) {
