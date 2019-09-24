@@ -6276,33 +6276,217 @@ struct ParameterizeChartTaskArgs
 };
 
 #if XA_USE_PIECEWISE_PARAM
-static float parametricArea(const Vector2 *texcoords)
+struct PiecewiseParameterization
 {
-	const Vector2 &v1 = texcoords[0];
-	const Vector2 &v2 = texcoords[1];
-	const Vector2 &v3 = texcoords[2];
-	return ((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f;
-}
-
-static void orthoProjectFace(const Mesh *mesh, uint32_t face, Vector2 *texcoords)
-{
-	const Vector3 normal = mesh->triangleNormal(face);
-	const Vector3 tangent = normalize(mesh->position(mesh->vertexAt(face * 3 + 1)) - mesh->position(mesh->vertexAt(face * 3 + 0)), kEpsilon);
-	const Vector3 bitangent = cross(normal, tangent);
-	for (uint32_t i = 0; i < 3; i++) {
-		const Vector3 &pos = mesh->position(mesh->vertexAt(face * 3 + i));
-		texcoords[i] = Vector2(dot(tangent, pos), dot(bitangent, pos));
+	void compute(Mesh *mesh)
+	{
+		m_mesh = mesh;
+#if 1
+		const uint32_t vertexCount = mesh->vertexCount();
+		for (uint32_t i = 0; i < vertexCount; i++)
+			mesh->texcoord(i) = Vector2(0.0f);
+#endif
+		const uint32_t faceCount = mesh->faceCount();
+		m_patch.clear();
+		m_patch.reserve(faceCount);
+		m_faceInPatch.resize(faceCount);
+		m_faceInPatch.clearAll();
+		m_vertexInPatch.resize(vertexCount);
+		m_vertexInPatch.clearAll();
+		// Add the seed face (first face) to the patch.
+		{
+			const uint32_t seed = 0;
+			m_patch.push_back(seed);
+			m_faceInPatch.setBitAt(seed);
+			Vector2 texcoords[3];
+			orthoProjectFace(seed, texcoords);
+			//const float areaScale = parametricArea(texcoords) > 0.0f ? 1.0f : -1.0f;
+			for (uint32_t i = 0; i < 3; i++) {
+				const uint32_t vertex = mesh->vertexAt(seed * 3 + i);
+				m_vertexInPatch.setBitAt(vertex);
+				mesh->texcoord(vertex) = texcoords[i];
+			}
+		}
+		m_faceInCandidates.resize(faceCount);
+		for (;;) {
+			findCandidates();
+			if (m_candidates.isEmpty())
+				break;
+			// Link candidates that share the same vertex. Set cost to max for all linked candidates.
+			for (uint32_t i = 0; i < m_candidates.size(); i++) {
+				if (m_candidates[i].next != UINT32_MAX)
+					continue;
+				uint32_t current = i;
+				float maxCost = m_candidates[current].cost;
+				for (uint32_t j = i + 1; j < m_candidates.size(); j++) {
+					if (m_candidates[j].vertex == m_candidates[current].vertex) {
+						m_candidates[current].next = j;
+						current = j;
+						maxCost = max(maxCost, m_candidates[current].cost);
+					}
+				}
+				if (current != i) {
+					current = i;
+					for (;;) {
+						m_candidates[current].cost = maxCost;
+						current = m_candidates[current].next;
+						if (current == UINT32_MAX)
+							break;
+					}
+				}
+			}
+			// Find the candidate with the lowest cost.
+			float lowestCost = m_candidates[0].cost;
+			uint32_t bestCandidate = 0;
+			for (uint32_t i = 1; i < m_candidates.size(); i++) {
+				if (m_candidates[i].cost < lowestCost) {
+					lowestCost = m_candidates[i].cost;
+					bestCandidate = i;
+				}
+			}
+			// Compute the position by averaging linked best candidates.
+			// Add faces to the patch.
+			Vector2 position(0.0f);
+			uint32_t current = bestCandidate, n = 0;
+			for (;;) {
+				const Candidate &candidate = m_candidates[current];
+				position += candidate.position;
+				n++;
+				m_patch.push_back(candidate.face);
+				m_faceInPatch.setBitAt(candidate.face);
+				current = candidate.next;
+				if (current == UINT32_MAX)
+					break;
+			}
+			position *= 1.0f / (float)n;
+			mesh->texcoord(m_candidates[bestCandidate].vertex) = position;
+		}
 	}
-}
 
-struct NewFace
-{
-	uint32_t patchFace;
-	uint32_t activeEdge;
-	uint32_t face, edge;
-	Vector2 candidate;
+private:
+	struct Candidate
+	{
+		uint32_t face, vertex;
+		uint32_t next; // The next candidate with the same vertex.
+		Vector2 position;
+		float cost;
+	};
+
+	Mesh *m_mesh;
+	Array<Candidate> m_candidates;
+	BitArray m_faceInCandidates;
+	Array<uint32_t> m_patch;
+	BitArray m_faceInPatch, m_vertexInPatch;
+
+	// Find candidate faces on the patch front.
+	void findCandidates()
+	{
+		m_candidates.clear();
+		m_faceInCandidates.clearAll();
+		for (uint32_t i = 0; i < m_patch.size(); i++) {
+			for (Mesh::FaceEdgeIterator it(m_mesh, m_patch[i]); !it.isDone(); it.advance()) {
+				const uint32_t oface = it.oppositeFace();
+				if (oface == UINT32_MAX || m_faceInPatch.bitAt(oface) || m_faceInCandidates.bitAt(oface))
+					continue;
+				// Found an active edge on the patch front. Find the free vertex (the vertex that isn't on the active edge).
+				uint32_t freeVertex = UINT32_MAX;
+				for (uint32_t j = 0; j < 3; j++) {
+					const uint32_t vertex = m_mesh->vertexAt(oface * 3 + j);
+					if (vertex != it.vertex0() && vertex != it.vertex1()) {
+						freeVertex = vertex;
+						break;
+					}
+				}
+				XA_DEBUG_ASSERT(freeVertex != UINT32_MAX);
+				// If the free vertex is already in the patch, the face is enclosed by the patch. Add the face to the patch - don't need to assign texcoords.
+				if (m_vertexInPatch.bitAt(freeVertex)) {
+					freeVertex = UINT32_MAX;
+					m_patch.push_back(oface);
+					m_faceInPatch.setBitAt(oface);
+					continue;
+				}
+				addCandidateFace(it.edge(), oface, it.oppositeEdge(), freeVertex);
+			}
+		}
+	}
+
+	void addCandidateFace(uint32_t patchEdge, uint32_t face, uint32_t edge, uint32_t freeVertex)
+	{
+		Vector2 texcoords[3];
+		orthoProjectFace(face, texcoords);
+		//XA_ASSERT(parametricArea(texcoords) * areaScale > 0.0f);
+		// Find corresponding vertices between the patch edge and candidate edge.
+		const uint32_t vertex0 = m_mesh->vertexAt(meshEdgeIndex0(patchEdge));
+		const uint32_t vertex1 = m_mesh->vertexAt(meshEdgeIndex1(patchEdge));
+		uint32_t localVertex0 = UINT32_MAX, localVertex1 = UINT32_MAX, localFreeVertex = UINT32_MAX;
+		for (uint32_t i = 0; i < 3; i++) {
+			const uint32_t vertex = m_mesh->vertexAt(face * 3 + i);
+			if (vertex == m_mesh->vertexAt(meshEdgeIndex1(edge)))
+				localVertex0 = i;
+			else if (vertex == m_mesh->vertexAt(meshEdgeIndex0(edge)))
+				localVertex1 = i;
+			else
+				localFreeVertex = i;
+		}
+		// Scale orthogonal projection to match the patch edge.
+		const Vector2 patchEdgeVec = m_mesh->texcoord(vertex1) - m_mesh->texcoord(vertex0);
+		const Vector2 localEdgeVec = texcoords[localVertex1] - texcoords[localVertex0];
+		const float len1 = length(patchEdgeVec);
+		const float len2 = length(localEdgeVec);
+		const float scale = len1 / len2;
+		XA_ASSERT(scale > 0.0f);
+		for (uint32_t i = 0; i < 3; i++)
+			texcoords[i] *= scale;
+		// Translate to the first vertex on the patch edge.
+		const Vector2 translate = m_mesh->texcoord(vertex0) - texcoords[localVertex0];
+		for (uint32_t i = 0; i < 3; i++)
+			texcoords[i] += translate;
+		// Compute the angle between the patch edge and the corresponding local edge.
+		const float dp = dot(patchEdgeVec, localEdgeVec);
+		const float angle = atan2f(patchEdgeVec.y, patchEdgeVec.x) - atan2f(localEdgeVec.y, localEdgeVec.x);
+		// Rotate so the patch edge and the corresponding local edge occupy the same space.
+		for (uint32_t i = 0; i < 3; i++) {
+			if (i == localVertex0)
+				continue;
+			Vector2 &uv = texcoords[i];
+			uv -= texcoords[localVertex0]; // Rotate around the first vertex.
+			const float c = cosf(angle);
+			const float s = sinf(angle);
+			const float x = uv.x * c - uv.y * s;
+			const float y = uv.y * c + uv.x * s;
+			uv.x = x + texcoords[localVertex0].x;
+			uv.y = y + texcoords[localVertex0].y;
+		}
+		// Add the candidate.
+		Candidate candidate;
+		candidate.face = face;
+		candidate.vertex = freeVertex;
+		candidate.position = texcoords[localFreeVertex];
+		candidate.next = UINT32_MAX;
+		candidate.cost = fabsf(scale - 1.0f);
+		m_candidates.push_back(candidate);
+		m_faceInCandidates.setBitAt(face);
+	}
+
+	void orthoProjectFace(uint32_t face, Vector2 *texcoords) const
+	{
+		const Vector3 normal = m_mesh->triangleNormal(face);
+		const Vector3 tangent = normalize(m_mesh->position(m_mesh->vertexAt(face * 3 + 1)) - m_mesh->position(m_mesh->vertexAt(face * 3 + 0)), kEpsilon);
+		const Vector3 bitangent = cross(normal, tangent);
+		for (uint32_t i = 0; i < 3; i++) {
+			const Vector3 &pos = m_mesh->position(m_mesh->vertexAt(face * 3 + i));
+			texcoords[i] = Vector2(dot(tangent, pos), dot(bitangent, pos));
+		}
+	}
+
+	float parametricArea(const Vector2 *texcoords) const
+	{
+		const Vector2 &v1 = texcoords[0];
+		const Vector2 &v2 = texcoords[1];
+		const Vector2 &v3 = texcoords[2];
+		return ((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f;
+	}
 };
-
 #endif
 
 static void runParameterizeChartTask(void *userData)
@@ -6320,162 +6504,11 @@ static void runParameterizeChartTask(void *userData)
 	XA_PROFILE_END(parameterizeChartsOrthogonal)
 	args->chart->evaluateOrthoParameterizationQuality();
 #if XA_USE_PIECEWISE_PARAM
-	{
-		XA_PROFILE_START(parameterizeChartsLSCM)
-#if 1
-		const uint32_t vertexCount = mesh->vertexCount();
-		for (uint32_t i = 0; i < vertexCount; i++)
-			mesh->texcoord(i) = Vector2(0.0f);
-#endif
-		const uint32_t faceCount = mesh->faceCount();
-		Array<uint32_t> patch;
-		patch.reserve(faceCount);
-		BitArray assignedFaces(faceCount), assignedVertices(vertexCount);
-		assignedFaces.clearAll();
-		assignedVertices.clearAll();
-		Vector2 texcoords[3];
-		// Add the seed face (first face) to the patch.
-		const uint32_t seed = 0;
-		patch.push_back(seed);
-		assignedFaces.setBitAt(seed);
-		orthoProjectFace(mesh, seed, texcoords);
-		const float areaScale = parametricArea(texcoords) > 0.0f ? 1.0f : -1.0f;
-		for (uint32_t i = 0; i < 3; i++) {
-			const uint32_t vertex = mesh->vertexAt(seed * 3 + i);
-			assignedVertices.setBitAt(vertex);
-			mesh->texcoord(vertex) = texcoords[i];
-		}
-		Array<NewFace> newFaces;
-		for (;;) {
-			// Find the first active edge on the patch front.
-			newFaces.clear();
-			const uint32_t patchCount = patch.size();
-			uint32_t freeVertex = UINT32_MAX;
-			for (uint32_t i = 0; i < patchCount; i++) {
-				for (Mesh::FaceEdgeIterator it(mesh, patch[i]); !it.isDone(); it.advance()) {
-					const uint32_t oface = it.oppositeFace();
-					if (oface == UINT32_MAX || assignedFaces.bitAt(oface))
-						continue;
-					// Found an active edge. Find the free vertex (the vertex that isn't on the active edge).
-					for (uint32_t j = 0; j < 3; j++) {
-						const uint32_t vertex = mesh->vertexAt(oface * 3 + j);
-						if (vertex != it.vertex0() && vertex != it.vertex1()) {
-							freeVertex = vertex;
-							break;
-						}
-					}
-					// If the free vertex is already in the patch, the face is enclosed by the patch. Add the face to the patch - don't need to assign texcoords.
-					if (assignedVertices.bitAt(freeVertex)) {
-						freeVertex = UINT32_MAX;
-						patch.push_back(oface);
-						assignedFaces.setBitAt(oface);
-						continue;
-					}
-					assignedVertices.setBitAt(freeVertex);
-					// Add the incident face to newFaces.
-					NewFace newFace;
-					newFace.patchFace = patch[i];
-					newFace.activeEdge = it.edge();
-					newFace.face = oface;
-					newFace.edge = it.oppositeEdge();
-					newFaces.push_back(newFace);
-					assignedFaces.setBitAt(newFace.face);
-					break;
-				}
-				if (freeVertex != UINT32_MAX)
-					break;
-			}
-			// Finished when no faces left on the patch front.
-			if (freeVertex == UINT32_MAX)
-				break;
-			// Searching the patch front for any incident faces that also contain the free vertex.
-			for (uint32_t i = 0; i < patchCount; i++) {
-				for (Mesh::FaceEdgeIterator it(mesh, patch[i]); !it.isDone(); it.advance()) {
-					const uint32_t oface = it.oppositeFace();
-					if (oface == UINT32_MAX || assignedFaces.bitAt(oface))
-						continue;
-					// Face must contain the free vertex.
-					bool containsFreeVertex = false;
-					for (uint32_t j = 0; j < 3; j++) {
-						if (mesh->vertexAt(oface * 3 + j) == freeVertex) {
-							containsFreeVertex = true;
-							break;
-						}
-					}
-					if (!containsFreeVertex)
-						continue;
-					NewFace newFace;
-					newFace.patchFace = patch[i];
-					newFace.activeEdge = it.edge();
-					newFace.face = oface;
-					newFace.edge = it.oppositeEdge();
-					newFaces.push_back(newFace);
-					assignedFaces.setBitAt(newFace.face);
-				}
-			}
-			// For each new face, compute candidate positions for the free vertex.
-			const uint32_t oldPatchSize = patch.size();
-			for (uint32_t i = 0; i < newFaces.size(); i++) {
-				NewFace &newFace = newFaces[i];
-				patch.push_back(newFace.face);
-				orthoProjectFace(mesh, newFace.face, texcoords);
-				XA_ASSERT(parametricArea(texcoords) * areaScale > 0.0f);
-				// Find corresponding vertices in the new face.
-				const uint32_t activeVertex0 = mesh->vertexAt(meshEdgeIndex0(newFace.activeEdge));
-				const uint32_t activeVertex1 = mesh->vertexAt(meshEdgeIndex1(newFace.activeEdge));
-				uint32_t localActiveVertex0 = UINT32_MAX, localActiveVertex1 = UINT32_MAX, localOtherVertex = UINT32_MAX;
-				for (uint32_t j = 0; j < 3; j++) {
-					const uint32_t vertex = mesh->vertexAt(newFace.face * 3 + j);
-					if (vertex == mesh->vertexAt(meshEdgeIndex1(newFace.edge)))
-						localActiveVertex0 = j;
-					else if (vertex == mesh->vertexAt(meshEdgeIndex0(newFace.edge)))
-						localActiveVertex1 = j;
-					else
-						localOtherVertex = j;
-				}
-				// Scale orthogonal projection to match the active edge.
-				const Vector2 activeEdgeVector = mesh->texcoord(activeVertex1) - mesh->texcoord(activeVertex0);
-				const Vector2 localActiveEdgeVector = texcoords[localActiveVertex1] - texcoords[localActiveVertex0];
-				const float len1 = length(activeEdgeVector);
-				const float len2 = length(localActiveEdgeVector);
-				const float scale = len1 / len2;
-				XA_ASSERT(scale > 0.0f);
-				for (uint32_t j = 0; j < 3; j++)
-					texcoords[j] *= scale;
-				// Translate to the first vertex on the active edge.
-				const Vector2 translate = mesh->texcoord(activeVertex0) - texcoords[localActiveVertex0];
-				for (uint32_t j = 0; j < 3; j++)
-					texcoords[j] += translate;
-				// Compute the angle between the active edge and the matching local edge.
-				const float dp = dot(activeEdgeVector, localActiveEdgeVector);
-				const float angle = atan2f(activeEdgeVector.y, activeEdgeVector.x) - atan2f(localActiveEdgeVector.y, localActiveEdgeVector.x);
-				// Rotate so the active edge and the matching local edge occupy the same space.
-				for (uint32_t j = 0; j < 3; j++) {
-					if (j == localActiveVertex0)
-						continue;
-					Vector2 &uv = texcoords[j];
-					uv -= texcoords[localActiveVertex0]; // Active vertex is the pivot point.
-					const float c = cosf(angle);
-					const float s = sinf(angle);
-					const float x = uv.x * c - uv.y * s;
-					const float y = uv.y * c + uv.x * s;
-					uv.x = x + texcoords[localActiveVertex0].x;
-					uv.y = y + texcoords[localActiveVertex0].y;
-				}
-				newFace.candidate = texcoords[localOtherVertex];
-				XA_DEBUG_ASSERT(!isNan(newFace.candidate.x));
-				XA_DEBUG_ASSERT(!isNan(newFace.candidate.y));
-			}
-			// Average candidates to get the free vertex position.
-			Vector2 freeVertexPosition(0.0f);
-			for (uint32_t i = 0; i < newFaces.size(); i++)
-				freeVertexPosition += newFaces[i].candidate;
-			freeVertexPosition *= 1.0f / (float)newFaces.size();
-			mesh->texcoord(freeVertex) = freeVertexPosition;
-		}
-		XA_PROFILE_END(parameterizeChartsLSCM)
-		args->chart->evaluateParameterizationQuality();
-	}
+	XA_PROFILE_START(parameterizeChartsLSCM)
+	PiecewiseParameterization param;
+	param.compute(mesh);
+	XA_PROFILE_END(parameterizeChartsLSCM)
+	args->chart->evaluateParameterizationQuality();
 #else
 	if (!args->chart->isOrtho() && !args->chart->isPlanar()) {
 		XA_PROFILE_START(parameterizeChartsLSCM)
