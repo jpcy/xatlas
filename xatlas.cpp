@@ -6388,12 +6388,16 @@ private:
 				const uint32_t oface = it.oppositeFace();
 				if (oface == UINT32_MAX || m_faceInPatch.bitAt(oface) || m_faceInCandidates.bitAt(oface))
 					continue;
-				// Found an active edge on the patch front. Find the free vertex (the vertex that isn't on the active edge).
+				// Found an active edge on the patch front.
+				// Find the free vertex (the vertex that isn't on the active edge).
+				// Compute the orientation of the other patch face vertex to the active edge.
 				uint32_t freeVertex = UINT32_MAX;
+				float orient = 0.0f;
 				for (uint32_t j = 0; j < 3; j++) {
 					const uint32_t vertex = m_mesh->vertexAt(oface * 3 + j);
 					if (vertex != it.vertex0() && vertex != it.vertex1()) {
 						freeVertex = vertex;
+						orient = orientToEdge(it.texcoord0(), it.texcoord1(), m_mesh->texcoord(m_mesh->vertexAt(m_patch[i] * 3 + j)));
 						break;
 					}
 				}
@@ -6405,12 +6409,12 @@ private:
 					m_faceInPatch.setBitAt(oface);
 					continue;
 				}
-				addCandidateFace(it.edge(), oface, it.oppositeEdge(), freeVertex);
+				addCandidateFace(it.edge(), orient, oface, it.oppositeEdge(), freeVertex);
 			}
 		}
 	}
 
-	void addCandidateFace(uint32_t patchEdge, uint32_t face, uint32_t edge, uint32_t freeVertex)
+	void addCandidateFace(uint32_t patchEdge, float patchVertexOrient, uint32_t face, uint32_t edge, uint32_t freeVertex)
 	{
 		Vector2 texcoords[3];
 		orthoProjectFace(face, texcoords);
@@ -6457,6 +6461,12 @@ private:
 			uv.x = x + texcoords[localVertex0].x;
 			uv.y = y + texcoords[localVertex0].y;
 		}
+		// Check for local overlap (flipped triangle).
+		// The patch face vertex that isn't on the active edge and the free vertex should be oriented on opposite sides to the active edge.
+		const float freeVertexOrient = orientToEdge(m_mesh->texcoord(vertex0), m_mesh->texcoord(vertex1), texcoords[localFreeVertex]);
+		if ((patchVertexOrient < 0.0f && freeVertexOrient < 0.0f) || (patchVertexOrient > 0.0f && freeVertexOrient > 0.0f)) {
+			XA_ASSERT(false);
+		}
 		// Add the candidate.
 		Candidate candidate;
 		candidate.face = face;
@@ -6486,6 +6496,13 @@ private:
 		const Vector2 &v3 = texcoords[2];
 		return ((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f;
 	}
+
+	// Return value is positive if the point is one side of the edge, negative if on the other side.
+	float orientToEdge(Vector2 edgeVertex0, Vector2 edgeVertex1, Vector2 point) const
+	{
+		return (edgeVertex0.x - point.x) * (edgeVertex1.y - point.y) - (edgeVertex0.y - point.y) * (edgeVertex1.x - point.x);
+	}
+
 };
 #endif
 
