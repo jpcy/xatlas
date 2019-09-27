@@ -5850,34 +5850,44 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 #if XA_RECOMPUTE_CHARTS
 struct PiecewiseParameterization
 {
+	PiecewiseParameterization(const Mesh *mesh, uint32_t faceCount) : m_mesh(mesh), m_faceCount(faceCount)
+	{
+		const uint32_t vertexCount = m_mesh->vertexCount();
+		m_texcoords.resize(vertexCount);
+		m_patch.reserve(m_faceCount);
+		m_faceAssigned.resize(m_faceCount);
+		m_faceAssigned.clearAll();
+		m_faceInvalid.resize(m_faceCount);
+		m_vertexInPatch.resize(vertexCount);
+		m_faceInCandidates.resize(m_faceCount);
+	}
+
+	ConstArrayView<uint32_t> chartFaces() const { return m_patch; }
 	const Vector2 *texcoords() const { return m_texcoords.data(); }
 
-	void compute(const Mesh *mesh)
+	bool computeChart()
 	{
-		m_mesh = mesh;
-		const uint32_t vertexCount = mesh->vertexCount();
-		const uint32_t faceCount = mesh->faceCount();
-		m_texcoords.resize(vertexCount);
 		m_patch.clear();
-		m_patch.reserve(faceCount);
-		m_faceInPatch.resize(faceCount);
-		m_faceInPatch.clearAll();
-		m_vertexInPatch.resize(vertexCount);
+		m_faceInvalid.clearAll();
 		m_vertexInPatch.clearAll();
-		// Add the seed face (first face) to the patch.
-		{
-			const uint32_t seed = 0;
+		// Add the seed face (first unassigned face) to the patch.
+		uint32_t seed = UINT32_MAX;
+		for (uint32_t f = 0; f < m_faceCount; f++) {
+			if (m_faceAssigned.bitAt(f))
+				continue;
+			seed = f;
 			m_patch.push_back(seed);
-			m_faceInPatch.setBitAt(seed);
+			m_faceAssigned.setBitAt(seed);
 			Vector2 texcoords[3];
 			orthoProjectFace(seed, texcoords);
 			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t vertex = mesh->vertexAt(seed * 3 + i);
+				const uint32_t vertex = m_mesh->vertexAt(seed * 3 + i);
 				m_vertexInPatch.setBitAt(vertex);
 				m_texcoords[vertex] = texcoords[i];
 			}
 		}
-		m_faceInCandidates.resize(faceCount);
+		if (seed == UINT32_MAX)
+			return false;
 		for (;;) {
 			findCandidates();
 			if (m_candidates.isEmpty())
@@ -5923,14 +5933,17 @@ struct PiecewiseParameterization
 				position += candidate.position;
 				n++;
 				m_patch.push_back(candidate.face);
-				m_faceInPatch.setBitAt(candidate.face);
+				m_faceAssigned.setBitAt(candidate.face);
 				current = candidate.next;
 				if (current == UINT32_MAX)
 					break;
 			}
 			position *= 1.0f / (float)n;
-			m_texcoords[m_candidates[bestCandidate].vertex] = position;
+			const uint32_t freeVertex = m_candidates[bestCandidate].vertex;
+			m_texcoords[freeVertex] = position;
+			m_vertexInPatch.setBitAt(freeVertex);
 		}
+		return true;
 	}
 
 private:
@@ -5942,12 +5955,13 @@ private:
 		float cost;
 	};
 
-	const Mesh *m_mesh;
+	const Mesh * const m_mesh;
+	const uint32_t m_faceCount;
 	Array<Vector2> m_texcoords;
 	Array<Candidate> m_candidates;
 	BitArray m_faceInCandidates;
 	Array<uint32_t> m_patch;
-	BitArray m_faceInPatch, m_vertexInPatch;
+	BitArray m_faceAssigned, m_faceInvalid, m_vertexInPatch;
 
 	// Find candidate faces on the patch front.
 	void findCandidates()
@@ -5957,7 +5971,7 @@ private:
 		for (uint32_t i = 0; i < m_patch.size(); i++) {
 			for (Mesh::FaceEdgeIterator it(m_mesh, m_patch[i]); !it.isDone(); it.advance()) {
 				const uint32_t oface = it.oppositeFace();
-				if (oface == UINT32_MAX || m_faceInPatch.bitAt(oface) || m_faceInCandidates.bitAt(oface))
+				if (oface == UINT32_MAX || oface >= m_faceCount || m_faceAssigned.bitAt(oface) || m_faceInvalid.bitAt(oface) || m_faceInCandidates.bitAt(oface))
 					continue;
 				// Found an active edge on the patch front.
 				// Find the free vertex (the vertex that isn't on the active edge).
@@ -5977,7 +5991,7 @@ private:
 				if (m_vertexInPatch.bitAt(freeVertex)) {
 					freeVertex = UINT32_MAX;
 					m_patch.push_back(oface);
-					m_faceInPatch.setBitAt(oface);
+					m_faceAssigned.setBitAt(oface);
 					continue;
 				}
 				addCandidateFace(it.edge(), orient, oface, it.oppositeEdge(), freeVertex);
@@ -6034,7 +6048,8 @@ private:
 		// The patch face vertex that isn't on the active edge and the free vertex should be oriented on opposite sides to the active edge.
 		const float freeVertexOrient = orientToEdge(m_texcoords[vertex0], m_texcoords[vertex1], texcoords[localFreeVertex]);
 		if ((patchVertexOrient < 0.0f && freeVertexOrient < 0.0f) || (patchVertexOrient > 0.0f && freeVertexOrient > 0.0f)) {
-			XA_ASSERT(false);
+			m_faceInvalid.setBitAt(face);
+			return;
 		}
 		// Add the candidate.
 		Candidate candidate;
@@ -6391,16 +6406,16 @@ public:
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	Chart(const Chart *parent, const PiecewiseParameterization &param, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(const Chart *parent, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
 		const Mesh *parentMesh = parent->unifiedMesh();
-		m_faceArray.resize(parent->m_initialFaceCount); // Not parentMesh->faceCount(). Don't want faces added by t-junction fixing or hole closing.
-		const uint32_t faceCount = m_initialFaceCount = m_faceArray.size();
+		const uint32_t faceCount = m_initialFaceCount = faces.length;
+		m_faceArray.resize(faceCount);
 		for (uint32_t i = 0; i < faceCount; i++)
-			m_faceArray[i] = parent->m_faceArray[i];
+			m_faceArray[i] = parent->m_faceArray[faces.data[i]]; // Map faces to parent chart original mesh.
 		// Copy face indices.
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
@@ -6419,13 +6434,13 @@ public:
 				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
 					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
 					XA_DEBUG_ASSERT(equal(originalMesh->position(vertex), originalMesh->position(unifiedVertex), originalMesh->epsilon()));
-					m_unifiedMesh->addVertex(originalMesh->position(vertex), Vector3(0.0f), param.texcoords()[parentVertex]);
+					m_unifiedMesh->addVertex(originalMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
 				}
 				if (chartMeshIndices[vertex] == (uint32_t)~0) {
 					chartMeshIndices[vertex] = m_mesh->vertexCount();
 					m_chartToOriginalMap.push_back(vertex);
 					m_chartToUnifiedMap.push_back(unifiedMeshIndices[unifiedVertex]);
-					m_mesh->addVertex(originalMesh->position(vertex), Vector3(0.0f), param.texcoords()[parentVertex]);
+					m_mesh->addVertex(originalMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
 				}
 			}
 		}
@@ -6487,6 +6502,7 @@ public:
 	uint32_t warningFlags() const { return m_warningFlags; }
 	uint32_t closedHolesCount() const { return m_closedHolesCount; }
 	uint32_t fixedTJunctionsCount() const { return m_fixedTJunctionsCount; }
+	uint32_t initialFaceCount() const { return m_initialFaceCount; }
 	const ParameterizationQuality &paramQuality() const { return m_paramQuality; }
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
@@ -6863,11 +6879,15 @@ public:
 		// Recompute charts with invalid parameterizations.
 		for (uint32_t i = 0; i < invalidCharts.size(); i++) {
 			Chart *invalidChart = invalidCharts[i];
-			PiecewiseParameterization pp;
-			pp.compute(invalidChart->unifiedMesh());
-			Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, invalidChart, pp, m_mesh, m_sourceId, m_id, m_chartArray.size());
-			m_chartArray.push_back(chart);
-			m_paramAddedChartsCount++;
+			// Not invalidChart->faceCount(). Don't want faces added by t-junction fixing or hole closing.
+			PiecewiseParameterization pp(invalidChart->unifiedMesh(), invalidChart->initialFaceCount());
+			for (;;) {
+				if (!pp.computeChart())
+					break;
+				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, invalidChart, pp.chartFaces(), pp.texcoords(), m_mesh, m_sourceId, m_id, m_chartArray.size());
+				m_chartArray.push_back(chart);
+				m_paramAddedChartsCount++;
+			}
 			/*
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
 			char filename[256];
