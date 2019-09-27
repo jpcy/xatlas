@@ -1218,7 +1218,7 @@ template<typename T>
 struct ArrayView
 {
 	ArrayView(Array<T> &a) : data(a.data()), length(a.size()) {}
-	ArrayView(T *data, uint32_t length) : data(data), length(lengt) {}
+	ArrayView(T *data, uint32_t length) : data(data), length(length) {}
 	ArrayView &operator=(Array<T> &a) { data = a.data(); length = a.size(); return *this; }
 	T *data;
 	uint32_t length;
@@ -1228,7 +1228,7 @@ template<typename T>
 struct ConstArrayView
 {
 	ConstArrayView(const Array<T> &a) : data(a.data()), length(a.size()) {}
-	ConstArrayView(const T *data, uint32_t length) : data(data), length(lengt) {}
+	ConstArrayView(const T *data, uint32_t length) : data(data), length(length) {}
 	ConstArrayView &operator=(const Array<T> &a) { data = a.data(); length = a.size(); return *this; }
 	const T *data;
 	uint32_t length;
@@ -6016,7 +6016,6 @@ private:
 		for (uint32_t i = 0; i < 3; i++)
 			texcoords[i] += translate;
 		// Compute the angle between the patch edge and the corresponding local edge.
-		const float dp = dot(patchEdgeVec, localEdgeVec);
 		const float angle = atan2f(patchEdgeVec.y, patchEdgeVec.x) - atan2f(localEdgeVec.y, localEdgeVec.x);
 		// Rotate so the patch edge and the corresponding local edge occupy the same space.
 		for (uint32_t i = 0; i < 3; i++) {
