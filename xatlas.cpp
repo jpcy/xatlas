@@ -6438,7 +6438,6 @@ public:
 		if (!m_isVertexMap) {
 			m_mesh->createColocals();
 			m_mesh->createBoundaries();
-			m_mesh->linkBoundaries();
 		}
 #if XA_DEBUG_EXPORT_OBJ_CHART_GROUPS
 		char filename[256];
