@@ -5023,13 +5023,10 @@ private:
 
 	bool isFaceFlipped(uint32_t face) const
 	{
-		const float t1 = m_texcoords[face * 3 + 0].x;
-		const float s1 = m_texcoords[face * 3 + 0].y;
-		const float t2 = m_texcoords[face * 3 + 1].x;
-		const float s2 = m_texcoords[face * 3 + 1].y;
-		const float t3 = m_texcoords[face * 3 + 2].x;
-		const float s3 = m_texcoords[face * 3 + 2].y;
-		const float parametricArea = ((s2 - s1) * (t3 - t1) - (s3 - s1) * (t2 - t1)) / 2;
+		const Vector2 &v1 = m_texcoords[face * 3 + 0];
+		const Vector2 &v2 = m_texcoords[face * 3 + 1];
+		const Vector2 &v3 = m_texcoords[face * 3 + 2];
+		const float parametricArea = ((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f;
 		return parametricArea < 0.0f;
 	}
 
