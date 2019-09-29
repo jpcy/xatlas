@@ -129,7 +129,6 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
 #define XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR 0
-#define XA_DEBUG_EXPORT_OBJ_NOT_DISK 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION 0
 #define XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION 0
 #define XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS 0
@@ -141,7 +140,6 @@ Copyright (c) 2012 Brandon Pelfrey
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
 	|| XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION \
 	|| XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR \
-	|| XA_DEBUG_EXPORT_OBJ_NOT_DISK \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION \
 	|| XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION \
 	|| XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS)
@@ -3514,92 +3512,6 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 	}
 }
 
-class MeshTopology
-{
-public:
-	MeshTopology(const Mesh *mesh)
-	{
-		const uint32_t vertexCount = mesh->colocalVertexCount();
-		const uint32_t faceCount = mesh->faceCount();
-		const uint32_t edgeCount = mesh->edgeCount();
-		Array<uint32_t> stack(MemTag::Default);
-		stack.reserve(faceCount);
-		BitArray bitFlags(faceCount);
-		bitFlags.clearAll();
-		// Compute connectivity.
-		m_connectedCount = 0;
-		for (uint32_t f = 0; f < faceCount; f++ ) {
-			if (bitFlags.bitAt(f) == false) {
-				m_connectedCount++;
-				stack.push_back(f);
-				while (!stack.isEmpty()) {
-					const uint32_t top = stack.back();
-					XA_ASSERT(top != uint32_t(~0));
-					stack.pop_back();
-					if (bitFlags.bitAt(top) == false) {
-						bitFlags.setBitAt(top);
-						for (Mesh::FaceEdgeIterator it(mesh, top); !it.isDone(); it.advance()) {
-							const uint32_t oppositeFace = it.oppositeFace();
-							if (oppositeFace != UINT32_MAX)
-								stack.push_back(oppositeFace);
-						}
-					}
-				}
-			}
-		}
-		XA_ASSERT(stack.isEmpty());
-		// Count boundary loops.
-		m_boundaryCount = 0;
-		bitFlags.resize(edgeCount);
-		bitFlags.clearAll();
-		// Don't forget to link the boundary otherwise this won't work.
-		for (uint32_t e = 0; e < edgeCount; e++) {
-			if (bitFlags.bitAt(e) || !mesh->isBoundaryEdge(e))
-				continue;
-			m_boundaryCount++;
-			for (Mesh::BoundaryLoopEdgeIterator it(mesh, e); !it.isDone(); it.advance())
-				bitFlags.setBitAt(it.edge());
-		}
-		// Compute euler number.
-		m_eulerNumber = vertexCount - edgeCount + faceCount;
-		// Compute genus. (only valid on closed connected surfaces)
-		m_genus = -1;
-		if (isClosed() && isConnected())
-			m_genus = (2 - m_eulerNumber) / 2;
-	}
-
-	/// Determine if the mesh is connected.
-	bool isConnected() const
-	{
-		return m_connectedCount == 1;
-	}
-
-	/// Determine if the mesh is closed. (Each edge is shared by two faces)
-	bool isClosed() const
-	{
-		return m_boundaryCount == 0;
-	}
-
-	/// Return true if the mesh has the topology of a disk.
-	bool isDisk() const
-	{
-		return isConnected() && m_boundaryCount == 1/* && m_eulerNumber == 1*/;
-	}
-
-private:
-	///< Number of boundary loops.
-	int m_boundaryCount;
-
-	///< Number of connected components.
-	int m_connectedCount;
-
-	///< Euler number.
-	int m_eulerNumber;
-
-	/// Mesh genus.
-	int m_genus;
-};
-
 struct Progress
 {
 	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : value(0), cancel(false), m_category(category), m_func(func), m_userData(userData), m_maxValue(maxValue), m_progress(0)
@@ -6074,7 +5986,7 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const segment::Atlas *atlas, const Mesh *originalMesh, uint32_t chartIndex, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isDisk(false), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(const segment::Atlas *atlas, const Mesh *originalMesh, uint32_t chartIndex, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6135,9 +6047,7 @@ public:
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_unifiedMesh->createBoundaries();
 		m_isPlanar = meshIsPlanar(*m_unifiedMesh);
-		if (m_isPlanar) {
-			m_isDisk = true;
-		} else {
+		if (!m_isPlanar) {
 			m_unifiedMesh->linkBoundaries();
 #if XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
 			m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
@@ -6208,16 +6118,6 @@ public:
 				}
 #endif
 			}
-			// Note: MeshTopology needs linked boundaries.
-			MeshTopology topology(m_unifiedMesh);
-			m_isDisk = topology.isDisk();
-#if XA_DEBUG_EXPORT_OBJ_NOT_DISK
-			if (!m_isDisk) {
-				char filename[256];
-				XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_chart_%03u_not_disk.obj", meshId, chartGroupId, chartId);
-				m_unifiedMesh->writeObjFile(filename);
-			}
-#endif
 		}
 	}
 
@@ -6234,7 +6134,6 @@ public:
 	}
 
 	const Basis &basis() const { return m_basis; }
-	bool isDisk() const { return m_isDisk; }
 	bool isOrtho() const { return m_isOrtho; }
 	bool isPlanar() const { return m_isPlanar; }
 	uint32_t warningFlags() const { return m_warningFlags; }
@@ -6306,7 +6205,7 @@ private:
 	Basis m_basis;
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
-	bool m_isDisk, m_isOrtho, m_isPlanar;
+	bool m_isOrtho, m_isPlanar;
 	uint32_t m_warningFlags;
 	uint32_t m_initialFaceCount; // Before fixing T-junctions and/or closing holes.
 	uint32_t m_closedHolesCount, m_fixedTJunctionsCount;
@@ -6368,7 +6267,7 @@ static void runParameterizeChartTask(void *userData)
 		XA_PROFILE_START(parameterizeChartsLSCM)
 		if (args->func)
 			args->func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
-		else if (args->chart->isDisk())
+		else
 			computeLeastSquaresConformalMap(mesh);
 		XA_PROFILE_END(parameterizeChartsLSCM)
 		args->chart->evaluateParameterizationQuality();
@@ -8472,8 +8371,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::TriangulateDuplicatedEdge)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): triangulation created non-manifold geometry\n", chartCount, i, j, k);
-				if (!chart->isDisk())
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): doesn't have disk topology\n", chartCount, i, j, k);
 				holesCount += chart->closedHolesCount();
 				if (chart->closedHolesCount() > 0)
 					chartsWithHolesCount++;
