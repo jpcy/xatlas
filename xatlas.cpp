@@ -118,6 +118,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 #define XA_RECOMPUTE_CHARTS 1
 #define XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION 0
+#define XA_FIX_INTERNAL_BOUNDARY_LOOPS 1
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
@@ -2320,7 +2321,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceGroups(MemTag::Mesh), m_faceGroupNextFace(MemTag::Mesh), m_faceGroupFaceCounts(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryVertices(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceGroups(MemTag::Mesh), m_faceGroupNextFace(MemTag::Mesh), m_faceGroupFaceCounts(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_boundaryVertices(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -2514,6 +2515,7 @@ public:
 		const uint32_t edgeCount = m_indices.size();
 		const uint32_t vertexCount = m_positions.size();
 		m_oppositeEdges.resize(edgeCount);
+		m_boundaryEdges.reserve(uint32_t(edgeCount * 0.1f));
 		m_boundaryVertices.resize(vertexCount);
 		for (uint32_t i = 0; i < edgeCount; i++)
 			m_oppositeEdges[i] = UINT32_MAX;
@@ -2524,7 +2526,8 @@ public:
 			if (isFaceIgnored(i))
 				continue;
 			for (uint32_t j = 0; j < 3; j++) {
-				const uint32_t vertex0 = m_indices[i * 3 + j];
+				const uint32_t edge = i * 3 + j;
+				const uint32_t vertex0 = m_indices[edge];
 				const uint32_t vertex1 = m_indices[i * 3 + (j + 1) % 3];
 				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
 				const uint32_t oppositeEdge = findEdge(hasFaceGroups ? m_faceGroups[i] : UINT32_MAX, vertex1, vertex0);
@@ -2536,6 +2539,7 @@ public:
 					XA_DEBUG_ASSERT(!isFaceIgnored(meshEdgeFace(oppositeEdge)));
 					m_oppositeEdges[i * 3 + j] = oppositeEdge;
 				} else {
+					m_boundaryEdges.push_back(edge);
 					m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
 				}
 			}
@@ -2580,10 +2584,6 @@ public:
 							goto next; // Not a boundary edge.
 						if (linkedEdges.bitAt(otherEdge))
 							goto next; // Already linked.
-						if (m_flags & MeshFlags::HasFaceGroups && m_faceGroups[meshEdgeFace(currentEdge)] != m_faceGroups[meshEdgeFace(otherEdge)])
-							goto next; // Don't cross face groups.
-						if (isFaceIgnored(meshEdgeFace(otherEdge)))
-							goto next; // Face is ignored.
 						if (m_indices[meshEdgeIndex0(otherEdge)] != it.vertex())
 							goto next; // Edge contains the vertex, but it's the wrong one.
 						// First edge (closing the boundary loop) has the highest priority.
@@ -2609,6 +2609,7 @@ public:
 				}
 			}
 		}
+#if XA_FIX_INTERNAL_BOUNDARY_LOOPS
 		// Find internal boundary loops and separate them.
 		// Detect by finding two edges in a boundary loop that have a colocal end vertex.
 		// Fix by swapping their next boundary edge.
@@ -2618,11 +2619,11 @@ public:
 		meshGetBoundaryLoops(*this, boundaryLoops);
 		for (uint32_t loop = 0; loop < boundaryLoops.size(); loop++) {
 			linkedEdges.clearAll();
-			for (Mesh::BoundaryEdgeIterator it1(this, boundaryLoops[loop]); !it1.isDone(); it1.advance()) {
+			for (Mesh::BoundaryLoopEdgeIterator it1(this, boundaryLoops[loop]); !it1.isDone(); it1.advance()) {
 				const uint32_t e1 = it1.edge();
 				if (linkedEdges.bitAt(e1))
 					continue;
-				for (Mesh::BoundaryEdgeIterator it2(this, boundaryLoops[loop]); !it2.isDone(); it2.advance()) {
+				for (Mesh::BoundaryLoopEdgeIterator it2(this, boundaryLoops[loop]); !it2.isDone(); it2.advance()) {
 					const uint32_t e2 = it2.edge();
 					if (e1 == e2 || !isBoundaryEdge(e2) || linkedEdges.bitAt(e2))
 						continue;
@@ -2635,6 +2636,7 @@ public:
 				}
 			}
 		}
+#endif
 	}
 
 	/// Find edge, test all colocals.
@@ -2880,6 +2882,7 @@ public:
 	XA_INLINE uint32_t edgeCount() const { return m_indices.size(); }
 	XA_INLINE uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
 	XA_INLINE bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
+	XA_INLINE const Array<uint32_t> &boundaryEdges() const { return m_boundaryEdges; }
 	XA_INLINE bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
 	XA_INLINE uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
 	XA_INLINE uint32_t vertexCount() const { return m_positions.size(); }
@@ -2921,6 +2924,7 @@ private:
 	Array<uint32_t> m_nextColocalVertex; // In: vertex index. Out: the vertex index of the next colocal position.
 
 	// Populated by createBoundaries
+	Array<uint32_t> m_boundaryEdges;
 	Array<bool> m_boundaryVertices;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
 
@@ -2955,10 +2959,10 @@ private:
 	HashMap<EdgeKey, EdgeHash> m_edgeMap;
 
 public:
-	class BoundaryEdgeIterator
+	class BoundaryLoopEdgeIterator
 	{
 	public:
-		BoundaryEdgeIterator(const Mesh *mesh, uint32_t edge) : m_mesh(mesh), m_first(UINT32_MAX), m_current(edge) {}
+		BoundaryLoopEdgeIterator(const Mesh *mesh, uint32_t edge) : m_mesh(mesh), m_first(UINT32_MAX), m_current(edge) {}
 
 		void advance()
 		{
@@ -3329,7 +3333,7 @@ static bool meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, con
 	for (uint32_t i = 0; i < boundaryCount; i++) {
 		float boundaryLength = 0.0f;
 		boundaryEdgeCounts[i] = 0;
-		for (Mesh::BoundaryEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
+		for (Mesh::BoundaryLoopEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
 			const Vector3 &t0 = mesh->position(mesh->vertexAt(meshEdgeIndex0(it.edge())));
 			const Vector3 &t1 = mesh->position(mesh->vertexAt(meshEdgeIndex1(it.edge())));
 			boundaryLength += length(t1 - t0);
@@ -3357,7 +3361,7 @@ static bool meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, con
 		holePoints.resize(boundaryEdgeCounts[i]);
 		// Winding is backwards for internal boundaries.
 		uint32_t e = 0;
-		for (Mesh::BoundaryEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
+		for (Mesh::BoundaryLoopEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
 			const uint32_t vertex = mesh->vertexAt(meshEdgeIndex0(it.edge()));
 			holeVertices[boundaryEdgeCounts[i] - 1 - e] = vertex;
 			holePoints[boundaryEdgeCounts[i] - 1 - e] = mesh->position(vertex);
@@ -3503,7 +3507,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 	for (uint32_t e = 0; e < edgeCount; e++) {
 		if (bitFlags.bitAt(e) || !mesh.isBoundaryEdge(e))
 			continue;
-		for (Mesh::BoundaryEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
+		for (Mesh::BoundaryLoopEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
 			bitFlags.setBitAt(it.edge());
 		boundaryLoops.push_back(e);
 	}
@@ -3552,7 +3556,7 @@ public:
 			if (bitFlags.bitAt(e) || !mesh->isBoundaryEdge(e))
 				continue;
 			m_boundaryCount++;
-			for (Mesh::BoundaryEdgeIterator it(mesh, e); !it.isDone(); it.advance())
+			for (Mesh::BoundaryLoopEdgeIterator it(mesh, e); !it.isDone(); it.advance())
 				bitFlags.setBitAt(it.edge());
 		}
 		// Compute euler number.
@@ -5926,26 +5930,18 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 {
 	XA_DEBUG_ASSERT(mesh != nullptr);
 	ParameterizationQuality quality;
-	uint32_t firstBoundaryEdge = UINT32_MAX;
-	for (uint32_t e = 0; e < mesh->edgeCount(); e++) {
-		if (mesh->isBoundaryEdge(e)) {
-			firstBoundaryEdge = e;
-			break;
-		}
-	}
-	XA_DEBUG_ASSERT(firstBoundaryEdge != UINT32_MAX);
-	for (Mesh::BoundaryEdgeIterator it1(mesh, firstBoundaryEdge); !it1.isDone(); it1.advance()) {
-		const uint32_t edge1 = it1.edge();
-		for (Mesh::BoundaryEdgeIterator it2(mesh, firstBoundaryEdge); !it2.isDone(); it2.advance()) {
-			const uint32_t edge2 = it2.edge();
-			// Skip self and edges directly connected to edge1.
-			if (edge1 == edge2 || it1.nextEdge() == edge2 || it2.nextEdge() == edge1)
+	const Array<uint32_t> &boundaryEdges = mesh->boundaryEdges();
+	const uint32_t boundaryEdgeCount = boundaryEdges.size();
+	for (uint32_t i = 0; i < boundaryEdgeCount; i++) {
+		const uint32_t edge1 = boundaryEdges[i];
+		for (uint32_t j = i + 1; j < boundaryEdgeCount; j++) {
+			const uint32_t edge2 = boundaryEdges[j];
+			const uint32_t v1[] = { mesh->vertexAt(meshEdgeIndex0(edge1)), mesh->vertexAt(meshEdgeIndex1(edge1)) };
+			const uint32_t v2[] = { mesh->vertexAt(meshEdgeIndex0(edge2)), mesh->vertexAt(meshEdgeIndex1(edge2)) };
+			// Skip edges that share a vertex. They can't intersect.
+			if (v1[0] == v2[0] || v1[1] == v2[0] || v1[0] == v2[1] || v1[1] == v2[1])
 				continue;
-			const Vector2 &a1 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex0(edge1)));
-			const Vector2 &a2 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex1(edge1)));
-			const Vector2 &b1 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex0(edge2)));
-			const Vector2 &b2 = mesh->texcoord(mesh->vertexAt(meshEdgeIndex1(edge2)));
-			if (linesIntersect(a1, a2, b1, b2, mesh->epsilon())) {
+			if (linesIntersect(mesh->texcoord(v1[0]), mesh->texcoord(v1[1]), mesh->texcoord(v2[0]), mesh->texcoord(v2[1]), mesh->epsilon())) {
 				quality.boundaryIntersection = true;
 				break;
 			}
@@ -6137,11 +6133,11 @@ public:
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_unifiedMesh->createBoundaries();
-		m_unifiedMesh->linkBoundaries();
 		m_isPlanar = meshIsPlanar(*m_unifiedMesh);
 		if (m_isPlanar) {
 			m_isDisk = true;
 		} else {
+			m_unifiedMesh->linkBoundaries();
 #if XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
 			m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
 #endif
