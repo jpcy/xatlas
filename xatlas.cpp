@@ -2321,7 +2321,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceGroups(MemTag::Mesh), m_faceGroupNextFace(MemTag::Mesh), m_faceGroupFaceCounts(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_boundaryVertices(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceGroups(MemTag::Mesh), m_faceGroupNextFace(MemTag::Mesh), m_faceGroupFaceCounts(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -2516,11 +2516,10 @@ public:
 		const uint32_t vertexCount = m_positions.size();
 		m_oppositeEdges.resize(edgeCount);
 		m_boundaryEdges.reserve(uint32_t(edgeCount * 0.1f));
-		m_boundaryVertices.resize(vertexCount);
+		m_isBoundaryVertex.resize(vertexCount);
+		m_isBoundaryVertex.clearAll();
 		for (uint32_t i = 0; i < edgeCount; i++)
 			m_oppositeEdges[i] = UINT32_MAX;
-		for (uint32_t i = 0; i < vertexCount; i++)
-			m_boundaryVertices[i] = false;
 		const bool hasFaceGroups = m_flags & MeshFlags::HasFaceGroups;
 		for (uint32_t i = 0; i < faceCount(); i++) {
 			if (isFaceIgnored(i))
@@ -2540,7 +2539,8 @@ public:
 					m_oppositeEdges[i * 3 + j] = oppositeEdge;
 				} else {
 					m_boundaryEdges.push_back(edge);
-					m_boundaryVertices[vertex0] = m_boundaryVertices[vertex1] = true;
+					m_isBoundaryVertex.setBitAt(vertex0);
+					m_isBoundaryVertex.setBitAt(vertex1);
 				}
 			}
 		}
@@ -2883,7 +2883,7 @@ public:
 	XA_INLINE uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
 	XA_INLINE bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
 	XA_INLINE const Array<uint32_t> &boundaryEdges() const { return m_boundaryEdges; }
-	XA_INLINE bool isBoundaryVertex(uint32_t vertex) const { return m_boundaryVertices[vertex]; }
+	XA_INLINE bool isBoundaryVertex(uint32_t vertex) const { return m_isBoundaryVertex.bitAt(vertex); }
 	XA_INLINE uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
 	XA_INLINE uint32_t vertexCount() const { return m_positions.size(); }
 	XA_INLINE uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
@@ -2907,6 +2907,7 @@ private:
 	float m_epsilon;
 	uint32_t m_flags;
 	uint32_t m_id;
+	BitArray m_isFaceIgnored;
 	Array<bool> m_faceIgnore;
 	Array<uint32_t> m_indices;
 	Array<Vector3> m_positions;
@@ -2924,8 +2925,8 @@ private:
 	Array<uint32_t> m_nextColocalVertex; // In: vertex index. Out: the vertex index of the next colocal position.
 
 	// Populated by createBoundaries
+	BitArray m_isBoundaryVertex;
 	Array<uint32_t> m_boundaryEdges;
-	Array<bool> m_boundaryVertices;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
 
 	// Populated by linkBoundaries
