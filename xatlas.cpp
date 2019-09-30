@@ -332,7 +332,6 @@ struct ProfileData
 	std::atomic<clock_t> addMeshThread;
 	std::atomic<clock_t> addMeshCreateColocals;
 	std::atomic<clock_t> addMeshCreateFaceGroups;
-	std::atomic<clock_t> addMeshCreateBoundaries;
 	std::atomic<clock_t> addMeshCreateChartGroupsReal;
 	std::atomic<clock_t> addMeshCreateChartGroupsThread;
 	clock_t computeChartsReal;
@@ -2524,7 +2523,8 @@ public:
 		for (uint32_t i = 0; i < edgeCount; i++)
 			m_oppositeEdges[i] = UINT32_MAX;
 		const bool hasFaceGroups = m_flags & MeshFlags::HasFaceGroups;
-		for (uint32_t i = 0; i < faceCount(); i++) {
+		const uint32_t faceCount = m_indices.size() / 3;
+		for (uint32_t i = 0; i < faceCount; i++) {
 			if (isFaceIgnored(i))
 				continue;
 			for (uint32_t j = 0; j < 3; j++) {
@@ -2532,14 +2532,9 @@ public:
 				const uint32_t vertex0 = m_indices[edge];
 				const uint32_t vertex1 = m_indices[i * 3 + (j + 1) % 3];
 				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
-				const uint32_t oppositeEdge = findEdge(hasFaceGroups ? m_faceGroups[i] : kInvalidFaceGroup, vertex1, vertex0);
+				const uint32_t oppositeEdge = findEdge(vertex1, vertex0);
 				if (oppositeEdge != UINT32_MAX) {
-#if XA_DEBUG
-					if (hasFaceGroups)
-						XA_DEBUG_ASSERT(m_faceGroups[meshEdgeFace(oppositeEdge)] == m_faceGroups[i]);
-#endif
-					XA_DEBUG_ASSERT(!isFaceIgnored(meshEdgeFace(oppositeEdge)));
-					m_oppositeEdges[i * 3 + j] = oppositeEdge;
+					m_oppositeEdges[edge] = oppositeEdge;
 				} else {
 					m_boundaryEdges.push_back(edge);
 					m_isBoundaryVertex.setBitAt(vertex0);
@@ -2643,7 +2638,7 @@ public:
 	}
 
 	/// Find edge, test all colocals.
-	uint32_t findEdge(uint16_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
+	uint32_t findEdge(uint32_t vertex0, uint32_t vertex1) const
 	{
 		uint32_t result = UINT32_MAX;
 		if (m_nextColocalVertex.isEmpty()) {
@@ -2651,7 +2646,7 @@ public:
 			uint32_t edge = m_edgeMap.get(key);
 			while (edge != UINT32_MAX) {
 				// Don't find edges of ignored faces.
-				if ((faceGroup == kInvalidFaceGroup || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
+				if (!isFaceIgnored(meshEdgeFace(edge))) {
 					//XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 					result = edge;
 #if !XA_DEBUG
@@ -2667,7 +2662,7 @@ public:
 					uint32_t edge = m_edgeMap.get(key);
 					while (edge != UINT32_MAX) {
 						// Don't find edges of ignored faces.
-						if ((faceGroup == kInvalidFaceGroup || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
+						if (!isFaceIgnored(meshEdgeFace(edge))) {
 							XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 							result = edge;
 #if !XA_DEBUG
@@ -3230,11 +3225,11 @@ static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const
 			if (frontAngles[i] >= smallestAngle || isNan(frontAngles[i]))
 				continue;
 			// Don't duplicate edges.
-			if (mesh->findEdge(Mesh::kInvalidFaceGroup, frontVertices[i1], frontVertices[i2]) != UINT32_MAX)
+			if (mesh->findEdge(frontVertices[i1], frontVertices[i2]) != UINT32_MAX)
 				continue;
-			if (mesh->findEdge(Mesh::kInvalidFaceGroup, frontVertices[i2], frontVertices[i3]) != UINT32_MAX)
+			if (mesh->findEdge(frontVertices[i2], frontVertices[i3]) != UINT32_MAX)
 				continue;
-			if (mesh->findEdge(Mesh::kInvalidFaceGroup, frontVertices[i3], frontVertices[i1]) != UINT32_MAX)
+			if (mesh->findEdge(frontVertices[i3], frontVertices[i1]) != UINT32_MAX)
 				continue;
 			/*
 			Make sure he new edge that would be formed by (i3, i1) doesn't intersect any vertices. This often happens when fixing t-junctions.
@@ -7963,13 +7958,6 @@ static void runAddMeshTask(void *userData)
 	}
 	if (progress->cancel)
 		goto cleanup;
-	{
-		XA_PROFILE_START(addMeshCreateBoundaries)
-		mesh->createBoundaries();
-		XA_PROFILE_END(addMeshCreateBoundaries)
-	}
-	if (progress->cancel)
-		goto cleanup;
 #if XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES
 	char filename[256];
 	XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u.obj", mesh->id());
@@ -8207,7 +8195,6 @@ void AddMeshJoin(Atlas *atlas)
 	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", addMeshThread)
 	XA_PROFILE_PRINT_AND_RESET("      Create colocals: ", addMeshCreateColocals)
 	XA_PROFILE_PRINT_AND_RESET("      Create face groups: ", addMeshCreateFaceGroups)
-	XA_PROFILE_PRINT_AND_RESET("      Create boundaries: ", addMeshCreateBoundaries)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart groups (real): ", addMeshCreateChartGroupsReal)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart groups (thread): ", addMeshCreateChartGroupsThread)
 	XA_PRINT_MEM_USAGE
