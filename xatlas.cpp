@@ -7048,6 +7048,8 @@ struct Chart
 	bool allowRotate;
 	// bounding box
 	Vector2 majorAxis, minorAxis, minCorner, maxCorner;
+	// Mesh only
+	const Array<uint32_t> *boundaryEdges;
 	// UvMeshChart only
 	Array<uint32_t> faces;
 
@@ -7086,6 +7088,7 @@ static void runAddChartTask(void *userData)
 	chart->vertices = mesh->texcoords();
 	chart->vertexCount = mesh->vertexCount();
 	chart->allowRotate = true;
+	chart->boundaryEdges = &mesh->boundaryEdges();
 	// Compute list of boundary vertices.
 	Array<Vector2> boundary;
 	boundary.reserve(16);
@@ -7189,6 +7192,7 @@ struct Atlas
 			chart->vertices = mesh->texcoords.data();
 			chart->vertexCount = mesh->texcoords.size();
 			chart->allowRotate = mesh->rotateCharts;
+			chart->boundaryEdges = nullptr;
 			chart->faces.resize(uvChart->faces.size());
 			memcpy(chart->faces.data(), uvChart->faces.data(), sizeof(uint32_t) * uvChart->faces.size());
 			// Find unique vertices.
@@ -7761,49 +7765,54 @@ private:
 	{
 		const int xOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
 		const int yOffsets[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+		const uint32_t faceCount = chart->indexCount / 3;
 		for (uint32_t y = 0; y < source->height(); y++) {
 			for (uint32_t x = 0; x < source->width(); x++) {
+				const Vector2 centroid((float)x + 0.5f, (float)y + 0.5f);
 				// Copy pixels from source.
 				if (source->bitAt(x, y))
 					goto setPixel;
 				// Empty pixel. If none of of the surrounding pixels are set, this pixel can't be sampled by bilinear interpolation.
-				{
-					uint32_t s = 0;
-					for (; s < 8; s++) {
-						const int sx = (int)x + xOffsets[s];
-						const int sy = (int)y + yOffsets[s];
-						if (sx < 0 || sy < 0 || sx >= (int)source->width() || sy >= (int)source->height())
-							continue;
-						if (source->bitAt((uint32_t)sx, (uint32_t)sy))
-							break;
-					}
-					if (s == 8)
+				uint32_t s = 0;
+				for (; s < 8; s++) {
+					const int sx = (int)x + xOffsets[s];
+					const int sy = (int)y + yOffsets[s];
+					if (sx < 0 || sy < 0 || sx >= (int)source->width() || sy >= (int)source->height())
 						continue;
+					if (source->bitAt((uint32_t)sx, (uint32_t)sy))
+						break;
 				}
+				if (s == 8)
+					continue;
 				// If a 2x2 square centered on the pixels centroid intersects the triangle, this pixel will be sampled by bilinear interpolation.
 				// See "Precomputed Global Illumination in Frostbite (GDC 2018)" page 95
-				for (uint32_t f = 0; f < chart->indexCount / 3; f++) {
-					const Vector2 centroid((float)x + 0.5f, (float)y + 0.5f);
-					Vector2 vertices[3];
-					for (uint32_t i = 0; i < 3; i++)
-						vertices[i] = chart->vertices[chart->indices[f * 3 + i]];
-					// Test for triangle vertex in square bounds.
-					for (uint32_t i = 0; i < 3; i++) {
-						const Vector2 &v = vertices[i];
-						if (v.x > centroid.x - 1.0f && v.x < centroid.x + 1.0f && v.y > centroid.y - 1.0f && v.y < centroid.y + 1.0f)
-							goto setPixel;
-					}
-					// Test for triangle edge intersection with square edge.
-					const Vector2 squareVertices[4] = {
-						Vector2(centroid.x - 1.0f, centroid.y - 1.0f),
-						Vector2(centroid.x + 1.0f, centroid.y - 1.0f),
-						Vector2(centroid.x + 1.0f, centroid.y + 1.0f),
-						Vector2(centroid.x - 1.0f, centroid.y + 1.0f)
-					};
-					for (uint32_t i = 0; i < 3; i++) {
+				const Vector2 squareVertices[4] = {
+					Vector2(centroid.x - 1.0f, centroid.y - 1.0f),
+					Vector2(centroid.x + 1.0f, centroid.y - 1.0f),
+					Vector2(centroid.x + 1.0f, centroid.y + 1.0f),
+					Vector2(centroid.x - 1.0f, centroid.y + 1.0f)
+				};
+				if (chart->boundaryEdges) {
+					const uint32_t edgeCount = chart->boundaryEdges->size();
+					for (uint32_t e = 0; e < edgeCount; e++) {
+						const uint32_t edge = (*chart->boundaryEdges)[e];
+						const Vector2 &v1 = chart->vertices[chart->indices[meshEdgeIndex0(edge)]];
+						const Vector2 &v2 = chart->vertices[chart->indices[meshEdgeIndex1(edge)]];
 						for (uint32_t j = 0; j < 4; j++) {
-							if (linesIntersect(vertices[i], vertices[(i + 1) % 3], squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
+							if (linesIntersect(v1, v2, squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
 								goto setPixel;
+						}
+					}
+				} else {
+					for (uint32_t f = 0; f < faceCount; f++) {
+						Vector2 vertices[3];
+						for (uint32_t i = 0; i < 3; i++)
+							vertices[i] = chart->vertices[chart->indices[f * 3 + i]];
+						for (uint32_t i = 0; i < 3; i++) {
+							for (uint32_t j = 0; j < 4; j++) {
+								if (linesIntersect(vertices[i], vertices[(i + 1) % 3], squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
+									goto setPixel;
+							}
 						}
 					}
 				}
