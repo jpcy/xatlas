@@ -2318,7 +2318,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_ignoredFaceCount(0), m_faceGroups(MemTag::Mesh), m_faceGroupNextFace(MemTag::Mesh), m_faceGroupFaceCounts(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_ignoredFaceCount(0), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_faceGroups(MemTag::Mesh), m_faceGroupFirstFace(MemTag::Mesh), m_faceGroupNextFace(MemTag::Mesh), m_faceGroupFaceCounts(MemTag::Mesh), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -2331,7 +2331,7 @@ public:
 			m_normals.reserve(approxVertexCount);
 	}
 
-	static const uint16_t kInvalidFaceGroup = UINT16_MAX;
+	static constexpr uint16_t kInvalidFaceGroup = UINT16_MAX;
 	uint32_t flags() const { return m_flags; }
 	uint32_t id() const { return m_id; }
 
@@ -2522,7 +2522,6 @@ public:
 		m_isBoundaryVertex.clearAll();
 		for (uint32_t i = 0; i < edgeCount; i++)
 			m_oppositeEdges[i] = UINT32_MAX;
-		const bool hasFaceGroups = m_flags & MeshFlags::HasFaceGroups;
 		const uint32_t faceCount = m_indices.size() / 3;
 		for (uint32_t i = 0; i < faceCount; i++) {
 			if (isFaceIgnored(i))
@@ -3194,6 +3193,8 @@ public:
 		uint32_t m_current;
 	};
 };
+
+constexpr uint16_t Mesh::kInvalidFaceGroup;
 
 static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const Vector3 &normal)
 {
@@ -7765,50 +7766,54 @@ private:
 		const uint32_t faceCount = chart->indexCount / 3;
 		for (uint32_t y = 0; y < source->height(); y++) {
 			for (uint32_t x = 0; x < source->width(); x++) {
-				const Vector2 centroid((float)x + 0.5f, (float)y + 0.5f);
 				// Copy pixels from source.
 				if (source->bitAt(x, y))
 					goto setPixel;
 				// Empty pixel. If none of of the surrounding pixels are set, this pixel can't be sampled by bilinear interpolation.
-				uint32_t s = 0;
-				for (; s < 8; s++) {
-					const int sx = (int)x + xOffsets[s];
-					const int sy = (int)y + yOffsets[s];
-					if (sx < 0 || sy < 0 || sx >= (int)source->width() || sy >= (int)source->height())
-						continue;
-					if (source->bitAt((uint32_t)sx, (uint32_t)sy))
-						break;
-				}
-				if (s == 8)
-					continue;
-				// If a 2x2 square centered on the pixels centroid intersects the triangle, this pixel will be sampled by bilinear interpolation.
-				// See "Precomputed Global Illumination in Frostbite (GDC 2018)" page 95
-				const Vector2 squareVertices[4] = {
-					Vector2(centroid.x - 1.0f, centroid.y - 1.0f),
-					Vector2(centroid.x + 1.0f, centroid.y - 1.0f),
-					Vector2(centroid.x + 1.0f, centroid.y + 1.0f),
-					Vector2(centroid.x - 1.0f, centroid.y + 1.0f)
-				};
-				if (chart->boundaryEdges) {
-					const uint32_t edgeCount = chart->boundaryEdges->size();
-					for (uint32_t e = 0; e < edgeCount; e++) {
-						const uint32_t edge = (*chart->boundaryEdges)[e];
-						const Vector2 &v1 = chart->vertices[chart->indices[meshEdgeIndex0(edge)]];
-						const Vector2 &v2 = chart->vertices[chart->indices[meshEdgeIndex1(edge)]];
-						for (uint32_t j = 0; j < 4; j++) {
-							if (linesIntersect(v1, v2, squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
-								goto setPixel;
-						}
+				{
+					uint32_t s = 0;
+					for (; s < 8; s++) {
+						const int sx = (int)x + xOffsets[s];
+						const int sy = (int)y + yOffsets[s];
+						if (sx < 0 || sy < 0 || sx >= (int)source->width() || sy >= (int)source->height())
+							continue;
+						if (source->bitAt((uint32_t)sx, (uint32_t)sy))
+							break;
 					}
-				} else {
-					for (uint32_t f = 0; f < faceCount; f++) {
-						Vector2 vertices[3];
-						for (uint32_t i = 0; i < 3; i++)
-							vertices[i] = chart->vertices[chart->indices[f * 3 + i]];
-						for (uint32_t i = 0; i < 3; i++) {
+					if (s == 8)
+						continue;
+				}
+				{
+					// If a 2x2 square centered on the pixels centroid intersects the triangle, this pixel will be sampled by bilinear interpolation.
+					// See "Precomputed Global Illumination in Frostbite (GDC 2018)" page 95
+					const Vector2 centroid((float)x + 0.5f, (float)y + 0.5f);
+					const Vector2 squareVertices[4] = {
+						Vector2(centroid.x - 1.0f, centroid.y - 1.0f),
+						Vector2(centroid.x + 1.0f, centroid.y - 1.0f),
+						Vector2(centroid.x + 1.0f, centroid.y + 1.0f),
+						Vector2(centroid.x - 1.0f, centroid.y + 1.0f)
+					};
+					if (chart->boundaryEdges) {
+						const uint32_t edgeCount = chart->boundaryEdges->size();
+						for (uint32_t e = 0; e < edgeCount; e++) {
+							const uint32_t edge = (*chart->boundaryEdges)[e];
+							const Vector2 &v1 = chart->vertices[chart->indices[meshEdgeIndex0(edge)]];
+							const Vector2 &v2 = chart->vertices[chart->indices[meshEdgeIndex1(edge)]];
 							for (uint32_t j = 0; j < 4; j++) {
-								if (linesIntersect(vertices[i], vertices[(i + 1) % 3], squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
+								if (linesIntersect(v1, v2, squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
 									goto setPixel;
+							}
+						}
+					} else {
+						for (uint32_t f = 0; f < faceCount; f++) {
+							Vector2 vertices[3];
+							for (uint32_t i = 0; i < 3; i++)
+								vertices[i] = chart->vertices[chart->indices[f * 3 + i]];
+							for (uint32_t i = 0; i < 3; i++) {
+								for (uint32_t j = 0; j < 4; j++) {
+									if (linesIntersect(vertices[i], vertices[(i + 1) % 3], squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
+										goto setPixel;
+								}
 							}
 						}
 					}
