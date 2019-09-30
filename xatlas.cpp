@@ -2332,6 +2332,7 @@ public:
 			m_normals.reserve(approxVertexCount);
 	}
 
+	static const uint16_t kInvalidFaceGroup = UINT16_MAX;
 	uint32_t flags() const { return m_flags; }
 	uint32_t id() const { return m_id; }
 
@@ -2366,7 +2367,7 @@ public:
 	{
 		AddFaceResult::Enum result = AddFaceResult::OK;
 		if (m_flags & MeshFlags::HasFaceGroups)
-			m_faceGroups.push_back(UINT32_MAX);
+			m_faceGroups.push_back(kInvalidFaceGroup);
 		if (m_flags & MeshFlags::HasIgnoredFaces) {
 			m_faceIgnore.push_back(ignore);
 			if (ignore)
@@ -2429,7 +2430,7 @@ public:
 	}
 
 	// Check if the face duplicates any edges of any face already in the group.
-	bool faceDuplicatesGroupEdge(uint32_t group, uint32_t face) const
+	bool faceDuplicatesGroupEdge(uint16_t group, uint32_t face) const
 	{
 		for (FaceEdgeIterator edgeIt(this, face); !edgeIt.isDone(); edgeIt.advance()) {
 			for (ColocalEdgeIterator colocalEdgeIt(this, edgeIt.vertex0(), edgeIt.vertex1()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
@@ -2443,7 +2444,7 @@ public:
 	void createFaceGroups()
 	{
 		uint32_t firstUnassignedFace = 0;
-		uint32_t group = 0;
+		uint16_t group = 0;
 		Array<uint32_t> growFaces;
 		const uint32_t n = faceCount();
 		m_faceGroupNextFace.resize(n);
@@ -2451,7 +2452,7 @@ public:
 			// Find an unassigned face.
 			uint32_t face = UINT32_MAX;
 			for (uint32_t f = firstUnassignedFace; f < n; f++) {
-				if (m_faceGroups[f] == UINT32_MAX && !isFaceIgnored(f)) {
+				if (m_faceGroups[f] == kInvalidFaceGroup && !isFaceIgnored(f)) {
 					face = f;
 					firstUnassignedFace = f + 1;
 					break;
@@ -2486,7 +2487,7 @@ public:
 							alreadyAssignedToThisGroup = true;
 							break;
 						}
-						if (m_faceGroups[oppositeFace] != UINT32_MAX)
+						if (m_faceGroups[oppositeFace] != kInvalidFaceGroup)
 							continue; // Connected face is already assigned to another group.
 						if (faceDuplicatesGroupEdge(group, oppositeFace))
 							continue; // Don't want duplicate edges in a group.
@@ -2508,6 +2509,7 @@ public:
 			}
 			m_faceGroupFaceCounts.push_back(groupFaceCount);
 			group++;
+			XA_ASSERT(group < kInvalidFaceGroup);
 		}
 	}
 
@@ -2530,7 +2532,7 @@ public:
 				const uint32_t vertex0 = m_indices[edge];
 				const uint32_t vertex1 = m_indices[i * 3 + (j + 1) % 3];
 				// If there is an edge with opposite winding to this one, the edge isn't on a boundary.
-				const uint32_t oppositeEdge = findEdge(hasFaceGroups ? m_faceGroups[i] : UINT32_MAX, vertex1, vertex0);
+				const uint32_t oppositeEdge = findEdge(hasFaceGroups ? m_faceGroups[i] : kInvalidFaceGroup, vertex1, vertex0);
 				if (oppositeEdge != UINT32_MAX) {
 #if XA_DEBUG
 					if (hasFaceGroups)
@@ -2641,7 +2643,7 @@ public:
 	}
 
 	/// Find edge, test all colocals.
-	uint32_t findEdge(uint32_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
+	uint32_t findEdge(uint16_t faceGroup, uint32_t vertex0, uint32_t vertex1) const
 	{
 		uint32_t result = UINT32_MAX;
 		if (m_nextColocalVertex.isEmpty()) {
@@ -2649,7 +2651,7 @@ public:
 			uint32_t edge = m_edgeMap.get(key);
 			while (edge != UINT32_MAX) {
 				// Don't find edges of ignored faces.
-				if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
+				if ((faceGroup == kInvalidFaceGroup || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
 					//XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 					result = edge;
 #if !XA_DEBUG
@@ -2665,7 +2667,7 @@ public:
 					uint32_t edge = m_edgeMap.get(key);
 					while (edge != UINT32_MAX) {
 						// Don't find edges of ignored faces.
-						if ((faceGroup == UINT32_MAX || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
+						if ((faceGroup == kInvalidFaceGroup || m_faceGroups[meshEdgeFace(edge)] == faceGroup) && !isFaceIgnored(meshEdgeFace(edge))) {
 							XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
 							result = edge;
 #if !XA_DEBUG
@@ -2896,7 +2898,7 @@ public:
 	XA_INLINE Vector2 *texcoords() { return m_texcoords.data(); }
 	XA_INLINE uint32_t ignoredFaceCount() const { return m_ignoredFaceCount; }
 	XA_INLINE uint32_t faceCount() const { return m_indices.size() / 3; }
-	XA_INLINE uint32_t faceGroupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups[face]; }
+	XA_INLINE uint16_t faceGroupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups[face]; }
 	XA_INLINE uint32_t faceGroupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroupFaceCounts.size(); }
 	XA_INLINE uint32_t faceGroupNextFace(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroupNextFace[face]; }
 	XA_INLINE uint32_t faceGroupFaceCount(uint32_t group) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroupFaceCounts[group]; }
@@ -2917,7 +2919,7 @@ private:
 	Array<Vector2> m_texcoords;
 
 	// Populated by createFaceGroups
-	Array<uint32_t> m_faceGroups;
+	Array<uint16_t> m_faceGroups;
 	Array<uint32_t> m_faceGroupFirstFace;
 	Array<uint32_t> m_faceGroupNextFace; // In: face. Out: the next face in the same group.
 	Array<uint32_t> m_faceGroupFaceCounts; // In: face group. Out: number of faces in the group.
@@ -3228,11 +3230,11 @@ static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const
 			if (frontAngles[i] >= smallestAngle || isNan(frontAngles[i]))
 				continue;
 			// Don't duplicate edges.
-			if (mesh->findEdge(UINT32_MAX, frontVertices[i1], frontVertices[i2]) != UINT32_MAX)
+			if (mesh->findEdge(Mesh::kInvalidFaceGroup, frontVertices[i1], frontVertices[i2]) != UINT32_MAX)
 				continue;
-			if (mesh->findEdge(UINT32_MAX, frontVertices[i2], frontVertices[i3]) != UINT32_MAX)
+			if (mesh->findEdge(Mesh::kInvalidFaceGroup, frontVertices[i2], frontVertices[i3]) != UINT32_MAX)
 				continue;
-			if (mesh->findEdge(UINT32_MAX, frontVertices[i3], frontVertices[i1]) != UINT32_MAX)
+			if (mesh->findEdge(Mesh::kInvalidFaceGroup, frontVertices[i3], frontVertices[i1]) != UINT32_MAX)
 				continue;
 			/*
 			Make sure he new edge that would be formed by (i3, i1) doesn't intersect any vertices. This often happens when fixing t-junctions.
@@ -6282,7 +6284,7 @@ static void runParameterizeChartTask(void *userData)
 class ChartGroup
 {
 public:
-	ChartGroup(uint32_t id, const Mesh *sourceMesh, uint32_t faceGroup) : m_sourceId(sourceMesh->id()), m_id(id), m_isVertexMap(faceGroup == UINT32_MAX), m_paramAddedChartsCount(0), m_paramDeletedChartsCount(0)
+	ChartGroup(uint32_t id, const Mesh *sourceMesh, uint16_t faceGroup) : m_sourceId(sourceMesh->id()), m_id(id), m_isVertexMap(faceGroup == Mesh::kInvalidFaceGroup), m_paramAddedChartsCount(0), m_paramDeletedChartsCount(0)
 	{
 		// Create new mesh from the source mesh, using faces that belong to this group.
 		const uint32_t sourceFaceCount = sourceMesh->faceCount();
@@ -6639,7 +6641,7 @@ private:
 
 struct CreateChartGroupTaskArgs
 {
-	uint32_t faceGroup;
+	uint16_t faceGroup;
 	uint32_t groupId;
 	const Mesh *mesh;
 	ChartGroup **chartGroup;
@@ -6747,7 +6749,7 @@ public:
 		for (uint32_t g = 0; g < chartGroups.size(); g++) {
 			CreateChartGroupTaskArgs &args = taskArgs[g];
 			args.chartGroup = &chartGroups[g];
-			args.faceGroup = g < mesh->faceGroupCount() ? g : UINT32_MAX;
+			args.faceGroup = uint16_t(g < mesh->faceGroupCount() ? g : Mesh::kInvalidFaceGroup);
 			args.groupId = g;
 			args.mesh = mesh;
 		}
@@ -7978,7 +7980,7 @@ static void runAddMeshTask(void *userData)
 		// groups
 		uint32_t numGroups = 0;
 		for (uint32_t i = 0; i < mesh->faceCount(); i++) {
-			if (mesh->faceGroupAt(i) != UINT32_MAX)
+			if (mesh->faceGroupAt(i) != Mesh::kInvalidFaceGroup)
 				numGroups = internal::max(numGroups, mesh->faceGroupAt(i) + 1);
 		}
 		for (uint32_t i = 0; i < numGroups; i++) {
@@ -7992,7 +7994,7 @@ static void runAddMeshTask(void *userData)
 		fprintf(file, "o group_ignored\n");
 		fprintf(file, "s off\n");
 		for (uint32_t f = 0; f < mesh->faceCount(); f++) {
-			if (mesh->faceGroupAt(f) == UINT32_MAX)
+			if (mesh->faceGroupAt(f) == Mesh::kInvalidFaceGroup)
 				mesh->writeObjFace(file, f);
 		}
 		mesh->writeObjBoundaryEges(file);
