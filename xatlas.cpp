@@ -3859,6 +3859,150 @@ private:
 	T *m_array;
 };
 
+class UniformGrid2
+{
+public:
+	void reset(const Vector2 *positions)
+	{
+		m_edges.clear();
+		m_positions = positions;
+	}
+
+	void append(uint32_t edge)
+	{
+		m_edges.push_back(edge);
+	}
+
+	bool anyEdgeIntersects(float epsilon)
+	{
+		const uint32_t edgeCount = m_edges.size();
+		const bool bruteForce = edgeCount <= 4;
+		if (!bruteForce)
+			createGrid();
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			const uint32_t edge1 = m_edges[i];
+			if (bruteForce) {
+				for (uint32_t j = 0; j < edgeCount; j++) {
+					const uint32_t edge2 = m_edges[j];
+					if (edgesIntersect(edge1, edge2, epsilon))
+						return true;
+				}
+			} else {
+				m_tempEdges.clear();
+				Extents2 edgeExtents;
+				edgeExtents.reset();
+				edgeExtents.add(m_positions[meshEdgeIndex0(edge1)]);
+				edgeExtents.add(m_positions[meshEdgeIndex1(edge1)]);
+				const uint32_t cellX1 = clamp(uint32_t((edgeExtents.min.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
+				const uint32_t cellX2 = clamp(uint32_t((edgeExtents.max.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
+				const uint32_t cellY1 = clamp(uint32_t((edgeExtents.min.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
+				const uint32_t cellY2 = clamp(uint32_t((edgeExtents.max.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
+				for (uint32_t y = cellY1; y <= cellY2; y++) {
+					for (uint32_t x = cellX1; x <= cellX2; x++) {
+						const uint32_t cell = x + y * m_gridWidth;
+						uint32_t offset = m_cellDataOffsets[cell];
+						while (offset != UINT32_MAX) {
+							const uint32_t edge2 = m_cellData[offset];
+							m_tempEdges.push_back(edge2);
+							offset = m_cellData[offset + 1];
+						}
+					}
+				}
+				if (m_tempEdges.isEmpty())
+					return false;
+				insertionSort(m_tempEdges.data(), m_tempEdges.size());
+				uint32_t prevEdge = UINT32_MAX;
+				for (uint32_t j = 0; j < m_tempEdges.size(); j++) {
+					const uint32_t edge2 = m_tempEdges[j];
+					if (edge2 == prevEdge)
+						continue;
+					if (edgesIntersect(edge1, edge2, epsilon))
+						return true;
+					prevEdge = edge2;
+				}
+			}
+		}
+		return false;
+	}
+
+private:
+	void createGrid()
+	{
+		// Compute edge extents. Min will be the grid origin.
+		const uint32_t edgeCount = m_edges.size();
+		Extents2 edgeExtents;
+		edgeExtents.reset();
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			const uint32_t edge = m_edges[i];
+			edgeExtents.add(m_positions[meshEdgeIndex0(edge)]);
+			edgeExtents.add(m_positions[meshEdgeIndex1(edge)]);
+		}
+		m_gridOrigin = edgeExtents.min;
+		// Size grid to approximately one edge per cell.
+		const Vector2 extentsSize(edgeExtents.max - edgeExtents.min);
+		m_cellSize = min(extentsSize.x, extentsSize.y) / sqrtf((float)edgeCount);
+		m_gridWidth = uint32_t(ceilf(extentsSize.x / m_cellSize));
+		m_gridHeight = uint32_t(ceilf(extentsSize.y / m_cellSize));
+		// Insert edges into cells.
+		m_cellDataOffsets.resize(m_gridWidth * m_gridHeight);
+		for (uint32_t i = 0; i < m_cellDataOffsets.size(); i++)
+			m_cellDataOffsets[i] = UINT32_MAX;
+		m_cellData.clear();
+		m_cellData.reserve(edgeCount * 2);
+		for (uint32_t i = 0; i < edgeCount; i++) {
+			const uint32_t edge = m_edges[i];
+			edgeExtents.reset();
+			edgeExtents.add(m_positions[meshEdgeIndex0(edge)]);
+			edgeExtents.add(m_positions[meshEdgeIndex1(edge)]);
+			const uint32_t cellX1 = clamp(uint32_t((edgeExtents.min.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
+			const uint32_t cellX2 = clamp(uint32_t((edgeExtents.max.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
+			const uint32_t cellY1 = clamp(uint32_t((edgeExtents.min.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
+			const uint32_t cellY2 = clamp(uint32_t((edgeExtents.max.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
+			for (uint32_t y = cellY1; y <= cellY2; y++) {
+				for (uint32_t x = cellX1; x <= cellX2; x++) {
+					const uint32_t cell = x + y * m_gridWidth;
+					uint32_t offset = m_cellDataOffsets[cell];
+					if (offset == UINT32_MAX)
+						m_cellDataOffsets[cell] = m_cellData.size();
+					else {
+						for (;;) {
+							uint32_t &nextOffset = m_cellData[offset + 1];
+							if (nextOffset == UINT32_MAX) {
+								nextOffset = m_cellData.size();
+								break;
+							}
+							offset = nextOffset;
+						}
+					}
+					m_cellData.push_back(edge);
+					m_cellData.push_back(UINT32_MAX);
+				}
+			}
+		}
+	}
+
+	bool edgesIntersect(uint32_t edge1, uint32_t edge2, float epsilon) const
+	{
+		if (edge1 == edge2)
+			return false;
+		const uint32_t ai[2] = { meshEdgeIndex0(edge1), meshEdgeIndex1(edge1) };
+		const uint32_t bi[2] = { meshEdgeIndex0(edge2), meshEdgeIndex1(edge2) };
+		// Ignore connected edges, since they can't intersect (only overlap), and may be detected as false positives.
+		if (ai[0] == bi[0] || ai[0] == bi[1] || ai[1] == bi[0] || ai[1] == bi[1])
+			return false;
+		return linesIntersect(m_positions[ai[0]], m_positions[ai[1]], m_positions[bi[0]], m_positions[bi[1]], epsilon);
+	}
+
+	Array<uint32_t> m_edges;
+	const Vector2 *m_positions;
+	float m_cellSize;
+	Vector2 m_gridOrigin;
+	uint32_t m_gridWidth, m_gridHeight; // in cells
+	Array<uint32_t> m_cellDataOffsets;
+	Array<uint32_t> m_cellData;
+	Array<uint32_t> m_tempEdges;
+};
+
 struct UvMeshChart
 {
 	Array<uint32_t> faces;
@@ -4447,177 +4591,6 @@ struct PriorityQueue
 	Array<Pair> pairs;
 };
 
-class ChartBoundary
-{
-public:
-	ChartBoundary() {}
-
-	void reset(const Vector2 *texcoords)
-	{
-		m_edges.clear();
-		m_texcoords = texcoords;
-	}
-
-	void append(uint32_t edge)
-	{
-		m_edges.push_back(edge);
-	}
-
-	bool computeIntersection(float epsilon)
-	{
-		const uint32_t edgeCount = m_edges.size();
-		const bool bruteForce = edgeCount <= 4;
-		if (!bruteForce)
-			createBVH();
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			const uint32_t edge1 = m_edges[i];
-			if (bruteForce) {
-				for (uint32_t j = 0; j < edgeCount; j++) {
-					const uint32_t edge2 = m_edges[j];
-					if (computeEdgeIntersection(edge1, edge2, epsilon))
-						return true;
-				}
-			} else {
-				Extents2 extents;
-				extents.reset();
-				extents.add(m_texcoords[meshEdgeIndex0(edge1)]);
-				extents.add(m_texcoords[meshEdgeIndex1(edge1)]);
-				if (computeBVHIntersection(edge1, extents, epsilon, 0)) {
-					return true;
-				}
-			}
-		}
-		return false;
-	}
-
-private:
-	struct BVHNode
-	{
-		Extents2 extents;
-		uint32_t firstEdge, edgeCount;
-		uint32_t children[2];
-	};
-
-	void createBVH()
-	{
-		m_bvhNodes.clear();
-		m_bvhEdges.clear();
-		m_bvhTempEdges.resize(m_edges.size());
-		memcpy(m_bvhTempEdges.data(), m_edges.data(), m_edges.size() * sizeof(uint32_t));
-		createBVHNode(0, m_bvhTempEdges.size(), 0);
-	}
-
-	uint32_t createBVHNode(uint32_t firstEdge, uint32_t edgeCount, int depth)
-	{
-		const uint32_t nodeIndex = m_bvhNodes.size();
-		m_bvhNodes.push_back(BVHNode());
-		BVHNode *node = &m_bvhNodes[nodeIndex];
-		// Compute extents.
-		node->extents.reset();
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			const uint32_t edge = m_bvhTempEdges[firstEdge + i];
-			node->extents.add(m_texcoords[meshEdgeIndex0(edge)]);
-			node->extents.add(m_texcoords[meshEdgeIndex1(edge)]);
-		}
-		if (depth < 8) {
-			// Find splitting axis and position.
-			// Position is closest point to midpoint of axis.
-			const int axis = depth % 2; // 0 = x, 1 = y.
-			const float midpoint = axis == 0 ? node->extents.midpoint().x : node->extents.midpoint().y;
-			float split = midpoint, closestDistance = FLT_MAX;
-			for (uint32_t i = 0; i < edgeCount; i++) {
-				const uint32_t edge = m_bvhTempEdges[firstEdge + i];
-				const Vector2 &v1 = m_texcoords[meshEdgeIndex0(edge)];
-				const Vector2 &v2 = m_texcoords[meshEdgeIndex1(edge)];
-				const float v[2] = { axis == 0 ? min(v1.x, v2.x) : min(v1.y, v2.y), axis == 0 ? max(v1.x, v2.x) : max(v1.y, v2.y) };
-				for (int j = 0; j < 2; j++) {
-					const float d = fabsf(v[j] - midpoint);
-					if (d < closestDistance) {
-						// Move split slightly so the edge lies entirely on one side of it.
-						closestDistance = d;
-						split = v[j] + (j == 0 ? FLT_EPSILON : -FLT_EPSILON);
-					}
-				}
-			}
-			// Assign edges to children based on split.
-			uint32_t childrenFirstEdges[2], childrenEdgeCounts[2];
-			for (int i = 0; i < 2; i++) {
-				childrenFirstEdges[i] = m_bvhTempEdges.size();
-				childrenEdgeCounts[i] = 0;
-				for (uint32_t j = 0; j < edgeCount; j++) {
-					const uint32_t edge = m_bvhTempEdges[firstEdge + j];
-					const Vector2 &v1 = m_texcoords[meshEdgeIndex0(edge)];
-					const Vector2 &v2 = m_texcoords[meshEdgeIndex1(edge)];
-					const float a1 = axis == 0 ? v1.x : v1.y;
-					const float a2 = axis == 0 ? v2.x : v2.y;
-					if (i == 0 && a1 > split && a2 > split)
-						continue;
-					if (i == 1 && a1 < split && a2 < split)
-						continue;
-					m_bvhTempEdges.push_back(edge);
-					childrenEdgeCounts[i]++;
-				}
-			}
-			// Give up and create a leaf instead if splitting fails.
-			if (childrenEdgeCounts[0] != edgeCount && childrenEdgeCounts[1] != edgeCount && childrenEdgeCounts[0] != 0 && childrenEdgeCounts[1] != 0) {
-				node->firstEdge = node->edgeCount = 0;
-				const uint32_t c1 = createBVHNode(childrenFirstEdges[0], childrenEdgeCounts[0], depth + 1);
-				const uint32_t c2 = createBVHNode(childrenFirstEdges[1], childrenEdgeCounts[1], depth + 1);
-				// Creating child nodes may reallocate m_bvhNodes, invalidating node pointer, so refresh it.
-				node = &m_bvhNodes[nodeIndex];
-				node->children[0] = c1;
-				node->children[1] = c2;
-				return nodeIndex;
-			}
-		}
-		// Create leaf.
-		node->firstEdge = m_bvhEdges.size();
-		node->edgeCount = edgeCount;
-		for (uint32_t i = 0; i < edgeCount; i++)
-			m_bvhEdges.push_back(m_bvhTempEdges[firstEdge + i]);
-		node->children[0] = node->children[1] = UINT32_MAX;
-		return nodeIndex;
-	}
-
-	bool computeBVHIntersection(uint32_t edge, Extents2 edgeExtents, float epsilon, uint32_t nodeIndex) const
-	{
-		const BVHNode &node = m_bvhNodes[nodeIndex];
-		if (!Extents2::intersect(edgeExtents, node.extents))
-			return false;
-		if (node.children[0] != UINT32_MAX) {
-			if (computeBVHIntersection(edge, edgeExtents, epsilon, node.children[0]))
-				return true;
-			if (computeBVHIntersection(edge, edgeExtents, epsilon, node.children[1]))
-				return true;
-		} else {
-			for (uint32_t i = 0; i < node.edgeCount; i++) {
-				const uint32_t edge2 = m_bvhEdges[node.firstEdge + i];
-				if (computeEdgeIntersection(edge, edge2, epsilon))
-					return true;
-			}
-		}
-		return false;
-	}
-
-	bool computeEdgeIntersection(uint32_t edge1, uint32_t edge2, float epsilon) const
-	{
-		if (edge1 == edge2)
-			return false;
-		const uint32_t ai[2] = { meshEdgeIndex0(edge1), meshEdgeIndex1(edge1) };
-		const uint32_t bi[2] = { meshEdgeIndex0(edge2), meshEdgeIndex1(edge2) };
-		// Ignore connected edges, since they can't intersect (only overlap), and may be detected as false positives.
-		if (ai[0] == bi[0] || ai[0] == bi[1] || ai[1] == bi[0] || ai[1] == bi[1])
-			return false;
-		return linesIntersect(m_texcoords[ai[0]], m_texcoords[ai[1]], m_texcoords[bi[0]], m_texcoords[bi[1]], epsilon);
-	}
-
-	Array<uint32_t> m_edges;
-	const Vector2 *m_texcoords;
-	Array<BVHNode> m_bvhNodes;
-	Array<uint32_t> m_bvhEdges;
-	Array<uint32_t> m_bvhTempEdges;
-};
-
 struct Chart
 {
 	int id = -1;
@@ -5058,16 +5031,16 @@ private:
 		if (flippedFaceCount != 0 && flippedFaceCount != faceCount)
 			return false;
 		// Check for boundary intersection in the parameterization.
-		m_chartBoundary.reset(m_texcoords.data());
+		m_uniformGrid.reset(m_texcoords.data());
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
 			for (uint32_t j = 0; j < 3; j++) {
 				const uint32_t edge = f * 3 + j;
 				if (isChartBoundaryEdge(chart, edge))
-					m_chartBoundary.append(edge);
+					m_uniformGrid.append(edge);
 			}
 		}
-		if (m_chartBoundary.computeIntersection(m_mesh->epsilon()))
+		if (m_uniformGrid.anyEdgeIntersects(m_mesh->epsilon()))
 			return false;
 		return true;
 	}
@@ -5416,7 +5389,7 @@ private:
 	Array<uint32_t> m_nextPlanarRegionFace;
 	Array<uint32_t> m_facePlanarRegionId;
 	Array<Vector3> m_tempPoints;
-	ChartBoundary m_chartBoundary;
+	UniformGrid2 m_uniformGrid;
 };
 
 } // namespace segment
