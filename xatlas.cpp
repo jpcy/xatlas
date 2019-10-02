@@ -3862,10 +3862,11 @@ private:
 class UniformGrid2
 {
 public:
-	void reset(const Vector2 *positions)
+	void reset(const Vector2 *positions, const uint32_t *indices = nullptr)
 	{
 		m_edges.clear();
 		m_positions = positions;
+		m_indices = indices;
 	}
 
 	void append(uint32_t edge)
@@ -3876,9 +3877,9 @@ public:
 	bool anyEdgeIntersects(float epsilon)
 	{
 		const uint32_t edgeCount = m_edges.size();
-		const bool bruteForce = edgeCount <= 4;
+		bool bruteForce = edgeCount <= 4;
 		if (!bruteForce)
-			createGrid();
+			bruteForce = !createGrid();
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			const uint32_t edge1 = m_edges[i];
 			if (bruteForce) {
@@ -3891,8 +3892,8 @@ public:
 				m_tempEdges.clear();
 				Extents2 edgeExtents;
 				edgeExtents.reset();
-				edgeExtents.add(m_positions[meshEdgeIndex0(edge1)]);
-				edgeExtents.add(m_positions[meshEdgeIndex1(edge1)]);
+				edgeExtents.add(edgePosition0(edge1));
+				edgeExtents.add(edgePosition0(edge1));
 				const uint32_t cellX1 = clamp(uint32_t((edgeExtents.min.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
 				const uint32_t cellX2 = clamp(uint32_t((edgeExtents.max.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
 				const uint32_t cellY1 = clamp(uint32_t((edgeExtents.min.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
@@ -3926,7 +3927,7 @@ public:
 	}
 
 private:
-	void createGrid()
+	bool createGrid()
 	{
 		// Compute edge extents. Min will be the grid origin.
 		const uint32_t edgeCount = m_edges.size();
@@ -3934,15 +3935,19 @@ private:
 		edgeExtents.reset();
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			const uint32_t edge = m_edges[i];
-			edgeExtents.add(m_positions[meshEdgeIndex0(edge)]);
-			edgeExtents.add(m_positions[meshEdgeIndex1(edge)]);
+			edgeExtents.add(edgePosition0(edge));
+			edgeExtents.add(edgePosition1(edge));
 		}
 		m_gridOrigin = edgeExtents.min;
 		// Size grid to approximately one edge per cell.
 		const Vector2 extentsSize(edgeExtents.max - edgeExtents.min);
 		m_cellSize = min(extentsSize.x, extentsSize.y) / sqrtf((float)edgeCount);
+		if (m_cellSize <= 0.0f)
+			return false;
 		m_gridWidth = uint32_t(ceilf(extentsSize.x / m_cellSize));
 		m_gridHeight = uint32_t(ceilf(extentsSize.y / m_cellSize));
+		if (m_gridWidth == 0 || m_gridHeight == 0)
+			return false;
 		// Insert edges into cells.
 		m_cellDataOffsets.resize(m_gridWidth * m_gridHeight);
 		for (uint32_t i = 0; i < m_cellDataOffsets.size(); i++)
@@ -3952,8 +3957,8 @@ private:
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			const uint32_t edge = m_edges[i];
 			edgeExtents.reset();
-			edgeExtents.add(m_positions[meshEdgeIndex0(edge)]);
-			edgeExtents.add(m_positions[meshEdgeIndex1(edge)]);
+			edgeExtents.add(edgePosition0(edge));
+			edgeExtents.add(edgePosition1(edge));
 			const uint32_t cellX1 = clamp(uint32_t((edgeExtents.min.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
 			const uint32_t cellX2 = clamp(uint32_t((edgeExtents.max.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
 			const uint32_t cellY1 = clamp(uint32_t((edgeExtents.min.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
@@ -3979,22 +3984,39 @@ private:
 				}
 			}
 		}
+		return true;
 	}
 
 	bool edgesIntersect(uint32_t edge1, uint32_t edge2, float epsilon) const
 	{
 		if (edge1 == edge2)
 			return false;
-		const uint32_t ai[2] = { meshEdgeIndex0(edge1), meshEdgeIndex1(edge1) };
-		const uint32_t bi[2] = { meshEdgeIndex0(edge2), meshEdgeIndex1(edge2) };
+		const uint32_t ai[2] = { vertexAt(meshEdgeIndex0(edge1)), vertexAt(meshEdgeIndex1(edge1)) };
+		const uint32_t bi[2] = { vertexAt(meshEdgeIndex0(edge2)), vertexAt(meshEdgeIndex1(edge2)) };
 		// Ignore connected edges, since they can't intersect (only overlap), and may be detected as false positives.
 		if (ai[0] == bi[0] || ai[0] == bi[1] || ai[1] == bi[0] || ai[1] == bi[1])
 			return false;
 		return linesIntersect(m_positions[ai[0]], m_positions[ai[1]], m_positions[bi[0]], m_positions[bi[1]], epsilon);
 	}
 
+	Vector2 edgePosition0(uint32_t edge) const
+	{
+		return m_positions[vertexAt(meshEdgeIndex0(edge))];
+	}
+
+	Vector2 edgePosition1(uint32_t edge) const
+	{
+		return m_positions[vertexAt(meshEdgeIndex1(edge))];
+	}
+
+	uint32_t vertexAt(uint32_t index) const
+	{
+		return m_indices ? m_indices[index] : index;
+	}
+
 	Array<uint32_t> m_edges;
 	const Vector2 *m_positions;
+	const uint32_t *m_indices; // Optional
 	float m_cellSize;
 	Vector2 m_gridOrigin;
 	uint32_t m_gridWidth, m_gridHeight; // in cells
@@ -5815,25 +5837,13 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 {
 	XA_DEBUG_ASSERT(mesh != nullptr);
 	ParameterizationQuality quality;
+	UniformGrid2 boundaryGrid;
+	boundaryGrid.reset(mesh->texcoords(), mesh->indices());
 	const Array<uint32_t> &boundaryEdges = mesh->boundaryEdges();
 	const uint32_t boundaryEdgeCount = boundaryEdges.size();
-	for (uint32_t i = 0; i < boundaryEdgeCount; i++) {
-		const uint32_t edge1 = boundaryEdges[i];
-		for (uint32_t j = i + 1; j < boundaryEdgeCount; j++) {
-			const uint32_t edge2 = boundaryEdges[j];
-			const uint32_t v1[] = { mesh->vertexAt(meshEdgeIndex0(edge1)), mesh->vertexAt(meshEdgeIndex1(edge1)) };
-			const uint32_t v2[] = { mesh->vertexAt(meshEdgeIndex0(edge2)), mesh->vertexAt(meshEdgeIndex1(edge2)) };
-			// Skip edges that share a vertex. They can't intersect.
-			if (v1[0] == v2[0] || v1[1] == v2[0] || v1[0] == v2[1] || v1[1] == v2[1])
-				continue;
-			if (linesIntersect(mesh->texcoord(v1[0]), mesh->texcoord(v1[1]), mesh->texcoord(v2[0]), mesh->texcoord(v2[1]), mesh->epsilon())) {
-				quality.boundaryIntersection = true;
-				break;
-			}
-		}
-		if (quality.boundaryIntersection)
-			break;
-	}
+	for (uint32_t i = 0; i < boundaryEdgeCount; i++)
+		boundaryGrid.append(boundaryEdges[i]);
+	quality.boundaryIntersection = boundaryGrid.anyEdgeIntersects(mesh->epsilon());
 	if (flippedFaces)
 		flippedFaces->clear();
 	for (uint32_t f = 0; f < faceCount; f++) {
