@@ -5833,11 +5833,11 @@ struct ParameterizationQuality
 	bool boundaryIntersection = false;
 };
 
-static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh, uint32_t faceCount, Array<uint32_t> *flippedFaces)
+static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh, uint32_t faceCount, Array<uint32_t> *flippedFaces, ThreadLocal<UniformGrid2> *uniformGrid)
 {
 	XA_DEBUG_ASSERT(mesh != nullptr);
 	ParameterizationQuality quality;
-	UniformGrid2 boundaryGrid;
+	UniformGrid2 &boundaryGrid = uniformGrid->get();
 	boundaryGrid.reset(mesh->texcoords(), mesh->indices());
 	const Array<uint32_t> &boundaryEdges = mesh->boundaryEdges();
 	const uint32_t boundaryEdgeCount = boundaryEdges.size();
@@ -6132,23 +6132,23 @@ public:
 	Mesh *unifiedMesh() { return m_unifiedMesh; }
 	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const { return m_chartToOriginalMap[i]; }
 
-	void evaluateOrthoParameterizationQuality()
+	void evaluateOrthoParameterizationQuality(ThreadLocal<UniformGrid2> *uniformGrid)
 	{
 		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
-		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, nullptr);
+		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, nullptr, uniformGrid);
 		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 		// Use orthogonal parameterization if quality is acceptable.
 		if (!m_paramQuality.boundaryIntersection && m_paramQuality.geometricArea > 0.0f && m_paramQuality.stretchMetric <= 1.1f && m_paramQuality.maxStretchMetric <= 1.25f)
 			m_isOrtho = true;
 	}
 
-	void evaluateParameterizationQuality()
+	void evaluateParameterizationQuality(ThreadLocal<UniformGrid2> *uniformGrid)
 	{
 		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, &m_paramFlippedFaces);
 #else
-		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, nullptr);
+		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, nullptr, uniformGrid);
 #endif
 		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 	}
@@ -6229,6 +6229,7 @@ struct ParameterizeChartTaskArgs
 {
 	Chart *chart;
 	ParameterizeFunc func;
+	ThreadLocal<UniformGrid2> *uniformGrid;
 };
 
 static void runParameterizeChartTask(void *userData)
@@ -6244,7 +6245,7 @@ static void runParameterizeChartTask(void *userData)
 			mesh->texcoord(i) = Vector2(dot(basis.tangent, mesh->position(i)), dot(basis.bitangent, mesh->position(i)));
 	}
 	XA_PROFILE_END(parameterizeChartsOrthogonal)
-	args->chart->evaluateOrthoParameterizationQuality();
+	args->chart->evaluateOrthoParameterizationQuality(args->uniformGrid);
 	if (!args->chart->isOrtho() && !args->chart->isPlanar()) {
 		XA_PROFILE_START(parameterizeChartsLSCM)
 		if (args->func)
@@ -6252,7 +6253,7 @@ static void runParameterizeChartTask(void *userData)
 		else
 			computeLeastSquaresConformalMap(mesh);
 		XA_PROFILE_END(parameterizeChartsLSCM)
-		args->chart->evaluateParameterizationQuality();
+		args->chart->evaluateParameterizationQuality(args->uniformGrid);
 	}
 	// @@ Check that parameterization quality is above a certain threshold.
 	// Transfer parameterization from unified mesh to chart mesh.
@@ -6472,7 +6473,7 @@ public:
 #endif
 	}
 
-	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func)
+	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *uniformGrid)
 	{
 		const uint32_t chartCount = m_chartArray.size();
 		Array<ParameterizeChartTaskArgs> taskArgs;
@@ -6482,6 +6483,7 @@ public:
 			ParameterizeChartTaskArgs &args = taskArgs[i];
 			args.chart = m_chartArray[i];
 			args.func = func;
+			args.uniformGrid = uniformGrid;
 			Task task;
 			task.userData = &args;
 			task.func = runParameterizeChartTask;
@@ -6547,6 +6549,7 @@ public:
 			ParameterizeChartTaskArgs &args = taskArgs[i - chartCount];
 			args.chart = m_chartArray[i];
 			args.func = func;
+			args.uniformGrid = uniformGrid;
 			Task task;
 			task.userData = &args;
 			task.func = runParameterizeChartTask;
@@ -6659,6 +6662,7 @@ struct ParameterizeChartsTaskArgs
 	TaskScheduler *taskScheduler;
 	ChartGroup *chartGroup;
 	ParameterizeFunc func;
+	ThreadLocal<UniformGrid2> *uniformGrid;
 	Progress *progress;
 };
 
@@ -6668,7 +6672,7 @@ static void runParameterizeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(parameterizeChartsThread)
-	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func);
+	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->uniformGrid);
 	XA_PROFILE_END(parameterizeChartsThread)
 	args->progress->value++;
 	args->progress->update();
@@ -6827,6 +6831,7 @@ public:
 				chartGroupCount++;
 		}
 		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
+		ThreadLocal<UniformGrid2> uniformGrid; // For ParameterizationQuality boundary intersection.
 		Array<ParameterizeChartsTaskArgs> taskArgs;
 		taskArgs.reserve(chartGroupCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
@@ -6835,6 +6840,7 @@ public:
 				args.taskScheduler = taskScheduler;
 				args.chartGroup = m_chartGroups[i];
 				args.func = func;
+				args.uniformGrid = &uniformGrid;
 				args.progress = &progress;
 				taskArgs.push_back(args);
 			}
