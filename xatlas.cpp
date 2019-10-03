@@ -617,6 +617,14 @@ static Vector2 normalize(const Vector2 &v, float epsilon)
 	return n;
 }
 
+static Vector2 normalizeSafe(const Vector2 &v, const Vector2 &fallback, float epsilon)
+{
+	float l = length(v);
+	if (isZero(l, epsilon))
+		return fallback;
+	return v * (1.0f / l);
+}
+
 static bool equal(const Vector2 &v1, const Vector2 &v2, float epsilon)
 {
 	return equal(v1.x, v2.x, epsilon) && equal(v1.y, v2.y, epsilon);
@@ -3890,23 +3898,14 @@ public:
 				}
 			} else {
 				m_tempEdges.clear();
-				Extents2 edgeExtents;
-				edgeExtents.reset();
-				edgeExtents.add(edgePosition0(edge1));
-				edgeExtents.add(edgePosition0(edge1));
-				const uint32_t cellX1 = clamp(uint32_t((edgeExtents.min.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
-				const uint32_t cellX2 = clamp(uint32_t((edgeExtents.max.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
-				const uint32_t cellY1 = clamp(uint32_t((edgeExtents.min.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
-				const uint32_t cellY2 = clamp(uint32_t((edgeExtents.max.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
-				for (uint32_t y = cellY1; y <= cellY2; y++) {
-					for (uint32_t x = cellX1; x <= cellX2; x++) {
-						const uint32_t cell = x + y * m_gridWidth;
-						uint32_t offset = m_cellDataOffsets[cell];
-						while (offset != UINT32_MAX) {
-							const uint32_t edge2 = m_cellData[offset];
-							m_tempEdges.push_back(edge2);
-							offset = m_cellData[offset + 1];
-						}
+				traverse(edgePosition0(edge1), edgePosition1(edge1));
+				for (uint32_t j = 0; j < m_traversedCellOffsets.size(); j++) {
+					const uint32_t cell = m_traversedCellOffsets[j];
+					uint32_t offset = m_cellDataOffsets[cell];
+					while (offset != UINT32_MAX) {
+						const uint32_t edge2 = m_cellData[offset];
+						m_tempEdges.push_back(edge2);
+						offset = m_cellData[offset + 1];
 					}
 				}
 				if (m_tempEdges.isEmpty())
@@ -3956,35 +3955,75 @@ private:
 		m_cellData.reserve(edgeCount * 2);
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			const uint32_t edge = m_edges[i];
-			edgeExtents.reset();
-			edgeExtents.add(edgePosition0(edge));
-			edgeExtents.add(edgePosition1(edge));
-			const uint32_t cellX1 = clamp(uint32_t((edgeExtents.min.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
-			const uint32_t cellX2 = clamp(uint32_t((edgeExtents.max.x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
-			const uint32_t cellY1 = clamp(uint32_t((edgeExtents.min.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
-			const uint32_t cellY2 = clamp(uint32_t((edgeExtents.max.y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
-			for (uint32_t y = cellY1; y <= cellY2; y++) {
-				for (uint32_t x = cellX1; x <= cellX2; x++) {
-					const uint32_t cell = x + y * m_gridWidth;
-					uint32_t offset = m_cellDataOffsets[cell];
-					if (offset == UINT32_MAX)
-						m_cellDataOffsets[cell] = m_cellData.size();
-					else {
-						for (;;) {
-							uint32_t &nextOffset = m_cellData[offset + 1];
-							if (nextOffset == UINT32_MAX) {
-								nextOffset = m_cellData.size();
-								break;
-							}
-							offset = nextOffset;
+			traverse(edgePosition0(edge), edgePosition1(edge));
+			XA_DEBUG_ASSERT(!m_traversedCellOffsets.isEmpty());
+			for (uint32_t j = 0; j < m_traversedCellOffsets.size(); j++) {
+				const uint32_t cell = m_traversedCellOffsets[j];
+				uint32_t offset = m_cellDataOffsets[cell];
+				if (offset == UINT32_MAX)
+					m_cellDataOffsets[cell] = m_cellData.size();
+				else {
+					for (;;) {
+						uint32_t &nextOffset = m_cellData[offset + 1];
+						if (nextOffset == UINT32_MAX) {
+							nextOffset = m_cellData.size();
+							break;
 						}
+						offset = nextOffset;
 					}
-					m_cellData.push_back(edge);
-					m_cellData.push_back(UINT32_MAX);
 				}
+				m_cellData.push_back(edge);
+				m_cellData.push_back(UINT32_MAX);
 			}
 		}
 		return true;
+	}
+
+	// "A Fast Voxel Traversal Algorithm for Ray Tracing"
+	void traverse(Vector2 p1, Vector2 p2)
+	{
+		const Vector2 dir = p2 - p1;
+		const Vector2 normal = normalizeSafe(dir, Vector2(0.0f), kEpsilon);
+		const int stepX = dir.x >= 0 ? 1 : -1;
+		const int stepY = dir.y >= 0 ? 1 : -1;
+		const uint32_t firstCell[2] = { cellX(p1.x), cellY(p1.y) };
+		const uint32_t lastCell[2] = { cellX(p2.x), cellY(p2.y) };
+		float distToNextCellX;
+		if (stepX == 1)
+			distToNextCellX = (firstCell[0] + 1) * m_cellSize - (p1.x - m_gridOrigin.x);
+		else
+			distToNextCellX = (p1.x - m_gridOrigin.x) - firstCell[0] * m_cellSize;
+		float distToNextCellY;
+		if (stepY == 1)
+			distToNextCellY = (firstCell[1] + 1) * m_cellSize - (p1.y - m_gridOrigin.y);
+		else
+			distToNextCellY = (p1.y - m_gridOrigin.y) - firstCell[1] * m_cellSize;
+		float tMaxX, tMaxY, tDeltaX, tDeltaY;
+		if (normal.x > kEpsilon || normal.x < -kEpsilon) {
+			tMaxX = distToNextCellX / normal.x;
+			tDeltaX = m_cellSize / normal.x;
+		}
+		else
+			tMaxX = tDeltaX = 0.0f;
+		if (normal.y > kEpsilon || normal.y < -kEpsilon) {
+			tMaxY = distToNextCellY / normal.y;
+			tDeltaY = m_cellSize / normal.y;
+		}
+		else
+			tMaxY = tDeltaY = 0.0f;
+		m_traversedCellOffsets.clear();
+		m_traversedCellOffsets.push_back(firstCell[0] + firstCell[1] * m_gridWidth);
+		uint32_t currentCell[2] = { firstCell[0], firstCell[1] };
+		while (currentCell[0] != lastCell[0] && currentCell[1] != lastCell[1]) {
+			if (abs(tMaxX) < abs(tMaxY)) {
+				tMaxX += tDeltaX;
+				currentCell[0] += stepX;
+			} else {
+				tMaxY += tDeltaY;
+				currentCell[1] += stepY;
+			}
+			m_traversedCellOffsets.push_back(currentCell[0] + currentCell[1] * m_gridWidth);
+		}
 	}
 
 	bool edgesIntersect(uint32_t edge1, uint32_t edge2, float epsilon) const
@@ -3997,6 +4036,16 @@ private:
 		if (ai[0] == bi[0] || ai[0] == bi[1] || ai[1] == bi[0] || ai[1] == bi[1])
 			return false;
 		return linesIntersect(m_positions[ai[0]], m_positions[ai[1]], m_positions[bi[0]], m_positions[bi[1]], epsilon);
+	}
+
+	uint32_t cellX(float x) const
+	{
+		return clamp(uint32_t((x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
+	}
+
+	uint32_t cellY(float y) const
+	{
+		return clamp(uint32_t((y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
 	}
 
 	Vector2 edgePosition0(uint32_t edge) const
@@ -4023,6 +4072,7 @@ private:
 	Array<uint32_t> m_cellDataOffsets;
 	Array<uint32_t> m_cellData;
 	Array<uint32_t> m_tempEdges;
+	Array<uint32_t> m_traversedCellOffsets;
 };
 
 struct UvMeshChart
