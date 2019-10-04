@@ -3040,7 +3040,14 @@ public:
 	public:
 		ColocalEdgeIterator(const Mesh *mesh, uint32_t vertex0, uint32_t vertex1) : m_mesh(mesh), m_vertex0It(mesh, vertex0), m_vertex1It(mesh, vertex1), m_vertex1(vertex1)
 		{
-			resetElement();
+			do {
+				if (!resetElement()) {
+					advanceVertex1();
+				}
+				else {
+					break;
+				}
+			} while (!isDone());
 		}
 
 		void advance()
@@ -3059,7 +3066,7 @@ public:
 		}
 
 	private:
-		void resetElement()
+		bool resetElement()
 		{
 			m_edge = m_mesh->m_edgeMap.get(Mesh::EdgeKey(m_vertex0It.vertex(), m_vertex1It.vertex()));
 			while (m_edge != UINT32_MAX) {
@@ -3067,8 +3074,10 @@ public:
 					break;
 				m_edge = m_mesh->m_edgeMap.getNext(m_edge);
 			}
-			if (m_edge == UINT32_MAX)
-				advanceVertex1();
+			if (m_edge == UINT32_MAX) {
+				return false;
+			}
+			return true;
 		}
 
 		void advanceElement()
@@ -3084,22 +3093,22 @@ public:
 				advanceVertex1();
 		}
 
-		void advanceVertex0()
-		{
-			m_vertex0It.advance();
-			if (m_vertex0It.isDone())
-				return;
-			m_vertex1It = ColocalVertexIterator(m_mesh, m_vertex1);
-			resetElement();
-		}
-
 		void advanceVertex1()
 		{
-			m_vertex1It.advance();
-			if (m_vertex1It.isDone())
-				advanceVertex0();
-			else
-				resetElement();
+			auto successful = false;
+			while (!successful)	{
+				m_vertex1It.advance();
+				if (m_vertex1It.isDone()) {
+					if (!m_vertex0It.isDone()) {
+						m_vertex0It.advance();
+						m_vertex1It = ColocalVertexIterator(m_mesh, m_vertex1);
+					}
+					else {
+						return;
+					}
+				}
+				successful = resetElement();
+			}
 		}
 
 		bool isIgnoredFace() const
