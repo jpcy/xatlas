@@ -123,6 +123,8 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
+#define XA_DEBUG_EXPORT_BOUNDARY_GRID 0
+#define XA_DEBUG_EXPORT_TGA (XA_DEBUG_EXPORT_ATLAS_IMAGES || XA_DEBUG_EXPORT_BOUNDARY_GRID)
 #define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
 #define XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS 0
@@ -3831,6 +3833,55 @@ private:
 };
 #endif
 
+#if XA_DEBUG_EXPORT_TGA
+const uint8_t TGA_TYPE_RGB = 2;
+const uint8_t TGA_ORIGIN_UPPER = 0x20;
+
+#pragma pack(push, 1)
+struct TgaHeader
+{
+	uint8_t id_length;
+	uint8_t colormap_type;
+	uint8_t image_type;
+	uint16_t colormap_index;
+	uint16_t colormap_length;
+	uint8_t colormap_size;
+	uint16_t x_origin;
+	uint16_t y_origin;
+	uint16_t width;
+	uint16_t height;
+	uint8_t pixel_size;
+	uint8_t flags;
+	enum { Size = 18 };
+};
+#pragma pack(pop)
+
+static void WriteTga(const char *filename, const uint8_t *data, uint32_t width, uint32_t height)
+{
+	XA_DEBUG_ASSERT(sizeof(TgaHeader) == TgaHeader::Size);
+	FILE *f;
+	XA_FOPEN(f, filename, "wb");
+	if (!f)
+		return;
+	TgaHeader tga;
+	tga.id_length = 0;
+	tga.colormap_type = 0;
+	tga.image_type = TGA_TYPE_RGB;
+	tga.colormap_index = 0;
+	tga.colormap_length = 0;
+	tga.colormap_size = 0;
+	tga.x_origin = 0;
+	tga.y_origin = 0;
+	tga.width = (uint16_t)width;
+	tga.height = (uint16_t)height;
+	tga.pixel_size = 24;
+	tga.flags = TGA_ORIGIN_UPPER;
+	fwrite(&tga, sizeof(TgaHeader), 1, f);
+	fwrite(data, sizeof(uint8_t), width * height * 3, f);
+	fclose(f);
+}
+#endif
+
 template<typename T>
 class ThreadLocal
 {
@@ -3885,7 +3936,7 @@ public:
 	bool anyEdgeIntersects(float epsilon)
 	{
 		const uint32_t edgeCount = m_edges.size();
-		bool bruteForce = edgeCount <= 4;
+		bool bruteForce = edgeCount <= 64;
 		if (!bruteForce)
 			bruteForce = !createGrid();
 		for (uint32_t i = 0; i < edgeCount; i++) {
@@ -3924,6 +3975,29 @@ public:
 		}
 		return false;
 	}
+
+#if XA_DEBUG_EXPORT_BOUNDARY_GRID
+	void debugExport(const char *filename)
+	{
+		Array<uint8_t> image;
+		image.resize(m_gridWidth * m_gridHeight * 3);
+		for (uint32_t y = 0; y < m_gridHeight; y++) {
+			for (uint32_t x = 0; x < m_gridWidth; x++) {
+				uint8_t *bgr = &image[(x + y * m_gridWidth) * 3];
+				bgr[0] = bgr[1] = bgr[2] = 32;
+				uint32_t offset = m_cellDataOffsets[x + y * m_gridWidth];
+				while (offset != UINT32_MAX) {
+					const uint32_t edge2 = m_cellData[offset];
+					srand(edge2);
+					for (uint32_t i = 0; i < 3; i++)
+						bgr[i] = uint8_t(bgr[i] * 0.5f + (rand() % 255) * 0.5f);
+					offset = m_cellData[offset + 1];
+				}
+			}
+		}
+		WriteTga(filename, image.data(), m_gridWidth, m_gridHeight);
+	}
+#endif
 
 private:
 	bool createGrid()
@@ -4000,28 +4074,38 @@ private:
 			distToNextCellY = (p1.y - m_gridOrigin.y) - firstCell[1] * m_cellSize;
 		float tMaxX, tMaxY, tDeltaX, tDeltaY;
 		if (normal.x > kEpsilon || normal.x < -kEpsilon) {
-			tMaxX = distToNextCellX / normal.x;
-			tDeltaX = m_cellSize / normal.x;
+			tMaxX = (distToNextCellX * stepX) / normal.x;
+			tDeltaX = (m_cellSize * stepX) / normal.x;
 		}
 		else
-			tMaxX = tDeltaX = 0.0f;
+			tMaxX = tDeltaX = FLT_MAX;
 		if (normal.y > kEpsilon || normal.y < -kEpsilon) {
-			tMaxY = distToNextCellY / normal.y;
-			tDeltaY = m_cellSize / normal.y;
+			tMaxY = (distToNextCellY * stepY) / normal.y;
+			tDeltaY = (m_cellSize * stepY) / normal.y;
 		}
 		else
-			tMaxY = tDeltaY = 0.0f;
+			tMaxY = tDeltaY = FLT_MAX;
 		m_traversedCellOffsets.clear();
 		m_traversedCellOffsets.push_back(firstCell[0] + firstCell[1] * m_gridWidth);
 		uint32_t currentCell[2] = { firstCell[0], firstCell[1] };
-		while (currentCell[0] != lastCell[0] && currentCell[1] != lastCell[1]) {
-			if (abs(tMaxX) < abs(tMaxY)) {
+		while (!(currentCell[0] == lastCell[0] && currentCell[1] == lastCell[1])) {
+			if (tMaxX < tMaxY) {
 				tMaxX += tDeltaX;
 				currentCell[0] += stepX;
 			} else {
 				tMaxY += tDeltaY;
 				currentCell[1] += stepY;
 			}
+			if (currentCell[0] >= m_gridWidth || currentCell[1] >= m_gridHeight)
+				break;
+			if (stepX == 0 && currentCell[0] < lastCell[0])
+				break;
+			if (stepX == 1 && currentCell[0] > lastCell[0])
+				break;
+			if (stepY == 0 && currentCell[1] < lastCell[1])
+				break;
+			if (stepY == 1 && currentCell[1] > lastCell[1])
+				break;
 			m_traversedCellOffsets.push_back(currentCell[0] + currentCell[1] * m_gridWidth);
 		}
 	}
@@ -5894,6 +5978,13 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 	for (uint32_t i = 0; i < boundaryEdgeCount; i++)
 		boundaryGrid.append(boundaryEdges[i]);
 	quality.boundaryIntersection = boundaryGrid.anyEdgeIntersects(mesh->epsilon());
+#if XA_DEBUG_EXPORT_BOUNDARY_GRID
+	static int exportIndex = 0;
+	char filename[256];
+	XA_SPRINTF(filename, sizeof(filename), "debug_boundary_grid_%03d.tga", exportIndex);
+	boundaryGrid.debugExport(filename);
+	exportIndex++;
+#endif
 	if (flippedFaces)
 		flippedFaces->clear();
 	for (uint32_t f = 0; f < faceCount; f++) {
@@ -6923,55 +7014,6 @@ private:
 } // namespace param
 
 namespace pack {
-
-#if XA_DEBUG_EXPORT_ATLAS_IMAGES
-const uint8_t TGA_TYPE_RGB = 2;
-const uint8_t TGA_ORIGIN_UPPER = 0x20;
-
-#pragma pack(push, 1)
-struct TgaHeader
-{
-	uint8_t id_length;
-	uint8_t colormap_type;
-	uint8_t image_type;
-	uint16_t colormap_index;
-	uint16_t colormap_length;
-	uint8_t colormap_size;
-	uint16_t x_origin;
-	uint16_t y_origin;
-	uint16_t width;
-	uint16_t height;
-	uint8_t pixel_size;
-	uint8_t flags;
-	enum { Size = 18 };
-};
-#pragma pack(pop)
-
-static void WriteTga(const char *filename, const uint8_t *data, uint32_t width, uint32_t height)
-{
-	XA_DEBUG_ASSERT(sizeof(TgaHeader) == TgaHeader::Size);
-	FILE *f;
-	XA_FOPEN(f, filename, "wb");
-	if (!f)
-		return;
-	TgaHeader tga;
-	tga.id_length = 0;
-	tga.colormap_type = 0;
-	tga.image_type = TGA_TYPE_RGB;
-	tga.colormap_index = 0;
-	tga.colormap_length = 0;
-	tga.colormap_size = 0;
-	tga.x_origin = 0;
-	tga.y_origin = 0;
-	tga.width = (uint16_t)width;
-	tga.height = (uint16_t)height;
-	tga.pixel_size = 24;
-	tga.flags = TGA_ORIGIN_UPPER;
-	fwrite(&tga, sizeof(TgaHeader), 1, f);
-	fwrite(data, sizeof(uint8_t), width * height * 3, f);
-	fclose(f);
-}
-#endif
 
 class AtlasImage
 {
