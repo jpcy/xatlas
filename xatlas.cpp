@@ -3926,18 +3926,47 @@ public:
 		m_edges.clear();
 		m_positions = positions;
 		m_indices = indices;
+		m_cellDataOffsets.clear();
 	}
 
 	void append(uint32_t edge)
 	{
+		XA_DEBUG_ASSERT(m_cellDataOffsets.isEmpty());
 		m_edges.push_back(edge);
 	}
 
-	bool anyEdgeIntersects(float epsilon)
+	bool intersect(Vector2 v1, Vector2 v2, float epsilon)
 	{
 		const uint32_t edgeCount = m_edges.size();
 		bool bruteForce = edgeCount <= 64;
-		if (!bruteForce)
+		if (!bruteForce && m_cellDataOffsets.isEmpty())
+			bruteForce = !createGrid();
+		if (bruteForce) {
+			for (uint32_t j = 0; j < edgeCount; j++) {
+				const uint32_t edge = m_edges[j];
+				if (linesIntersect(v1, v2, edgePosition0(edge), edgePosition1(edge), epsilon))
+					return true;
+			}
+		} else {
+			computePotentialEdges(v1, v2);
+			uint32_t prevEdge = UINT32_MAX;
+			for (uint32_t j = 0; j < m_potentialEdges.size(); j++) {
+				const uint32_t edge = m_potentialEdges[j];
+				if (edge == prevEdge)
+					continue;
+				if (linesIntersect(v1, v2, edgePosition0(edge), edgePosition1(edge), epsilon))
+					return true;
+				prevEdge = edge;
+			}
+		}
+		return false;
+	}
+
+	bool intersectSelf(float epsilon)
+	{
+		const uint32_t edgeCount = m_edges.size();
+		bool bruteForce = edgeCount <= 64;
+		if (!bruteForce && m_cellDataOffsets.isEmpty())
 			bruteForce = !createGrid();
 		for (uint32_t i = 0; i < edgeCount; i++) {
 			const uint32_t edge1 = m_edges[i];
@@ -3948,23 +3977,10 @@ public:
 						return true;
 				}
 			} else {
-				m_tempEdges.clear();
-				traverse(edgePosition0(edge1), edgePosition1(edge1));
-				for (uint32_t j = 0; j < m_traversedCellOffsets.size(); j++) {
-					const uint32_t cell = m_traversedCellOffsets[j];
-					uint32_t offset = m_cellDataOffsets[cell];
-					while (offset != UINT32_MAX) {
-						const uint32_t edge2 = m_cellData[offset];
-						m_tempEdges.push_back(edge2);
-						offset = m_cellData[offset + 1];
-					}
-				}
-				if (m_tempEdges.isEmpty())
-					return false;
-				insertionSort(m_tempEdges.data(), m_tempEdges.size());
+				computePotentialEdges(edgePosition0(edge1), edgePosition1(edge1));
 				uint32_t prevEdge = UINT32_MAX;
-				for (uint32_t j = 0; j < m_tempEdges.size(); j++) {
-					const uint32_t edge2 = m_tempEdges[j];
+				for (uint32_t j = 0; j < m_potentialEdges.size(); j++) {
+					const uint32_t edge2 = m_potentialEdges[j];
 					if (edge2 == prevEdge)
 						continue;
 					if (edgesIntersect(edge1, edge2, epsilon))
@@ -4051,6 +4067,24 @@ private:
 			}
 		}
 		return true;
+	}
+
+	void computePotentialEdges(Vector2 p1, Vector2 p2)
+	{
+		m_potentialEdges.clear();
+		traverse(p1, p2);
+		for (uint32_t j = 0; j < m_traversedCellOffsets.size(); j++) {
+			const uint32_t cell = m_traversedCellOffsets[j];
+			uint32_t offset = m_cellDataOffsets[cell];
+			while (offset != UINT32_MAX) {
+				const uint32_t edge2 = m_cellData[offset];
+				m_potentialEdges.push_back(edge2);
+				offset = m_cellData[offset + 1];
+			}
+		}
+		if (m_potentialEdges.isEmpty())
+			return;
+		insertionSort(m_potentialEdges.data(), m_potentialEdges.size());
 	}
 
 	// "A Fast Voxel Traversal Algorithm for Ray Tracing"
@@ -4155,7 +4189,7 @@ private:
 	uint32_t m_gridWidth, m_gridHeight; // in cells
 	Array<uint32_t> m_cellDataOffsets;
 	Array<uint32_t> m_cellData;
-	Array<uint32_t> m_tempEdges;
+	Array<uint32_t> m_potentialEdges;
 	Array<uint32_t> m_traversedCellOffsets;
 };
 
@@ -5196,7 +5230,7 @@ private:
 					m_uniformGrid.append(edge);
 			}
 		}
-		if (m_uniformGrid.anyEdgeIntersects(m_mesh->epsilon()))
+		if (m_uniformGrid.intersectSelf(m_mesh->epsilon()))
 			return false;
 		return true;
 	}
@@ -5977,7 +6011,7 @@ static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh
 	const uint32_t boundaryEdgeCount = boundaryEdges.size();
 	for (uint32_t i = 0; i < boundaryEdgeCount; i++)
 		boundaryGrid.append(boundaryEdges[i]);
-	quality.boundaryIntersection = boundaryGrid.anyEdgeIntersects(mesh->epsilon());
+	quality.boundaryIntersection = boundaryGrid.intersectSelf(mesh->epsilon());
 #if XA_DEBUG_EXPORT_BOUNDARY_GRID
 	static int exportIndex = 0;
 	char filename[256];
@@ -7468,6 +7502,7 @@ struct Atlas
 		// Rotated versions swap x and y.
 		BitImage chartImage, chartImageBilinear, chartImagePadding;
 		BitImage chartImageRotated, chartImageBilinearRotated, chartImagePaddingRotated;
+		UniformGrid2 boundaryEdgeGrid;
 		Array<Vector2i> atlasSizes;
 		atlasSizes.push_back(Vector2i(0, 0));
 		int progress = 0;
@@ -7510,7 +7545,7 @@ struct Atlas
 			}
 			// Expand chart by pixels sampled by bilinear interpolation.
 			if (options.bilinear)
-				bilinearExpand(chart, &chartImage, &chartImageBilinear, chart->allowRotate ? &chartImageBilinearRotated : nullptr);
+				bilinearExpand(chart, &chartImage, &chartImageBilinear, chart->allowRotate ? &chartImageBilinearRotated : nullptr, boundaryEdgeGrid);
 			// Expand chart by padding pixels (dilation).
 			if (options.padding > 0) {
 				// Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
@@ -7840,11 +7875,19 @@ private:
 		}
 	}
 
-	void bilinearExpand(const Chart *chart, BitImage *source, BitImage *dest, BitImage *destRotated) const
+	void bilinearExpand(const Chart *chart, BitImage *source, BitImage *dest, BitImage *destRotated, UniformGrid2 &boundaryEdgeGrid) const
 	{
+		boundaryEdgeGrid.reset(chart->vertices, chart->indices);
+		if (chart->boundaryEdges) {
+			const uint32_t edgeCount = chart->boundaryEdges->size();
+			for (uint32_t i = 0; i < edgeCount; i++)
+				boundaryEdgeGrid.append((*chart->boundaryEdges)[i]);
+		} else {
+			for (uint32_t i = 0; i < chart->indexCount; i++)
+				boundaryEdgeGrid.append(i);
+		}
 		const int xOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
 		const int yOffsets[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
-		const uint32_t faceCount = chart->indexCount / 3;
 		for (uint32_t y = 0; y < source->height(); y++) {
 			for (uint32_t x = 0; x < source->width(); x++) {
 				// Copy pixels from source.
@@ -7874,29 +7917,9 @@ private:
 						Vector2(centroid.x + 1.0f, centroid.y + 1.0f),
 						Vector2(centroid.x - 1.0f, centroid.y + 1.0f)
 					};
-					if (chart->boundaryEdges) {
-						const uint32_t edgeCount = chart->boundaryEdges->size();
-						for (uint32_t e = 0; e < edgeCount; e++) {
-							const uint32_t edge = (*chart->boundaryEdges)[e];
-							const Vector2 &v1 = chart->vertices[chart->indices[meshEdgeIndex0(edge)]];
-							const Vector2 &v2 = chart->vertices[chart->indices[meshEdgeIndex1(edge)]];
-							for (uint32_t j = 0; j < 4; j++) {
-								if (linesIntersect(v1, v2, squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
-									goto setPixel;
-							}
-						}
-					} else {
-						for (uint32_t f = 0; f < faceCount; f++) {
-							Vector2 vertices[3];
-							for (uint32_t i = 0; i < 3; i++)
-								vertices[i] = chart->vertices[chart->indices[f * 3 + i]];
-							for (uint32_t i = 0; i < 3; i++) {
-								for (uint32_t j = 0; j < 4; j++) {
-									if (linesIntersect(vertices[i], vertices[(i + 1) % 3], squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
-										goto setPixel;
-								}
-							}
-						}
+					for (uint32_t j = 0; j < 4; j++) {
+						if (boundaryEdgeGrid.intersect(squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
+							goto setPixel;
 					}
 				}
 				continue;
