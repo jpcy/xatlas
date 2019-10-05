@@ -80,6 +80,12 @@ static bool ProgressCallback(xatlas::ProgressCategory::Enum category, int progre
 	return true;
 }
 
+static void RandomColor(uint8_t *color)
+{
+	for (int i = 0; i < 3; i++)
+		color[i] = uint8_t((rand() % 255 + 192) * 0.5f);
+}
+
 static void SetPixel(uint8_t *dest, int destWidth, int x, int y, const uint8_t *color)
 {
 	uint8_t *pixel = &dest[x * 3 + y * (destWidth * 3)];
@@ -236,16 +242,16 @@ int main(int argc, char *argv[])
 			for (uint32_t j = 0; j < mesh.indexCount; j += 3) {
 				int32_t atlasIndex = -1;
 				int verts[3][2];
-				uint8_t color[3];
 				for (int k = 0; k < 3; k++) {
 					const xatlas::Vertex &v = mesh.vertexArray[mesh.indexArray[j + k]];
 					atlasIndex = v.atlasIndex; // The same for every vertex in the triangle.
 					verts[k][0] = int(v.uv[0]);
 					verts[k][1] = int(v.uv[1]);
-					color[k] = rand() % 255;
 				}
 				if (atlasIndex < 0)
 					continue; // Skip triangles that weren't atlased.
+				uint8_t color[3];
+				RandomColor(color);
 				uint8_t *imageData = &outputTrisImage[atlasIndex * imageDataSize];
 				RasterizeTriangle(imageData, atlas->width, verts[0], verts[1], verts[2], color);
 				RasterizeLine(imageData, atlas->width, verts[0], verts[1], white);
@@ -256,9 +262,7 @@ int main(int argc, char *argv[])
 			for (uint32_t j = 0; j < mesh.chartCount; j++) {
 				const xatlas::Chart *chart = &mesh.chartArray[j];
 				uint8_t color[3];
-				color[0] = rand() % 255;
-				color[1] = rand() % 255;
-				color[2] = rand() % 255;
+				RandomColor(color);
 				for (uint32_t k = 0; k < chart->faceCount; k++) {
 					int verts[3][2];
 					for (int l = 0; l < 3; l++) {
