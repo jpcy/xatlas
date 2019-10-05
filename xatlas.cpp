@@ -2179,15 +2179,27 @@ private:
 class BoundingBox2D
 {
 public:
-	Vector2 majorAxis() const { return m_majorAxis; }
-	Vector2 minorAxis() const { return m_minorAxis; }
-	Vector2 minCorner() const { return m_minCorner; }
-	Vector2 maxCorner() const { return m_maxCorner; }
+	Vector2 majorAxis, minorAxis, minCorner, maxCorner;
+
+	void clear()
+	{
+		m_boundaryVertices.clear();
+	}
+
+	void appendBoundaryVertex(Vector2 v)
+	{
+		m_boundaryVertices.push_back(v);
+	}
 
 	// This should compute convex hull and use rotating calipers to find the best box. Currently it uses a brute force method.
-	void compute(const Vector2 *boundaryVertices, uint32_t boundaryVertexCount, const Vector2 *vertices, uint32_t vertexCount)
+	// If vertices is null or vertexCount is 0, the boundary vertices are used.
+	void compute(const Vector2 *vertices = nullptr, uint32_t vertexCount = 0)
 	{
-		convexHull(boundaryVertices, boundaryVertexCount, m_hull, 0.00001f);
+		if (!vertices || vertexCount == 0) {
+			vertices = m_boundaryVertices.data();
+			vertexCount = m_boundaryVertices.size();
+		}
+		convexHull(m_boundaryVertices.data(), m_boundaryVertices.size(), m_hull, 0.00001f);
 		// @@ Ideally I should use rotating calipers to find the best box. Using brute force for now.
 		float best_area = FLT_MAX;
 		Vector2 best_min(0);
@@ -2221,11 +2233,11 @@ public:
 				best_axis = axis;
 			}
 		}
-		m_majorAxis = best_axis;
-		m_minorAxis = Vector2(-best_axis.y, best_axis.x);
-		m_minCorner = best_min;
-		m_maxCorner = best_max;
-		XA_ASSERT(isFinite(m_majorAxis) && isFinite(m_minorAxis) && isFinite(m_minCorner));
+		majorAxis = best_axis;
+		minorAxis = Vector2(-best_axis.y, best_axis.x);
+		minCorner = best_min;
+		maxCorner = best_max;
+		XA_ASSERT(isFinite(majorAxis) && isFinite(minorAxis) && isFinite(minCorner));
 	}
 
 private:
@@ -2292,9 +2304,9 @@ private:
 		output.pop_back();
 	}
 
+	Array<Vector2> m_boundaryVertices;
 	Array<float> m_coords;
 	Array<Vector2> m_top, m_bottom, m_hull;
-	Vector2 m_majorAxis, m_minorAxis, m_minCorner, m_maxCorner;
 };
 
 static uint32_t meshEdgeFace(uint32_t edge) { return edge / 3; }
@@ -7233,21 +7245,18 @@ static void runAddChartTask(void *userData)
 	chart->vertexCount = mesh->vertexCount();
 	chart->allowRotate = true;
 	chart->boundaryEdges = &mesh->boundaryEdges();
-	// Compute list of boundary vertices.
-	Array<Vector2> boundary;
-	boundary.reserve(16);
-	for (uint32_t v = 0; v < chart->vertexCount; v++) {
-		if (mesh->isBoundaryVertex(v))
-			boundary.push_back(mesh->texcoord(v));
-	}
-	XA_DEBUG_ASSERT(boundary.size() > 0);
 	// Compute bounding box of chart.
 	BoundingBox2D &bb = args->boundingBox->get();
-	bb.compute(boundary.data(), boundary.size(), mesh->texcoords(), mesh->vertexCount());
-	chart->majorAxis = bb.majorAxis();
-	chart->minorAxis = bb.minorAxis();
-	chart->minCorner = bb.minCorner();
-	chart->maxCorner = bb.maxCorner();
+	bb.clear();
+	for (uint32_t v = 0; v < chart->vertexCount; v++) {
+		if (mesh->isBoundaryVertex(v))
+			bb.appendBoundaryVertex(mesh->texcoord(v));
+	}
+	bb.compute(mesh->texcoords(), mesh->vertexCount());
+	chart->majorAxis = bb.majorAxis;
+	chart->minorAxis = bb.minorAxis;
+	chart->minCorner = bb.minCorner;
+	chart->maxCorner = bb.maxCorner;
 	XA_PROFILE_END(packChartsAddChartsThread)
 }
 
@@ -7323,8 +7332,6 @@ struct Atlas
 	void addUvMeshCharts(UvMeshInstance *mesh)
 	{
 		BitArray vertexUsed(mesh->texcoords.size());
-		Array<Vector2> boundary;
-		boundary.reserve(16);
 		BoundingBox2D boundingBox;
 		for (uint32_t c = 0; c < mesh->mesh->charts.size(); c++) {
 			UvMeshChart *uvChart = mesh->mesh->charts[c];
@@ -7369,18 +7376,16 @@ struct Atlas
 				const Vector2 bounds = (maxCorner - minCorner) * 0.5f;
 				chart->parametricArea = bounds.x * bounds.y;
 			}
-			// Compute list of boundary vertices.
-			// Using all unique vertices for simplicity, can compute real boundaries if this is too slow.
-			boundary.clear();
-			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++)
-				boundary.push_back(chart->uniqueVertexAt(v));
-			XA_DEBUG_ASSERT(boundary.size() > 0);
 			// Compute bounding box of chart.
-			boundingBox.compute(boundary.data(), boundary.size(), boundary.data(), boundary.size());
-			chart->majorAxis = boundingBox.majorAxis();
-			chart->minorAxis = boundingBox.minorAxis();
-			chart->minCorner = boundingBox.minCorner();
-			chart->maxCorner = boundingBox.maxCorner();
+			// Using all unique vertices for simplicity, can compute real boundaries if this is too slow.
+			boundingBox.clear();
+			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++)
+				boundingBox.appendBoundaryVertex(chart->uniqueVertexAt(v));
+			boundingBox.compute();
+			chart->majorAxis = boundingBox.majorAxis;
+			chart->minorAxis = boundingBox.minorAxis;
+			chart->minCorner = boundingBox.minCorner;
+			chart->maxCorner = boundingBox.maxCorner;
 			m_charts.push_back(chart);
 		}
 	}
