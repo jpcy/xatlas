@@ -5230,16 +5230,16 @@ private:
 		if (flippedFaceCount != 0 && flippedFaceCount != faceCount)
 			return false;
 		// Check for boundary intersection in the parameterization.
-		m_uniformGrid.reset(m_texcoords.data());
+		m_boundaryGrid.reset(m_texcoords.data());
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
 			for (uint32_t j = 0; j < 3; j++) {
 				const uint32_t edge = f * 3 + j;
 				if (isChartBoundaryEdge(chart, edge))
-					m_uniformGrid.append(edge);
+					m_boundaryGrid.append(edge);
 			}
 		}
-		if (m_uniformGrid.intersectSelf(m_mesh->epsilon()))
+		if (m_boundaryGrid.intersectSelf(m_mesh->epsilon()))
 			return false;
 		return true;
 	}
@@ -5588,7 +5588,7 @@ private:
 	Array<uint32_t> m_nextPlanarRegionFace;
 	Array<uint32_t> m_facePlanarRegionId;
 	Array<Vector3> m_tempPoints;
-	UniformGrid2 m_uniformGrid;
+	UniformGrid2 m_boundaryGrid;
 };
 
 } // namespace segment
@@ -5996,146 +5996,169 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 }
 
 // Estimate quality of existing parameterization.
-struct ParameterizationQuality
+struct Quality
 {
+	// computeBoundaryIntersection
+	bool boundaryIntersection = false;
+
+	// computeFlippedFaces
 	uint32_t totalTriangleCount = 0;
 	uint32_t flippedTriangleCount = 0;
 	uint32_t zeroAreaTriangleCount = 0;
-	float parametricArea = 0.0f;
-	float geometricArea = 0.0f;
+
+	// computeMetrics
+	float totalParametricArea = 0.0f;
+	float totalGeometricArea = 0.0f;
 	float stretchMetric = 0.0f;
 	float maxStretchMetric = 0.0f;
 	float conformalMetric = 0.0f;
 	float authalicMetric = 0.0f;
-	bool boundaryIntersection = false;
-};
 
-static ParameterizationQuality calculateParameterizationQuality(const Mesh *mesh, uint32_t faceCount, Array<uint32_t> *flippedFaces, ThreadLocal<UniformGrid2> *uniformGrid)
-{
-	XA_DEBUG_ASSERT(mesh != nullptr);
-	ParameterizationQuality quality;
-	UniformGrid2 &boundaryGrid = uniformGrid->get();
-	boundaryGrid.reset(mesh->texcoords(), mesh->indices());
-	const Array<uint32_t> &boundaryEdges = mesh->boundaryEdges();
-	const uint32_t boundaryEdgeCount = boundaryEdges.size();
-	for (uint32_t i = 0; i < boundaryEdgeCount; i++)
-		boundaryGrid.append(boundaryEdges[i]);
-	quality.boundaryIntersection = boundaryGrid.intersectSelf(mesh->epsilon());
+	void computeBoundaryIntersection(const Mesh *mesh, UniformGrid2 &boundaryGrid)
+	{
+		boundaryGrid.reset(mesh->texcoords(), mesh->indices());
+		const Array<uint32_t> &boundaryEdges = mesh->boundaryEdges();
+		const uint32_t boundaryEdgeCount = boundaryEdges.size();
+		for (uint32_t i = 0; i < boundaryEdgeCount; i++)
+			boundaryGrid.append(boundaryEdges[i]);
+		boundaryIntersection = boundaryGrid.intersectSelf(mesh->epsilon());
 #if XA_DEBUG_EXPORT_BOUNDARY_GRID
-	static int exportIndex = 0;
-	char filename[256];
-	XA_SPRINTF(filename, sizeof(filename), "debug_boundary_grid_%03d.tga", exportIndex);
-	boundaryGrid.debugExport(filename);
-	exportIndex++;
+		static int exportIndex = 0;
+		char filename[256];
+		XA_SPRINTF(filename, sizeof(filename), "debug_boundary_grid_%03d.tga", exportIndex);
+		boundaryGrid.debugExport(filename);
+		exportIndex++;
 #endif
-	if (flippedFaces)
-		flippedFaces->clear();
-	for (uint32_t f = 0; f < faceCount; f++) {
-		Vector3 pos[3];
-		Vector2 texcoord[3];
-		for (int i = 0; i < 3; i++) {
-			const uint32_t v = mesh->vertexAt(f * 3 + i);
-			pos[i] = mesh->position(v);
-			texcoord[i] = mesh->texcoord(v);
-		}
-		quality.totalTriangleCount++;
-		// Evaluate texture stretch metric. See:
-		// - "Texture Mapping Progressive Meshes", Sander, Snyder, Gortler & Hoppe
-		// - "Mesh Parameterization: Theory and Practice", Siggraph'07 Course Notes, Hormann, Levy & Sheffer.
-		const float t1 = texcoord[0].x;
-		const float s1 = texcoord[0].y;
-		const float t2 = texcoord[1].x;
-		const float s2 = texcoord[1].y;
-		const float t3 = texcoord[2].x;
-		const float s3 = texcoord[2].y;
-		float parametricArea = ((s2 - s1) * (t3 - t1) - (s3 - s1) * (t2 - t1)) / 2;
-		if (isZero(parametricArea, kAreaEpsilon)) {
-			quality.zeroAreaTriangleCount++;
-			continue;
-		}
-		if (parametricArea < 0.0f) {
-			// Count flipped triangles.
-			quality.flippedTriangleCount++;
-			if (flippedFaces)
-				flippedFaces->push_back(f);
-			parametricArea = fabsf(parametricArea);
-		}
-		const float geometricArea = length(cross(pos[1] - pos[0], pos[2] - pos[0])) / 2;
-		const Vector3 Ss = (pos[0] * (t2 - t3) + pos[1] * (t3 - t1) + pos[2] * (t1 - t2)) / (2 * parametricArea);
-		const Vector3 St = (pos[0] * (s3 - s2) + pos[1] * (s1 - s3) + pos[2] * (s2 - s1)) / (2 * parametricArea);
-		const float a = dot(Ss, Ss); // E
-		const float b = dot(Ss, St); // F
-		const float c = dot(St, St); // G
-		// Compute eigen-values of the first fundamental form:
-		const float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
-		const float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
-		XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2, kEpsilon));
-		// isometric: sigma1 = sigma2 = 1
-		// conformal: sigma1 / sigma2 = 1
-		// authalic: sigma1 * sigma2 = 1
-		const float rmsStretch = sqrtf((a + c) * 0.5f);
-		const float rmsStretch2 = sqrtf((square(sigma1) + square(sigma2)) * 0.5f);
-		XA_DEBUG_ASSERT(equal(rmsStretch, rmsStretch2, 0.01f));
-		XA_UNUSED(rmsStretch2);
-		quality.stretchMetric += square(rmsStretch) * geometricArea;
-		quality.maxStretchMetric = max(quality.maxStretchMetric, sigma2);
-		if (!isZero(sigma1, 0.000001f)) {
-			// sigma1 is zero when geometricArea is zero.
-			quality.conformalMetric += (sigma2 / sigma1) * geometricArea;
-		}
-		quality.authalicMetric += (sigma1 * sigma2) * geometricArea;
-		// Accumulate total areas.
-		quality.geometricArea += geometricArea;
-		quality.parametricArea += parametricArea;
-		//triangleConformalEnergy(q, p);
 	}
-	if (quality.flippedTriangleCount + quality.zeroAreaTriangleCount == quality.totalTriangleCount) {
-		// If all triangles are flipped, then none are.
+
+	void computeFlippedFaces(const Mesh *mesh, uint32_t faceCount, Array<uint32_t> *flippedFaces)
+	{
+		totalTriangleCount = flippedTriangleCount = zeroAreaTriangleCount = 0;
 		if (flippedFaces)
 			flippedFaces->clear();
-		quality.flippedTriangleCount = 0;
-	}
-	if (quality.flippedTriangleCount > quality.totalTriangleCount / 2)
-	{
-		// If more than half the triangles are flipped, reverse the flipped / not flipped classification.
-		quality.flippedTriangleCount = quality.totalTriangleCount - quality.flippedTriangleCount;
-		if (flippedFaces) {
-			Array<uint32_t> temp;
-			flippedFaces->copyTo(temp);
-			flippedFaces->clear();
-			for (uint32_t f = 0; f < faceCount; f++) {
-				bool match = false;
-				for (uint32_t ff = 0; ff < temp.size(); ff++) {
-					if (temp[ff] == f) {
-						match = true;
-						break;
-					}
-				}
-				if (!match)
+		for (uint32_t f = 0; f < faceCount; f++) {
+			Vector2 texcoord[3];
+			for (int i = 0; i < 3; i++) {
+				const uint32_t v = mesh->vertexAt(f * 3 + i);
+				texcoord[i] = mesh->texcoord(v);
+			}
+			totalTriangleCount++;
+			const float t1 = texcoord[0].x;
+			const float s1 = texcoord[0].y;
+			const float t2 = texcoord[1].x;
+			const float s2 = texcoord[1].y;
+			const float t3 = texcoord[2].x;
+			const float s3 = texcoord[2].y;
+			const float parametricArea = ((s2 - s1) * (t3 - t1) - (s3 - s1) * (t2 - t1)) * 0.5f;
+			if (isZero(parametricArea, kAreaEpsilon)) {
+				zeroAreaTriangleCount++;
+				continue;
+			}
+			if (parametricArea < 0.0f) {
+				// Count flipped triangles.
+				flippedTriangleCount++;
+				if (flippedFaces)
 					flippedFaces->push_back(f);
 			}
 		}
+		if (flippedTriangleCount + zeroAreaTriangleCount == totalTriangleCount) {
+			// If all triangles are flipped, then none are.
+			if (flippedFaces)
+				flippedFaces->clear();
+			flippedTriangleCount = 0;
+		}
+		if (flippedTriangleCount > totalTriangleCount / 2)
+		{
+			// If more than half the triangles are flipped, reverse the flipped / not flipped classification.
+			flippedTriangleCount = totalTriangleCount - flippedTriangleCount;
+			if (flippedFaces) {
+				Array<uint32_t> temp;
+				flippedFaces->copyTo(temp);
+				flippedFaces->clear();
+				for (uint32_t f = 0; f < faceCount; f++) {
+					bool match = false;
+					for (uint32_t ff = 0; ff < temp.size(); ff++) {
+						if (temp[ff] == f) {
+							match = true;
+							break;
+						}
+					}
+					if (!match)
+						flippedFaces->push_back(f);
+				}
+			}
+		}
 	}
-	XA_DEBUG_ASSERT(isFinite(quality.parametricArea) && quality.parametricArea >= 0);
-	XA_DEBUG_ASSERT(isFinite(quality.geometricArea) && quality.geometricArea >= 0);
-	XA_DEBUG_ASSERT(isFinite(quality.stretchMetric));
-	XA_DEBUG_ASSERT(isFinite(quality.maxStretchMetric));
-	XA_DEBUG_ASSERT(isFinite(quality.conformalMetric));
-	XA_DEBUG_ASSERT(isFinite(quality.authalicMetric));
-	if (quality.geometricArea <= 0.0f) {
-		quality.stretchMetric = 0.0f;
-		quality.maxStretchMetric = 0.0f;
-		quality.conformalMetric = 0.0f;
-		quality.authalicMetric = 0.0f;
-	} else {
-		const float normFactor = sqrtf(quality.parametricArea / quality.geometricArea);
-		quality.stretchMetric = sqrtf(quality.stretchMetric / quality.geometricArea) * normFactor;
-		quality.maxStretchMetric  *= normFactor;
-		quality.conformalMetric = sqrtf(quality.conformalMetric / quality.geometricArea);
-		quality.authalicMetric = sqrtf(quality.authalicMetric / quality.geometricArea);
+
+	void computeMetrics(const Mesh *mesh, uint32_t faceCount)
+	{
+		totalGeometricArea = totalParametricArea = 0.0f;
+		stretchMetric = maxStretchMetric = conformalMetric = authalicMetric = 0.0f;
+		for (uint32_t f = 0; f < faceCount; f++) {
+			Vector3 pos[3];
+			Vector2 texcoord[3];
+			for (int i = 0; i < 3; i++) {
+				const uint32_t v = mesh->vertexAt(f * 3 + i);
+				pos[i] = mesh->position(v);
+				texcoord[i] = mesh->texcoord(v);
+			}
+			// Evaluate texture stretch metric. See:
+			// - "Texture Mapping Progressive Meshes", Sander, Snyder, Gortler & Hoppe
+			// - "Mesh Parameterization: Theory and Practice", Siggraph'07 Course Notes, Hormann, Levy & Sheffer.
+			const float t1 = texcoord[0].x;
+			const float s1 = texcoord[0].y;
+			const float t2 = texcoord[1].x;
+			const float s2 = texcoord[1].y;
+			const float t3 = texcoord[2].x;
+			const float s3 = texcoord[2].y;
+			float parametricArea = ((s2 - s1) * (t3 - t1) - (s3 - s1) * (t2 - t1)) * 0.5f;
+			if (isZero(parametricArea, kAreaEpsilon))
+				continue;
+			if (parametricArea < 0.0f)
+				parametricArea = fabsf(parametricArea);
+			const float geometricArea = length(cross(pos[1] - pos[0], pos[2] - pos[0])) / 2;
+			const Vector3 Ss = (pos[0] * (t2 - t3) + pos[1] * (t3 - t1) + pos[2] * (t1 - t2)) / (2 * parametricArea);
+			const Vector3 St = (pos[0] * (s3 - s2) + pos[1] * (s1 - s3) + pos[2] * (s2 - s1)) / (2 * parametricArea);
+			const float a = dot(Ss, Ss); // E
+			const float b = dot(Ss, St); // F
+			const float c = dot(St, St); // G
+										 // Compute eigen-values of the first fundamental form:
+			const float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
+			const float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
+			XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2, kEpsilon));
+			// isometric: sigma1 = sigma2 = 1
+			// conformal: sigma1 / sigma2 = 1
+			// authalic: sigma1 * sigma2 = 1
+			const float rmsStretch = sqrtf((a + c) * 0.5f);
+			const float rmsStretch2 = sqrtf((square(sigma1) + square(sigma2)) * 0.5f);
+			XA_DEBUG_ASSERT(equal(rmsStretch, rmsStretch2, 0.01f));
+			XA_UNUSED(rmsStretch2);
+			stretchMetric += square(rmsStretch) * geometricArea;
+			maxStretchMetric = max(maxStretchMetric, sigma2);
+			if (!isZero(sigma1, 0.000001f)) {
+				// sigma1 is zero when geometricArea is zero.
+				conformalMetric += (sigma2 / sigma1) * geometricArea;
+			}
+			authalicMetric += (sigma1 * sigma2) * geometricArea;
+			// Accumulate total areas.
+			totalGeometricArea += geometricArea;
+			totalParametricArea += parametricArea;
+		}
+		XA_DEBUG_ASSERT(isFinite(totalParametricArea) && totalParametricArea >= 0);
+		XA_DEBUG_ASSERT(isFinite(totalGeometricArea) && totalGeometricArea >= 0);
+		XA_DEBUG_ASSERT(isFinite(stretchMetric));
+		XA_DEBUG_ASSERT(isFinite(maxStretchMetric));
+		XA_DEBUG_ASSERT(isFinite(conformalMetric));
+		XA_DEBUG_ASSERT(isFinite(authalicMetric));
+		if (totalGeometricArea > 0.0f) {
+			const float normFactor = sqrtf(totalParametricArea / totalGeometricArea);
+			stretchMetric = sqrtf(stretchMetric / totalGeometricArea) * normFactor;
+			maxStretchMetric  *= normFactor;
+			conformalMetric = sqrtf(conformalMetric / totalGeometricArea);
+			authalicMetric = sqrtf(authalicMetric / totalGeometricArea);
+		}
 	}
-	return quality;
-}
+};
 
 struct ChartWarningFlags
 {
@@ -6305,7 +6328,7 @@ public:
 	uint32_t warningFlags() const { return m_warningFlags; }
 	uint32_t closedHolesCount() const { return m_closedHolesCount; }
 	uint32_t fixedTJunctionsCount() const { return m_fixedTJunctionsCount; }
-	const ParameterizationQuality &paramQuality() const { return m_paramQuality; }
+	const Quality &quality() const { return m_quality; }
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
 #endif
@@ -6316,24 +6339,28 @@ public:
 	Mesh *unifiedMesh() { return m_unifiedMesh; }
 	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const { return m_chartToOriginalMap[i]; }
 
-	void evaluateOrthoParameterizationQuality(ThreadLocal<UniformGrid2> *uniformGrid)
+	void evaluateOrthoQuality(UniformGrid2 &boundaryGrid)
 	{
 		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
-		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, nullptr, uniformGrid);
+		m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
+		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
+		m_quality.computeMetrics(m_unifiedMesh, m_initialFaceCount);
 		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 		// Use orthogonal parameterization if quality is acceptable.
-		if (!m_paramQuality.boundaryIntersection && m_paramQuality.geometricArea > 0.0f && m_paramQuality.stretchMetric <= 1.1f && m_paramQuality.maxStretchMetric <= 1.25f)
+		if (!m_quality.boundaryIntersection && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
 			m_isOrtho = true;
 	}
 
-	void evaluateParameterizationQuality(ThreadLocal<UniformGrid2> *uniformGrid)
+	void evaluateQuality(UniformGrid2 &boundaryGrid)
 	{
 		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
+		m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, &m_paramFlippedFaces);
+		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, &m_paramFlippedFaces);
 #else
-		m_paramQuality = calculateParameterizationQuality(m_unifiedMesh, m_initialFaceCount, nullptr, uniformGrid);
+		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
 #endif
+		// Don't need to call computeMetrics here, that's only used in evaluateOrthoQuality to determine if quality is acceptable enough to use ortho projection.
 		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 	}
 
@@ -6384,7 +6411,7 @@ private:
 
 	Array<uint32_t> m_chartToUnifiedMap;
 
-	ParameterizationQuality m_paramQuality;
+	Quality m_quality;
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	Array<uint32_t> m_paramFlippedFaces;
 #endif
@@ -6413,7 +6440,7 @@ struct ParameterizeChartTaskArgs
 {
 	Chart *chart;
 	ParameterizeFunc func;
-	ThreadLocal<UniformGrid2> *uniformGrid;
+	ThreadLocal<UniformGrid2> *boundaryGrid;
 };
 
 static void runParameterizeChartTask(void *userData)
@@ -6429,7 +6456,9 @@ static void runParameterizeChartTask(void *userData)
 			mesh->texcoord(i) = Vector2(dot(basis.tangent, mesh->position(i)), dot(basis.bitangent, mesh->position(i)));
 	}
 	XA_PROFILE_END(parameterizeChartsOrthogonal)
-	args->chart->evaluateOrthoParameterizationQuality(args->uniformGrid);
+	// Computing charts checks for flipped triangles and boundary intersection. Don't need to do that again here if chart is planar.
+	if (!args->chart->isPlanar())
+		args->chart->evaluateOrthoQuality(args->boundaryGrid->get());
 	if (!args->chart->isOrtho() && !args->chart->isPlanar()) {
 		XA_PROFILE_START(parameterizeChartsLSCM)
 		if (args->func)
@@ -6437,9 +6466,8 @@ static void runParameterizeChartTask(void *userData)
 		else
 			computeLeastSquaresConformalMap(mesh);
 		XA_PROFILE_END(parameterizeChartsLSCM)
-		args->chart->evaluateParameterizationQuality(args->uniformGrid);
+		args->chart->evaluateQuality(args->boundaryGrid->get());
 	}
-	// @@ Check that parameterization quality is above a certain threshold.
 	// Transfer parameterization from unified mesh to chart mesh.
 	args->chart->transferParameterization();
 }
@@ -6657,7 +6685,7 @@ public:
 #endif
 	}
 
-	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *uniformGrid)
+	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *boundaryGrid)
 	{
 		const uint32_t chartCount = m_chartArray.size();
 		Array<ParameterizeChartTaskArgs> taskArgs;
@@ -6667,7 +6695,7 @@ public:
 			ParameterizeChartTaskArgs &args = taskArgs[i];
 			args.chart = m_chartArray[i];
 			args.func = func;
-			args.uniformGrid = uniformGrid;
+			args.boundaryGrid = boundaryGrid;
 			Task task;
 			task.userData = &args;
 			task.func = runParameterizeChartTask;
@@ -6679,7 +6707,7 @@ public:
 		Array<Chart *> invalidCharts;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_chartArray[i];
-			const ParameterizationQuality &quality = chart->paramQuality();
+			const Quality &quality = chart->quality();
 			if (quality.boundaryIntersection || quality.flippedTriangleCount > 0)
 				invalidCharts.push_back(chart);
 		}
@@ -6733,7 +6761,7 @@ public:
 			ParameterizeChartTaskArgs &args = taskArgs[i - chartCount];
 			args.chart = m_chartArray[i];
 			args.func = func;
-			args.uniformGrid = uniformGrid;
+			args.boundaryGrid = boundaryGrid;
 			Task task;
 			task.userData = &args;
 			task.func = runParameterizeChartTask;
@@ -6846,7 +6874,7 @@ struct ParameterizeChartsTaskArgs
 	TaskScheduler *taskScheduler;
 	ChartGroup *chartGroup;
 	ParameterizeFunc func;
-	ThreadLocal<UniformGrid2> *uniformGrid;
+	ThreadLocal<UniformGrid2> *boundaryGrid;
 	Progress *progress;
 };
 
@@ -6856,7 +6884,7 @@ static void runParameterizeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(parameterizeChartsThread)
-	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->uniformGrid);
+	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid);
 	XA_PROFILE_END(parameterizeChartsThread)
 	args->progress->value++;
 	args->progress->update();
@@ -7015,7 +7043,7 @@ public:
 				chartGroupCount++;
 		}
 		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
-		ThreadLocal<UniformGrid2> uniformGrid; // For ParameterizationQuality boundary intersection.
+		ThreadLocal<UniformGrid2> boundaryGrid; // For Quality boundary intersection.
 		Array<ParameterizeChartsTaskArgs> taskArgs;
 		taskArgs.reserve(chartGroupCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
@@ -7024,7 +7052,7 @@ public:
 				args.taskScheduler = taskScheduler;
 				args.chartGroup = m_chartGroups[i];
 				args.func = func;
-				args.uniformGrid = &uniformGrid;
+				args.boundaryGrid = &boundaryGrid;
 				args.progress = &progress;
 				taskArgs.push_back(args);
 			}
@@ -8587,7 +8615,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 				continue;
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
-				const internal::param::ParameterizationQuality &quality = chart->paramQuality();
+				const internal::param::Quality &quality = chart->quality();
 #if XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION
 				{
 					char filename[256];
@@ -8804,7 +8832,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 						XA_DEBUG_ASSERT(atlasIndex >= 0);
 						outputChart->atlasIndex = (uint32_t)atlasIndex;
 						outputChart->flags = 0;
-						if (chart->paramQuality().boundaryIntersection || chart->paramQuality().flippedTriangleCount > 0)
+						if (chart->quality().boundaryIntersection || chart->quality().flippedTriangleCount > 0)
 							outputChart->flags |= ChartFlags::Invalid;
 						outputChart->faceCount = mesh->faceCount();
 						outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
