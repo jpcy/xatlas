@@ -27,21 +27,6 @@ project "example"
 	filter "system:linux"
 		links { "pthread" }
 		
-project "example_repack"
-	kind "ConsoleApp"
-	language "C++"
-	cppdialect "C++11"
-	exceptionhandling "Off"
-	rtti "Off"
-	warnings "Extra"
-	files "example_repack.cpp"
-	includedirs(THIRDPARTY_DIR)
-	links { "stb_image", "stb_image_write", "objzero", "xatlas" }
-	filter "action:vs*"
-		files "xatlas.natvis"
-	filter "system:linux"
-		links { "pthread" }
-		
 project "example_uvmesh"
 	kind "ConsoleApp"
 	language "C++"
