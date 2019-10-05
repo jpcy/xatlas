@@ -1264,31 +1264,25 @@ public:
 		m_wordArray.resize((m_size + 31) >> 5);
 	}
 
-	/// Get bit.
-	bool bitAt(uint32_t b) const
+	bool get(uint32_t index) const
 	{
-		XA_DEBUG_ASSERT( b < m_size );
-		return (m_wordArray[b >> 5] & (1 << (b & 31))) != 0;
+		XA_DEBUG_ASSERT(index < m_size);
+		return (m_wordArray[index >> 5] & (1 << (index & 31))) != 0;
 	}
 
-	// Set a bit.
-	void setBitAt(uint32_t idx)
+	void set(uint32_t index)
 	{
-		XA_DEBUG_ASSERT(idx < m_size);
-		m_wordArray[idx >> 5] |=  (1 << (idx & 31));
+		XA_DEBUG_ASSERT(index < m_size);
+		m_wordArray[index >> 5] |=  (1 << (index & 31));
 	}
 
-	// Clear all the bits.
-	void clearAll()
+	void zeroOutMemory()
 	{
-		memset(m_wordArray.data(), 0, m_wordArray.size() * sizeof(uint32_t));
+		m_wordArray.zeroOutMemory();
 	}
 
 private:
-	// Number of bits stored.
-	uint32_t m_size;
-
-	// Array of bits.
+	uint32_t m_size; // Number of bits stored.
 	Array<uint32_t> m_wordArray;
 };
 
@@ -1342,22 +1336,22 @@ public:
 		m_rowStride = rowStride;
 	}
 
-	bool bitAt(uint32_t x, uint32_t y) const
+	bool get(uint32_t x, uint32_t y) const
 	{
 		XA_DEBUG_ASSERT(x < m_width && y < m_height);
 		const uint32_t index = (x >> 6) + y * m_rowStride;
 		return (m_data[index] & (UINT64_C(1) << (uint64_t(x) & UINT64_C(63)))) != 0;
 	}
 
-	void setBitAt(uint32_t x, uint32_t y)
+	void set(uint32_t x, uint32_t y)
 	{
 		XA_DEBUG_ASSERT(x < m_width && y < m_height);
 		const uint32_t index = (x >> 6) + y * m_rowStride;
 		m_data[index] |= UINT64_C(1) << (uint64_t(x) & UINT64_C(63));
-		XA_DEBUG_ASSERT(bitAt(x, y));
+		XA_DEBUG_ASSERT(get(x, y));
 	}
 
-	void clearAll()
+	void zeroOutMemory()
 	{
 		m_data.zeroOutMemory();
 	}
@@ -1391,26 +1385,26 @@ public:
 	{
 		BitImage tmp(m_width, m_height);
 		for (uint32_t p = 0; p < padding; p++) {
-			tmp.clearAll();
+			tmp.zeroOutMemory();
 			for (uint32_t y = 0; y < m_height; y++) {
 				for (uint32_t x = 0; x < m_width; x++) {
-					bool b = bitAt(x, y);
+					bool b = get(x, y);
 					if (!b) {
 						if (x > 0) {
-							b |= bitAt(x - 1, y);
-							if (y > 0) b |= bitAt(x - 1, y - 1);
-							if (y < m_height - 1) b |= bitAt(x - 1, y + 1);
+							b |= get(x - 1, y);
+							if (y > 0) b |= get(x - 1, y - 1);
+							if (y < m_height - 1) b |= get(x - 1, y + 1);
 						}
-						if (y > 0) b |= bitAt(x, y - 1);
-						if (y < m_height - 1) b |= bitAt(x, y + 1);
+						if (y > 0) b |= get(x, y - 1);
+						if (y < m_height - 1) b |= get(x, y + 1);
 						if (x < m_width - 1) {
-							b |= bitAt(x + 1, y);
-							if (y > 0) b |= bitAt(x + 1, y - 1);
-							if (y < m_height - 1) b |= bitAt(x + 1, y + 1);
+							b |= get(x + 1, y);
+							if (y > 0) b |= get(x + 1, y - 1);
+							if (y < m_height - 1) b |= get(x + 1, y + 1);
 						}
 					}
 					if (b)
-						tmp.setBitAt(x, y);
+						tmp.set(x, y);
 				}
 			}
 			tmp.m_data.copyTo(m_data);
@@ -2529,7 +2523,7 @@ public:
 		m_oppositeEdges.resize(edgeCount);
 		m_boundaryEdges.reserve(uint32_t(edgeCount * 0.1f));
 		m_isBoundaryVertex.resize(vertexCount);
-		m_isBoundaryVertex.clearAll();
+		m_isBoundaryVertex.zeroOutMemory();
 		for (uint32_t i = 0; i < edgeCount; i++)
 			m_oppositeEdges[i] = UINT32_MAX;
 		const uint32_t faceCount = m_indices.size() / 3;
@@ -2546,8 +2540,8 @@ public:
 					m_oppositeEdges[edge] = oppositeEdge;
 				} else {
 					m_boundaryEdges.push_back(edge);
-					m_isBoundaryVertex.setBitAt(vertex0);
-					m_isBoundaryVertex.setBitAt(vertex1);
+					m_isBoundaryVertex.set(vertex0);
+					m_isBoundaryVertex.set(vertex1);
 				}
 			}
 		}
@@ -2566,12 +2560,12 @@ public:
 			m_nextBoundaryEdges[i] = UINT32_MAX;
 		uint32_t numBoundaryLoops = 0, numUnclosedBoundaries = 0;
 		BitArray linkedEdges(edgeCount);
-		linkedEdges.clearAll();
+		linkedEdges.zeroOutMemory();
 		for (;;) {
 			// Find the first boundary edge that hasn't been linked yet.
 			uint32_t firstEdge = UINT32_MAX;
 			for (uint32_t i = 0; i < edgeCount; i++) {
-				if (m_oppositeEdges[i] == UINT32_MAX && !linkedEdges.bitAt(i)) {
+				if (m_oppositeEdges[i] == UINT32_MAX && !linkedEdges.get(i)) {
 					firstEdge = i;
 					break;
 				}
@@ -2589,7 +2583,7 @@ public:
 						const uint32_t otherEdge = mapIndex / 2; // Two vertices added per edge.
 						if (m_oppositeEdges[otherEdge] != UINT32_MAX)
 							goto next; // Not a boundary edge.
-						if (linkedEdges.bitAt(otherEdge))
+						if (linkedEdges.get(otherEdge))
 							goto next; // Already linked.
 						if (m_indices[meshEdgeIndex0(otherEdge)] != it.vertex())
 							goto next; // Edge contains the vertex, but it's the wrong one.
@@ -2604,11 +2598,11 @@ public:
 				if (bestNextEdge == UINT32_MAX) {
 					numUnclosedBoundaries++;
 					if (currentEdge == firstEdge)
-						linkedEdges.setBitAt(firstEdge); // Only 1 edge in this boundary "loop".
+						linkedEdges.set(firstEdge); // Only 1 edge in this boundary "loop".
 					break; // Can't find a next edge.
 				}
 				m_nextBoundaryEdges[currentEdge] = bestNextEdge;
-				linkedEdges.setBitAt(bestNextEdge);
+				linkedEdges.set(bestNextEdge);
 				currentEdge = bestNextEdge;
 				if (currentEdge == firstEdge) {
 					numBoundaryLoops++;
@@ -2625,20 +2619,20 @@ public:
 	fixInternalBoundary:
 		meshGetBoundaryLoops(*this, boundaryLoops);
 		for (uint32_t loop = 0; loop < boundaryLoops.size(); loop++) {
-			linkedEdges.clearAll();
+			linkedEdges.zeroOutMemory();
 			for (Mesh::BoundaryLoopEdgeIterator it1(this, boundaryLoops[loop]); !it1.isDone(); it1.advance()) {
 				const uint32_t e1 = it1.edge();
-				if (linkedEdges.bitAt(e1))
+				if (linkedEdges.get(e1))
 					continue;
 				for (Mesh::BoundaryLoopEdgeIterator it2(this, boundaryLoops[loop]); !it2.isDone(); it2.advance()) {
 					const uint32_t e2 = it2.edge();
-					if (e1 == e2 || !isBoundaryEdge(e2) || linkedEdges.bitAt(e2))
+					if (e1 == e2 || !isBoundaryEdge(e2) || linkedEdges.get(e2))
 						continue;
 					if (!areColocal(m_indices[meshEdgeIndex1(e1)], m_indices[meshEdgeIndex1(e2)]))
 						continue;
 					swap(m_nextBoundaryEdges[e1], m_nextBoundaryEdges[e2]);
-					linkedEdges.setBitAt(e1);
-					linkedEdges.setBitAt(e2);
+					linkedEdges.set(e1);
+					linkedEdges.set(e2);
 					goto fixInternalBoundary; // start over
 				}
 			}
@@ -2890,7 +2884,7 @@ public:
 	XA_INLINE uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
 	XA_INLINE bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
 	XA_INLINE const Array<uint32_t> &boundaryEdges() const { return m_boundaryEdges; }
-	XA_INLINE bool isBoundaryVertex(uint32_t vertex) const { return m_isBoundaryVertex.bitAt(vertex); }
+	XA_INLINE bool isBoundaryVertex(uint32_t vertex) const { return m_isBoundaryVertex.get(vertex); }
 	XA_INLINE uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
 	XA_INLINE uint32_t vertexCount() const { return m_positions.size(); }
 	XA_INLINE uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
@@ -3521,14 +3515,14 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 {
 	const uint32_t edgeCount = mesh.edgeCount();
 	BitArray bitFlags(edgeCount);
-	bitFlags.clearAll();
+	bitFlags.zeroOutMemory();
 	boundaryLoops.clear();
 	// Search for boundary edges. Mark all the edges that belong to the same boundary.
 	for (uint32_t e = 0; e < edgeCount; e++) {
-		if (bitFlags.bitAt(e) || !mesh.isBoundaryEdge(e))
+		if (bitFlags.get(e) || !mesh.isBoundaryEdge(e))
 			continue;
 		for (Mesh::BoundaryLoopEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
-			bitFlags.setBitAt(it.edge());
+			bitFlags.set(it.edge());
 		boundaryLoops.push_back(e);
 	}
 }
@@ -7119,13 +7113,13 @@ public:
 				const int xx = x + offset_x;
 				if (xx >= 0 && xx < atlas_w && yy < atlas_h) {
 					const uint32_t dataOffset = xx + yy * m_width;
-					if (image->bitAt(x, y)) {
+					if (image->get(x, y)) {
 						XA_DEBUG_ASSERT(m_data[dataOffset] == 0);
 						m_data[dataOffset] = chartIndex | kImageHasChartIndexBit;
-					} else if (imageBilinear && imageBilinear->bitAt(x, y)) {
+					} else if (imageBilinear && imageBilinear->get(x, y)) {
 						XA_DEBUG_ASSERT(m_data[dataOffset] == 0);
 						m_data[dataOffset] = chartIndex | kImageHasChartIndexBit | kImageIsBilinearBit;
-					} else if (imagePadding && imagePadding->bitAt(x, y)) {
+					} else if (imagePadding && imagePadding->get(x, y)) {
 						XA_DEBUG_ASSERT(m_data[dataOffset] == 0);
 						m_data[dataOffset] = chartIndex | kImageHasChartIndexBit | kImageIsPaddingBit;
 					}
@@ -7346,11 +7340,11 @@ struct Atlas
 			chart->faces.resize(uvChart->faces.size());
 			memcpy(chart->faces.data(), uvChart->faces.data(), sizeof(uint32_t) * uvChart->faces.size());
 			// Find unique vertices.
-			vertexUsed.clearAll();
+			vertexUsed.zeroOutMemory();
 			for (uint32_t i = 0; i < chart->indexCount; i++) {
 				const uint32_t vertex = chart->indices[i];
-				if (!vertexUsed.bitAt(vertex)) {
-					vertexUsed.setBitAt(vertex);
+				if (!vertexUsed.get(vertex)) {
+					vertexUsed.set(vertex);
 					chart->uniqueVertices.push_back(vertex);
 				}
 			}
@@ -7748,7 +7742,7 @@ struct Atlas
 				uint32_t count = 0;
 				for (uint32_t y = 0; y < m_height; y++) {
 					for (uint32_t x = 0; x < m_width; x++)
-						count += m_bitImages[i]->bitAt(x, y);
+						count += m_bitImages[i]->get(x, y);
 				}
 				m_utilization[i] = float(count) / (m_width * m_height);
 			}
@@ -7900,10 +7894,10 @@ private:
 				for (int x = 0; x < w; x++) {
 					int xx = x + offset_x;
 					if (xx >= 0) {
-						if (image->bitAt(x, y)) {
+						if (image->get(x, y)) {
 							if (xx < atlas_w && yy < atlas_h) {
-								XA_DEBUG_ASSERT(atlasBitImage->bitAt(xx, yy) == false);
-								atlasBitImage->setBitAt(xx, yy);
+								XA_DEBUG_ASSERT(atlasBitImage->get(xx, yy) == false);
+								atlasBitImage->set(xx, yy);
 							}
 						}
 					}
@@ -7928,7 +7922,7 @@ private:
 		for (uint32_t y = 0; y < source->height(); y++) {
 			for (uint32_t x = 0; x < source->width(); x++) {
 				// Copy pixels from source.
-				if (source->bitAt(x, y))
+				if (source->get(x, y))
 					goto setPixel;
 				// Empty pixel. If none of of the surrounding pixels are set, this pixel can't be sampled by bilinear interpolation.
 				{
@@ -7938,7 +7932,7 @@ private:
 						const int sy = (int)y + yOffsets[s];
 						if (sx < 0 || sy < 0 || sx >= (int)source->width() || sy >= (int)source->height())
 							continue;
-						if (source->bitAt((uint32_t)sx, (uint32_t)sy))
+						if (source->get((uint32_t)sx, (uint32_t)sy))
 							break;
 					}
 					if (s == 8)
@@ -7961,9 +7955,9 @@ private:
 				}
 				continue;
 			setPixel:
-				dest->setBitAt(x, y);
+				dest->set(x, y);
 				if (destRotated)
-					destRotated->setBitAt(y, x);
+					destRotated->set(y, x);
 			}
 		}
 	}
@@ -7976,9 +7970,9 @@ private:
 	static bool drawTriangleCallback(void *param, int x, int y)
 	{
 		auto args = (DrawTriangleCallbackArgs *)param;
-		args->chartBitImage->setBitAt(x, y);
+		args->chartBitImage->set(x, y);
 		if (args->chartBitImageRotated)
-			args->chartBitImageRotated->setBitAt(y, x);
+			args->chartBitImageRotated->set(y, x);
 		return true;
 	}
 
@@ -8426,15 +8420,15 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		for (uint32_t i = 0; i < indexCount; i++)
 			vertexToFaceMap.add(meshInstance->texcoords[mesh->indices[i]]);
 		internal::BitArray faceAssigned(faceCount);
-		faceAssigned.clearAll();
+		faceAssigned.zeroOutMemory();
 		for (uint32_t f = 0; f < faceCount; f++) {
-			if (faceAssigned.bitAt(f))
+			if (faceAssigned.get(f))
 				continue;
 			// Found an unassigned face, create a new chart.
 			internal::UvMeshChart *chart = XA_NEW(internal::MemTag::Default, internal::UvMeshChart);
 			chart->material = decl.faceMaterialData ? decl.faceMaterialData[f] : 0;
 			// Walk incident faces and assign them to the chart.
-			faceAssigned.setBitAt(f);
+			faceAssigned.set(f);
 			chart->faces.push_back(f);
 			for (;;) {
 				bool newFaceAssigned = false;
@@ -8447,8 +8441,8 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 						while (mapIndex != UINT32_MAX) {
 							const uint32_t face2 = mapIndex / 3; // 3 vertices added per face.
 							// Materials must match.
-							if (!faceAssigned.bitAt(face2) && (!decl.faceMaterialData || decl.faceMaterialData[face] == decl.faceMaterialData[face2])) {
-								faceAssigned.setBitAt(face2);
+							if (!faceAssigned.get(face2) && (!decl.faceMaterialData || decl.faceMaterialData[face] == decl.faceMaterialData[face2])) {
+								faceAssigned.set(face2);
 								chart->faces.push_back(face2);
 								newFaceAssigned = true;
 							}
