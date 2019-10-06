@@ -1230,6 +1230,7 @@ struct ArrayView
 	ArrayView(Array<T> &a) : data(a.data()), length(a.size()) {}
 	ArrayView(T *data, uint32_t length) : data(data), length(length) {}
 	ArrayView &operator=(Array<T> &a) { data = a.data(); length = a.size(); return *this; }
+	XA_INLINE const T &operator[](uint32_t index) const { XA_DEBUG_ASSERT(index < length); return data[index]; }
 	T *data;
 	uint32_t length;
 };
@@ -1240,6 +1241,7 @@ struct ConstArrayView
 	ConstArrayView(const Array<T> &a) : data(a.data()), length(a.size()) {}
 	ConstArrayView(const T *data, uint32_t length) : data(data), length(length) {}
 	ConstArrayView &operator=(const Array<T> &a) { data = a.data(); length = a.size(); return *this; }
+	XA_INLINE const T &operator[](uint32_t index) const { XA_DEBUG_ASSERT(index < length); return data[index]; }
 	const T *data;
 	uint32_t length;
 };
@@ -7014,6 +7016,7 @@ public:
 
 	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *boundaryGrid)
 	{
+		m_paramAddedChartsCount = 0;
 		const uint32_t chartCount = m_chartArray.size();
 		Array<ParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
@@ -7043,33 +7046,33 @@ public:
 		// Recompute charts with invalid parameterizations.
 		for (uint32_t i = 0; i < invalidCharts.size(); i++) {
 			Chart *invalidChart = invalidCharts[i];
+			const Mesh *invalidMesh = invalidChart->unifiedMesh();
 			// Not invalidChart->faceCount(). Don't want faces added by t-junction fixing or hole closing.
-			PiecewiseParameterization pp(invalidChart->unifiedMesh(), invalidChart->initialFaceCount());
+			PiecewiseParameterization pp(invalidMesh, invalidChart->initialFaceCount());
 			for (;;) {
 				if (!pp.computeChart())
 					break;
 				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, invalidChart, pp.chartFaces(), pp.texcoords(), m_mesh, m_sourceId, m_id, m_chartArray.size());
 				m_chartArray.push_back(chart);
+#if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
+				char filename[256];
+				XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_recomputed_chart_%u.obj", m_sourceId, m_id, m_paramAddedChartsCount);
+				FILE *file;
+				XA_FOPEN(file, filename, "w");
+				if (file) {
+					for (uint32_t j = 0; j < invalidMesh->vertexCount(); j++) {
+						fprintf(file, "v %g %g %g\n", invalidMesh->position(j).x, invalidMesh->position(j).y, invalidMesh->position(j).z);
+						fprintf(file, "vt %g %g\n", pp.texcoords()[j].x, pp.texcoords()[j].y);
+					}
+					fprintf(file, "o chart\n");
+					fprintf(file, "s off\n");
+					for (uint32_t f = 0; f < pp.chartFaces().length; f++)
+						invalidMesh->writeObjFace(file, pp.chartFaces()[f]);
+					fclose(file);
+				}
+#endif
 				m_paramAddedChartsCount++;
 			}
-			/*
-#if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
-			char filename[256];
-			XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_recomputed_chart_%u.obj", m_sourceId, m_id, i);
-			FILE *file;
-			XA_FOPEN(file, filename, "w");
-			if (file) {
-				m_mesh->writeObjVertices(file);
-				for (uint32_t j = 0; j < atlas.chartCount(); j++) {
-					fprintf(file, "o chart_%04d\n", j);
-					fprintf(file, "s off\n");
-					const Array<uint32_t> &faces = atlas.chartFaces(j);
-					for (uint32_t f = 0; f < faces.size(); f++)
-						m_mesh->writeObjFace(file, faces[f]);
-				}
-				fclose(file);
-			}
-#endif*/
 		}
 		// Remove and delete the invalid charts.
 		for (uint32_t i = 0; i < invalidCharts.size(); i++) {
