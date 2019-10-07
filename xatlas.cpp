@@ -6052,6 +6052,7 @@ struct PiecewiseParameterization
 				m_vertexInPatch.set(vertex);
 				m_texcoords[vertex] = texcoords[i];
 			}
+			break;
 		}
 		if (seed == UINT32_MAX)
 			return false;
@@ -6138,7 +6139,7 @@ private:
 		for (uint32_t i = 0; i < m_patch.size(); i++) {
 			for (Mesh::FaceEdgeIterator it(m_mesh, m_patch[i]); !it.isDone(); it.advance()) {
 				const uint32_t oface = it.oppositeFace();
-				if (oface == UINT32_MAX || oface >= m_faceCount || m_faceAssigned.get(oface) || m_faceInvalid.get(oface) || m_faceInCandidates.get(oface))
+				if (oface == UINT32_MAX || oface >= m_faceCount || m_faceAssigned.get(oface) || m_faceInCandidates.get(oface))
 					continue;
 				// Found an active edge on the patch front.
 				// Find the free vertex (the vertex that isn't on the active edge).
@@ -6149,7 +6150,7 @@ private:
 					const uint32_t vertex = m_mesh->vertexAt(oface * 3 + j);
 					if (vertex != it.vertex0() && vertex != it.vertex1()) {
 						freeVertex = vertex;
-						orient = orientToEdge(it.texcoord0(), it.texcoord1(), m_texcoords[m_mesh->vertexAt(m_patch[i] * 3 + j)]);
+						orient = orientToEdge(m_texcoords[it.vertex0()], m_texcoords[it.vertex1()], m_texcoords[m_mesh->vertexAt(m_patch[i] * 3 + j)]);
 						break;
 					}
 				}
@@ -6161,6 +6162,9 @@ private:
 					m_faceAssigned.set(oface);
 					continue;
 				}
+				// Check this here rather than above so faces enclosed by the patch are always added.
+				if (m_faceInvalid.get(oface))
+					continue;
 				addCandidateFace(it.edge(), orient, oface, it.oppositeEdge(), freeVertex);
 			}
 		}
@@ -6189,6 +6193,13 @@ private:
 		const float len1 = length(patchEdgeVec);
 		const float len2 = length(localEdgeVec);
 		const float scale = len1 / len2;
+		const float cost = fabsf(scale - 1.0f);
+#if 0
+		if (cost > 0.25f) {
+			m_faceInvalid.set(face);
+			return;
+		}
+#endif
 		XA_ASSERT(scale > 0.0f);
 		for (uint32_t i = 0; i < 3; i++)
 			texcoords[i] *= scale;
@@ -6224,7 +6235,7 @@ private:
 		candidate.vertex = freeVertex;
 		candidate.position = texcoords[localFreeVertex];
 		candidate.next = UINT32_MAX;
-		candidate.cost = fabsf(scale - 1.0f);
+		candidate.cost = cost;
 		m_candidates.push_back(candidate);
 		m_faceInCandidates.set(face);
 	}
@@ -6580,7 +6591,7 @@ public:
 		const uint32_t faceCount = m_initialFaceCount = faces.length;
 		m_faceArray.resize(faceCount);
 		for (uint32_t i = 0; i < faceCount; i++)
-			m_faceArray[i] = parent->m_faceArray[faces.data[i]]; // Map faces to parent chart original mesh.
+			m_faceArray[i] = parent->m_faceArray[faces[i]]; // Map faces to parent chart original mesh.
 		// Copy face indices.
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
@@ -6595,7 +6606,7 @@ public:
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = originalMesh->vertexAt(m_faceArray[f] * 3 + i);
 				const uint32_t unifiedVertex = originalMesh->firstColocal(vertex);
-				const uint32_t parentVertex = parentMesh->vertexAt(f * 3 + i);
+				const uint32_t parentVertex = parentMesh->vertexAt(faces[f] * 3 + i);
 				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
 					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
 					XA_DEBUG_ASSERT(equal(originalMesh->position(vertex), originalMesh->position(unifiedVertex), originalMesh->epsilon()));
