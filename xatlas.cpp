@@ -7060,30 +7060,43 @@ public:
 			const Mesh *invalidMesh = invalidChart->unifiedMesh();
 			// Not invalidChart->faceCount(). Don't want faces added by t-junction fixing or hole closing.
 			PiecewiseParameterization pp(invalidMesh, invalidChart->initialFaceCount());
+#if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
+			char filename[256];
+			XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_recomputed_chart_%03u.obj", m_sourceId, m_id, m_paramAddedChartsCount);
+			FILE *file;
+			XA_FOPEN(file, filename, "w");
+			uint32_t subChartIndex = 0;
+#endif
 			for (;;) {
 				if (!pp.computeChart())
 					break;
 				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, invalidChart, pp.chartFaces(), pp.texcoords(), m_mesh, m_sourceId, m_id, m_chartArray.size());
 				m_chartArray.push_back(chart);
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
-				char filename[256];
-				XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_recomputed_chart_%u.obj", m_sourceId, m_id, m_paramAddedChartsCount);
-				FILE *file;
-				XA_FOPEN(file, filename, "w");
 				if (file) {
 					for (uint32_t j = 0; j < invalidMesh->vertexCount(); j++) {
 						fprintf(file, "v %g %g %g\n", invalidMesh->position(j).x, invalidMesh->position(j).y, invalidMesh->position(j).z);
 						fprintf(file, "vt %g %g\n", pp.texcoords()[j].x, pp.texcoords()[j].y);
 					}
-					fprintf(file, "o chart\n");
+					fprintf(file, "o chart%03u\n", subChartIndex);
 					fprintf(file, "s off\n");
-					for (uint32_t f = 0; f < pp.chartFaces().length; f++)
-						invalidMesh->writeObjFace(file, pp.chartFaces()[f]);
-					fclose(file);
+					for (uint32_t f = 0; f < pp.chartFaces().length; f++) {
+						fprintf(file, "f ");
+						const uint32_t face = pp.chartFaces()[f];
+						for (uint32_t j = 0; j < 3; j++) {
+							const uint32_t index = invalidMesh->vertexCount() * subChartIndex + invalidMesh->vertexAt(face * 3 + j) + 1; // 1-indexed
+							fprintf(file, "%d/%d/%c", index, index, j == 2 ? '\n' : ' ');
+						}
+					}
 				}
+				subChartIndex++;
 #endif
 				m_paramAddedChartsCount++;
 			}
+#if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
+			if (file)
+				fclose(file);
+#endif
 		}
 		// Remove and delete the invalid charts.
 		for (uint32_t i = 0; i < invalidCharts.size(); i++) {
