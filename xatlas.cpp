@@ -6447,7 +6447,7 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr),  m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6521,8 +6521,7 @@ public:
 					m_warningFlags |= ChartWarningFlags::FixTJunctionsDuplicatedEdge;
 				if (failed)
 					m_warningFlags |= ChartWarningFlags::FixTJunctionsFailed;
-				m_unifiedMesh->~Mesh();
-				XA_FREE(m_unifiedMesh);
+				m_unmodifiedUnifiedMesh = m_unifiedMesh;
 				m_unifiedMesh = fixedUnifiedMesh;
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
@@ -6582,7 +6581,7 @@ public:
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	Chart(const Chart *parent, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(const Chart *parent, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6659,6 +6658,10 @@ public:
 			m_unifiedMesh->~Mesh();
 			XA_FREE(m_unifiedMesh);
 		}
+		if (m_unmodifiedUnifiedMesh) {
+			m_unmodifiedUnifiedMesh->~Mesh();
+			XA_FREE(m_unmodifiedUnifiedMesh);
+		}
 	}
 
 	const Basis &basis() const { return m_basis; }
@@ -6677,6 +6680,7 @@ public:
 	Mesh *mesh() { return m_mesh; }
 	const Mesh *unifiedMesh() const { return m_unifiedMesh; }
 	Mesh *unifiedMesh() { return m_unifiedMesh; }
+	const Mesh *unmodifiedUnifiedMesh() const { return m_unmodifiedUnifiedMesh; }
 	uint32_t mapChartVertexToOriginalVertex(uint32_t i) const { return m_chartToOriginalMap[i]; }
 
 	void evaluateOrthoQuality(UniformGrid2 &boundaryGrid)
@@ -6738,6 +6742,7 @@ private:
 	Basis m_basis;
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
+	Mesh *m_unmodifiedUnifiedMesh; // Unified mesh before fixing t-junctions. Null if no t-junctions were fixed
 	bool m_isOrtho, m_isPlanar;
 	uint32_t m_warningFlags;
 	uint32_t m_initialFaceCount; // Before fixing T-junctions and/or closing holes.
@@ -7057,9 +7062,16 @@ public:
 		// Recompute charts with invalid parameterizations.
 		for (uint32_t i = 0; i < invalidCharts.size(); i++) {
 			Chart *invalidChart = invalidCharts[i];
-			const Mesh *invalidMesh = invalidChart->unifiedMesh();
-			// Not invalidChart->faceCount(). Don't want faces added by t-junction fixing or hole closing.
-			PiecewiseParameterization pp(invalidMesh, invalidChart->initialFaceCount());
+			// Fixing t-junctions rewrites unified mesh faces, and we need to map faces back to input mesh. So use the unmodified unified mesh.
+			const Mesh *invalidMesh = invalidChart->unmodifiedUnifiedMesh();
+			uint32_t faceCount = 0;
+			if (invalidMesh) {
+				faceCount = invalidMesh->faceCount();
+			} else {
+				invalidMesh = invalidChart->unifiedMesh();
+				faceCount = invalidChart->initialFaceCount(); // Not invalidMesh->faceCount(). Don't want faces added by hole closing.
+			}
+			PiecewiseParameterization pp(invalidMesh, faceCount);
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
 			char filename[256];
 			XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_recomputed_chart_%03u.obj", m_sourceId, m_id, m_paramAddedChartsCount);
