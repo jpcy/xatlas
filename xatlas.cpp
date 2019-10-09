@@ -119,6 +119,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_RECOMPUTE_CHARTS 1
 #define XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION 0
 #define XA_FIX_INTERNAL_BOUNDARY_LOOPS 1
+#define XA_PRINT_CHART_WARNINGS 0
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
@@ -8836,6 +8837,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 				continue;
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
+#if XA_PRINT_CHART_WARNINGS
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesFailed)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): failed to close holes\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
@@ -8844,6 +8846,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::TriangulateDuplicatedEdge)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): triangulation created non-manifold geometry\n", chartCount, i, j, k);
+#endif
 				holesCount += chart->closedHolesCount();
 				if (chart->closedHolesCount() > 0)
 					chartsWithHolesCount++;
