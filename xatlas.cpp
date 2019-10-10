@@ -6061,56 +6061,59 @@ struct PiecewiseParameterization
 			findCandidates();
 			if (m_candidates.isEmpty())
 				break;
-			// Link candidates that share the same vertex. Set cost to max for all linked candidates.
-			for (uint32_t i = 0; i < m_candidates.size(); i++) {
-				if (m_candidates[i].next != UINT32_MAX)
-					continue;
-				uint32_t current = i;
-				float maxCost = m_candidates[current].cost;
-				for (uint32_t j = i + 1; j < m_candidates.size(); j++) {
-					if (m_candidates[j].vertex == m_candidates[current].vertex) {
-						m_candidates[current].next = j;
-						current = j;
-						maxCost = max(maxCost, m_candidates[current].cost);
-					}
-				}
-				if (current != i) {
-					current = i;
-					for (;;) {
-						m_candidates[current].cost = maxCost;
-						current = m_candidates[current].next;
-						if (current == UINT32_MAX)
-							break;
-					}
-				}
-			}
-			// Find the candidate with the lowest cost.
-			float lowestCost = m_candidates[0].cost;
-			uint32_t bestCandidate = 0;
-			for (uint32_t i = 1; i < m_candidates.size(); i++) {
-				if (m_candidates[i].cost < lowestCost) {
-					lowestCost = m_candidates[i].cost;
-					bestCandidate = i;
-				}
-			}
-			// Compute the position by averaging linked best candidates.
-			// Add faces to the patch.
-			Vector2 position(0.0f);
-			uint32_t current = bestCandidate, n = 0;
 			for (;;) {
-				const Candidate &candidate = m_candidates[current];
-				position += candidate.position;
-				n++;
-				m_patch.push_back(candidate.face);
-				m_faceAssigned.set(candidate.face);
-				current = candidate.next;
-				if (current == UINT32_MAX)
-					break;
+				// Find the candidate with the lowest cost.
+				float lowestCost = FLT_MAX;
+				uint32_t bestCandidate = UINT32_MAX;
+				for (uint32_t i = 0; i < m_candidates.size(); i++) {
+					const Candidate &candidate = m_candidates[i];
+					if (m_faceInvalid.get(candidate.face)) // A candidate face may be invalidated after is was added.
+						continue;
+					if (candidate.cost < lowestCost) {
+						lowestCost = candidate.cost;
+						bestCandidate = i;
+					}
+				}
+				if (bestCandidate == UINT32_MAX)
+					return false;
+				// Compute the position by averaging linked candidates (candidates that share the same free vertex).
+				Vector2 position(0.0f);
+				uint32_t n = 0;
+				for (CandidateIterator it(m_candidates, bestCandidate); !it.isDone(); it.advance()) {
+					position += it.current().position;
+					n++;
+				}
+				position *= 1.0f / (float)n;
+				const uint32_t freeVertex = m_candidates[bestCandidate].vertex;
+				m_texcoords[freeVertex] = position;
+				// Check for flipped faces. This is also done when candidates are first added, but the averaged position of the free vertex is different now, so check again.
+				bool invalid = false;
+				for (CandidateIterator it(m_candidates, bestCandidate); !it.isDone(); it.advance()) {
+					const uint32_t vertex0 = m_mesh->vertexAt(meshEdgeIndex0(it.current().patchEdge));
+					const uint32_t vertex1 = m_mesh->vertexAt(meshEdgeIndex1(it.current().patchEdge));
+					const float freeVertexOrient = orientToEdge(m_texcoords[vertex0], m_texcoords[vertex1], position);
+					if ((it.current().patchVertexOrient < 0.0f && freeVertexOrient < 0.0f) || (it.current().patchVertexOrient > 0.0f && freeVertexOrient > 0.0f)) {
+						invalid = true;
+						break;
+					}
+				}
+				// TODO: check for boundary intersection.
+				if (invalid) {
+					// Mark all faces of linked candidates as invalid.
+					for (CandidateIterator it(m_candidates, bestCandidate); !it.isDone(); it.advance())
+						m_faceInvalid.set(it.current().face);
+					continue;
+				}
+				// Add faces to the patch.
+				for (CandidateIterator it(m_candidates, bestCandidate); !it.isDone(); it.advance()) {
+					m_patch.push_back(it.current().face);
+					m_faceAssigned.set(it.current().face);
+				}
+				// Add vertex to the patch.
+				m_vertexInPatch.set(freeVertex);
+				// Successfully added candidate face(s) to patch.
+				break;
 			}
-			position *= 1.0f / (float)n;
-			const uint32_t freeVertex = m_candidates[bestCandidate].vertex;
-			m_texcoords[freeVertex] = position;
-			m_vertexInPatch.set(freeVertex);
 		}
 		return true;
 	}
@@ -6122,6 +6125,20 @@ private:
 		uint32_t next; // The next candidate with the same vertex.
 		Vector2 position;
 		float cost;
+		uint32_t patchEdge;
+		float patchVertexOrient;
+	};
+
+	struct CandidateIterator
+	{
+		CandidateIterator(const Array<Candidate> &candidates, uint32_t first) : m_candidates(candidates), m_current(first) {}
+		void advance() { if (m_current != UINT32_MAX) m_current = m_candidates[m_current].next; }
+		bool isDone() const { return m_current == UINT32_MAX; }
+		const Candidate &current() const { return m_candidates[m_current]; }
+
+	private:
+		const Array<Candidate> &m_candidates;
+		uint32_t m_current;
 	};
 
 	const Mesh * const m_mesh;
@@ -6130,7 +6147,9 @@ private:
 	Array<Candidate> m_candidates;
 	BitArray m_faceInCandidates;
 	Array<uint32_t> m_patch;
-	BitArray m_faceAssigned, m_faceInvalid, m_vertexInPatch;
+	BitArray m_faceAssigned; // Face is assigned to a previous chart or the current patch.
+	BitArray m_vertexInPatch;
+	BitArray m_faceInvalid; // Face cannot be added to the patch - flipped, cost too high or causes boundary intersection.
 
 	// Find candidate faces on the patch front.
 	void findCandidates()
@@ -6167,6 +6186,18 @@ private:
 				if (m_faceInvalid.get(oface))
 					continue;
 				addCandidateFace(it.edge(), orient, oface, it.oppositeEdge(), freeVertex);
+			}
+		}
+		// Link candidates that share the same vertex.
+		for (uint32_t i = 0; i < m_candidates.size(); i++) {
+			if (m_candidates[i].next != UINT32_MAX)
+				continue;
+			uint32_t current = i;
+			for (uint32_t j = i + 1; j < m_candidates.size(); j++) {
+				if (m_candidates[j].vertex == m_candidates[current].vertex) {
+					m_candidates[current].next = j;
+					current = j;
+				}
 			}
 		}
 	}
@@ -6237,6 +6268,8 @@ private:
 		candidate.position = texcoords[localFreeVertex];
 		candidate.next = UINT32_MAX;
 		candidate.cost = cost;
+		candidate.patchEdge = patchEdge;
+		candidate.patchVertexOrient = patchVertexOrient;
 		m_candidates.push_back(candidate);
 		m_faceInCandidates.set(face);
 	}
