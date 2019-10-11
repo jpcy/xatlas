@@ -6503,7 +6503,7 @@ struct ChartWarningFlags
 class Chart
 {
 public:
-	Chart(const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6562,8 +6562,9 @@ public:
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_unifiedMesh->createBoundaries();
-		m_isPlanar = meshIsPlanar(*m_unifiedMesh);
-		if (!m_isPlanar) {
+		if (meshIsPlanar(*m_unifiedMesh))
+			m_type = ChartType::Planar;
+		else {
 			m_unifiedMesh->linkBoundaries();
 #if XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
 			m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
@@ -6637,7 +6638,7 @@ public:
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	Chart(const Chart *parent, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_isOrtho(false), m_isPlanar(false), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(const Chart *parent, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6721,8 +6722,7 @@ public:
 	}
 
 	const Basis &basis() const { return m_basis; }
-	bool isOrtho() const { return m_isOrtho; }
-	bool isPlanar() const { return m_isPlanar; }
+	ChartType::Enum type() const { return m_type; }
 	uint32_t warningFlags() const { return m_warningFlags; }
 	uint32_t closedHolesCount() const { return m_closedHolesCount; }
 	uint32_t fixedTJunctionsCount() const { return m_fixedTJunctionsCount; }
@@ -6748,7 +6748,7 @@ public:
 		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 		// Use orthogonal parameterization if quality is acceptable.
 		if (!m_quality.boundaryIntersection && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
-			m_isOrtho = true;
+			m_type = ChartType::Ortho;
 	}
 
 	void evaluateQuality(UniformGrid2 &boundaryGrid)
@@ -6799,7 +6799,7 @@ private:
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
 	Mesh *m_unmodifiedUnifiedMesh; // Unified mesh before fixing t-junctions. Null if no t-junctions were fixed
-	bool m_isOrtho, m_isPlanar;
+	ChartType::Enum m_type;
 	uint32_t m_warningFlags;
 	uint32_t m_initialFaceCount; // Before fixing T-junctions and/or closing holes.
 	uint32_t m_closedHolesCount, m_fixedTJunctionsCount;
@@ -6858,9 +6858,9 @@ static void runParameterizeChartTask(void *userData)
 	}
 	XA_PROFILE_END(parameterizeChartsOrthogonal)
 	// Computing charts checks for flipped triangles and boundary intersection. Don't need to do that again here if chart is planar.
-	if (!args->chart->isPlanar())
+	if (args->chart->type() != ChartType::Planar)
 		args->chart->evaluateOrthoQuality(args->boundaryGrid->get());
-	if (!args->chart->isOrtho() && !args->chart->isPlanar()) {
+	if (args->chart->type() == ChartType::LSCM) {
 		XA_PROFILE_START(parameterizeChartsLSCM)
 		if (args->func)
 			args->func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
@@ -8969,7 +8969,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 			return;
 	}
 	XA_PROFILE_END(parameterizeChartsReal)
-	uint32_t chartCount = 0, orthoChartsCount = 0, planarChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
+	uint32_t chartCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
 	for (uint32_t i = 0; i < ctx->meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
@@ -8977,19 +8977,23 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 				continue;
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
-				if (chart->isPlanar())
+				if (chart->type() == ChartType::Planar)
 					planarChartsCount++;
-				else if (chart->isOrtho())
+				else if (chart->type() == ChartType::Ortho)
 					orthoChartsCount++;
+				else if (chart->type() == ChartType::LSCM)
+					lscmChartsCount++;
+				else if (chart->type() == ChartType::Piecewise)
+					piecewiseChartsCount++;
 			}
 			chartCount += chartGroup->chartCount();
 			chartsAddedCount += chartGroup->paramAddedChartsCount();
 			chartsDeletedCount += chartGroup->paramDeletedChartsCount();
 		}
 	}
-	XA_PRINT("   %u planar charts, %u ortho charts, %u other\n", planarChartsCount, orthoChartsCount, chartCount - (planarChartsCount + orthoChartsCount));
+	XA_PRINT("   %u planar charts, %u ortho charts, %u LSCM charts, %u piecewise charts\n", planarChartsCount, orthoChartsCount, lscmChartsCount, piecewiseChartsCount);
 	if (chartsDeletedCount > 0) {
-		XA_PRINT("   %u charts deleted due to invalid parameterizations, %u new charts added\n", chartsDeletedCount, chartsAddedCount);
+		XA_PRINT("   %u charts with invalid parameterizations replaced with %u new charts\n", chartsDeletedCount, chartsAddedCount);
 		XA_PRINT("   %u charts\n", chartCount);
 	}
 	uint32_t chartIndex = 0, invalidParamCount = 0;
@@ -9009,13 +9013,20 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 				}
 #endif
 				bool invalid = false;
+				char *type = "LSCM";
+				if (chart->type() == ChartType::Planar)
+					type = "planar";
+				else if (chart->type() == ChartType::Ortho)
+					type = "ortho";
+				else if (chart->type() == ChartType::Piecewise)
+					type = "piecewise";
 				if (quality.boundaryIntersection) {
 					invalid = true;
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u) (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, i, j, k, chart->isPlanar() ? "planar" : chart->isOrtho() ? "ortho" : "other");
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u) (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, i, j, k, type);
 				}
 				if (quality.flippedTriangleCount > 0) {
 					invalid = true;
-					XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, i, j, k, chart->isPlanar() ? "planar" : chart->isOrtho() ? "ortho" : "other", quality.flippedTriangleCount, quality.totalTriangleCount);
+					XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, i, j, k, type, quality.flippedTriangleCount, quality.totalTriangleCount);
 				}
 				if (invalid)
 					invalidParamCount++;
@@ -9216,9 +9227,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 						const int32_t atlasIndex = packAtlas.getChart(chartIndex)->atlasIndex;
 						XA_DEBUG_ASSERT(atlasIndex >= 0);
 						outputChart->atlasIndex = (uint32_t)atlasIndex;
-						outputChart->flags = 0;
-						if (chart->quality().boundaryIntersection || chart->quality().flippedTriangleCount > 0)
-							outputChart->flags |= ChartFlags::Invalid;
+						outputChart->type = chart->type();
 						outputChart->faceCount = mesh->faceCount();
 						outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
 						for (uint32_t f = 0; f < outputChart->faceCount; f++)

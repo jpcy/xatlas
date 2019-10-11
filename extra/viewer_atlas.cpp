@@ -776,7 +776,7 @@ static void atlasGenerateThread()
 					uint32_t &index = s_atlas.chartIndices[firstChartIndex + k * 3 + l];
 					index = firstVertex + mesh.indexArray[chart.faceArray[k] * 3 + l];
 					s_atlas.chartColorVertices[index] = s_atlas.chartColors[chartIndex];
-					if (chart.flags & xatlas::ChartFlags::Invalid)
+					if (chart.type == xatlas::ChartType::Piecewise)
 						s_atlas.chartInvalidColorVertices[index] = s_atlas.chartColors[chartIndex];
 					else
 						s_atlas.chartInvalidColorVertices[index] = 0xffc0c0c0;
