@@ -6026,6 +6026,7 @@ struct PiecewiseParameterization
 		m_faceAssigned.resize(m_faceCount);
 		m_faceAssigned.zeroOutMemory();
 		m_faceInvalid.resize(m_faceCount);
+		m_faceInPatch.resize(m_faceCount);
 		m_vertexInPatch.resize(vertexCount);
 		m_faceInCandidates.resize(m_faceCount);
 	}
@@ -6037,6 +6038,7 @@ struct PiecewiseParameterization
 	{
 		m_patch.clear();
 		m_faceInvalid.zeroOutMemory();
+		m_faceInPatch.zeroOutMemory();
 		m_vertexInPatch.zeroOutMemory();
 		// Add the seed face (first unassigned face) to the patch.
 		uint32_t seed = UINT32_MAX;
@@ -6045,6 +6047,7 @@ struct PiecewiseParameterization
 				continue;
 			seed = f;
 			m_patch.push_back(seed);
+			m_faceInPatch.set(seed);
 			m_faceAssigned.set(seed);
 			Vector2 texcoords[3];
 			orthoProjectFace(seed, texcoords);
@@ -6075,7 +6078,7 @@ struct PiecewiseParameterization
 					}
 				}
 				if (bestCandidate == UINT32_MAX)
-					return false;
+					break;
 				// Compute the position by averaging linked candidates (candidates that share the same free vertex).
 				Vector2 position(0.0f);
 				uint32_t n = 0;
@@ -6097,7 +6100,24 @@ struct PiecewiseParameterization
 						break;
 					}
 				}
-				// TODO: check for boundary intersection.
+				// Check for boundary intersection.
+				if (!invalid) {
+					m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices());
+					// Add edges on the patch boundary to the grid.
+					// Temporarily adding candidate faces to the patch makes it simpler to detect which edges are on the boundary.
+					const uint32_t oldPatchSize = m_patch.size();
+					for (CandidateIterator it(m_candidates, bestCandidate); !it.isDone(); it.advance())
+						m_patch.push_back(it.current().face);
+					for (uint32_t i = 0; i < m_patch.size(); i++) {
+						for (Mesh::FaceEdgeIterator it(m_mesh, m_patch[i]); !it.isDone(); it.advance()) {
+							const uint32_t oface = it.oppositeFace();
+							if (oface == UINT32_MAX || oface >= m_faceCount || !m_faceInPatch.get(oface))
+								m_boundaryGrid.append(it.edge());
+						}
+					}
+					invalid = m_boundaryGrid.intersectSelf(m_mesh->epsilon());
+					m_patch.resize(oldPatchSize);
+				}
 				if (invalid) {
 					// Mark all faces of linked candidates as invalid.
 					for (CandidateIterator it(m_candidates, bestCandidate); !it.isDone(); it.advance())
@@ -6107,6 +6127,7 @@ struct PiecewiseParameterization
 				// Add faces to the patch.
 				for (CandidateIterator it(m_candidates, bestCandidate); !it.isDone(); it.advance()) {
 					m_patch.push_back(it.current().face);
+					m_faceInPatch.set(it.current().face);
 					m_faceAssigned.set(it.current().face);
 				}
 				// Add vertex to the patch.
@@ -6148,8 +6169,9 @@ private:
 	BitArray m_faceInCandidates;
 	Array<uint32_t> m_patch;
 	BitArray m_faceAssigned; // Face is assigned to a previous chart or the current patch.
-	BitArray m_vertexInPatch;
+	BitArray m_faceInPatch, m_vertexInPatch;
 	BitArray m_faceInvalid; // Face cannot be added to the patch - flipped, cost too high or causes boundary intersection.
+	UniformGrid2 m_boundaryGrid;
 
 	// Find candidate faces on the patch front.
 	void findCandidates()
