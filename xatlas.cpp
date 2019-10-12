@@ -9013,7 +9013,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 				}
 #endif
 				bool invalid = false;
-				char *type = "LSCM";
+				const char *type = "LSCM";
 				if (chart->type() == ChartType::Planar)
 					type = "planar";
 				else if (chart->type() == ChartType::Ortho)
