@@ -56,7 +56,6 @@ See the [viewer](https://github.com/jpcy/xatlas/tree/master/extra) for example c
 
 * Segmentation: improve chart merging by using similar metrics to chart growing
 * Segmentation/Parameterization: detect geometry with zero Gaussian curvature (e.g. a cylinder) and unwrap as a single chart
-* Parameterization: subdivide charts with invalid parameterizations
 * Viewer: better lightmap baking
 * Viewer: chart picking in scene and texture views
 
@@ -64,19 +63,19 @@ See the [viewer](https://github.com/jpcy/xatlas/tree/master/extra) for example c
 
 [Ignacio Castaño's blog post on thekla_atlas](http://the-witness.net/news/2010/03/graphics-tech-texture-parameterization/)
 
-[P. Sander, J. Snyder, S. Gortler, and H. Hoppe. Texture Mapping Progressive Meshes](http://hhoppe.com/proj/tmpm/)
+P. Sander, J. Snyder, S. Gortler, and H. Hoppe. [Texture Mapping Progressive Meshes](http://hhoppe.com/proj/tmpm/)
 
-[K. Hormann, B. Lévy, and A. Sheffer. Mesh Parameterization: Theory and Practice](http://alice.loria.fr/publications/papers/2007/SigCourseParam/param-course.pdf)
+K. Hormann, B. Lévy, and A. Sheffer. [Mesh Parameterization: Theory and Practice](http://alice.loria.fr/publications/papers/2007/SigCourseParam/param-course.pdf)
 
-[P. Sander, Z. Wood, S. Gortler, J. Snyder, and H. Hoppe. Multi-Chart Geometry Images](http://hhoppe.com/proj/mcgim/)
+P. Sander, Z. Wood, S. Gortler, J. Snyder, and H. Hoppe. [Multi-Chart Geometry Images](http://hhoppe.com/proj/mcgim/)
 
-[D. Julius, V. Kraevoy, and A. Sheffer. D-Charts: Quasi-Developable Mesh Segmentation](https://www.cs.ubc.ca/~vlady/dcharts/EG05.pdf)
+D. Julius, V. Kraevoy, and A. Sheffer. [D-Charts: Quasi-Developable Mesh Segmentation](https://www.cs.ubc.ca/~vlady/dcharts/EG05.pdf)
 
-[B. Lévy, S. Petitjean, N. Ray, and J. Maillot. Least Squares Conformal Maps for Automatic Texture Atlas Generation](https://members.loria.fr/Bruno.Levy/papers/LSCM_SIGGRAPH_2002.pdf)
+B. Lévy, S. Petitjean, N. Ray, and J. Maillot. [Least Squares Conformal Maps for Automatic Texture Atlas Generation](https://members.loria.fr/Bruno.Levy/papers/LSCM_SIGGRAPH_2002.pdf)
 
-[O. Sorkine, D. Cohen-Or, R. Goldenthal, and D. Lischinski. Bounded-distortion Piecewise Mesh Parameterization](https://igl.ethz.ch/projects/parameterization/BDPMP/index.php)
+O. Sorkine, D. Cohen-Or, R. Goldenthal, and D. Lischinski. [Bounded-distortion Piecewise Mesh Parameterization](https://igl.ethz.ch/projects/parameterization/BDPMP/index.php)
 
-[Y. O’Donnell. Precomputed Global Illumination in Frostbite](https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/gdc2018-precomputedgiobalilluminationinfrostbite.pdf)
+Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/gdc2018-precomputedgiobalilluminationinfrostbite.pdf)
 
 ## Related projects
 
