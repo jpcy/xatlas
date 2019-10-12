@@ -3950,9 +3950,11 @@ private:
 class UniformGrid2
 {
 public:
-	void reset(const Vector2 *positions, const uint32_t *indices = nullptr)
+	void reset(const Vector2 *positions, const uint32_t *indices = nullptr, uint32_t reserveEdgeCount = 0)
 	{
 		m_edges.clear();
+		if (reserveEdgeCount > 0)
+			m_edges.reserve(reserveEdgeCount);
 		m_positions = positions;
 		m_indices = indices;
 		m_cellDataOffsets.clear();
@@ -6344,9 +6346,9 @@ struct Quality
 
 	void computeBoundaryIntersection(const Mesh *mesh, UniformGrid2 &boundaryGrid)
 	{
-		boundaryGrid.reset(mesh->texcoords(), mesh->indices());
 		const Array<uint32_t> &boundaryEdges = mesh->boundaryEdges();
 		const uint32_t boundaryEdgeCount = boundaryEdges.size();
+		boundaryGrid.reset(mesh->texcoords(), mesh->indices(), boundaryEdgeCount);
 		for (uint32_t i = 0; i < boundaryEdgeCount; i++)
 			boundaryGrid.append(boundaryEdges[i]);
 		boundaryIntersection = boundaryGrid.intersectSelf(mesh->epsilon());
