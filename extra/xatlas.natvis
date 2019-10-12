@@ -12,4 +12,26 @@
       </ArrayItems>
     </Expand>
 	</Type>
+	<Type Name="xatlas::internal::ArrayView&lt;*&gt;">
+    <DisplayString Condition="length == 0">empty</DisplayString>
+    <DisplayString>{{ length={length} }}</DisplayString>
+    <Expand>
+      <Item Name="[length]" ExcludeView="simple">length</Item>
+      <ArrayItems>
+        <Size>length</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+	</Type>
+	<Type Name="xatlas::internal::ConstArrayView&lt;*&gt;">
+    <DisplayString Condition="length == 0">empty</DisplayString>
+    <DisplayString>{{ length={length} }}</DisplayString>
+    <Expand>
+      <Item Name="[length]" ExcludeView="simple">length</Item>
+      <ArrayItems>
+        <Size>length</Size>
+        <ValuePointer>data</ValuePointer>
+      </ArrayItems>
+    </Expand>
+	</Type>
 </AutoVisualizer>
