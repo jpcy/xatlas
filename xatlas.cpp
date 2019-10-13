@@ -6074,8 +6074,8 @@ struct PiecewiseParameterization
 					const Candidate &candidate = m_candidates[i];
 					if (m_faceInvalid.get(candidate.face)) // A candidate face may be invalidated after is was added.
 						continue;
-					if (candidate.cost < lowestCost) {
-						lowestCost = candidate.cost;
+					if (candidate.maxCost < lowestCost) {
+						lowestCost = candidate.maxCost;
 						bestCandidate = i;
 					}
 				}
@@ -6148,19 +6148,20 @@ private:
 		uint32_t next; // The next candidate with the same vertex.
 		Vector2 position;
 		float cost;
+		float maxCost; // Of all linked candidates.
 		uint32_t patchEdge;
 		float patchVertexOrient;
 	};
 
 	struct CandidateIterator
 	{
-		CandidateIterator(const Array<Candidate> &candidates, uint32_t first) : m_candidates(candidates), m_current(first) {}
+		CandidateIterator(Array<Candidate> &candidates, uint32_t first) : m_candidates(candidates), m_current(first) {}
 		void advance() { if (m_current != UINT32_MAX) m_current = m_candidates[m_current].next; }
 		bool isDone() const { return m_current == UINT32_MAX; }
-		const Candidate &current() const { return m_candidates[m_current]; }
+		Candidate &current() { return m_candidates[m_current]; }
 
 	private:
-		const Array<Candidate> &m_candidates;
+		Array<Candidate> &m_candidates;
 		uint32_t m_current;
 	};
 
@@ -6223,6 +6224,14 @@ private:
 					current = j;
 				}
 			}
+		}
+		// Set max cost for linked candidates.
+		for (uint32_t i = 0; i < m_candidates.size(); i++) {
+			float maxCost = 0.0f;
+			for (CandidateIterator it(m_candidates, i); !it.isDone(); it.advance())
+				maxCost = max(maxCost, it.current().cost);
+			for (CandidateIterator it(m_candidates, i); !it.isDone(); it.advance())
+				it.current().maxCost = maxCost;
 		}
 	}
 
