@@ -6249,13 +6249,6 @@ private:
 		const float len1 = length(patchEdgeVec);
 		const float len2 = length(localEdgeVec);
 		const float scale = len1 / len2;
-		const float cost = fabsf(scale - 1.0f);
-#if 0
-		if (cost > 0.25f) {
-			m_faceInvalid.set(face);
-			return;
-		}
-#endif
 		XA_ASSERT(scale > 0.0f);
 		for (uint32_t i = 0; i < 3; i++)
 			texcoords[i] *= scale;
@@ -6285,6 +6278,18 @@ private:
 			m_faceInvalid.set(face);
 			return;
 		}
+		const float stretch = computeStretch(m_mesh->position(vertex0), m_mesh->position(vertex1), m_mesh->position(freeVertex), texcoords[0], texcoords[1], texcoords[2]);
+		if (stretch >= FLT_MAX) {
+			m_faceInvalid.set(face);
+			return;
+		}
+		const float cost = fabsf(stretch - 1.0f);
+#if 0
+		if (cost > 0.25f) {
+			m_faceInvalid.set(face);
+			return;
+		}
+#endif
 		// Add the candidate.
 		Candidate candidate;
 		candidate.face = face;
@@ -6315,6 +6320,20 @@ private:
 		const Vector2 &v2 = texcoords[1];
 		const Vector2 &v3 = texcoords[2];
 		return ((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f;
+	}
+
+	float computeStretch(Vector3 p1, Vector3 p2, Vector3 p3, Vector2 t1, Vector2 t2, Vector2 t3) const
+	{
+		float parametricArea = ((t2.y - t1.y) * (t3.x - t1.x) - (t3.y - t1.y) * (t2.x - t1.x)) * 0.5f;
+		if (isZero(parametricArea, kAreaEpsilon))
+			return FLT_MAX;
+		if (parametricArea < 0.0f)
+			parametricArea = fabsf(parametricArea);
+		const float geometricArea = length(cross(p2 - p1, p3 - p1)) * 0.5f;
+		if (parametricArea <= geometricArea)
+			return parametricArea / geometricArea;
+		else
+			return geometricArea / parametricArea;
 	}
 
 	// Return value is positive if the point is one side of the edge, negative if on the other side.
