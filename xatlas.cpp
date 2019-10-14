@@ -4829,22 +4829,12 @@ struct Chart
 struct Atlas
 {
 	// @@ Hardcoded to 10?
-	Atlas(uint32_t meshId, uint32_t chartGroupId, const Mesh *mesh, Array<uint32_t> *meshFaces, const ChartOptions &options) : m_mesh(mesh), m_meshFaces(meshFaces), m_facesLeft(mesh->faceCount()), m_bestTriangles(10), m_options(options)
+	Atlas(uint32_t meshId, uint32_t chartGroupId, const Mesh *mesh, const ChartOptions &options) : m_mesh(mesh), m_facesLeft(mesh->faceCount()), m_bestTriangles(10), m_options(options)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
 		XA_PROFILE_START(buildAtlasInit)
 		const uint32_t faceCount = m_mesh->faceCount();
-		if (meshFaces) {
-			m_ignoreFaces.resize(faceCount);
-			m_ignoreFaces.setAll(true);
-			for (uint32_t f = 0; f < meshFaces->size(); f++)
-				m_ignoreFaces[(*meshFaces)[f]] = false;
-			m_facesLeft = meshFaces->size();
-		} else {
-			m_ignoreFaces.resize(faceCount);
-			m_ignoreFaces.setAll(false);
-		}
 		m_faceChartArray.resize(faceCount);
 		m_faceChartArray.setAll(-1);
 		m_faceCandidateCharts.resize(faceCount);
@@ -4860,8 +4850,6 @@ struct Atlas
 		m_faceAreas.zeroOutMemory();
 		m_faceNormals.resize(faceCount);
 		for (uint32_t f = 0; f < faceCount; f++) {
-			if (m_ignoreFaces[f])
-				continue;
 			for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 				m_edgeLengths[it.edge()] = internal::length(it.position1() - it.position0());
 				XA_DEBUG_ASSERT(m_edgeLengths[it.edge()] > 0.0f);
@@ -4883,8 +4871,6 @@ struct Atlas
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_nextPlanarRegionFace[f] != f)
 				continue; // Already assigned.
-			if (m_ignoreFaces[f])
-				continue;
 			faceStack.clear();
 			faceStack.push_back(f);
 			for (;;) {
@@ -4895,7 +4881,7 @@ struct Atlas
 				faceStack.pop_back();
 				for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
 					const uint32_t oface = it.oppositeFace();
-					if (it.isBoundary() || m_ignoreFaces[oface])
+					if (it.isBoundary())
 						continue;
 					if (m_nextPlanarRegionFace[oface] != oface)
 						continue; // Already assigned.
@@ -4990,7 +4976,7 @@ struct Atlas
 		const uint32_t faceCount = m_mesh->faceCount();
 		for (uint32_t i = 0; i < faceCount; i++)
 			m_faceChartArray[i] = -1;
-		m_facesLeft = m_meshFaces ? m_meshFaces->size() : faceCount;
+		m_facesLeft = faceCount;
 		const uint32_t chartCount = m_chartArray.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_chartArray[i];
@@ -5062,7 +5048,7 @@ struct Atlas
 					const uint32_t f = chart->faces[i];
 					for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 						const float l = m_edgeLengths[it.edge()];
-						if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()]) {
+						if (it.isBoundary()) {
 							externalBoundaryLength += l;
 						} else {
 							const int neighborChart = m_faceChartArray[it.oppositeFace()];
@@ -5152,7 +5138,7 @@ private:
 		m_chartArray.push_back(chart);
 		// Pick random face that is not used by any chart yet.
 		uint32_t face = m_rand.getRange(m_mesh->faceCount() - 1);
-		while (m_ignoreFaces[face] || m_faceChartArray[face] != -1) {
+		while (m_faceChartArray[face] != -1) {
 			if (++face >= m_mesh->faceCount())
 				face = 0;
 		}
@@ -5202,7 +5188,7 @@ private:
 	{
 		const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
 		const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
-		return oppositeEdge == UINT32_MAX || m_ignoreFaces[oppositeFace] || m_faceChartArray[oppositeFace] != chart->id;
+		return oppositeEdge == UINT32_MAX || m_faceChartArray[oppositeFace] != chart->id;
 	}
 
 	bool computeChartBasis(Chart *chart, Basis *basis)
@@ -5329,7 +5315,7 @@ private:
 				const uint32_t edge = f * 3 + j;
 				const uint32_t oedge = m_mesh->oppositeEdge(edge);
 				const uint32_t oface = meshEdgeFace(oedge);
-				if (oedge != UINT32_MAX && !m_ignoreFaces[oface] && m_faceChartArray[oface] == -1) {
+				if (oedge != UINT32_MAX && m_faceChartArray[oface] == -1) {
 					// Don't add candidate face if failed to add its planar region to the chart before.
 					if (!chart->failedPlanarRegions.contains(m_facePlanarRegionId[oface]))
 						chart->candidates.push(oface);
@@ -5446,7 +5432,7 @@ private:
 		float l_in = 0.0f;
 		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			float l = m_edgeLengths[it.edge()];
-			if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()]) {
+			if (it.isBoundary()) {
 				l_out += l;
 			} else {
 				if (m_faceChartArray[it.oppositeFace()] != chart->id) {
@@ -5481,7 +5467,7 @@ private:
 		float seamFactor = 0.0f;
 		float totalLength = 0.0f;
 		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()])
+			if (it.isBoundary())
 				continue;
 			if (m_faceChartArray[it.oppositeFace()] != chart->id)
 				continue;
@@ -5517,7 +5503,7 @@ private:
 		float seamLength = 0.0f;
 		float totalLength = 0.0f;
 		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()])
+			if (it.isBoundary())
 				continue;
 			if (m_faceChartArray[it.oppositeFace()] != chart->id)
 				continue;
@@ -5540,7 +5526,7 @@ private:
 		// Add new edges, subtract edges shared with the chart.
 		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
 			const float edgeLength = m_edgeLengths[it.edge()];
-			if (it.isBoundary() || m_ignoreFaces[it.oppositeFace()]) {
+			if (it.isBoundary()) {
 				boundaryLength += edgeLength;
 			} else {
 				if (m_faceChartArray[it.oppositeFace()] != chart->id)
@@ -5593,8 +5579,6 @@ private:
 	}
 
 	const Mesh *m_mesh;
-	const Array<uint32_t> *m_meshFaces;
-	Array<bool> m_ignoreFaces;
 	Array<float> m_edgeLengths;
 	Array<float> m_faceAreas;
 	Array<Vector3> m_faceNormals;
@@ -7067,7 +7051,7 @@ public:
 		m_chartArray.push_back(chart);
 #else
 		XA_PROFILE_START(buildAtlas)
-		segment::Atlas atlas(m_sourceId, m_id, m_mesh, nullptr, options);
+		segment::Atlas atlas(m_sourceId, m_id, m_mesh, options);
 		buildAtlas(atlas, options);
 		XA_PROFILE_END(buildAtlas)
 		const uint32_t chartCount = atlas.chartCount();
