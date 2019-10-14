@@ -4737,79 +4737,63 @@ static void mult(const Matrix &A, const Matrix &B, Matrix &C)
 
 namespace segment {
 
-// Dummy implementation of a priority queue using sort at insertion.
 // - Insertion is o(n)
 // - Smallest element goes at the end, so that popping it is o(1).
-// - Resorting is n*log(n)
-// @@ Number of elements in the queue is usually small, and we'd have to rebalance often. I'm not sure it's worth implementing a heap.
-// @@ Searcing at removal would remove the need for sorting when priorities change.
-struct PriorityQueue
+struct CostQueue
 {
-	PriorityQueue(uint32_t size = UINT32_MAX) : maxSize(size) {}
+	CostQueue(uint32_t size = UINT32_MAX) : m_maxSize(size) {}
 
-	void push(float priority, uint32_t face)
+	float peekCost() const
 	{
-		uint32_t i = 0;
-		const uint32_t count = pairs.size();
-		for (; i < count; i++) {
-			if (pairs[i].priority > priority) break;
-		}
-		Pair p = { priority, face };
-		pairs.insertAt(i, p);
-		if (pairs.size() > maxSize)
-			pairs.removeAt(0);
+		return m_pairs.back().cost;
 	}
 
-	// push face out of order, to be sorted later.
-	void push(uint32_t face)
+	void push(float cost, uint32_t face)
 	{
-		Pair p = { 0.0f, face };
-		pairs.push_back(p);
+		const Pair p = { cost, face };
+		if (m_pairs.isEmpty() || cost < peekCost())
+			m_pairs.push_back(p);
+		else {
+			uint32_t i = 0;
+			const uint32_t count = m_pairs.size();
+			for (; i < count; i++) {
+				if (m_pairs[i].cost < cost)
+					break;
+			}
+			m_pairs.insertAt(i, p);
+			if (m_pairs.size() > m_maxSize)
+				m_pairs.removeAt(0);
+		}
 	}
 
 	uint32_t pop()
 	{
-		XA_DEBUG_ASSERT(!pairs.isEmpty());
-		uint32_t f = pairs.back().face;
-		pairs.pop_back();
+		XA_DEBUG_ASSERT(!m_pairs.isEmpty());
+		uint32_t f = m_pairs.back().face;
+		m_pairs.pop_back();
 		return f;
-	}
-
-	void sort()
-	{
-		//sort(pairs); // @@ My intro sort appears to be much slower than it should!
-		std::sort(pairs.begin(), pairs.end());
 	}
 
 	XA_INLINE void clear()
 	{
-		pairs.clear();
+		m_pairs.clear();
 	}
 
 	XA_INLINE uint32_t count() const
 	{
-		return pairs.size();
+		return m_pairs.size();
 	}
 
-	float firstPriority() const
-	{
-		return pairs.back().priority;
-	}
-
-	const uint32_t maxSize;
+private:
+	const uint32_t m_maxSize;
 
 	struct Pair
 	{
-		bool operator<(const Pair &p) const
-		{
-			return priority > p.priority;    // !! Sort in inverse priority order!
-		}
-
-		float priority;
+		float cost;
 		uint32_t face;
 	};
 
-	Array<Pair> pairs;
+	Array<Pair> m_pairs;
 };
 
 struct Chart
@@ -4823,7 +4807,7 @@ struct Chart
 	Array<uint32_t> seeds;
 	Array<uint32_t> faces;
 	Array<uint32_t> failedPlanarRegions;
-	PriorityQueue candidates;
+	CostQueue candidates;
 };
 
 struct Atlas
@@ -5146,7 +5130,7 @@ private:
 		addFaceToChart(chart, face);
 		// Grow the chart as much as possible within the given threshold.
 		for (;;) {
-			if (chart->candidates.count() == 0 || chart->candidates.firstPriority() > threshold)
+			if (chart->candidates.count() == 0 || chart->candidates.peekCost() > threshold)
 				break;
 			const uint32_t f = chart->candidates.pop();
 			if (m_faceChartArray[f] != -1)
@@ -5162,7 +5146,7 @@ private:
 	{
 		if (chart->candidates.count() == 0)
 			return;
-		const float cost = chart->candidates.firstPriority();
+		const float cost = chart->candidates.peekCost();
 		const uint32_t face = chart->candidates.pop();
 		if (m_faceChartArray[face] != -1) {
 			addChartCandidateToGlobalCandidates(chart);
@@ -5317,18 +5301,14 @@ private:
 				const uint32_t oface = meshEdgeFace(oedge);
 				if (oedge != UINT32_MAX && m_faceChartArray[oface] == -1) {
 					// Don't add candidate face if failed to add its planar region to the chart before.
-					if (!chart->failedPlanarRegions.contains(m_facePlanarRegionId[oface]))
-						chart->candidates.push(oface);
+					if (!chart->failedPlanarRegions.contains(m_facePlanarRegionId[oface])) {
+						const float cost = evaluateCost(chart, oface);
+						if (cost < FLT_MAX)
+							chart->candidates.push(cost, oface);
+					}
 				}
 			}
 		}
-		// Evaluate candidate priorities.
-		uint32_t candidateCount = chart->candidates.count();
-		for (uint32_t i = 0; i < candidateCount; i++) {
-			PriorityQueue::Pair &pair = chart->candidates.pairs[i];
-			pair.priority = evaluateCost(chart, pair.face);
-		}
-		chart->candidates.sort();
 		return true;
 	}
 
@@ -5339,19 +5319,21 @@ private:
 		const uint32_t faceCount = chart->faces.size();
 		m_bestTriangles.clear();
 		for (uint32_t i = 0; i < faceCount; i++) {
-			float priority = evaluateProxyFitMetric(chart, chart->faces[i]);
-			m_bestTriangles.push(priority, chart->faces[i]);
+			const float cost = evaluateProxyFitMetric(chart, chart->faces[i]);
+			m_bestTriangles.push(cost, chart->faces[i]);
 		}
 		// Of those, choose the least central triangle.
 		uint32_t leastCentral = 0;
 		float maxDistance = -1;
-		const uint32_t bestCount = m_bestTriangles.count();
-		for (uint32_t i = 0; i < bestCount; i++) {
-			Vector3 faceCentroid = m_mesh->triangleCenter(m_bestTriangles.pairs[i].face);
-			float distance = length(chart->centroid - faceCentroid);
+		for (;;) {
+			if (m_bestTriangles.count() == 0)
+				break;
+			const uint32_t face = m_bestTriangles.pop();
+			Vector3 faceCentroid = m_mesh->triangleCenter(face);
+			const float distance = length(chart->centroid - faceCentroid);
 			if (distance > maxDistance) {
 				maxDistance = distance;
-				leastCentral = m_bestTriangles.pairs[i].face;
+				leastCentral = face;
 			}
 		}
 		XA_DEBUG_ASSERT(maxDistance >= 0);
@@ -5586,7 +5568,7 @@ private:
 	uint32_t m_facesLeft;
 	Array<int> m_faceChartArray;
 	Array<Chart *> m_chartArray;
-	PriorityQueue m_bestTriangles;
+	CostQueue m_bestTriangles;
 	KISSRng m_rand;
 	ChartOptions m_options;
 	Array<Chart *> m_faceCandidateCharts;
