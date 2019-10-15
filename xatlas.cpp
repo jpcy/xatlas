@@ -4748,6 +4748,11 @@ struct CostQueue
 		return m_pairs.back().cost;
 	}
 
+	uint32_t peekFace() const
+	{
+		return m_pairs.back().face;
+	}
+
 	void push(float cost, uint32_t face)
 	{
 		const Pair p = { cost, face };
@@ -4821,8 +4826,6 @@ struct Atlas
 		const uint32_t faceCount = m_mesh->faceCount();
 		m_faceChartArray.resize(faceCount);
 		m_faceChartArray.setAll(-1);
-		m_faceCandidateCharts.resize(faceCount);
-		m_faceCandidateCosts.resize(faceCount);
 		m_texcoords.resize(faceCount * 3);
 		// @@ Floyd for the whole mesh is too slow. We could compute floyd progressively per patch as the patch grows. We need a better solution to compute most central faces.
 		//computeShortestPaths();
@@ -4930,28 +4933,51 @@ struct Atlas
 	}
 
 	// Returns true if any of the charts can grow more.
-	bool growCharts(float threshold)
+	void growCharts(float threshold)
 	{
 		XA_PROFILE_START(buildAtlasGrowCharts)
-		// Build global candidate list.
-		m_faceCandidateCharts.zeroOutMemory();
-		for (uint32_t i = 0; i < m_chartArray.size(); i++)
-			addChartCandidateToGlobalCandidates(m_chartArray[i]);
-		// Add one candidate face per chart (threshold permitting).
-		const uint32_t faceCount = m_mesh->faceCount();
-		bool canAddAny = false;
-		for (uint32_t f = 0; f < faceCount; f++) {
-			Chart *chart = m_faceCandidateCharts[f];
-			if (!chart || m_faceCandidateCosts[f] > threshold || m_faceChartArray[f] != -1)
-				continue;
-			if (!addFaceToChart(chart, f)) {
-				chart->failedPlanarRegions.push_back(m_facePlanarRegionId[f]);
-				continue;
+		for (;;) {
+			if (m_facesLeft == 0)
+				break;
+			// Get the single best candidate out of the chart best candidates.
+			uint32_t bestFace = UINT32_MAX, bestChart = UINT32_MAX;
+			float lowestCost = FLT_MAX;
+			for (uint32_t i = 0; i < m_chartArray.size(); i++) {
+				Chart *chart = m_chartArray[i];
+				// Get the best candidate from the chart.
+				// Cleanup any best candidates that have been claimed by another chart.
+				uint32_t face = UINT32_MAX;
+				float cost = FLT_MAX;
+				for (;;) {
+					if (chart->candidates.count() == 0)
+						break;
+					cost = chart->candidates.peekCost();
+					face = chart->candidates.peekFace();
+					if (m_faceChartArray[face] == -1)
+						break;
+					else {
+						// Face belongs to another chart. Pop from queue so the next best candidate can be retrieved.
+						chart->candidates.pop();
+						face = UINT32_MAX;
+					}
+				}
+				if (face == UINT32_MAX)
+					continue; // No candidates for this chart.
+				// See if best candidate overall.
+				if (cost < lowestCost) {
+					lowestCost = cost;
+					bestFace = face;
+					bestChart = i;
+				}
 			}
-			canAddAny = true;
+			if (bestFace == UINT32_MAX || lowestCost > threshold)
+				break;
+			Chart *chart = m_chartArray[bestChart];
+			chart->candidates.pop(); // Pop the selected candidate from the queue.
+			if (!addFaceToChart(chart, bestFace))
+				chart->failedPlanarRegions.push_back(m_facePlanarRegionId[bestFace]);
 		}
 		XA_PROFILE_END(buildAtlasGrowCharts)
-		return canAddAny && m_facesLeft != 0; // Can continue growing.
 	}
 
 	void resetCharts()
@@ -5142,32 +5168,6 @@ private:
 		}
 	}
 
-	void addChartCandidateToGlobalCandidates(Chart *chart)
-	{
-		if (chart->candidates.count() == 0)
-			return;
-		const float cost = chart->candidates.peekCost();
-		const uint32_t face = chart->candidates.pop();
-		if (m_faceChartArray[face] != -1) {
-			addChartCandidateToGlobalCandidates(chart);
-		} else if (!m_faceCandidateCharts[face]) {
-			// No candidate assigned to this face yet.
-			m_faceCandidateCharts[face] = chart;
-			m_faceCandidateCosts[face] = cost;
-		} else {
-			if (cost < m_faceCandidateCosts[face]) {
-				// This is a better candidate for this face (lower cost). The other chart can choose another candidate.
-				Chart *otherChart = m_faceCandidateCharts[face];
-				m_faceCandidateCharts[face] = chart;
-				m_faceCandidateCosts[face] = cost;
-				addChartCandidateToGlobalCandidates(otherChart);
-			} else {
-				// Existing candidate is better. This chart can choose another candidate.
-				addChartCandidateToGlobalCandidates(chart);
-			}
-		}
-	}
-
 	bool isChartBoundaryEdge(const Chart *chart, uint32_t edge) const
 	{
 		const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
@@ -5298,15 +5298,16 @@ private:
 			for (uint32_t j = 0; j < 3; j++) {
 				const uint32_t edge = f * 3 + j;
 				const uint32_t oedge = m_mesh->oppositeEdge(edge);
+				if (oedge == UINT32_MAX)
+					continue; // Boundary edge.
 				const uint32_t oface = meshEdgeFace(oedge);
-				if (oedge != UINT32_MAX && m_faceChartArray[oface] == -1) {
-					// Don't add candidate face if failed to add its planar region to the chart before.
-					if (!chart->failedPlanarRegions.contains(m_facePlanarRegionId[oface])) {
-						const float cost = evaluateCost(chart, oface);
-						if (cost < FLT_MAX)
-							chart->candidates.push(cost, oface);
-					}
-				}
+				if (m_faceChartArray[oface] != -1)
+					continue; // Face belongs to another chart.
+				if (chart->failedPlanarRegions.contains(m_facePlanarRegionId[oface]))
+					continue; // Failed to add this faces planar region to the chart before.
+				const float cost = evaluateCost(chart, oface);
+				if (cost < FLT_MAX)
+					chart->candidates.push(cost, oface);
 			}
 		}
 		return true;
@@ -5571,8 +5572,6 @@ private:
 	CostQueue m_bestTriangles;
 	KISSRng m_rand;
 	ChartOptions m_options;
-	Array<Chart *> m_faceCandidateCharts;
-	Array<float> m_faceCandidateCosts;
 	Array<uint32_t> m_nextPlanarRegionFace;
 	Array<uint32_t> m_facePlanarRegionId;
 	Array<Vector3> m_tempPoints;
@@ -7188,19 +7187,18 @@ private:
 		atlas.resetCharts();
 		// Restart process growing charts in parallel.
 		uint32_t iteration = 0;
-		while (true) {
-			if (!atlas.growCharts(options.maxThreshold)) {
-				// If charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
-				atlas.fillHoles(options.maxThreshold * 0.5f);
+		for (;;) {
+			atlas.growCharts(options.maxThreshold);
+			// When charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
+			atlas.fillHoles(options.maxThreshold * 0.5f);
 #if XA_MERGE_CHARTS
-				atlas.mergeCharts();
+			atlas.mergeCharts();
 #endif
-				if (++iteration == options.maxIterations)
-					break;
-				if (!atlas.relocateSeeds())
-					break;
-				atlas.resetCharts();
-			}
+			if (++iteration == options.maxIterations)
+				break;
+			if (!atlas.relocateSeeds())
+				break;
+			atlas.resetCharts();
 		}
 		// Make sure no holes are left!
 		XA_DEBUG_ASSERT(atlas.facesLeft() == 0);
