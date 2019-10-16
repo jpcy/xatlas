@@ -5280,12 +5280,12 @@ private:
 		}
 		// Add face(s) to chart.
 		chart->basis = basis;
+		chart->area = computeArea(chart, face);
 		chart->boundaryLength = computeBoundaryLength(chart, face);
 		for (uint32_t i = oldFaceCount; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
 			m_faceCharts[f] = chart->id;
 			m_facesLeft--;
-			chart->area = chart->area + m_faceAreas[f];
 			chart->centroidSum += m_mesh->triangleCenter(f);
 		}
 		chart->centroid = chart->centroidSum / float(chart->faces.size());
@@ -5356,7 +5356,7 @@ private:
 	float evaluateCost(Chart *chart, uint32_t face) const
 	{
 		// Estimate boundary length and area:
-		const float newChartArea = chart->area + m_faceAreas[face];
+		const float newChartArea = computeArea(chart, face);
 		const float newBoundaryLength = computeBoundaryLength(chart, face);
 		// Enforce limits strictly:
 		if (m_options.maxChartArea > 0.0f && newChartArea > m_options.maxChartArea)
@@ -5500,6 +5500,19 @@ private:
 		if (seamLength == 0.0f)
 			return 0.0f; // Avoid division by zero.
 		return seamLength / totalLength;
+	}
+
+	float computeArea(Chart *chart, uint32_t firstFace) const
+	{
+		float area = chart->area;
+		uint32_t face = firstFace;
+		for (;;) { 
+			area += m_faceAreas[face];
+			face = m_nextPlanarRegionFace[face];
+			if (face == firstFace)
+				break;
+		}
+		return area;
 	}
 
 	float computeBoundaryLength(Chart *chart, uint32_t firstFace) const
