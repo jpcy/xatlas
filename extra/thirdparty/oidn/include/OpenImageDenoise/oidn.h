@@ -38,7 +38,7 @@ extern "C" {
 // Device
 // ----------------------------------------------------------------------------
 
-// Open Image Denoise device types
+// Device types
 typedef enum
 {
   OIDN_DEVICE_TYPE_DEFAULT = 0, // select device automatically
@@ -64,7 +64,7 @@ typedef void (*OIDNErrorFunction)(void* userPtr, OIDNError code, const char* mes
 // Device handle
 typedef struct OIDNDeviceImpl* OIDNDevice;
 
-// Creates a new Open Image Denoise device.
+// Creates a new device.
 OIDN_API OIDNDevice oidnNewDevice(OIDNDeviceType type);
 
 // Retains the device (increments the reference count).
@@ -184,14 +184,20 @@ OIDN_API void oidnSetSharedFilterImage(OIDNFilter filter, const char* name,
 // Sets a boolean parameter of the filter.
 OIDN_API void oidnSetFilter1b(OIDNFilter filter, const char* name, bool value);
 
-// Sets an integer parameter of the filter.
-OIDN_API void oidnSetFilter1i(OIDNFilter filter, const char* name, int value);
-
 // Gets a boolean parameter of the filter.
 OIDN_API bool oidnGetFilter1b(OIDNFilter filter, const char* name);
 
+// Sets an integer parameter of the filter.
+OIDN_API void oidnSetFilter1i(OIDNFilter filter, const char* name, int value);
+
 // Gets an integer parameter of the filter.
 OIDN_API int oidnGetFilter1i(OIDNFilter filter, const char* name);
+
+// Sets a float parameter of the filter.
+OIDN_API void oidnSetFilter1f(OIDNFilter filter, const char* name, float value);
+
+// Gets a float parameter of the filter.
+OIDN_API float oidnGetFilter1f(OIDNFilter filter, const char* name);
 
 // Sets the progress monitor callback function of the filter.
 OIDN_API void oidnSetFilterProgressMonitorFunction(OIDNFilter filter, OIDNProgressMonitorFunction func, void* userPtr);

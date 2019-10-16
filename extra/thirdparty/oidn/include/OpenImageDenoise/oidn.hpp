@@ -240,6 +240,12 @@ namespace oidn {
       oidnSetFilter1i(handle, name, value);
     }
 
+    // Sets a float parameter of the filter.
+    void set(const char* name, float value)
+    {
+      oidnSetFilter1f(handle, name, value);
+    }
+
     // Gets a parameter of the filter.
     template<typename T>
     T get(const char* name);
@@ -277,11 +283,18 @@ namespace oidn {
     return oidnGetFilter1i(handle, name);
   }
 
+  // Gets a float parameter of the filter.
+  template<>
+  inline float FilterRef::get(const char* name)
+  {
+    return oidnGetFilter1f(handle, name);
+  }
+
   // --------------------------------------------------------------------------
   // Device
   // --------------------------------------------------------------------------
 
-  // Open Image Denoise device types
+  // Device types
   enum class DeviceType
   {
     Default = OIDN_DEVICE_TYPE_DEFAULT, // select device automatically
@@ -446,7 +459,7 @@ namespace oidn {
     return oidnGetDevice1i(handle, name);
   }
 
-  // Creates a new Open Image Denoise device.
+  // Creates a new device.
   inline DeviceRef newDevice(DeviceType type = DeviceType::Default)
   {
     return DeviceRef(oidnNewDevice((OIDNDeviceType)type));

@@ -904,7 +904,7 @@ static void bakeDenoiseThread()
 	oidn::SetDeviceErrorFunction(device, bakeOidnError, nullptr);
 	oidn::SetDevice1b(device, "setAffinity", false);
 	oidn::CommitDevice(device);
-	OIDNFilter filter = oidn::NewFilter(device, "RT");
+	OIDNFilter filter = oidn::NewFilter(device, "RTLightmap");
 	oidn::SetFilterProgressMonitorFunction(filter, bakeOidnProgress, nullptr);
 	oidn::SetSharedFilterImage(filter, "color", s_bake.lightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
 	oidn::SetSharedFilterImage(filter, "output", s_bake.denoisedLightmapData.data(), OIDN_FORMAT_FLOAT3, s_bake.lightmapWidth, s_bake.lightmapHeight, 0, sizeof(float) * 4, 0);
