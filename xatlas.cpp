@@ -6054,6 +6054,8 @@ struct PiecewiseParameterization
 				}
 				position *= 1.0f / (float)n;
 				const uint32_t freeVertex = m_candidates[bestCandidate].vertex;
+				XA_DEBUG_ASSERT(!isNan(position.x));
+				XA_DEBUG_ASSERT(!isNan(position.y));
 				m_texcoords[freeVertex] = position;
 				// Check for flipped faces. This is also done when candidates are first added, but the averaged position of the free vertex is different now, so check again.
 				bool invalid = false;
@@ -6632,12 +6634,11 @@ public:
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	Chart(const Chart *parent, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
-		const Mesh *parentMesh = parent->unifiedMesh();
 		const uint32_t faceCount = m_initialFaceCount = faces.length;
 		m_faceArray.resize(faceCount);
 		for (uint32_t i = 0; i < faceCount; i++)
@@ -7132,7 +7133,7 @@ public:
 			for (;;) {
 				if (!pp.computeChart())
 					break;
-				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, invalidChart, pp.chartFaces(), pp.texcoords(), m_mesh, m_sourceId, m_id, m_charts.size());
+				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, invalidChart, invalidMesh, pp.chartFaces(), pp.texcoords(), m_mesh, m_sourceId, m_id, m_charts.size());
 				m_charts.push_back(chart);
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
 				if (file) {
