@@ -386,6 +386,7 @@ static double clockToSeconds(clock_t c)
 
 static constexpr float kPi = 3.14159265358979323846f;
 static constexpr float kPi2 = 6.28318530717958647692f;
+static constexpr float kPi4 = 12.56637061435917295384f;
 static constexpr float kEpsilon = 0.0001f;
 static constexpr float kAreaEpsilon = FLT_EPSILON;
 static constexpr float kNormalEpsilon = 0.001f;
@@ -5374,7 +5375,7 @@ private:
 		if (m_options.proxyFitMetricWeight > 0.0f)
 			cost += m_options.proxyFitMetricWeight * evaluateProxyFitMetric(chart, face);
 		if (m_options.roundnessMetricWeight > 0.0f)
-			cost += m_options.roundnessMetricWeight * evaluateRoundnessMetric(chart, face, newBoundaryLength, newChartArea);
+			cost += m_options.roundnessMetricWeight * evaluateRoundnessMetric(chart, newBoundaryLength, newChartArea);
 		if (m_options.straightnessMetricWeight > 0.0f)
 			cost += m_options.straightnessMetricWeight * evaluateStraightnessMetric(chart, face);
 		if (m_options.textureSeamMetricWeight > 0.0f)
@@ -5389,23 +5390,23 @@ private:
 	}
 
 	// Returns a value in [0-1].
-	float evaluateProxyFitMetric(Chart *chart, uint32_t f) const
+	float evaluateProxyFitMetric(Chart *chart, uint32_t face) const
 	{
-		const Vector3 faceNormal = m_faceNormals[f];
+		// All faces in coplanar regions have the same normal, can use any face.
+		const Vector3 faceNormal = m_faceNormals[face];
 		// Use plane fitting metric for now:
 		return 1 - dot(faceNormal, chart->basis.normal); // @@ normal deviations should be weighted by face area
 	}
 
-	float evaluateRoundnessMetric(Chart *chart, uint32_t /*face*/, float newBoundaryLength, float newChartArea) const
+	float evaluateRoundnessMetric(Chart *chart, float newBoundaryLength, float newChartArea) const
 	{
-		float roundness = square(chart->boundaryLength) / chart->area;
-		float newRoundness = square(newBoundaryLength) / newChartArea;
-		if (newRoundness > roundness) {
-			return square(newBoundaryLength) / (newChartArea * 4.0f * kPi);
-		} else {
-			// Offer no impedance to faces that improve roundness.
-			return 0;
-		}
+		const float roundness = square(chart->boundaryLength) / chart->area;
+		const float newBoundaryLengthSq = square(newBoundaryLength);
+		const float newRoundness = newBoundaryLengthSq / newChartArea;
+		if (newRoundness > roundness)
+			return newBoundaryLengthSq / (newChartArea * kPi4);
+		// Offer no impedance to faces that improve roundness.
+		return 0;
 	}
 
 	float evaluateStraightnessMetric(Chart *chart, uint32_t f) const
