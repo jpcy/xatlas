@@ -5280,12 +5280,12 @@ private:
 		}
 		// Add face(s) to chart.
 		chart->basis = basis;
+		chart->boundaryLength = computeBoundaryLength(chart, face);
 		for (uint32_t i = oldFaceCount; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
 			m_faceCharts[f] = chart->id;
 			m_facesLeft--;
 			chart->area = chart->area + m_faceAreas[f];
-			chart->boundaryLength = computeBoundaryLength(chart, f);
 			chart->centroidSum += m_mesh->triangleCenter(f);
 		}
 		chart->centroid = chart->centroidSum / float(chart->faces.size());
@@ -5502,20 +5502,27 @@ private:
 		return seamLength / totalLength;
 	}
 
-	float computeBoundaryLength(Chart *chart, uint32_t f) const
+	float computeBoundaryLength(Chart *chart, uint32_t firstFace) const
 	{
 		float boundaryLength = chart->boundaryLength;
 		// Add new edges, subtract edges shared with the chart.
-		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			const float edgeLength = m_edgeLengths[it.edge()];
-			if (it.isBoundary()) {
-				boundaryLength += edgeLength;
-			} else {
-				if (m_faceCharts[it.oppositeFace()] != chart->id)
+		const uint32_t planarRegionId = m_facePlanarRegionId[firstFace];
+		uint32_t face = firstFace;
+		for (;;) { 
+			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
+				const float edgeLength = m_edgeLengths[it.edge()];
+				if (it.isBoundary()) {
 					boundaryLength += edgeLength;
-				else
-					boundaryLength -= edgeLength;
+				} else if (m_facePlanarRegionId[it.oppositeFace()] != planarRegionId) {
+					if (m_faceCharts[it.oppositeFace()] != chart->id)
+						boundaryLength += edgeLength;
+					else
+						boundaryLength -= edgeLength;
+				}
 			}
+			face = m_nextPlanarRegionFace[face];
+			if (face == firstFace)
+				break;
 		}
 		return max(0.0f, boundaryLength);  // @@ Hack!
 	}
