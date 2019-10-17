@@ -33,7 +33,6 @@ https://github.com/brandonpelfrey/Fast-BVH
 MIT License
 Copyright (c) 2012 Brandon Pelfrey
 */
-#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
@@ -3664,7 +3663,7 @@ public:
 
 	uint32_t threadCount() const
 	{
-		return std::max(1u, std::thread::hardware_concurrency()); // Including the main thread.
+		return max(1u, std::thread::hardware_concurrency()); // Including the main thread.
 	}
 
 	TaskGroupHandle createTaskGroup(uint32_t reserveSize = 0)
