@@ -755,11 +755,6 @@ public:
 	float x, y, z;
 };
 
-static bool operator!=(const Vector3 &a, const Vector3 &b)
-{
-	return a.x != b.x || a.y != b.y || a.z != b.z;
-}
-
 static Vector3 operator+(const Vector3 &a, const Vector3 &b)
 {
 	return Vector3(a.x + b.x, a.y + b.y, a.z + b.z);
@@ -5445,9 +5440,9 @@ private:
 			const uint32_t v1 = m_mesh->vertexAt(meshEdgeIndex1(edge));
 			const uint32_t ov0 = m_mesh->vertexAt(meshEdgeIndex0(oppositeEdge));
 			const uint32_t ov1 = m_mesh->vertexAt(meshEdgeIndex1(oppositeEdge));
-			return m_mesh->normal(v0) != m_mesh->normal(ov1) || m_mesh->normal(v1) != m_mesh->normal(ov0);
+			return !equal(m_mesh->normal(v0), m_mesh->normal(ov1), kNormalEpsilon) || !equal(m_mesh->normal(v1), m_mesh->normal(ov0), kNormalEpsilon);
 		}
-		return m_faceNormals[meshEdgeFace(edge)] != m_faceNormals[meshEdgeFace(oppositeEdge)];
+		return !equal(m_faceNormals[meshEdgeFace(edge)], m_faceNormals[meshEdgeFace(oppositeEdge)], kNormalEpsilon);
 	}
 
 	float evaluateNormalSeamMetric(Chart *chart, uint32_t f) const
