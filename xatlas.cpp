@@ -5454,7 +5454,6 @@ private:
 	float evaluateNormalSeamMetric(Chart *chart, uint32_t firstFace) const
 	{
 		float seamFactor = 0.0f, totalLength = 0.0f;
-		const uint32_t planarRegionId = m_facePlanarRegionId[firstFace];
 		uint32_t face = firstFace;
 		for (;;) { 
 			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
@@ -5493,24 +5492,29 @@ private:
 		return seamFactor / totalLength;
 	}
 
-	float evaluateTextureSeamMetric(Chart *chart, uint32_t f) const
+	float evaluateTextureSeamMetric(Chart *chart, uint32_t firstFace) const
 	{
-		float seamLength = 0.0f;
-		float totalLength = 0.0f;
-		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			if (it.isBoundary())
-				continue;
-			if (m_faceCharts[it.oppositeFace()] != chart->id)
-				continue;
-			float l = m_edgeLengths[it.edge()];
-			totalLength += l;
-			if (!it.isSeam())
-				continue;
-			// Make sure it's a texture seam.
-			if (it.isTextureSeam())
-				seamLength += l;
+		float seamLength = 0.0f, totalLength = 0.0f;
+		uint32_t face = firstFace;
+		for (;;) { 
+			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
+				if (it.isBoundary())
+					continue;
+				if (m_faceCharts[it.oppositeFace()] != chart->id)
+					continue;
+				float l = m_edgeLengths[it.edge()];
+				totalLength += l;
+				if (!it.isSeam())
+					continue;
+				// Make sure it's a texture seam.
+				if (it.isTextureSeam())
+					seamLength += l;
+			}
+			face = m_nextPlanarRegionFace[face];
+			if (face == firstFace)
+				break;
 		}
-		if (seamLength == 0.0f)
+		if (seamLength <= 0.0f)
 			return 0.0f; // Avoid division by zero.
 		return seamLength / totalLength;
 	}
