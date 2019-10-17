@@ -5409,21 +5409,26 @@ private:
 		return 0;
 	}
 
-	float evaluateStraightnessMetric(Chart *chart, uint32_t f) const
+	float evaluateStraightnessMetric(Chart *chart, uint32_t firstFace) const
 	{
-		float l_out = 0.0f;
-		float l_in = 0.0f;
-		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			float l = m_edgeLengths[it.edge()];
-			if (it.isBoundary()) {
-				l_out += l;
-			} else {
-				if (m_faceCharts[it.oppositeFace()] != chart->id) {
+		float l_out = 0.0f, l_in = 0.0f;
+		const uint32_t planarRegionId = m_facePlanarRegionId[firstFace];
+		uint32_t face = firstFace;
+		for (;;) { 
+			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
+				const float l = m_edgeLengths[it.edge()];
+				if (it.isBoundary()) {
 					l_out += l;
-				} else {
-					l_in += l;
+				} else if (m_facePlanarRegionId[it.oppositeFace()] != planarRegionId) {
+					if (m_faceCharts[it.oppositeFace()] != chart->id)
+						l_out += l;
+					else
+						l_in += l;
 				}
 			}
+			face = m_nextPlanarRegionFace[face];
+			if (face == firstFace)
+				break;
 		}
 		XA_DEBUG_ASSERT(l_in != 0.0f); // Candidate face must be adjacent to chart. @@ This is not true if the input mesh has zero-length edges.
 		float ratio = (l_out - l_in) / (l_out + l_in);
