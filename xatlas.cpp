@@ -5451,36 +5451,42 @@ private:
 		return !equal(m_faceNormals[f0], m_faceNormals[f1], kNormalEpsilon);
 	}
 
-	float evaluateNormalSeamMetric(Chart *chart, uint32_t f) const
+	float evaluateNormalSeamMetric(Chart *chart, uint32_t firstFace) const
 	{
-		float seamFactor = 0.0f;
-		float totalLength = 0.0f;
-		for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-			if (it.isBoundary())
-				continue;
-			if (m_faceCharts[it.oppositeFace()] != chart->id)
-				continue;
-			float l = m_edgeLengths[it.edge()];
-			totalLength += l;
-			if (!it.isSeam())
-				continue;
-			// Make sure it's a normal seam.
-			if (isNormalSeam(it.edge())) {
-				float d;
-				if (m_mesh->flags() & MeshFlags::HasNormals) {
-					const Vector3 &n0 = m_mesh->normal(it.vertex0());
-					const Vector3 &n1 = m_mesh->normal(it.vertex1());
-					const Vector3 &on0 = m_mesh->normal(m_mesh->vertexAt(meshEdgeIndex0(it.oppositeEdge())));
-					const Vector3 &on1 = m_mesh->normal(m_mesh->vertexAt(meshEdgeIndex1(it.oppositeEdge())));
-					const float d0 = clamp(dot(n0, on1), 0.0f, 1.0f);
-					const float d1 = clamp(dot(n1, on0), 0.0f, 1.0f);
-					d = (d0 + d1) * 0.5f;
-				} else {
-					d = clamp(dot(m_faceNormals[f], m_faceNormals[meshEdgeFace(it.oppositeEdge())]), 0.0f, 1.0f);
+		float seamFactor = 0.0f, totalLength = 0.0f;
+		const uint32_t planarRegionId = m_facePlanarRegionId[firstFace];
+		uint32_t face = firstFace;
+		for (;;) { 
+			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
+				if (it.isBoundary())
+					continue;
+				if (m_faceCharts[it.oppositeFace()] != chart->id)
+					continue;
+				float l = m_edgeLengths[it.edge()];
+				totalLength += l;
+				if (!it.isSeam())
+					continue;
+				// Make sure it's a normal seam.
+				if (isNormalSeam(it.edge())) {
+					float d;
+					if (m_mesh->flags() & MeshFlags::HasNormals) {
+						const Vector3 &n0 = m_mesh->normal(it.vertex0());
+						const Vector3 &n1 = m_mesh->normal(it.vertex1());
+						const Vector3 &on0 = m_mesh->normal(m_mesh->vertexAt(meshEdgeIndex0(it.oppositeEdge())));
+						const Vector3 &on1 = m_mesh->normal(m_mesh->vertexAt(meshEdgeIndex1(it.oppositeEdge())));
+						const float d0 = clamp(dot(n0, on1), 0.0f, 1.0f);
+						const float d1 = clamp(dot(n1, on0), 0.0f, 1.0f);
+						d = (d0 + d1) * 0.5f;
+					} else {
+						d = clamp(dot(m_faceNormals[face], m_faceNormals[meshEdgeFace(it.oppositeEdge())]), 0.0f, 1.0f);
+					}
+					l *= 1 - d;
+					seamFactor += l;
 				}
-				l *= 1 - d;
-				seamFactor += l;
 			}
+			face = m_nextPlanarRegionFace[face];
+			if (face == firstFace)
+				break;
 		}
 		if (seamFactor <= 0.0f)
 			return 0.0f;
