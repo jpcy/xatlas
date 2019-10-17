@@ -5440,9 +5440,15 @@ private:
 			const uint32_t v1 = m_mesh->vertexAt(meshEdgeIndex1(edge));
 			const uint32_t ov0 = m_mesh->vertexAt(meshEdgeIndex0(oppositeEdge));
 			const uint32_t ov1 = m_mesh->vertexAt(meshEdgeIndex1(oppositeEdge));
+			if (v0 == ov1 && v1 == ov0)
+				return false;
 			return !equal(m_mesh->normal(v0), m_mesh->normal(ov1), kNormalEpsilon) || !equal(m_mesh->normal(v1), m_mesh->normal(ov0), kNormalEpsilon);
 		}
-		return !equal(m_faceNormals[meshEdgeFace(edge)], m_faceNormals[meshEdgeFace(oppositeEdge)], kNormalEpsilon);
+		const uint32_t f0 = meshEdgeFace(edge);
+		const uint32_t f1 = meshEdgeFace(oppositeEdge);
+		if (m_facePlanarRegionId[f0] == m_facePlanarRegionId[f1])
+			return false;
+		return !equal(m_faceNormals[f0], m_faceNormals[f1], kNormalEpsilon);
 	}
 
 	float evaluateNormalSeamMetric(Chart *chart, uint32_t f) const
