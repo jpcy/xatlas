@@ -648,19 +648,19 @@ static bool isFinite(const Vector2 &v)
 	return isFinite(v.x) && isFinite(v.y);
 }
 
-static float triangleAreaSquared(const Vector2 &a, const Vector2 &b, const Vector2 &c)
+static float triangleArea(const Vector2 &a, const Vector2 &b, const Vector2 &c)
 {
 	// IC: While it may be appealing to use the following expression:
-	//return (c.x * a.y + a.x * b.y + b.x * c.y - b.x * a.y - c.x * b.y - a.x * c.y);
+	//return (c.x * a.y + a.x * b.y + b.x * c.y - b.x * a.y - c.x * b.y - a.x * c.y) * 0.5f;
 	// That's actually a terrible idea. Small triangles far from the origin can end up producing fairly large floating point
 	// numbers and the results becomes very unstable and dependent on the order of the factors.
 	// Instead, it's preferable to subtract the vertices first, and multiply the resulting small values together. The result
 	// in this case is always much more accurate (as long as the triangle is small) and less dependent of the location of
 	// the triangle.
-	//return ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x));
+	//return ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x)) * 0.5f;
 	const Vector2 v0 = a - c;
 	const Vector2 v1 = b - c;
-	return (v0.x * v1.y - v0.y * v1.x);
+	return (v0.x * v1.y - v0.y * v1.x) * 0.5f;
 }
 
 static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &b1, const Vector2 &b2, float epsilon)
@@ -2297,7 +2297,7 @@ private:
 			Vector2 a = output[output.size() - 2];
 			Vector2 b = output[output.size() - 1];
 			Vector2 c = m_top[i];
-			float area = triangleAreaSquared(a, b, c);
+			float area = triangleArea(a, b, c);
 			if (area >= -epsilon)
 				output.pop_back();
 			if (area < -epsilon || output.size() == 1) {
@@ -2312,7 +2312,7 @@ private:
 			Vector2 a = output[output.size() - 2];
 			Vector2 b = output[output.size() - 1];
 			Vector2 c = m_bottom[i];
-			float area = triangleAreaSquared(a, b, c);
+			float area = triangleArea(a, b, c);
 			if (area >= -epsilon)
 				output.pop_back();
 			if (area < -epsilon || output.size() == top_count) {
@@ -2861,7 +2861,7 @@ public:
 		const Vector2 &t0 = m_texcoords[m_indices[face * 3 + 0]];
 		const Vector2 &t1 = m_texcoords[m_indices[face * 3 + 1]];
 		const Vector2 &t2 = m_texcoords[m_indices[face * 3 + 2]];
-		return triangleAreaSquared(t0, t1, t2) * 0.5f;
+		return triangleArea(t0, t1, t2);
 	}
 	
 	// @@ This is not exactly accurate, we should compare the texture coordinates...
@@ -7768,7 +7768,7 @@ struct Atlas
 				const Vector2 &v1 = chart->vertices[chart->indices[f * 3 + 0]];
 				const Vector2 &v2 = chart->vertices[chart->indices[f * 3 + 1]];
 				const Vector2 &v3 = chart->vertices[chart->indices[f * 3 + 2]];
-				chart->parametricArea += fabsf(triangleAreaSquared(v1, v2, v3));
+				chart->parametricArea += fabsf(triangleArea(v1, v2, v3));
 			}
 			chart->parametricArea *= 0.5f;
 			chart->surfaceArea = chart->parametricArea; // Identical for UV meshes.
