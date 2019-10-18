@@ -648,23 +648,19 @@ static bool isFinite(const Vector2 &v)
 	return isFinite(v.x) && isFinite(v.y);
 }
 
-// Note, this is the area scaled by 2!
-static float triangleArea(const Vector2 &v0, const Vector2 &v1)
-{
-	return (v0.x * v1.y - v0.y * v1.x); // * 0.5f;
-}
-
-static float triangleArea(const Vector2 &a, const Vector2 &b, const Vector2 &c)
+static float triangleAreaSquared(const Vector2 &a, const Vector2 &b, const Vector2 &c)
 {
 	// IC: While it may be appealing to use the following expression:
-	//return (c.x * a.y + a.x * b.y + b.x * c.y - b.x * a.y - c.x * b.y - a.x * c.y); // * 0.5f;
+	//return (c.x * a.y + a.x * b.y + b.x * c.y - b.x * a.y - c.x * b.y - a.x * c.y);
 	// That's actually a terrible idea. Small triangles far from the origin can end up producing fairly large floating point
 	// numbers and the results becomes very unstable and dependent on the order of the factors.
 	// Instead, it's preferable to subtract the vertices first, and multiply the resulting small values together. The result
 	// in this case is always much more accurate (as long as the triangle is small) and less dependent of the location of
 	// the triangle.
-	//return ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x)); // * 0.5f;
-	return triangleArea(a - c, b - c);
+	//return ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x));
+	const Vector2 v0 = a - c;
+	const Vector2 v1 = b - c;
+	return (v0.x * v1.y - v0.y * v1.x);
 }
 
 static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &b1, const Vector2 &b2, float epsilon)
@@ -2301,7 +2297,7 @@ private:
 			Vector2 a = output[output.size() - 2];
 			Vector2 b = output[output.size() - 1];
 			Vector2 c = m_top[i];
-			float area = triangleArea(a, b, c);
+			float area = triangleAreaSquared(a, b, c);
 			if (area >= -epsilon)
 				output.pop_back();
 			if (area < -epsilon || output.size() == 1) {
@@ -2316,7 +2312,7 @@ private:
 			Vector2 a = output[output.size() - 2];
 			Vector2 b = output[output.size() - 1];
 			Vector2 c = m_bottom[i];
-			float area = triangleArea(a, b, c);
+			float area = triangleAreaSquared(a, b, c);
 			if (area >= -epsilon)
 				output.pop_back();
 			if (area < -epsilon || output.size() == top_count) {
@@ -2538,8 +2534,8 @@ public:
 #if 0
 						else {
 							// Choose the opposite face with the smallest dihedral angle.
-							const float d1 = 1.0f - dot(calculateFaceNormal(f), calculateFaceNormal(bestConnectedFace));
-							const float d2 = 1.0f - dot(calculateFaceNormal(f), calculateFaceNormal(oppositeFace));
+							const float d1 = 1.0f - dot(computeFaceNormal(f), computeFaceNormal(bestConnectedFace));
+							const float d2 = 1.0f - dot(computeFaceNormal(f), computeFaceNormal(oppositeFace));
 							if (d2 < d1)
 								bestConnectedFace = oppositeFace;
 						}
@@ -2804,7 +2800,7 @@ public:
 	{
 		float area = 0;
 		for (uint32_t f = 0; f < faceCount(); f++)
-			area += faceArea(f);
+			area += computeFaceArea(f);
 		XA_DEBUG_ASSERT(area >= 0);
 		return area;
 	}
@@ -2813,11 +2809,11 @@ public:
 	{
 		float area = 0;
 		for (uint32_t f = 0; f < faceCount(); f++)
-			area += faceParametricArea(f);
+			area += computeFaceParametricArea(f);
 		return fabsf(area); // May be negative, depends on texcoord winding.
 	}
 
-	float faceArea(uint32_t face) const
+	float computeFaceArea(uint32_t face) const
 	{
 		const Vector3 &p0 = m_positions[m_indices[face * 3 + 0]];
 		const Vector3 &p1 = m_positions[m_indices[face * 3 + 1]];
@@ -2825,7 +2821,7 @@ public:
 		return length(cross(p1 - p0, p2 - p0)) * 0.5f;
 	}
 
-	Vector3 faceCentroid(uint32_t face) const
+	Vector3 computeFaceCentroid(uint32_t face) const
 	{
 		Vector3 sum(0.0f);
 		for (uint32_t i = 0; i < 3; i++)
@@ -2833,22 +2829,9 @@ public:
 		return sum / 3.0f;
 	}
 
-	Vector3 calculateFaceNormal(uint32_t face) const
-	{
-		return normalizeSafe(triangleNormalAreaScaled(face), Vector3(0, 0, 1), 0.0f);
-	}
-
-	float faceParametricArea(uint32_t face) const
-	{
-		const Vector2 &t0 = m_texcoords[m_indices[face * 3 + 0]];
-		const Vector2 &t1 = m_texcoords[m_indices[face * 3 + 1]];
-		const Vector2 &t2 = m_texcoords[m_indices[face * 3 + 2]];
-		return triangleArea(t0, t1, t2) * 0.5f;
-	}
-	
 	// Average of the edge midpoints weighted by the edge length.
 	// I want a point inside the triangle, but closer to the cirumcenter.
-	Vector3 triangleCenter(uint32_t face) const
+	Vector3 computeFaceCenter(uint32_t face) const
 	{
 		const Vector3 &p0 = m_positions[m_indices[face * 3 + 0]];
 		const Vector3 &p1 = m_positions[m_indices[face * 3 + 1]];
@@ -2862,22 +2845,25 @@ public:
 		return m0 + m1 + m2;
 	}
 
-	// Unnormalized face normal assuming it's a triangle.
-	Vector3 triangleNormal(uint32_t face) const
-	{
-		return normalizeSafe(triangleNormalAreaScaled(face), Vector3(0), 0.0f);
-	}
-
-	Vector3 triangleNormalAreaScaled(uint32_t face) const
+	Vector3 computeFaceNormal(uint32_t face) const
 	{
 		const Vector3 &p0 = m_positions[m_indices[face * 3 + 0]];
 		const Vector3 &p1 = m_positions[m_indices[face * 3 + 1]];
 		const Vector3 &p2 = m_positions[m_indices[face * 3 + 2]];
 		const Vector3 e0 = p2 - p0;
 		const Vector3 e1 = p1 - p0;
-		return cross(e0, e1);
+		const Vector3 normalAreaScaled = cross(e0, e1);
+		return normalizeSafe(normalAreaScaled, Vector3(0, 0, 1), 0.0f);
 	}
 
+	float computeFaceParametricArea(uint32_t face) const
+	{
+		const Vector2 &t0 = m_texcoords[m_indices[face * 3 + 0]];
+		const Vector2 &t1 = m_texcoords[m_indices[face * 3 + 1]];
+		const Vector2 &t2 = m_texcoords[m_indices[face * 3 + 2]];
+		return triangleAreaSquared(t0, t1, t2) * 0.5f;
+	}
+	
 	// @@ This is not exactly accurate, we should compare the texture coordinates...
 	bool isSeam(uint32_t edge) const
 	{
@@ -4844,9 +4830,9 @@ struct Atlas
 				m_edgeLengths[edge] = length(p1 - p0);
 				XA_DEBUG_ASSERT(m_edgeLengths[edge] > 0.0f);
 			}
-			m_faceAreas[f] = m_mesh->faceArea(f);
+			m_faceAreas[f] = m_mesh->computeFaceArea(f);
 			XA_DEBUG_ASSERT(m_faceAreas[f] > 0.0f);
-			m_faceNormals[f] = m_mesh->triangleNormal(f);
+			m_faceNormals[f] = m_mesh->computeFaceNormal(f);
 		}
 		// Precompute regions of coplanar incident faces.
 		m_nextPlanarRegionFace.resize(faceCount);
@@ -5290,7 +5276,7 @@ private:
 			const uint32_t f = chart->faces[i];
 			m_faceCharts[f] = chart->id;
 			m_facesLeft--;
-			chart->centroidSum += m_mesh->triangleCenter(f);
+			chart->centroidSum += m_mesh->computeFaceCenter(f);
 		}
 		chart->centroid = chart->centroidSum / float(chart->faces.size());
 		// Refresh candidates.
@@ -5333,7 +5319,7 @@ private:
 			if (m_bestTriangles.count() == 0)
 				break;
 			const uint32_t face = m_bestTriangles.pop();
-			Vector3 faceCentroid = m_mesh->triangleCenter(face);
+			Vector3 faceCentroid = m_mesh->computeFaceCenter(face);
 			const float distance = length(chart->centroid - faceCentroid);
 			if (distance > maxDistance) {
 				maxDistance = distance;
@@ -6325,7 +6311,7 @@ private:
 
 	void orthoProjectFace(uint32_t face, Vector2 *texcoords) const
 	{
-		const Vector3 normal = m_mesh->triangleNormal(face);
+		const Vector3 normal = m_mesh->computeFaceNormal(face);
 		const Vector3 tangent = normalize(m_mesh->position(m_mesh->vertexAt(face * 3 + 1)) - m_mesh->position(m_mesh->vertexAt(face * 3 + 0)), kEpsilon);
 		const Vector3 bitangent = cross(normal, tangent);
 		for (uint32_t i = 0; i < 3; i++) {
@@ -6810,16 +6796,6 @@ public:
 		const uint32_t vertexCount = m_mesh->vertexCount();
 		for (uint32_t v = 0; v < vertexCount; v++)
 			m_mesh->texcoord(v) = m_unifiedMesh->texcoord(m_chartToUnifiedMap[v]);
-	}
-
-	float computeSurfaceArea() const
-	{
-		return m_mesh->computeSurfaceArea();
-	}
-
-	float computeParametricArea() const
-	{
-		return m_mesh->computeParametricArea();
 	}
 
 	Vector2 computeParametricBounds() const
@@ -7665,13 +7641,13 @@ static void runAddChartTask(void *userData)
 	chart->material = 0;
 	chart->indexCount = mesh->indexCount();
 	chart->indices = mesh->indices();
-	chart->parametricArea = paramChart->computeParametricArea();
+	chart->parametricArea = mesh->computeParametricArea();
 	if (chart->parametricArea < kAreaEpsilon) {
 		// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
 		const Vector2 bounds = paramChart->computeParametricBounds();
 		chart->parametricArea = bounds.x * bounds.y;
 	}
-	chart->surfaceArea = paramChart->computeSurfaceArea();
+	chart->surfaceArea = mesh->computeSurfaceArea();
 	chart->vertices = mesh->texcoords();
 	chart->vertexCount = mesh->vertexCount();
 	chart->allowRotate = true;
@@ -7792,7 +7768,7 @@ struct Atlas
 				const Vector2 &v1 = chart->vertices[chart->indices[f * 3 + 0]];
 				const Vector2 &v2 = chart->vertices[chart->indices[f * 3 + 1]];
 				const Vector2 &v3 = chart->vertices[chart->indices[f * 3 + 2]];
-				chart->parametricArea += fabsf(triangleArea(v1, v2, v3));
+				chart->parametricArea += fabsf(triangleAreaSquared(v1, v2, v3));
 			}
 			chart->parametricArea *= 0.5f;
 			chart->surfaceArea = chart->parametricArea; // Identical for UV meshes.
