@@ -3251,7 +3251,7 @@ static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const
 			const uint32_t i3 = (i + 1) % frontCount;
 			const Vector3 edge1 = frontPoints[i1] - frontPoints[i2];
 			const Vector3 edge2 = frontPoints[i3] - frontPoints[i2];
-			frontAngles[i] = acosf(dot(edge1, edge2) / (length(edge1) * length(edge2)));
+			frontAngles[i] = atan2f(length(cross(edge1, edge2)), dot(edge1, edge2));
 			if (frontAngles[i] >= smallestAngle || isNan(frontAngles[i]))
 				continue;
 			// Don't duplicate edges.
