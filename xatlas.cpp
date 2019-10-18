@@ -2535,6 +2535,15 @@ public:
 						const uint32_t oppositeVertex1 = m_indices[meshEdgeIndex1(oppositeEdge)];
 						if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
 							bestConnectedFace = oppositeFace;
+#if 0
+						else {
+							// Choose the opposite face with the smallest dihedral angle.
+							const float d1 = 1.0f - dot(calculateFaceNormal(f), calculateFaceNormal(bestConnectedFace));
+							const float d2 = 1.0f - dot(calculateFaceNormal(f), calculateFaceNormal(oppositeFace));
+							if (d2 < d1)
+								bestConnectedFace = oppositeFace;
+						}
+#endif
 					}
 					if (!alreadyAssignedToThisGroup && bestConnectedFace != UINT32_MAX) {
 						m_faceGroups[bestConnectedFace] = group;
