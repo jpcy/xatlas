@@ -2973,7 +2973,6 @@ private:
 		EdgeKey() {}
 		EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
 		EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
-		EdgeKey &operator=(const EdgeKey &k) { v0 = k.v0; v1 = k.v1; return *this; }
 		bool operator==(const EdgeKey &k) const { return v0 == k.v0 && v1 == k.v1; }
 
 		uint32_t v0;
@@ -8790,7 +8789,6 @@ struct EdgeKey
 	EdgeKey() {}
 	EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
 	EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
-	EdgeKey &operator=(const EdgeKey &k) { v0 = k.v0; v1 = k.v1; return *this; }
 	bool operator==(const EdgeKey &k) const { return v0 == k.v0 && v1 == k.v1; }
 
 	uint32_t v0;
