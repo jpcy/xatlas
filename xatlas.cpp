@@ -193,7 +193,7 @@ struct AllocHeader
 
 static std::mutex s_allocMutex;
 static AllocHeader *s_allocRoot = nullptr;
-static size_t s_allocTotalSize = 0, s_allocPeakSize = 0, s_allocTotalTagSize[MemTag::Count] = { 0 }, s_allocPeakTagSize[MemTag::Count] = { 0 };
+static size_t s_allocCount = 0, s_allocTotalSize = 0, s_allocPeakSize = 0, s_allocTotalTagSize[MemTag::Count] = { 0 }, s_allocPeakTagSize[MemTag::Count] = { 0 };
 static uint32_t s_allocId =0 ;
 static constexpr uint32_t kAllocRedzone = 0x12345678;
 
@@ -246,6 +246,7 @@ static void *Realloc(void *ptr, size_t size, int tag, const char *file, int line
 		s_allocRoot = header;
 		header->next->prev = header;
 	}
+	s_allocCount++;
 	s_allocTotalSize += size;
 	if (s_allocTotalSize > s_allocPeakSize)
 		s_allocPeakSize = s_allocTotalSize;
@@ -288,6 +289,7 @@ static void ReportLeaks()
 
 static void PrintMemoryUsage()
 {
+	XA_PRINT("Total allocations: %zu\n", s_allocCount);
 	XA_PRINT("Memory usage: %0.2fMB current, %0.2fMB peak\n", internal::s_allocTotalSize / 1024.0f / 1024.0f, internal::s_allocPeakSize / 1024.0f / 1024.0f);
 	static const char *labels[] = { // Sync with MemTag
 		"Default",
@@ -3926,6 +3928,7 @@ public:
 #endif
 		for (uint32_t i = 0; i < n; i++)
 			m_array[i].~T();
+		XA_FREE(m_array);
 	}
 
 	T &get() const
@@ -6013,10 +6016,12 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 }
 
 #if XA_RECOMPUTE_CHARTS
-struct PiecewiseParameterization
+struct PiecewiseParam
 {
-	PiecewiseParameterization(const Mesh *mesh, uint32_t faceCount) : m_mesh(mesh), m_faceCount(faceCount)
+	void reset(const Mesh *mesh, uint32_t faceCount)
 	{
+		m_mesh = mesh;
+		m_faceCount = faceCount;
 		const uint32_t vertexCount = m_mesh->vertexCount();
 		m_texcoords.resize(vertexCount);
 		m_patch.reserve(m_faceCount);
@@ -6162,8 +6167,8 @@ private:
 		uint32_t m_current;
 	};
 
-	const Mesh * const m_mesh;
-	const uint32_t m_faceCount;
+	const Mesh *m_mesh;
+	uint32_t m_faceCount;
 	Array<Vector2> m_texcoords;
 	Array<Candidate> m_candidates;
 	BitArray m_faceInCandidates;
@@ -7102,7 +7107,7 @@ public:
 #endif
 	}
 
-	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *boundaryGrid)
+	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<PiecewiseParam> *piecewiseParam)
 	{
 		m_paramAddedChartsCount = 0;
 		const uint32_t chartCount = m_charts.size();
@@ -7132,6 +7137,7 @@ public:
 		if (invalidCharts.isEmpty())
 			return;
 		// Recompute charts with invalid parameterizations.
+		PiecewiseParam &pp = piecewiseParam->get();
 		for (uint32_t i = 0; i < invalidCharts.size(); i++) {
 			Chart *invalidChart = invalidCharts[i];
 			// Fixing t-junctions rewrites unified mesh faces, and we need to map faces back to input mesh. So use the unmodified unified mesh.
@@ -7143,7 +7149,7 @@ public:
 				invalidMesh = invalidChart->unifiedMesh();
 				faceCount = invalidChart->initialFaceCount(); // Not invalidMesh->faceCount(). Don't want faces added by hole closing.
 			}
-			PiecewiseParameterization pp(invalidMesh, faceCount);
+			pp.reset(invalidMesh, faceCount);
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
 			char filename[256];
 			XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_recomputed_chart_%03u.obj", m_sourceId, m_id, m_paramAddedChartsCount);
@@ -7288,6 +7294,7 @@ struct ParameterizeChartsTaskArgs
 	ChartGroup *chartGroup;
 	ParameterizeFunc func;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
+	ThreadLocal<PiecewiseParam> *piecewiseParam;
 	Progress *progress;
 };
 
@@ -7297,7 +7304,7 @@ static void runParameterizeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(parameterizeChartsThread)
-	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid);
+	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid, args->piecewiseParam);
 	XA_PROFILE_END(parameterizeChartsThread)
 	args->progress->value++;
 	args->progress->update();
@@ -7457,6 +7464,7 @@ public:
 		}
 		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
 		ThreadLocal<UniformGrid2> boundaryGrid; // For Quality boundary intersection.
+		ThreadLocal<PiecewiseParam> piecewiseParam;
 		Array<ParameterizeChartsTaskArgs> taskArgs;
 		taskArgs.reserve(chartGroupCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
@@ -7466,6 +7474,7 @@ public:
 				args.chartGroup = m_chartGroups[i];
 				args.func = func;
 				args.boundaryGrid = &boundaryGrid;
+				args.piecewiseParam = &piecewiseParam;
 				args.progress = &progress;
 				taskArgs.push_back(args);
 			}
