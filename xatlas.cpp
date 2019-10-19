@@ -432,11 +432,9 @@ static T clamp(const T &x, const T &a, const T &b)
 template <typename T>
 static void swap(T &a, T &b)
 {
-	T temp;
-	temp = a;
+	T temp = a;
 	a = b;
 	b = temp;
-	temp = T();
 }
 
 union FloatUint32
