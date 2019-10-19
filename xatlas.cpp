@@ -3354,9 +3354,10 @@ static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const
 	return true;
 }
 
-static bool meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, const Vector3 &normal, Array<uint32_t> &holeFaceCounts)
+static bool meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, const Vector3 &normal, uint32_t *holeCount, Array<uint32_t> *holeFaceCounts)
 {
-	holeFaceCounts.clear();
+	if (holeFaceCounts)
+		holeFaceCounts->clear();
 	// Compute lengths.
 	const uint32_t boundaryCount = boundaryLoops.size();
 	Array<float> boundaryLengths;
@@ -3402,7 +3403,10 @@ static bool meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, con
 		const uint32_t oldFaceCount = mesh->faceCount();
 		if (!meshCloseHole(mesh, holeVertices, normal))
 			result = false; // Return false if any hole failed to close, but keep trying to close other holes.
-		holeFaceCounts.push_back(mesh->faceCount() - oldFaceCount);
+		if (holeCount)
+			(*holeCount)++;
+		if (holeFaceCounts)
+			holeFaceCounts->push_back(mesh->faceCount() - oldFaceCount);
 	}
 	return result;
 }
@@ -6628,16 +6632,21 @@ public:
 				// - Find cuts that reduce genus.
 				// - Find cuts to connect holes.
 				// - Use minimal spanning trees or seamster.
-				Array<uint32_t> holeFaceCounts;
 				XA_PROFILE_START(closeChartMeshHoles)
-				failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, holeFaceCounts);
+				uint32_t holeCount = 0;
+#if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
+				Array<uint32_t> holeFaceCounts;
+				failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, &holeFaceCounts);
+#else
+				failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, &holeCount, nullptr);
+#endif
 				XA_PROFILE_END(closeChartMeshHoles)
 				m_unifiedMesh->createBoundaries();
 				m_unifiedMesh->linkBoundaries();
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 				if (failed || boundaryLoops.size() > 1)
 					m_warningFlags |= ChartWarningFlags::CloseHolesFailed;
-				m_closedHolesCount = holeFaceCounts.size();
+				m_closedHolesCount = holeCount;
 #if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
 				if (m_warningFlags & ChartWarningFlags::CloseHolesFailed) {
 					char filename[256];
