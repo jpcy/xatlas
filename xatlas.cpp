@@ -6535,11 +6535,18 @@ struct ChartWarningFlags
 	};
 };
 
+struct ChartCtorBuffers
+{
+	Array<uint32_t> chartMeshIndices;
+	Array<uint32_t> unifiedMeshIndices;
+	Array<uint32_t> boundaryLoops;
+};
+
 /// A chart is a connected set of faces with a certain topology (usually a disk).
 class Chart
 {
 public:
-	Chart(const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(ChartCtorBuffers &buffers, const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6548,10 +6555,10 @@ public:
 		// Copy face indices.
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
-		Array<uint32_t> chartMeshIndices;
+		Array<uint32_t> &chartMeshIndices = buffers.chartMeshIndices;
 		chartMeshIndices.resize(originalMesh->vertexCount());
 		chartMeshIndices.setAll(UINT32_MAX);
-		Array<uint32_t> unifiedMeshIndices;
+		Array<uint32_t> &unifiedMeshIndices = buffers.unifiedMeshIndices;
 		unifiedMeshIndices.resize(originalMesh->vertexCount());
 		unifiedMeshIndices.setAll(UINT32_MAX);
 		// Add vertices.
@@ -6621,7 +6628,7 @@ public:
 				m_initialFaceCount = m_unifiedMesh->faceCount(); // Fixing t-junctions rewrites faces.
 			}
 			// See if there are any holes that need closing.
-			Array<uint32_t> boundaryLoops;
+			Array<uint32_t> &boundaryLoops = buffers.boundaryLoops;
 			meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 			if (boundaryLoops.size() > 1) {
 #if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
@@ -6679,7 +6686,7 @@ public:
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	Chart(const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *originalMesh, uint32_t meshId, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
@@ -6691,10 +6698,10 @@ public:
 		// Copy face indices.
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
-		Array<uint32_t> chartMeshIndices;
+		Array<uint32_t> &chartMeshIndices = buffers.chartMeshIndices;
 		chartMeshIndices.resize(originalMesh->vertexCount());
 		chartMeshIndices.setAll(UINT32_MAX);
-		Array<uint32_t> unifiedMeshIndices;
+		Array<uint32_t> &unifiedMeshIndices = buffers.unifiedMeshIndices;
 		unifiedMeshIndices.resize(originalMesh->vertexCount());
 		unifiedMeshIndices.setAll(UINT32_MAX);
 		// Add vertices.
@@ -6856,6 +6863,7 @@ struct CreateChartTaskArgs
 	uint32_t meshId;
 	uint32_t chartGroupId;
 	uint32_t chartId;
+	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 	Chart **chart;
 };
 
@@ -6863,7 +6871,7 @@ static void runCreateChartTask(void *userData)
 {
 	XA_PROFILE_START(createChartMeshesThread)
 	auto args = (CreateChartTaskArgs *)userData;
-	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, *(args->basis), args->faces, args->mesh, args->meshId, args->chartGroupId, args->chartId);
+	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), *(args->basis), args->faces, args->mesh, args->meshId, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMeshesThread)
 }
 
@@ -7049,7 +7057,7 @@ public:
 		  - emphasize roundness metrics to prevent those cases.
 	  - If interior self-overlaps: preserve boundary parameterization and use mean-value map.
 	*/
-	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options)
+	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ThreadLocal<ChartCtorBuffers> *chartBuffers)
 	{
 		m_chartOptions = options;
 		// This function may be called multiple times, so destroy existing charts.
@@ -7082,6 +7090,7 @@ public:
 			args.meshId = m_sourceId;
 			args.chartGroupId = m_id;
 			args.chartId = i;
+			args.chartBuffers = chartBuffers;
 			args.chart = &m_charts[i];
 		}
 		XA_PROFILE_START(createChartMeshesReal)
@@ -7116,7 +7125,7 @@ public:
 #endif
 	}
 
-	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<PiecewiseParam> *piecewiseParam)
+	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
 	{
 		m_paramAddedChartsCount = 0;
 		const uint32_t chartCount = m_charts.size();
@@ -7169,7 +7178,7 @@ public:
 			for (;;) {
 				if (!pp.computeChart())
 					break;
-				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, invalidChart, invalidMesh, pp.chartFaces(), pp.texcoords(), m_mesh, m_sourceId, m_id, m_charts.size());
+				Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, chartBuffers->get(), invalidChart, invalidMesh, pp.chartFaces(), pp.texcoords(), m_mesh, m_sourceId, m_id, m_charts.size());
 				m_charts.push_back(chart);
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
 				if (file) {
@@ -7281,6 +7290,7 @@ struct ComputeChartsTaskArgs
 {
 	TaskScheduler *taskScheduler;
 	ChartGroup *chartGroup;
+	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 	const ChartOptions *options;
 	Progress *progress;
 };
@@ -7291,7 +7301,7 @@ static void runComputeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(computeChartsThread)
-	args->chartGroup->computeCharts(args->taskScheduler, *args->options);
+	args->chartGroup->computeCharts(args->taskScheduler, *args->options, args->chartBuffers);
 	XA_PROFILE_END(computeChartsThread)
 	args->progress->value++;
 	args->progress->update();
@@ -7303,6 +7313,7 @@ struct ParameterizeChartsTaskArgs
 	ChartGroup *chartGroup;
 	ParameterizeFunc func;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
+	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 	ThreadLocal<PiecewiseParam> *piecewiseParam;
 	Progress *progress;
 };
@@ -7313,7 +7324,7 @@ static void runParameterizeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(parameterizeChartsThread)
-	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid, args->piecewiseParam);
+	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
 	XA_PROFILE_END(parameterizeChartsThread)
 	args->progress->value++;
 	args->progress->update();
@@ -7428,6 +7439,7 @@ public:
 				chartGroupCount++;
 		}
 		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, chartGroupCount);
+		ThreadLocal<ChartCtorBuffers> chartBuffers;
 		Array<ComputeChartsTaskArgs> taskArgs;
 		taskArgs.reserve(chartGroupCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
@@ -7435,6 +7447,7 @@ public:
 				ComputeChartsTaskArgs args;
 				args.taskScheduler = taskScheduler;
 				args.chartGroup = m_chartGroups[i];
+				args.chartBuffers = &chartBuffers;
 				args.options = &options;
 				args.progress = &progress;
 				taskArgs.push_back(args);
@@ -7473,6 +7486,7 @@ public:
 		}
 		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
 		ThreadLocal<UniformGrid2> boundaryGrid; // For Quality boundary intersection.
+		ThreadLocal<ChartCtorBuffers> chartBuffers;
 		ThreadLocal<PiecewiseParam> piecewiseParam;
 		Array<ParameterizeChartsTaskArgs> taskArgs;
 		taskArgs.reserve(chartGroupCount);
@@ -7483,6 +7497,7 @@ public:
 				args.chartGroup = m_chartGroups[i];
 				args.func = func;
 				args.boundaryGrid = &boundaryGrid;
+				args.chartBuffers = &chartBuffers;
 				args.piecewiseParam = &piecewiseParam;
 				args.progress = &progress;
 				taskArgs.push_back(args);
