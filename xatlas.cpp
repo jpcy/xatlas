@@ -1997,6 +1997,16 @@ static void insertionSort(T *data, uint32_t length)
 class KISSRng
 {
 public:
+	KISSRng() { reset(); }
+
+	void reset()
+	{
+		x = 123456789;
+		y = 362436000;
+		z = 521288629;
+		c = 7654321;
+	}
+
 	uint32_t getRange(uint32_t range)
 	{
 		if (range == 0)
@@ -2011,7 +2021,7 @@ public:
 	}
 
 private:
-	uint32_t x = 123456789, y = 362436000, z = 521288629, c = 7654321;
+	uint32_t x, y, z, c;
 };
 
 // Based on Pierre Terdiman's and Michael Herf's source code.
@@ -4837,6 +4847,7 @@ struct Atlas
 		const uint32_t faceCount = m_mesh->faceCount();
 		m_facesLeft = faceCount;
 		m_options = options;
+		m_rand.reset();
 		const uint32_t chartCount = m_charts.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
 			m_charts[i]->~Chart();
@@ -5036,9 +5047,6 @@ struct Atlas
 	void mergeCharts()
 	{
 		XA_PROFILE_START(buildAtlasMergeCharts)
-		Array<float> sharedBoundaryLengths;
-		Array<float> sharedBoundaryLengthsNoSeams;
-		Array<uint32_t> sharedBoundaryEdgeCountNoSeams;
 		const uint32_t chartCount = m_charts.size();
 		// Merge charts progressively until there's none left to merge.
 		for (;;) {
@@ -5048,15 +5056,12 @@ struct Atlas
 				if (chart == nullptr)
 					continue;
 				float externalBoundaryLength = 0.0f;
-				sharedBoundaryLengths.clear();
-				sharedBoundaryLengths.resize(chartCount);
-				sharedBoundaryLengths.zeroOutMemory();
-				sharedBoundaryLengthsNoSeams.clear();
-				sharedBoundaryLengthsNoSeams.resize(chartCount);
-				sharedBoundaryLengthsNoSeams.zeroOutMemory();
-				sharedBoundaryEdgeCountNoSeams.clear();
-				sharedBoundaryEdgeCountNoSeams.resize(chartCount);
-				sharedBoundaryEdgeCountNoSeams.zeroOutMemory();
+				m_sharedBoundaryLengths.resize(chartCount);
+				m_sharedBoundaryLengths.zeroOutMemory();
+				m_sharedBoundaryLengthsNoSeams.resize(chartCount);
+				m_sharedBoundaryLengthsNoSeams.zeroOutMemory();
+				m_sharedBoundaryEdgeCountNoSeams.resize(chartCount);
+				m_sharedBoundaryEdgeCountNoSeams.zeroOutMemory();
 				const uint32_t faceCount = chart->faces.size();
 				for (uint32_t i = 0; i < faceCount; i++) {
 					const uint32_t f = chart->faces[i];
@@ -5070,10 +5075,10 @@ struct Atlas
 								if ((it.isSeam() && (isNormalSeam(it.edge()) || it.isTextureSeam()))) {
 									externalBoundaryLength += l;
 								} else {
-									sharedBoundaryLengths[neighborChart] += l;
+									m_sharedBoundaryLengths[neighborChart] += l;
 								}
-								sharedBoundaryLengthsNoSeams[neighborChart] += l;
-								sharedBoundaryEdgeCountNoSeams[neighborChart]++;
+								m_sharedBoundaryLengthsNoSeams[neighborChart] += l;
+								m_sharedBoundaryEdgeCountNoSeams[neighborChart]++;
 							}
 						}
 					}
@@ -5085,7 +5090,7 @@ struct Atlas
 					if (chart2 == nullptr)
 						continue;
 					// Must share a boundary.
-					if (sharedBoundaryLengths[cc] <= 0.0f)
+					if (m_sharedBoundaryLengths[cc] <= 0.0f)
 						continue;
 					// Compare proxies.
 					if (dot(chart2->basis.normal, chart->basis.normal) < XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION)
@@ -5093,25 +5098,25 @@ struct Atlas
 					// Obey max chart area and boundary length.
 					if (m_options.maxChartArea > 0.0f && chart->area + chart2->area > m_options.maxChartArea)
 						continue;
-					if (m_options.maxBoundaryLength > 0.0f && chart->boundaryLength + chart2->boundaryLength - sharedBoundaryLengthsNoSeams[cc] > m_options.maxBoundaryLength)
+					if (m_options.maxBoundaryLength > 0.0f && chart->boundaryLength + chart2->boundaryLength - m_sharedBoundaryLengthsNoSeams[cc] > m_options.maxBoundaryLength)
 						continue;
 					// Merge if chart2 has a single face.
 					// chart1 must have more than 1 face.
 					// chart2 area must be <= 10% of chart1 area.
-					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && chart->faces.size() > 1 && chart2->faces.size() == 1 && chart2->area <= chart->area * 0.1f) 
+					if (m_sharedBoundaryLengthsNoSeams[cc] > 0.0f && chart->faces.size() > 1 && chart2->faces.size() == 1 && chart2->area <= chart->area * 0.1f) 
 						goto merge;
 					// Merge if chart2 has two faces (probably a quad), and chart1 bounds at least 2 of its edges.
-					if (chart2->faces.size() == 2 && sharedBoundaryEdgeCountNoSeams[cc] >= 2)
+					if (chart2->faces.size() == 2 && m_sharedBoundaryEdgeCountNoSeams[cc] >= 2)
 						goto merge;
 					// Merge if chart2 is wholely inside chart1, ignoring seams.
-					if (sharedBoundaryLengthsNoSeams[cc] > 0.0f && equal(sharedBoundaryLengthsNoSeams[cc], chart2->boundaryLength, kEpsilon))
+					if (m_sharedBoundaryLengthsNoSeams[cc] > 0.0f && equal(m_sharedBoundaryLengthsNoSeams[cc], chart2->boundaryLength, kEpsilon))
 						goto merge;
-					if (sharedBoundaryLengths[cc] > 0.2f * max(0.0f, chart->boundaryLength - externalBoundaryLength) || 
-						sharedBoundaryLengths[cc] > 0.75f * chart2->boundaryLength)
+					if (m_sharedBoundaryLengths[cc] > 0.2f * max(0.0f, chart->boundaryLength - externalBoundaryLength) || 
+						m_sharedBoundaryLengths[cc] > 0.75f * chart2->boundaryLength)
 						goto merge;
 					continue;
 				merge:
-					if (!mergeChart(chart, chart2, sharedBoundaryLengthsNoSeams[cc]))
+					if (!mergeChart(chart, chart2, m_sharedBoundaryLengthsNoSeams[cc]))
 						continue;
 					merged = true;
 					break;
@@ -5621,6 +5626,12 @@ private:
 	Array<uint32_t> m_facePlanarRegionId;
 	Array<Vector3> m_tempPoints;
 	UniformGrid2 m_boundaryGrid;
+#if XA_MERGE_CHARTS
+	// mergeCharts
+	Array<float> m_sharedBoundaryLengths;
+	Array<float> m_sharedBoundaryLengthsNoSeams;
+	Array<uint32_t> m_sharedBoundaryEdgeCountNoSeams;
+#endif
 };
 
 } // namespace segment
