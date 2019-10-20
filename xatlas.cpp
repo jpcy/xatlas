@@ -4812,12 +4812,37 @@ struct Chart
 struct Atlas
 {
 	// @@ Hardcoded to 10?
-	Atlas(uint32_t meshId, uint32_t chartGroupId, const Mesh *mesh, const ChartOptions &options) : m_mesh(mesh), m_facesLeft(mesh->faceCount()), m_bestTriangles(10), m_options(options)
+	Atlas() : m_bestTriangles(10) { }
+
+	~Atlas()
+	{
+		const uint32_t chartCount = m_charts.size();
+		for (uint32_t i = 0; i < chartCount; i++) {
+			m_charts[i]->~Chart();
+			XA_FREE(m_charts[i]);
+		}
+	}
+
+	uint32_t facesLeft() const { return m_facesLeft; }
+	uint32_t chartCount() const { return m_charts.size(); }
+	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_charts[i]->faces; }
+	const Basis &chartBasis(uint32_t chartIndex) const { return m_charts[chartIndex]->basis; }
+
+	void reset(uint32_t meshId, uint32_t chartGroupId, const Mesh *mesh, const ChartOptions &options)
 	{
 		XA_UNUSED(meshId);
 		XA_UNUSED(chartGroupId);
 		XA_PROFILE_START(buildAtlasInit)
+		m_mesh = mesh;
 		const uint32_t faceCount = m_mesh->faceCount();
+		m_facesLeft = faceCount;
+		m_options = options;
+		const uint32_t chartCount = m_charts.size();
+		for (uint32_t i = 0; i < chartCount; i++) {
+			m_charts[i]->~Chart();
+			XA_FREE(m_charts[i]);
+		}
+		m_charts.clear();
 		m_faceCharts.resize(faceCount);
 		m_faceCharts.setAll(-1);
 		m_texcoords.resize(faceCount * 3);
@@ -4896,20 +4921,6 @@ struct Atlas
 #endif
 		XA_PROFILE_END(buildAtlasInit)
 	}
-
-	~Atlas()
-	{
-		const uint32_t chartCount = m_charts.size();
-		for (uint32_t i = 0; i < chartCount; i++) {
-			m_charts[i]->~Chart();
-			XA_FREE(m_charts[i]);
-		}
-	}
-
-	uint32_t facesLeft() const { return m_facesLeft; }
-	uint32_t chartCount() const { return m_charts.size(); }
-	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_charts[i]->faces; }
-	const Basis &chartBasis(uint32_t chartIndex) const { return m_charts[chartIndex]->basis; }
 
 	void placeSeeds(float threshold)
 	{
@@ -7054,7 +7065,7 @@ public:
 		  - emphasize roundness metrics to prevent those cases.
 	  - If interior self-overlaps: preserve boundary parameterization and use mean-value map.
 	*/
-	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ThreadLocal<ChartCtorBuffers> *chartBuffers)
+	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<ChartCtorBuffers> *chartBuffers)
 	{
 		m_chartOptions = options;
 		// This function may be called multiple times, so destroy existing charts.
@@ -7072,7 +7083,7 @@ public:
 		m_charts.push_back(chart);
 #else
 		XA_PROFILE_START(buildAtlas)
-		segment::Atlas atlas(m_sourceId, m_id, m_mesh, options);
+		atlas.reset(m_sourceId, m_id, m_mesh, options);
 		buildAtlas(atlas, options);
 		XA_PROFILE_END(buildAtlas)
 		const uint32_t chartCount = atlas.chartCount();
@@ -7287,6 +7298,7 @@ struct ComputeChartsTaskArgs
 {
 	TaskScheduler *taskScheduler;
 	ChartGroup *chartGroup;
+	ThreadLocal<segment::Atlas> *atlas;
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 	const ChartOptions *options;
 	Progress *progress;
@@ -7298,7 +7310,7 @@ static void runComputeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(computeChartsThread)
-	args->chartGroup->computeCharts(args->taskScheduler, *args->options, args->chartBuffers);
+	args->chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->chartBuffers);
 	XA_PROFILE_END(computeChartsThread)
 	args->progress->value++;
 	args->progress->update();
@@ -7436,6 +7448,7 @@ public:
 				chartGroupCount++;
 		}
 		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, chartGroupCount);
+		ThreadLocal<segment::Atlas> atlas;
 		ThreadLocal<ChartCtorBuffers> chartBuffers;
 		Array<ComputeChartsTaskArgs> taskArgs;
 		taskArgs.reserve(chartGroupCount);
@@ -7444,6 +7457,7 @@ public:
 				ComputeChartsTaskArgs args;
 				args.taskScheduler = taskScheduler;
 				args.chartGroup = m_chartGroups[i];
+				args.atlas = &atlas;
 				args.chartBuffers = &chartBuffers;
 				args.options = &options;
 				args.progress = &progress;
