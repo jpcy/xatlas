@@ -1005,7 +1005,14 @@ struct AABB
 
 struct ArrayBase
 {
-	ArrayBase(uint32_t elementSize, int memTag = MemTag::Default) : buffer(nullptr), elementSize(elementSize), size(0), capacity(0), memTag(memTag) {}
+	ArrayBase(uint32_t elementSize, int memTag = MemTag::Default) : buffer(nullptr), elementSize(elementSize), size(0), capacity(0)
+	{
+#if XA_DEBUG_HEAP
+		this->memTag = memTag;
+#else
+		XA_UNUSED(memTag);
+#endif
+	}
 
 	~ArrayBase()
 	{
@@ -1057,7 +1064,9 @@ struct ArrayBase
 		other.elementSize = elementSize;
 		other.size = size;
 		other.capacity = capacity;
+#if XA_DEBUG_HEAP
 		other.memTag = memTag;
+#endif
 		buffer = nullptr;
 		elementSize = size = capacity = 0;
 	}
@@ -1125,7 +1134,11 @@ struct ArrayBase
 			}
 		} else {
 			// realloc the buffer
+#if XA_DEBUG_HEAP
 			buffer = XA_REALLOC_SIZE(memTag, buffer, newCapacity * elementSize);
+#else
+			buffer = XA_REALLOC_SIZE(MemTag::Default, buffer, newCapacity * elementSize);
+#endif
 		}
 		capacity = newCapacity;
 	}
@@ -1134,7 +1147,9 @@ struct ArrayBase
 	uint32_t elementSize;
 	uint32_t size;
 	uint32_t capacity;
+#if XA_DEBUG_HEAP
 	int memTag;
+#endif
 };
 
 template<typename T>
