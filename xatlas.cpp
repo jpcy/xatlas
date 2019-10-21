@@ -167,6 +167,10 @@ struct MemTag
 	enum
 	{
 		Default,
+		BitImage,
+		BVH,
+		FullVector,
+		Matrix,
 		Mesh,
 		MeshBoundaries,
 		MeshColocals,
@@ -175,6 +179,10 @@ struct MemTag
 		MeshNormals,
 		MeshPositions,
 		MeshTexcoords,
+		SegmentAtlasChartCandidates,
+		SegmentAtlasChartFaces,
+		SegmentAtlasMeshData,
+		SegmentAtlasPlanarRegions,
 		Count
 	};
 };
@@ -193,7 +201,7 @@ struct AllocHeader
 
 static std::mutex s_allocMutex;
 static AllocHeader *s_allocRoot = nullptr;
-static size_t s_allocCount = 0, s_allocTotalSize = 0, s_allocPeakSize = 0, s_allocTotalTagSize[MemTag::Count] = { 0 }, s_allocPeakTagSize[MemTag::Count] = { 0 };
+static size_t s_allocTotalCount = 0, s_allocTotalSize = 0, s_allocPeakSize = 0, s_allocCount[MemTag::Count] = { 0 }, s_allocTotalTagSize[MemTag::Count] = { 0 }, s_allocPeakTagSize[MemTag::Count] = { 0 };
 static uint32_t s_allocId =0 ;
 static constexpr uint32_t kAllocRedzone = 0x12345678;
 
@@ -246,10 +254,11 @@ static void *Realloc(void *ptr, size_t size, int tag, const char *file, int line
 		s_allocRoot = header;
 		header->next->prev = header;
 	}
-	s_allocCount++;
+	s_allocTotalCount++;
 	s_allocTotalSize += size;
 	if (s_allocTotalSize > s_allocPeakSize)
 		s_allocPeakSize = s_allocTotalSize;
+	s_allocCount[tag]++;
 	s_allocTotalTagSize[tag] += size;
 	if (s_allocTotalTagSize[tag] > s_allocPeakTagSize[tag])
 		s_allocPeakTagSize[tag] = s_allocTotalTagSize[tag];
@@ -289,10 +298,14 @@ static void ReportLeaks()
 
 static void PrintMemoryUsage()
 {
-	XA_PRINT("Total allocations: %zu\n", s_allocCount);
+	XA_PRINT("Total allocations: %zu\n", s_allocTotalCount);
 	XA_PRINT("Memory usage: %0.2fMB current, %0.2fMB peak\n", internal::s_allocTotalSize / 1024.0f / 1024.0f, internal::s_allocPeakSize / 1024.0f / 1024.0f);
 	static const char *labels[] = { // Sync with MemTag
 		"Default",
+		"BitImage",
+		"BVH",
+		"FullVector",
+		"Matrix",
 		"Mesh",
 		"MeshBoundaries",
 		"MeshColocals",
@@ -300,10 +313,14 @@ static void PrintMemoryUsage()
 		"MeshIndices",
 		"MeshNormals",
 		"MeshPositions",
-		"MeshTexcoords"
+		"MeshTexcoords",
+		"SegmentAtlasChartCandidates",
+		"SegmentAtlasChartFaces",
+		"SegmentAtlasMeshData",
+		"SegmentAtlasPlanarRegions"
 	};
 	for (int i = 0; i < MemTag::Count; i++) {
-		XA_PRINT("   %s: %0.2fMB current, %0.2fMB peak\n", labels[i], internal::s_allocTotalTagSize[i] / 1024.0f / 1024.0f, internal::s_allocPeakTagSize[i] / 1024.0f / 1024.0f);
+		XA_PRINT("   %s: %zu allocations, %0.2fMB current, %0.2fMB peak\n", labels[i], internal::s_allocCount[i], internal::s_allocTotalTagSize[i] / 1024.0f / 1024.0f, internal::s_allocPeakTagSize[i] / 1024.0f / 1024.0f);
 	}
 }
 
@@ -1143,6 +1160,13 @@ struct ArrayBase
 		capacity = newCapacity;
 	}
 
+#if XA_DEBUG_HEAP
+	void setMemTag(int memTag)
+	{
+		this->memTag = memTag;
+	}
+#endif
+
 	uint8_t *buffer;
 	uint32_t elementSize;
 	uint32_t size;
@@ -1223,6 +1247,10 @@ public:
 		for (uint32_t i = 0; i < m_base.size; i++)
 			buffer[i] = value;
 	}
+
+#if XA_DEBUG_HEAP
+	void setMemTag(int memTag) { m_base.setMemTag(memTag); }
+#endif
 
 	XA_INLINE uint32_t size() const { return m_base.size; }
 	XA_INLINE void zeroOutMemory() { memset(m_base.buffer, 0, m_base.elementSize * m_base.size); }
@@ -1325,9 +1353,9 @@ private:
 class BitImage
 {
 public:
-	BitImage() : m_width(0), m_height(0), m_rowStride(0) {}
+	BitImage() : m_width(0), m_height(0), m_rowStride(0), m_data(MemTag::BitImage) {}
 
-	BitImage(uint32_t w, uint32_t h) : m_width(w), m_height(h)
+	BitImage(uint32_t w, uint32_t h) : m_width(w), m_height(h), m_data(MemTag::BitImage)
 	{
 		m_rowStride = (m_width + 63) >> 6;
 		m_data.resize(m_rowStride * m_height);
@@ -1458,7 +1486,7 @@ private:
 class BVH
 {
 public:
-	BVH(const Array<AABB> &objectAabbs, uint32_t leafSize = 4)
+	BVH(const Array<AABB> &objectAabbs, uint32_t leafSize = 4) : m_objectIds(MemTag::BVH), m_nodes(MemTag::BVH)
 	{
 		m_objectAabbs = &objectAabbs;
 		if (m_objectAabbs->isEmpty())
@@ -1900,8 +1928,8 @@ private:
 class FullVector
 {
 public:
-	FullVector(uint32_t dim) { m_array.resize(dim); }
-	FullVector(const FullVector &v) { v.m_array.copyTo(m_array); }
+	FullVector(uint32_t dim) : m_array(MemTag::FullVector) { m_array.resize(dim); }
+	FullVector(const FullVector &v) : m_array(MemTag::FullVector) { v.m_array.copyTo(m_array); }
 	FullVector &operator=(const FullVector &v) = delete;
 	XA_INLINE uint32_t dimension() const { return m_array.size(); }
 	XA_INLINE const float &operator[](uint32_t index) const { return m_array[index]; }
@@ -2453,13 +2481,13 @@ public:
 	void createColocals()
 	{
 		const uint32_t vertexCount = m_positions.size();
-		Array<AABB> aabbs;
+		Array<AABB> aabbs(MemTag::BVH);
 		aabbs.resize(vertexCount);
 		for (uint32_t i = 0; i < m_positions.size(); i++)
 			aabbs[i] = AABB(m_positions[i], m_epsilon);
 		BVH bvh(aabbs);
-		Array<uint32_t> colocals;
-		Array<uint32_t> potential;
+		Array<uint32_t> colocals(MemTag::MeshColocals);
+		Array<uint32_t> potential(MemTag::MeshColocals);
 		m_colocalVertexCount = 0;
 		m_nextColocalVertex.resize(vertexCount);
 		for (uint32_t i = 0; i < vertexCount; i++)
@@ -4538,16 +4566,24 @@ public:
 		float v; // value
 	};
 
-	Matrix(uint32_t d) : m_width(d)
+	Matrix(uint32_t d) : m_width(d), m_array(MemTag::Matrix)
 	{
 		m_array.resize(d);
 		m_array.runCtors();
+#if XA_DEBUG_HEAP
+		for (uint32_t i = 0; i < d; i++)
+			m_array[i].setMemTag(MemTag::Matrix);
+#endif
 	}
 	
-	Matrix(uint32_t w, uint32_t h) : m_width(w)
+	Matrix(uint32_t w, uint32_t h) : m_width(w), m_array(MemTag::Matrix)
 	{
 		m_array.resize(h);
 		m_array.runCtors();
+#if XA_DEBUG_HEAP
+		for (uint32_t i = 0; i < h; i++)
+			m_array[i].setMemTag(MemTag::Matrix);
+#endif
 	}
 	
 	~Matrix()
@@ -4760,7 +4796,7 @@ namespace segment {
 // - Smallest element goes at the end, so that popping it is o(1).
 struct CostQueue
 {
-	CostQueue(uint32_t size = UINT32_MAX) : m_maxSize(size) {}
+	CostQueue(uint32_t size = UINT32_MAX) : m_maxSize(size), m_pairs(MemTag::SegmentAtlasChartCandidates) {}
 
 	float peekCost() const
 	{
@@ -4822,6 +4858,8 @@ private:
 
 struct Chart
 {
+	Chart() : faces(MemTag::SegmentAtlasChartFaces) {}
+
 	int id = -1;
 	Basis basis; // Best fit normal.
 	float area = 0.0f;
@@ -4836,8 +4874,7 @@ struct Chart
 
 struct Atlas
 {
-	// @@ Hardcoded to 10?
-	Atlas() : m_bestTriangles(10) { }
+	Atlas() : m_edgeLengths(MemTag::SegmentAtlasMeshData), m_faceAreas(MemTag::SegmentAtlasMeshData), m_faceNormals(MemTag::SegmentAtlasMeshData), m_texcoords(MemTag::SegmentAtlasMeshData), m_bestTriangles(10), m_nextPlanarRegionFace(MemTag::SegmentAtlasPlanarRegions), m_facePlanarRegionId(MemTag::SegmentAtlasPlanarRegions) {}
 
 	~Atlas()
 	{
