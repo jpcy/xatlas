@@ -5417,22 +5417,28 @@ private:
 	// Evaluate combined metric.
 	float evaluateCost(Chart *chart, uint32_t face) const
 	{
+		if (dot(m_faceNormals[face], chart->basis.normal) <= 0.26f) // ~75 degrees
+			return FLT_MAX;
 		// Estimate boundary length and area:
-		const float newChartArea = computeArea(chart, face);
-		const float newBoundaryLength = computeBoundaryLength(chart, face);
+		float newChartArea = 0.0f, newBoundaryLength = 0.0f;
+		if (m_options.maxChartArea > 0.0f || m_options.roundnessMetricWeight > 0.0f)
+			newChartArea = computeArea(chart, face);
+		if (m_options.maxBoundaryLength > 0.0f || m_options.roundnessMetricWeight > 0.0f)
+			newBoundaryLength = computeBoundaryLength(chart, face);
 		// Enforce limits strictly:
 		if (m_options.maxChartArea > 0.0f && newChartArea > m_options.maxChartArea)
 			return FLT_MAX;
 		if (m_options.maxBoundaryLength > 0.0f && newBoundaryLength > m_options.maxBoundaryLength)
 			return FLT_MAX;
-		if (dot(m_faceNormals[face], chart->basis.normal) < 0.5f)
-			return FLT_MAX;
-		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
-		// Make sure normal seams are fully respected:
-		const float N = evaluateNormalSeamMetric(chart, face);
-		if (m_options.normalSeamMetricWeight >= 1000.0f && N > 0.0f)
-			return FLT_MAX;
-		float cost = m_options.normalSeamMetricWeight * N;
+		float cost = 0.0f;
+		if (m_options.normalSeamMetricWeight > 0.0f) {
+			// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
+			// Make sure normal seams are fully respected:
+			const float N = evaluateNormalSeamMetric(chart, face);
+			if (m_options.normalSeamMetricWeight >= 1000.0f && N > 0.0f)
+				return FLT_MAX;
+			cost += m_options.normalSeamMetricWeight * N;
+		}
 		if (m_options.proxyFitMetricWeight > 0.0f)
 			cost += m_options.proxyFitMetricWeight * evaluateProxyFitMetric(chart, face);
 		if (m_options.roundnessMetricWeight > 0.0f)
