@@ -9,7 +9,7 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 [![](https://user-images.githubusercontent.com/3744372/43034067-5c09c1da-8d18-11e8-8490-25770f05e8e0.png)](https://user-images.githubusercontent.com/3744372/43034066-53a62dee-8d18-11e8-9767-0b38ed3fa2d3.png)
 
 ## Changes from thekla_atlas
-* Smaller code size - from about 18 KLOC to 9 KLOC
+* Smaller code size - from about 18 KLOC to 10 KLOC
 * Easier to integrate and build - a single source/header file pair instead of around 120 files and 10 directories.
 * Atlas resolution option for outputting multiple atlases.
 * Flexible data description API for input meshes.
@@ -77,9 +77,19 @@ O. Sorkine, D. Cohen-Or, R. Goldenthal, and D. Lischinski. [Bounded-distortion P
 
 Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/gdc2018-precomputedgiobalilluminationinfrostbite.pdf)
 
+## Used by
+
+[Godot Engine](https://github.com/godotengine/godot)
+
+[Wicked Engine](https://github.com/turanszkij/WickedEngine)
+
+[Bakery - GPU Lightmapper](https://assetstore.unity.com/packages/tools/level-design/bakery-gpu-lightmapper-122218)
+
 ## Related projects
 
 [Microsoft's UVAtlas](https://github.com/Microsoft/UVAtlas) - isochart texture atlasing.
+
+[simpleuv](https://github.com/huxingyi/simpleuv/) - Automatic UV Unwrapping Library for Dust3D.
 
 [Ministry of Flat](http://www.quelsolaar.com/ministry_of_flat/) - Commercial automated UV unwrapper.
 
