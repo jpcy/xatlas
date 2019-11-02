@@ -79,11 +79,13 @@ Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.con
 
 ## Used by
 
+[Bakery - GPU Lightmapper](https://assetstore.unity.com/packages/tools/level-design/bakery-gpu-lightmapper-122218)
+
 [Godot Engine](https://github.com/godotengine/godot)
 
-[Wicked Engine](https://github.com/turanszkij/WickedEngine)
+[Filament](https://google.github.io/filament/)
 
-[Bakery - GPU Lightmapper](https://assetstore.unity.com/packages/tools/level-design/bakery-gpu-lightmapper-122218)
+[Wicked Engine](https://github.com/turanszkij/WickedEngine)
 
 ## Related projects
 
