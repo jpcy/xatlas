@@ -328,7 +328,9 @@ static void PrintMemoryUsage()
 #else
 static void *Realloc(void *ptr, size_t size, int /*tag*/, const char * /*file*/, int /*line*/)
 {
-	if (ptr && size == 0 && s_free) {
+	if (size == 0 && !ptr)
+		return nullptr;
+	if (size == 0 && s_free) {
 		s_free(ptr);
 		return nullptr;
 	}
