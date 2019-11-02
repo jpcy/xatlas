@@ -19,6 +19,7 @@ project "example"
 	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
+	asan()
 	files "example.cpp"
 	includedirs(THIRDPARTY_DIR)
 	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
@@ -34,6 +35,7 @@ project "example_uvmesh"
 	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
+	asan()
 	files "example_uvmesh.cpp"
 	includedirs(THIRDPARTY_DIR)
 	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
@@ -49,6 +51,7 @@ project "test"
 	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
+	asan()
 	includedirs(THIRDPARTY_DIR)
 	files "test.cpp"
 	links { "tiny_obj_loader", "xatlas" }
@@ -64,6 +67,7 @@ project "viewer"
 	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
+	asan()
 	files { "viewer*", "shaders/*.*" }
 	includedirs
 	{
@@ -99,6 +103,7 @@ project "bgfx"
 	cppdialect "C++14"
 	exceptionhandling "Off"
 	rtti "Off"
+	asan()
 	defines	{ "__STDC_FORMAT_MACROS" }
 	files
 	{
@@ -141,6 +146,7 @@ project "bimg"
 	cppdialect "C++14"
 	exceptionhandling "Off"
 	rtti "Off"
+	asan()
 	files
 	{
 		path.join(BIMG_DIR, "include/bimg/*.h"),
@@ -164,6 +170,7 @@ project "bx"
 	cppdialect "C++14"
 	exceptionhandling "Off"
 	rtti "Off"
+	asan()
 	defines	{ "__STDC_FORMAT_MACROS" }
 	files
 	{
@@ -191,6 +198,7 @@ project "bx"
 project "cgltf"
 	kind "StaticLib"
 	language "C"
+	asan()
 	files(path.join(THIRDPARTY_DIR, "cgltf.*"))
 	filter "action:vs*"
 		defines { "_CRT_SECURE_NO_WARNINGS" }
@@ -201,11 +209,13 @@ project "enkiTS"
 	cppdialect "C++11"
 	exceptionhandling "Off"
 	rtti "Off"
+	asan()
 	files(path.join(ENKITS_DIR, "*.*"))
 
 project "glfw"
 	kind "StaticLib"
 	language "C"
+	asan()
 	files
 	{
 		path.join(GLFW_DIR, "include/*.h"),
@@ -250,11 +260,13 @@ project "imgui"
 	language "C++"
 	exceptionhandling "Off"
 	rtti "Off"
+	asan()
 	files(path.join(THIRDPARTY_DIR, "imgui/*.*"))
 	
 project "mimalloc"
 	kind "StaticLib"
 	language "C"
+	asan()
 	includedirs(path.join(MIMALLOC_DIR, "include"))
 	files(path.join(MIMALLOC_DIR, "src/*.*"))
 	excludes
@@ -269,6 +281,7 @@ project "nativefiledialog"
 	language "C++"
 	exceptionhandling "Off"
 	rtti "Off"
+	asan()
 	files(path.join(THIRDPARTY_DIR, "nativefiledialog/nfd_common.*"))
 	filter "system:windows"
 		files(path.join(THIRDPARTY_DIR, "nativefiledialog/nfd_win.cpp"))
@@ -282,6 +295,7 @@ project "objzero"
 	kind "StaticLib"
 	language "C"
 	cdialect "C99"
+	asan()
 	files(path.join(THIRDPARTY_DIR, "objzero/objzero.*"))
 	
 project "OpenFBX"
@@ -290,11 +304,13 @@ project "OpenFBX"
 	cppdialect "C++14"
 	exceptionhandling "Off"
 	rtti "Off"
+	asan()
 	files(path.join(OPENFBX_DIR, "*.*"))
 	
 project "OpenNL"
 	kind "StaticLib"
 	language "C"
+	asan()
 	defines { "GEO_STATIC_LIBS" }
 	files(path.join(OPENNL_DIR, "*"))
 	filter "system:windows"
@@ -305,16 +321,19 @@ project "OpenNL"
 project "stb_image"
 	kind "StaticLib"
 	language "C"
+	asan()
 	files(path.join(THIRDPARTY_DIR, "stb_image.*"))
 	
 project "stb_image_resize"
 	kind "StaticLib"
 	language "C"
+	asan()
 	files(path.join(THIRDPARTY_DIR, "stb_image_resize.*"))
 	
 project "stb_image_write"
 	kind "StaticLib"
 	language "C"
+	asan()
 	files(path.join(THIRDPARTY_DIR, "stb_image_write.*"))
 	
 project "tiny_obj_loader"
@@ -322,4 +341,5 @@ project "tiny_obj_loader"
 	language "C++"
 	exceptionhandling "Off"
 	rtti "Off"
+	asan()
 	files(path.join(THIRDPARTY_DIR, "tiny_obj_loader.*"))
