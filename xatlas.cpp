@@ -123,6 +123,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
+#define XA_DEBUG_EXPORT_ATLAS_IMAGES_PER_CHART 0 // Export an atlas image after each chart is added.
 #define XA_DEBUG_EXPORT_BOUNDARY_GRID 0
 #define XA_DEBUG_EXPORT_TGA (XA_DEBUG_EXPORT_ATLAS_IMAGES || XA_DEBUG_EXPORT_BOUNDARY_GRID)
 #define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
@@ -8213,6 +8214,13 @@ struct Atlas
 				} else {
 					m_atlasImages[currentAtlas]->addChart(c, &chartImageRotated, options.bilinear ? &chartImageBilinearRotated : nullptr, options.padding > 0 ? &chartImagePaddingRotated : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
 				}
+#if XA_DEBUG_EXPORT_ATLAS_IMAGES && XA_DEBUG_EXPORT_ATLAS_IMAGES_PER_CHART
+				for (uint32_t j = 0; j < m_atlasImages.size(); j++) {
+					char filename[256];
+					XA_SPRINTF(filename, sizeof(filename), "debug_atlas_image%02u_chart%04u.tga", j, i);
+					m_atlasImages[j]->writeTga(filename, (uint32_t)atlasSizes[j].x, (uint32_t)atlasSizes[j].y);
+				}
+#endif
 			}
 			chart->atlasIndex = (int32_t)currentAtlas;
 			// Modify texture coordinates:

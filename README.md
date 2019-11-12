@@ -6,7 +6,13 @@ A cleaned up version of [thekla_atlas](https://github.com/Thekla/thekla_atlas).
 
 Mesh charting, parameterization and atlas packing. Suitable for generating unique texture coordinates for baking lightmaps.
 
+## Screenshots
+
 [![](https://user-images.githubusercontent.com/3744372/43034067-5c09c1da-8d18-11e8-8490-25770f05e8e0.png)](https://user-images.githubusercontent.com/3744372/43034066-53a62dee-8d18-11e8-9767-0b38ed3fa2d3.png)
+
+| Random packing | Brute force packing |
+|---|---|
+| [![](https://user-images.githubusercontent.com/3744372/68638607-d4db8b80-054d-11ea-8238-845d94789a2d.gif)] | [![](https://user-images.githubusercontent.com/3744372/68638614-da38d600-054d-11ea-82d9-43e558c46d50.gif)] |
 
 ## Changes from thekla_atlas
 * Smaller code size - from about 18 KLOC to 10 KLOC
