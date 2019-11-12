@@ -8,11 +8,11 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 
 ## Screenshots
 
-[![](https://user-images.githubusercontent.com/3744372/43034067-5c09c1da-8d18-11e8-8490-25770f05e8e0.png)](https://user-images.githubusercontent.com/3744372/43034066-53a62dee-8d18-11e8-9767-0b38ed3fa2d3.png)
+[![LMHPoly tunnel scene](https://user-images.githubusercontent.com/3744372/43034067-5c09c1da-8d18-11e8-8490-25770f05e8e0.png)](https://user-images.githubusercontent.com/3744372/43034066-53a62dee-8d18-11e8-9767-0b38ed3fa2d3.png)
 
 | Random packing | Brute force packing |
 |---|---|
-| [![](https://user-images.githubusercontent.com/3744372/68638607-d4db8b80-054d-11ea-8238-845d94789a2d.gif)] | [![](https://user-images.githubusercontent.com/3744372/68638614-da38d600-054d-11ea-82d9-43e558c46d50.gif)] |
+| ![Random packing](https://user-images.githubusercontent.com/3744372/68638607-d4db8b80-054d-11ea-8238-845d94789a2d.gif) | ![Brute force packing](https://user-images.githubusercontent.com/3744372/68638614-da38d600-054d-11ea-82d9-43e558c46d50.gif) |
 
 ## Changes from thekla_atlas
 * Smaller code size - from about 18 KLOC to 10 KLOC
@@ -90,6 +90,10 @@ Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.con
 [Godot Engine](https://github.com/godotengine/godot)
 
 [Filament](https://google.github.io/filament/)
+
+[Lightmaps - An OpenGL sample demonstrating path traced lightmap baking on the CPU with Embree](https://github.com/diharaw/Lightmaps)
+
+[toy](https://github.com/hugoam/toy) / [two](https://github.com/hugoam/two)
 
 [Wicked Engine](https://github.com/turanszkij/WickedEngine)
 
