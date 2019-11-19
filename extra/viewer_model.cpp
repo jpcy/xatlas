@@ -730,7 +730,8 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 				break;
 		}
 	}
-	const bx::StringView ext = bx::FilePath(args.filename).getExt();
+    bx::FilePath filePath(args.filename);
+	const bx::StringView ext = filePath.getExt();
 	if (bx::strCmpI(ext, ".fbx") == 0) {
 		objzModel *model = fbxLoad(args.filename, basePath);
 		if (!model) {
@@ -884,7 +885,10 @@ void modelOpenDialog()
 	nfdchar_t *filename = nullptr;
 	nfdresult_t result = NFD_OpenDialog("fbx,glb,gltf,obj,stl", nullptr, &filename);
 	if (result != NFD_OKAY)
+    {
+	    free(filename);
 		return;
+    }
 	modelOpen(filename);
 	free(filename);
 }
