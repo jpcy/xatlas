@@ -2347,6 +2347,7 @@ private:
 		}
 		// Filter top list.
 		output.clear();
+		XA_DEBUG_ASSERT(m_top.size() >= 2);
 		output.push_back(m_top[0]);
 		output.push_back(m_top[1]);
 		for (uint32_t i = 2; i < m_top.size(); ) {
@@ -2362,6 +2363,7 @@ private:
 			}
 		}
 		uint32_t top_count = output.size();
+		XA_DEBUG_ASSERT(m_bottom.size() >= 2);
 		output.push_back(m_bottom[1]);
 		// Filter bottom list.
 		for (uint32_t i = 2; i < m_bottom.size(); ) {
@@ -5881,7 +5883,11 @@ private:
 			// q = A·p
 			sparse::mult(A, p, q);
 			// alpha = delta_new / p·q
-			alpha = delta_new / sparse::dot(p, q);
+			const float pdotq = sparse::dot(p, q);
+			if (!isFinite(pdotq) || isNan(pdotq))
+				alpha = 0.0f;
+			else
+				alpha = delta_new / pdotq;
 			// x = alfa·p + x
 			sparse::saxpy(alpha, p, x);
 			if ((i & 31) == 0) { // recompute r after 32 steps
@@ -6094,8 +6100,11 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 	// Solve
 	Solver::LeastSquaresSolver(A, b, x, lockedParameters, 4, 0.000001f);
 	// Map x back to texcoords:
-	for (uint32_t v = 0; v < vertexCount; v++)
+	for (uint32_t v = 0; v < vertexCount; v++) {
 		mesh->texcoord(v) = Vector2(x[2 * v + 0], x[2 * v + 1]);
+		XA_DEBUG_ASSERT(!isNan(mesh->texcoord(v).x));
+		XA_DEBUG_ASSERT(!isNan(mesh->texcoord(v).y));
+	}
 	return true;
 }
 
