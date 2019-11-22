@@ -4241,12 +4241,12 @@ private:
 
 	uint32_t cellX(float x) const
 	{
-		return clamp(uint32_t((x - m_gridOrigin.x) / m_cellSize), 0u, m_gridWidth - 1u);
+		return min((uint32_t)max(0.0f, (x - m_gridOrigin.x) / m_cellSize), m_gridWidth - 1u);
 	}
 
 	uint32_t cellY(float y) const
 	{
-		return clamp(uint32_t((y - m_gridOrigin.y) / m_cellSize), 0u, m_gridHeight - 1u);
+		return min((uint32_t)max(0.0f, (y - m_gridOrigin.y) / m_cellSize), m_gridHeight - 1u);
 	}
 
 	Vector2 edgePosition0(uint32_t edge) const
@@ -4415,15 +4415,16 @@ struct Triangle
 		// make sure every triangle is front facing.
 		flipBackface();
 		// Compute deltas.
-		computeUnitInwardNormals();
+		if (isValid())
+			computeUnitInwardNormals();
 	}
 
 	bool isValid()
 	{
 		const Vector2 e0 = v3 - v1;
 		const Vector2 e1 = v2 - v1;
-		const float denom = 1.0f / (e0.y * e1.x - e1.y * e0.x);
-		return isFinite(denom);
+		const float area = e0.y * e1.x - e1.y * e0.x;
+		return area != 0.0f;
 	}
 
 	// extents has to be multiple of BK_SIZE!!
@@ -4507,6 +4508,7 @@ struct Triangle
 		return true;
 	}
 
+private:
 	void flipBackface()
 	{
 		// check if triangle is backfacing, if so, swap two vertices
@@ -4522,13 +4524,13 @@ struct Triangle
 	{
 		n1 = v1 - v2;
 		n1 = Vector2(-n1.y, n1.x);
-		n1 = n1 * (1.0f / sqrtf(n1.x * n1.x + n1.y * n1.y));
+		n1 = n1 * (1.0f / sqrtf(dot(n1, n1)));
 		n2 = v2 - v3;
 		n2 = Vector2(-n2.y, n2.x);
-		n2 = n2 * (1.0f / sqrtf(n2.x * n2.x + n2.y * n2.y));
+		n2 = n2 * (1.0f / sqrtf(dot(n2, n2)));
 		n3 = v3 - v1;
 		n3 = Vector2(-n3.y, n3.x);
-		n3 = n3 * (1.0f / sqrtf(n3.x * n3.x + n3.y * n3.y));
+		n3 = n3 * (1.0f / sqrtf(dot(n3, n3)));
 	}
 
 	// Vertices.
@@ -7968,10 +7970,11 @@ struct Atlas
 		for (uint32_t c = 0; c < chartCount; c++) {
 			Chart *chart = m_charts[c];
 			// Compute chart scale
-			float scale = (chart->surfaceArea / chart->parametricArea) * m_texelsPerUnit;
-			if (chart->parametricArea == 0.0f)
-				scale = 0;
-			XA_ASSERT(isFinite(scale));
+			float scale = 1.0f;
+			if (chart->parametricArea != 0.0f) {
+				scale = (chart->surfaceArea / chart->parametricArea) * m_texelsPerUnit;
+				XA_ASSERT(isFinite(scale));
+			}
 			// Translate, rotate and scale vertices. Compute extents.
 			Vector2 minCorner(FLT_MAX, FLT_MAX);
 			if (!chart->allowRotate) {
