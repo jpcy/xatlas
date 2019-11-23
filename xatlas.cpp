@@ -7216,7 +7216,11 @@ public:
 #endif
 	}
 
+#if XA_RECOMPUTE_CHARTS
 	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
+#else
+	void parameterizeCharts(TaskScheduler* taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2>* boundaryGrid, ThreadLocal<ChartCtorBuffers>* /*chartBuffers*/)
+#endif
 	{
 		m_paramAddedChartsCount = 0;
 		const uint32_t chartCount = m_charts.size();
@@ -7406,7 +7410,9 @@ struct ParameterizeChartsTaskArgs
 	ParameterizeFunc func;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
+#if XA_RECOMPUTE_CHARTS
 	ThreadLocal<PiecewiseParam> *piecewiseParam;
+#endif
 	Progress *progress;
 };
 
@@ -7416,7 +7422,11 @@ static void runParameterizeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(parameterizeChartsThread)
+#if XA_RECOMPUTE_CHARTS
 	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
+#else
+	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid, args->chartBuffers);
+#endif
 	XA_PROFILE_END(parameterizeChartsThread)
 	args->progress->value++;
 	args->progress->update();
@@ -7581,7 +7591,9 @@ public:
 		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
 		ThreadLocal<UniformGrid2> boundaryGrid; // For Quality boundary intersection.
 		ThreadLocal<ChartCtorBuffers> chartBuffers;
+#if XA_RECOMPUTE_CHARTS
 		ThreadLocal<PiecewiseParam> piecewiseParam;
+#endif
 		Array<ParameterizeChartsTaskArgs> taskArgs;
 		taskArgs.reserve(chartGroupCount);
 		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
@@ -7592,7 +7604,9 @@ public:
 				args.func = func;
 				args.boundaryGrid = &boundaryGrid;
 				args.chartBuffers = &chartBuffers;
+#if XA_RECOMPUTE_CHARTS
 				args.piecewiseParam = &piecewiseParam;
+#endif
 				args.progress = &progress;
 				taskArgs.push_back(args);
 			}
