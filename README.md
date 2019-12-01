@@ -8,11 +8,16 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 
 ## Screenshots
 
-[![LMHPoly tunnel scene](https://user-images.githubusercontent.com/3744372/43034067-5c09c1da-8d18-11e8-8490-25770f05e8e0.png)](https://user-images.githubusercontent.com/3744372/43034066-53a62dee-8d18-11e8-9767-0b38ed3fa2d3.png)
+#### Example - [Cesium Milk Truck](https://github.com/KhronosGroup/glTF-Sample-Models)
+| Viewer | Random packing | Brute force packing |
+|---|---|---|
+| [![Viewer](https://user-images.githubusercontent.com/3744372/69908461-48cace80-143e-11ea-8b73-efea5a9f036e.png)](https://user-images.githubusercontent.com/3744372/69908460-48323800-143e-11ea-8b18-58087493c8e9.png) | ![Random packing](https://user-images.githubusercontent.com/3744372/68638607-d4db8b80-054d-11ea-8238-845d94789a2d.gif) | ![Brute force packing](https://user-images.githubusercontent.com/3744372/68638614-da38d600-054d-11ea-82d9-43e558c46d50.gif) |
 
-| Random packing | Brute force packing |
-|---|---|
-| ![Random packing](https://user-images.githubusercontent.com/3744372/68638607-d4db8b80-054d-11ea-8238-845d94789a2d.gif) | ![Brute force packing](https://user-images.githubusercontent.com/3744372/68638614-da38d600-054d-11ea-82d9-43e558c46d50.gif) |
+#### Example - [Godot Third Person Shooter demo](https://github.com/godotengine/tps-demo)
+[![Godot TPS](https://user-images.githubusercontent.com/3744372/69908463-48cace80-143e-11ea-8035-b669d1a455f6.png)](https://user-images.githubusercontent.com/3744372/69908462-48cace80-143e-11ea-8946-a2c596ec8028.png)
+
+#### [Graphite/Geogram](http://alice.loria.fr/index.php?option=com_content&view=article&id=22)
+![Graphite/Geogram](https://user-images.githubusercontent.com/19478253/69903392-c0deb900-1398-11ea-8a52-c211bc7803a9.gif)
 
 ## Changes from thekla_atlas
 * Smaller code size - from about 18 KLOC to 10 KLOC
@@ -89,6 +94,8 @@ Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.con
 
 [Godot Engine](https://github.com/godotengine/godot)
 
+[Graphite/Geogram](http://alice.loria.fr/index.php?option=com_content&view=article&id=22)
+
 [Filament](https://google.github.io/filament/)
 
 [Lightmaps - An OpenGL sample demonstrating path traced lightmap baking on the CPU with Embree](https://github.com/diharaw/Lightmaps)
@@ -114,5 +121,3 @@ Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.con
 ## Models used
 
 [Gazebo model](https://opengameart.org/content/gazebo-0) by Teh_Bucket
-
-[Tunnel scene](https://lmhpoly.com/unity-tutorial-volumetric-lighting/) by LMHPoly
