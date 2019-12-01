@@ -2004,7 +2004,10 @@ private:
 	void alloc()
 	{
 		XA_DEBUG_ASSERT(m_size > 0);
-		m_numSlots = (uint32_t)(m_size * 1.3);
+		m_numSlots = nextPowerOfTwo(m_size);
+		auto minNumSlots = uint32_t(m_size * 1.3);
+		if (m_numSlots < minNumSlots)
+			m_numSlots = nextPowerOfTwo(minNumSlots);
 		m_slots = XA_ALLOC_ARRAY(m_memTag, uint32_t, m_numSlots);
 		for (uint32_t i = 0; i < m_numSlots; i++)
 			m_slots[i] = UINT32_MAX;
@@ -2015,7 +2018,7 @@ private:
 	uint32_t computeHash(const Key &key) const
 	{
 		H hash;
-		return hash(key) % m_numSlots;
+		return hash(key) & (m_numSlots - 1);
 	}
 
 	int m_memTag;
