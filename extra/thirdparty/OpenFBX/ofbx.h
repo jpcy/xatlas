@@ -17,6 +17,12 @@ static_assert(sizeof(u64) == 8, "u64 is not 8 bytes");
 static_assert(sizeof(i64) == 8, "i64 is not 8 bytes");
 
 
+enum class LoadFlags : u64 {
+	TRIANGULATE = 1 << 0,
+	IGNORE_GEOMETRY = 1 << 1,
+};
+
+
 struct Vec2
 {
 	double x, y;
@@ -114,6 +120,7 @@ struct IElementProperty
 
 struct IElement
 {
+    virtual ~IElement() = default;
 	virtual IElement* getFirstChild() const = 0;
 	virtual IElement* getSibling() const = 0;
 	virtual DataView getID() const = 0;
@@ -156,7 +163,8 @@ struct Object
 		ANIMATION_STACK,
 		ANIMATION_LAYER,
 		ANIMATION_CURVE,
-		ANIMATION_CURVE_NODE
+		ANIMATION_CURVE_NODE,
+		POSE
 	};
 
 	Object(const Scene& _scene, const IElement& _element);
@@ -200,6 +208,15 @@ struct Object
 protected:
 	bool is_node;
 	const Scene& scene;
+};
+
+
+struct Pose : Object {
+	static const Type s_type = Type::POSE;
+	Pose(const Scene& _scene, const IElement& _element);
+
+	virtual Matrix getMatrix() const = 0;
+	virtual const Object* getNode() const = 0;
 };
 
 
@@ -299,6 +316,7 @@ struct Mesh : Object
 
 	Mesh(const Scene& _scene, const IElement& _element);
 
+	virtual const Pose* getPose() const = 0;
 	virtual const Geometry* getGeometry() const = 0;
 	virtual Matrix getGeometricMatrix() const = 0;
 	virtual const Material* getMaterial(int idx) const = 0;
@@ -344,6 +362,7 @@ struct AnimationCurveNode : Object
 
 	AnimationCurveNode(const Scene& _scene, const IElement& _element);
 
+	virtual const AnimationCurve* getCurve(int idx) const = 0; 
 	virtual Vec3 getNodeLocalTransform(double time) const = 0;
 	virtual const Object* getBone() const = 0;
 };
@@ -363,17 +382,17 @@ struct TakeInfo
 // Specifies which canonical axis represents up in the system (typically Y or Z).
 enum UpVector
 {
-	UpVector_AxisX = 1,
-	UpVector_AxisY = 2,
-	UpVector_AxisZ = 3
+	UpVector_AxisX = 0,
+	UpVector_AxisY = 1,
+	UpVector_AxisZ = 2
 };
 
 
 // Vector with origin at the screen pointing toward the camera.
 enum FrontVector
 {
-	FrontVector_ParityEven = 1,
-	FrontVector_ParityOdd = 2
+	FrontVector_ParityEven = 0,
+	FrontVector_ParityOdd = 1
 };
 
 
@@ -418,8 +437,8 @@ struct GlobalSettings
 	int OriginalUpAxisSign = 1;
 	float UnitScaleFactor = 1;
 	float OriginalUnitScaleFactor = 1;
-	u64 TimeSpanStart = 0L;
-	u64 TimeSpanStop = 0L;
+	double TimeSpanStart = 0L;
+	double TimeSpanStop = 0L;
 	FrameRate TimeMode = FrameRate_DEFAULT;
 	float CustomFrameRate = -1.0f;
 };
@@ -444,14 +463,11 @@ protected:
 	virtual ~IScene() {}
 };
 
-enum LoadFlags
-{
-	TRIANGULATE = 1,
-	IGNORE_GEOMETRY = 2
-};
 
-IScene* load(const u8* data, int size, u64 flags = 0);
+IScene* load(const u8* data, int size, u64 flags);
 const char* getError();
+double fbxTimeToSeconds(i64 value);
+i64 secondsToFbxTime(double value);
 
 
 } // namespace ofbx

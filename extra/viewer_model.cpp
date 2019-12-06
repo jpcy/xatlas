@@ -293,7 +293,7 @@ static objzModel *fbxLoad(const char *filename, const char * /*basePath*/)
 	std::vector<uint8_t> fileData;
 	if (!readFileData(filename, &fileData))
 		return nullptr;
-	ofbx::IScene *scene = ofbx::load(fileData.data(), (int)fileData.size(), ofbx::LoadFlags::TRIANGULATE);
+	ofbx::IScene *scene = ofbx::load(fileData.data(), (int)fileData.size(), (ofbx::u64)ofbx::LoadFlags::TRIANGULATE);
 	if (!scene) {
 		fprintf(stderr, "%s\n", ofbx::getError());
 		return nullptr;
