@@ -1,8 +1,8 @@
 //========================================================================
-// GLFW 3.3 Win32 - www.glfw.org
+// GLFW 3.4 Win32 - www.glfw.org
 //------------------------------------------------------------------------
 // Copyright (c) 2002-2006 Marcus Geelnard
-// Copyright (c) 2006-2016 Camilla Löwy <elmindreda@glfw.org>
+// Copyright (c) 2006-2019 Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -24,9 +24,12 @@
 //    distribution.
 //
 //========================================================================
+// Please use C89 style variable declarations in this file because VS 2010
+//========================================================================
 
 #include "internal.h"
 
+#include <stdio.h>
 #include <math.h>
 
 #define _GLFW_TYPE_AXIS     0
@@ -49,16 +52,24 @@ typedef struct _GLFWobjenumWin32
 
 // Define local copies of the necessary GUIDs
 //
-static const GUID _glfw_IID_IDirectInput8W = {0xbf798031,0x483a,0x4da2,{0xaa,0x99,0x5d,0x64,0xed,0x36,0x97,0x00}};
-static const GUID _glfw_GUID_XAxis = {0xa36d02e0,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
-static const GUID _glfw_GUID_YAxis = {0xa36d02e1,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
-static const GUID _glfw_GUID_ZAxis = {0xa36d02e2,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
-static const GUID _glfw_GUID_RxAxis = {0xa36d02f4,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
-static const GUID _glfw_GUID_RyAxis = {0xa36d02f5,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
-static const GUID _glfw_GUID_RzAxis = {0xa36d02e3,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
-static const GUID _glfw_GUID_Slider = {0xa36d02e4,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
-static const GUID _glfw_GUID_Button = {0xa36d02f0,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
-static const GUID _glfw_GUID_POV = {0xa36d02f2,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
+static const GUID _glfw_IID_IDirectInput8W =
+    {0xbf798031,0x483a,0x4da2,{0xaa,0x99,0x5d,0x64,0xed,0x36,0x97,0x00}};
+static const GUID _glfw_GUID_XAxis =
+    {0xa36d02e0,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
+static const GUID _glfw_GUID_YAxis =
+    {0xa36d02e1,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
+static const GUID _glfw_GUID_ZAxis =
+    {0xa36d02e2,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
+static const GUID _glfw_GUID_RxAxis =
+    {0xa36d02f4,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
+static const GUID _glfw_GUID_RyAxis =
+    {0xa36d02f5,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
+static const GUID _glfw_GUID_RzAxis =
+    {0xa36d02e3,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
+static const GUID _glfw_GUID_Slider =
+    {0xa36d02e4,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
+static const GUID _glfw_GUID_POV =
+    {0xa36d02f2,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
 
 #define IID_IDirectInput8W _glfw_IID_IDirectInput8W
 #define GUID_XAxis _glfw_GUID_XAxis
@@ -68,7 +79,6 @@ static const GUID _glfw_GUID_POV = {0xa36d02f2,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x4
 #define GUID_RyAxis _glfw_GUID_RyAxis
 #define GUID_RzAxis _glfw_GUID_RzAxis
 #define GUID_Slider _glfw_GUID_Slider
-#define GUID_Button _glfw_GUID_Button
 #define GUID_POV _glfw_GUID_POV
 
 // Object data array for our clone of c_dfDIJoystick
@@ -155,9 +165,9 @@ static const char* getDeviceDescription(const XINPUT_CAPABILITIES* xic)
         case XINPUT_DEVSUBTYPE_GAMEPAD:
         {
             if (xic->Flags & XINPUT_CAPS_WIRELESS)
-                return "Wireless Xbox 360 Controller";
+                return "Wireless Xbox Controller";
             else
-                return "Xbox 360 Controller";
+                return "Xbox Controller";
         }
     }
 
@@ -252,12 +262,14 @@ static void closeJoystick(_GLFWjoystick* js)
         IDirectInputDevice8_Release(js->win32.device);
     }
 
+    free(js->win32.objects);
+
     _glfwFreeJoystick(js);
-    _glfwInputJoystick(_GLFW_JOYSTICK_ID(js), GLFW_DISCONNECTED);
+    _glfwInputJoystick(js, GLFW_DISCONNECTED);
 }
 
 // DirectInput device object enumeration callback
-// Insights gleaned from SDL2
+// Insights gleaned from SDL
 //
 static BOOL CALLBACK deviceObjectCallback(const DIDEVICEOBJECTINSTANCEW* doi,
                                           void* user)
@@ -339,14 +351,17 @@ static BOOL CALLBACK deviceCallback(const DIDEVICEINSTANCE* di, void* user)
     IDirectInputDevice8* device;
     _GLFWobjenumWin32 data;
     _GLFWjoystick* js;
+    char guid[33];
     char name[256];
 
     for (jid = 0;  jid <= GLFW_JOYSTICK_LAST;  jid++)
     {
-        if (!_glfw.joysticks[jid].present)
-            continue;
-        if (memcmp(&_glfw.joysticks[jid].win32.guid, &di->guidInstance, sizeof(GUID)) == 0)
-            return DIENUM_CONTINUE;
+        _GLFWjoystick* js = _glfw.joysticks + jid;
+        if (js->present)
+        {
+            if (memcmp(&js->win32.guid, &di->guidInstance, sizeof(GUID)) == 0)
+                return DIENUM_CONTINUE;
+        }
     }
 
     if (supportsXInput(&di->guidProduct))
@@ -401,7 +416,7 @@ static BOOL CALLBACK deviceCallback(const DIDEVICEINSTANCE* di, void* user)
 
     memset(&data, 0, sizeof(data));
     data.device = device;
-    data.objects = calloc(dc.dwAxes + dc.dwButtons + dc.dwPOVs,
+    data.objects = calloc(dc.dwAxes + (size_t) dc.dwButtons + dc.dwPOVs,
                           sizeof(_GLFWjoyobjectWin32));
 
     if (FAILED(IDirectInputDevice8_EnumObjects(device,
@@ -434,7 +449,24 @@ static BOOL CALLBACK deviceCallback(const DIDEVICEINSTANCE* di, void* user)
         return DIENUM_STOP;
     }
 
-    js = _glfwAllocJoystick(name,
+    // Generate a joystick GUID that matches the SDL 2.0.5+ one
+    if (memcmp(&di->guidProduct.Data4[2], "PIDVID", 6) == 0)
+    {
+        sprintf(guid, "03000000%02x%02x0000%02x%02x000000000000",
+                (uint8_t) di->guidProduct.Data1,
+                (uint8_t) (di->guidProduct.Data1 >> 8),
+                (uint8_t) (di->guidProduct.Data1 >> 16),
+                (uint8_t) (di->guidProduct.Data1 >> 24));
+    }
+    else
+    {
+        sprintf(guid, "05000000%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x00",
+                name[0], name[1], name[2], name[3],
+                name[4], name[5], name[6], name[7],
+                name[8], name[9], name[10]);
+    }
+
+    js = _glfwAllocJoystick(name, guid,
                             data.axisCount + data.sliderCount,
                             data.buttonCount,
                             data.povCount);
@@ -450,7 +482,7 @@ static BOOL CALLBACK deviceCallback(const DIDEVICEINSTANCE* di, void* user)
     js->win32.objects = data.objects;
     js->win32.objectCount = data.objectCount;
 
-    _glfwInputJoystick(_GLFW_JOYSTICK_ID(js), GLFW_CONNECTED);
+    _glfwInputJoystick(js, GLFW_CONNECTED);
     return DIENUM_CONTINUE;
 }
 
@@ -503,6 +535,7 @@ void _glfwDetectJoystickConnectionWin32(void)
         for (index = 0;  index < XUSER_MAX_COUNT;  index++)
         {
             int jid;
+            char guid[33];
             XINPUT_CAPABILITIES xic;
             _GLFWjoystick* js;
 
@@ -522,13 +555,17 @@ void _glfwDetectJoystickConnectionWin32(void)
             if (XInputGetCapabilities(index, 0, &xic) != ERROR_SUCCESS)
                 continue;
 
-            js = _glfwAllocJoystick(getDeviceDescription(&xic), 6, 10, 1);
+            // Generate a joystick GUID that matches the SDL 2.0.5+ one
+            sprintf(guid, "78696e707574%02x000000000000000000",
+                    xic.SubType & 0xff);
+
+            js = _glfwAllocJoystick(getDeviceDescription(&xic), guid, 6, 10, 1);
             if (!js)
                 continue;
 
             js->win32.index = index;
 
-            _glfwInputJoystick(_GLFW_JOYSTICK_ID(js), GLFW_CONNECTED);
+            _glfwInputJoystick(js, GLFW_CONNECTED);
         }
     }
 
@@ -553,11 +590,12 @@ void _glfwDetectJoystickDisconnectionWin32(void)
 {
     int jid;
 
-	for (jid = 0;  jid <= GLFW_JOYSTICK_LAST;  jid++)
-	{
-        if (_glfw.joysticks[jid].present)
-		    _glfwPlatformPollJoystick(jid, _GLFW_POLL_PRESENCE);
-	}
+    for (jid = 0;  jid <= GLFW_JOYSTICK_LAST;  jid++)
+    {
+        _GLFWjoystick* js = _glfw.joysticks + jid;
+        if (js->present)
+            _glfwPlatformPollJoystick(js, _GLFW_POLL_PRESENCE);
+    }
 }
 
 
@@ -565,10 +603,8 @@ void _glfwDetectJoystickDisconnectionWin32(void)
 //////                       GLFW platform API                      //////
 //////////////////////////////////////////////////////////////////////////
 
-int _glfwPlatformPollJoystick(int jid, int mode)
+int _glfwPlatformPollJoystick(_GLFWjoystick* js, int mode)
 {
-    _GLFWjoystick* js = _glfw.joysticks + jid;
-
     if (js->win32.device)
     {
         int i, ai = 0, bi = 0, pi = 0;
@@ -607,7 +643,7 @@ int _glfwPlatformPollJoystick(int jid, int mode)
                 case _GLFW_TYPE_SLIDER:
                 {
                     const float value = (*((LONG*) data) + 0.5f) / 32767.5f;
-                    _glfwInputJoystickAxis(jid, ai, value);
+                    _glfwInputJoystickAxis(js, ai, value);
                     ai++;
                     break;
                 }
@@ -615,7 +651,7 @@ int _glfwPlatformPollJoystick(int jid, int mode)
                 case _GLFW_TYPE_BUTTON:
                 {
                     const char value = (*((BYTE*) data) & 0x80) != 0;
-                    _glfwInputJoystickButton(jid, bi, value);
+                    _glfwInputJoystickButton(js, bi, value);
                     bi++;
                     break;
                 }
@@ -640,7 +676,7 @@ int _glfwPlatformPollJoystick(int jid, int mode)
                     if (state < 0 || state > 8)
                         state = 8;
 
-                    _glfwInputJoystickHat(jid, pi, states[state]);
+                    _glfwInputJoystickHat(js, pi, states[state]);
                     pi++;
                     break;
                 }
@@ -652,8 +688,7 @@ int _glfwPlatformPollJoystick(int jid, int mode)
         int i, dpad = 0;
         DWORD result;
         XINPUT_STATE xis;
-        float axes[6] = { 0.f, 0.f, 0.f, 0.f, -1.f, -1.f };
-        const WORD buttons[14] =
+        const WORD buttons[10] =
         {
             XINPUT_GAMEPAD_A,
             XINPUT_GAMEPAD_B,
@@ -679,37 +714,17 @@ int _glfwPlatformPollJoystick(int jid, int mode)
         if (mode == _GLFW_POLL_PRESENCE)
             return GLFW_TRUE;
 
-        if ((float) xis.Gamepad.sThumbLX * xis.Gamepad.sThumbLX +
-            (float) xis.Gamepad.sThumbLY * xis.Gamepad.sThumbLY >
-            (float) XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE *
-                    XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE)
-        {
-            axes[0] = (xis.Gamepad.sThumbLX + 0.5f) / 32767.f;
-            axes[1] = (xis.Gamepad.sThumbLY + 0.5f) / 32767.f;
-        }
-
-        if ((float) xis.Gamepad.sThumbRX * xis.Gamepad.sThumbRX +
-            (float) xis.Gamepad.sThumbRY * xis.Gamepad.sThumbRY >
-            (float) XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE *
-                    XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE)
-        {
-            axes[2] = (xis.Gamepad.sThumbRX + 0.5f) / 32767.f;
-            axes[3] = (xis.Gamepad.sThumbRY + 0.5f) / 32767.f;
-        }
-
-        if (xis.Gamepad.bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
-            axes[4] = xis.Gamepad.bLeftTrigger / 127.5f - 1.f;
-
-        if (xis.Gamepad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
-            axes[5] = xis.Gamepad.bRightTrigger / 127.5f - 1.f;
-
-        for (i = 0;  i < 6;  i++)
-            _glfwInputJoystickAxis(jid, i, axes[i]);
+        _glfwInputJoystickAxis(js, 0, (xis.Gamepad.sThumbLX + 0.5f) / 32767.5f);
+        _glfwInputJoystickAxis(js, 1, -(xis.Gamepad.sThumbLY + 0.5f) / 32767.5f);
+        _glfwInputJoystickAxis(js, 2, (xis.Gamepad.sThumbRX + 0.5f) / 32767.5f);
+        _glfwInputJoystickAxis(js, 3, -(xis.Gamepad.sThumbRY + 0.5f) / 32767.5f);
+        _glfwInputJoystickAxis(js, 4, xis.Gamepad.bLeftTrigger / 127.5f - 1.f);
+        _glfwInputJoystickAxis(js, 5, xis.Gamepad.bRightTrigger / 127.5f - 1.f);
 
         for (i = 0;  i < 10;  i++)
         {
             const char value = (xis.Gamepad.wButtons & buttons[i]) ? 1 : 0;
-            _glfwInputJoystickButton(jid, i, value);
+            _glfwInputJoystickButton(js, i, value);
         }
 
         if (xis.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_UP)
@@ -721,9 +736,20 @@ int _glfwPlatformPollJoystick(int jid, int mode)
         if (xis.Gamepad.wButtons & XINPUT_GAMEPAD_DPAD_LEFT)
             dpad |= GLFW_HAT_LEFT;
 
-        _glfwInputJoystickHat(jid, 0, dpad);
+        _glfwInputJoystickHat(js, 0, dpad);
     }
 
     return GLFW_TRUE;
+}
+
+void _glfwPlatformUpdateGamepadGUID(char* guid)
+{
+    if (strcmp(guid + 20, "504944564944") == 0)
+    {
+        char original[33];
+        strncpy(original, guid, sizeof(original) - 1);
+        sprintf(guid, "03000000%.4s0000%.4s000000000000",
+                original, original + 4);
+    }
 }
 

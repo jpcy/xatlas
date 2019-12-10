@@ -1,8 +1,8 @@
 //========================================================================
-// GLFW 3.3 - www.glfw.org
+// GLFW 3.4 - www.glfw.org
 //------------------------------------------------------------------------
 // Copyright (c) 2002-2006 Marcus Geelnard
-// Copyright (c) 2006-2016 Camilla Löwy <elmindreda@glfw.org>
+// Copyright (c) 2006-2018 Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -23,6 +23,8 @@
 // 3. This notice may not be removed or altered from any source
 //    distribution.
 //
+//========================================================================
+// Please use C89 style variable declarations in this file because VS 2010
 //========================================================================
 
 #include "internal.h"
@@ -49,11 +51,12 @@ GLFWbool _glfwInitVulkan(int mode)
         return GLFW_TRUE;
 
 #if !defined(_GLFW_VULKAN_STATIC)
-#if defined(_GLFW_WIN32)
+#if defined(_GLFW_VULKAN_LIBRARY)
+    _glfw.vk.handle = _glfw_dlopen(_GLFW_VULKAN_LIBRARY);
+#elif defined(_GLFW_WIN32)
     _glfw.vk.handle = _glfw_dlopen("vulkan-1.dll");
 #elif defined(_GLFW_COCOA)
-    // NULL maps to RTLD_DEFAULT, which searches all loaded binaries
-    _glfw.vk.handle = _glfw_dlopen(NULL);
+    _glfw.vk.handle = _glfw_dlopen("libvulkan.1.dylib");
 #else
     _glfw.vk.handle = _glfw_dlopen("libvulkan.so.1");
 #endif
@@ -69,16 +72,8 @@ GLFWbool _glfwInitVulkan(int mode)
         _glfw_dlsym(_glfw.vk.handle, "vkGetInstanceProcAddr");
     if (!_glfw.vk.GetInstanceProcAddr)
     {
-#if defined(_GLFW_COCOA)
-        if (mode == _GLFW_REQUIRE_LOADER)
-        {
-            _glfwInputError(GLFW_API_UNAVAILABLE,
-                            "Vulkan: vkGetInstanceProcAddr not found in process");
-        }
-#else
         _glfwInputError(GLFW_API_UNAVAILABLE,
                         "Vulkan: Loader does not export vkGetInstanceProcAddr");
-#endif
 
         _glfwTerminateVulkan();
         return GLFW_FALSE;
@@ -143,9 +138,6 @@ GLFWbool _glfwInitVulkan(int mode)
 #elif defined(_GLFW_WAYLAND)
         else if (strcmp(ep[i].extensionName, "VK_KHR_wayland_surface") == 0)
             _glfw.vk.KHR_wayland_surface = GLFW_TRUE;
-#elif defined(_GLFW_MIR)
-        else if (strcmp(ep[i].extensionName, "VK_KHR_mir_surface") == 0)
-            _glfw.vk.KHR_mir_surface = GLFW_TRUE;
 #endif
     }
 
@@ -322,6 +314,13 @@ GLFWAPI VkResult glfwCreateWindowSurface(VkInstance instance,
         _glfwInputError(GLFW_API_UNAVAILABLE,
                         "Vulkan: Window surface creation extensions not found");
         return VK_ERROR_EXTENSION_NOT_PRESENT;
+    }
+
+    if (window->context.client != GLFW_NO_API)
+    {
+        _glfwInputError(GLFW_INVALID_VALUE,
+                        "Vulkan: Window surface creation requires the window to have the client API set to GLFW_NO_API");
+        return VK_ERROR_NATIVE_WINDOW_IN_USE_KHR;
     }
 
     return _glfwPlatformCreateWindowSurface(instance, window, allocator, surface);

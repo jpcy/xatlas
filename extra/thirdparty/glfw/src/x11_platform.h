@@ -1,8 +1,8 @@
 //========================================================================
-// GLFW 3.3 X11 - www.glfw.org
+// GLFW 3.4 X11 - www.glfw.org
 //------------------------------------------------------------------------
 // Copyright (c) 2002-2006 Marcus Geelnard
-// Copyright (c) 2006-2016 Camilla Löwy <elmindreda@glfw.org>
+// Copyright (c) 2006-2019 Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -47,10 +47,66 @@
 // The XInput extension provides raw mouse motion input
 #include <X11/extensions/XInput2.h>
 
+typedef XRRCrtcGamma* (* PFN_XRRAllocGamma)(int);
+typedef void (* PFN_XRRFreeCrtcInfo)(XRRCrtcInfo*);
+typedef void (* PFN_XRRFreeGamma)(XRRCrtcGamma*);
+typedef void (* PFN_XRRFreeOutputInfo)(XRROutputInfo*);
+typedef void (* PFN_XRRFreeScreenResources)(XRRScreenResources*);
+typedef XRRCrtcGamma* (* PFN_XRRGetCrtcGamma)(Display*,RRCrtc);
+typedef int (* PFN_XRRGetCrtcGammaSize)(Display*,RRCrtc);
+typedef XRRCrtcInfo* (* PFN_XRRGetCrtcInfo) (Display*,XRRScreenResources*,RRCrtc);
+typedef XRROutputInfo* (* PFN_XRRGetOutputInfo)(Display*,XRRScreenResources*,RROutput);
+typedef RROutput (* PFN_XRRGetOutputPrimary)(Display*,Window);
+typedef XRRScreenResources* (* PFN_XRRGetScreenResourcesCurrent)(Display*,Window);
+typedef Bool (* PFN_XRRQueryExtension)(Display*,int*,int*);
+typedef Status (* PFN_XRRQueryVersion)(Display*,int*,int*);
+typedef void (* PFN_XRRSelectInput)(Display*,Window,int);
+typedef Status (* PFN_XRRSetCrtcConfig)(Display*,XRRScreenResources*,RRCrtc,Time,int,int,RRMode,Rotation,RROutput*,int);
+typedef void (* PFN_XRRSetCrtcGamma)(Display*,RRCrtc,XRRCrtcGamma*);
+typedef int (* PFN_XRRUpdateConfiguration)(XEvent*);
+#define XRRAllocGamma _glfw.x11.randr.AllocGamma
+#define XRRFreeCrtcInfo _glfw.x11.randr.FreeCrtcInfo
+#define XRRFreeGamma _glfw.x11.randr.FreeGamma
+#define XRRFreeOutputInfo _glfw.x11.randr.FreeOutputInfo
+#define XRRFreeScreenResources _glfw.x11.randr.FreeScreenResources
+#define XRRGetCrtcGamma _glfw.x11.randr.GetCrtcGamma
+#define XRRGetCrtcGammaSize _glfw.x11.randr.GetCrtcGammaSize
+#define XRRGetCrtcInfo _glfw.x11.randr.GetCrtcInfo
+#define XRRGetOutputInfo _glfw.x11.randr.GetOutputInfo
+#define XRRGetOutputPrimary _glfw.x11.randr.GetOutputPrimary
+#define XRRGetScreenResourcesCurrent _glfw.x11.randr.GetScreenResourcesCurrent
+#define XRRQueryExtension _glfw.x11.randr.QueryExtension
+#define XRRQueryVersion _glfw.x11.randr.QueryVersion
+#define XRRSelectInput _glfw.x11.randr.SelectInput
+#define XRRSetCrtcConfig _glfw.x11.randr.SetCrtcConfig
+#define XRRSetCrtcGamma _glfw.x11.randr.SetCrtcGamma
+#define XRRUpdateConfiguration _glfw.x11.randr.UpdateConfiguration
+
+typedef XcursorImage* (* PFN_XcursorImageCreate)(int,int);
+typedef void (* PFN_XcursorImageDestroy)(XcursorImage*);
+typedef Cursor (* PFN_XcursorImageLoadCursor)(Display*,const XcursorImage*);
+typedef char* (* PFN_XcursorGetTheme)(Display*);
+typedef int (* PFN_XcursorGetDefaultSize)(Display*);
+typedef XcursorImage* (* PFN_XcursorLibraryLoadImage)(const char*,const char*,int);
+#define XcursorImageCreate _glfw.x11.xcursor.ImageCreate
+#define XcursorImageDestroy _glfw.x11.xcursor.ImageDestroy
+#define XcursorImageLoadCursor _glfw.x11.xcursor.ImageLoadCursor
+#define XcursorGetTheme _glfw.x11.xcursor.GetTheme
+#define XcursorGetDefaultSize _glfw.x11.xcursor.GetDefaultSize
+#define XcursorLibraryLoadImage _glfw.x11.xcursor.LibraryLoadImage
+
+typedef Bool (* PFN_XineramaIsActive)(Display*);
+typedef Bool (* PFN_XineramaQueryExtension)(Display*,int*,int*);
+typedef XineramaScreenInfo* (* PFN_XineramaQueryScreens)(Display*,int*);
+#define XineramaIsActive _glfw.x11.xinerama.IsActive
+#define XineramaQueryExtension _glfw.x11.xinerama.QueryExtension
+#define XineramaQueryScreens _glfw.x11.xinerama.QueryScreens
+
 typedef XID xcb_window_t;
 typedef XID xcb_visualid_t;
 typedef struct xcb_connection_t xcb_connection_t;
 typedef xcb_connection_t* (* PFN_XGetXCBConnection)(Display*);
+#define XGetXCBConnection _glfw.x11.x11xcb.GetXCBConnection
 
 typedef Bool (* PFN_XF86VidModeQueryExtension)(Display*,int*,int*);
 typedef Bool (* PFN_XF86VidModeGetGammaRamp)(Display*,int,int,unsigned short*,unsigned short*,unsigned short*);
@@ -65,6 +121,13 @@ typedef Status (* PFN_XIQueryVersion)(Display*,int*,int*);
 typedef int (* PFN_XISelectEvents)(Display*,Window,XIEventMask*,int);
 #define XIQueryVersion _glfw.x11.xi.QueryVersion
 #define XISelectEvents _glfw.x11.xi.SelectEvents
+
+typedef Bool (* PFN_XRenderQueryExtension)(Display*,int*,int*);
+typedef Status (* PFN_XRenderQueryVersion)(Display*dpy,int*,int*);
+typedef XRenderPictFormat* (* PFN_XRenderFindVisualFormat)(Display*,Visual const*);
+#define XRenderQueryExtension _glfw.x11.xrender.QueryExtension
+#define XRenderQueryVersion _glfw.x11.xrender.QueryVersion
+#define XRenderFindVisualFormat _glfw.x11.xrender.FindVisualFormat
 
 typedef VkFlags VkXlibSurfaceCreateFlagsKHR;
 typedef VkFlags VkXcbSurfaceCreateFlagsKHR;
@@ -129,6 +192,9 @@ typedef struct _GLFWwindowX11
     GLFWbool        iconified;
     GLFWbool        maximized;
 
+    // Whether the visual supports framebuffer transparency
+    GLFWbool        transparent;
+
     // Cached position and size used to filter out duplicate events
     int             width, height;
     int             xpos, ypos;
@@ -151,6 +217,8 @@ typedef struct _GLFWlibraryX11
     int             screen;
     Window          root;
 
+    // System content scale
+    float           contentScaleX, contentScaleY;
     // Helper window for IPC
     Window          helperWindowHandle;
     // Invisible cursor for hidden cursor mode
@@ -161,10 +229,12 @@ typedef struct _GLFWlibraryX11
     XIM             im;
     // Most recent error code received by X error handler
     int             errorCode;
+    // Primary selection string (while the primary selection is owned)
+    char*           primarySelectionString;
     // Clipboard string (while the selection is owned)
     char*           clipboardString;
     // Key name string
-    char            keyName[5];
+    char            keynames[GLFW_KEY_LAST + 1][5];
     // X11 keycode to GLFW key LUT
     short int       keycodes[256];
     // GLFW key to X11 keycode LUT
@@ -175,6 +245,8 @@ typedef struct _GLFWlibraryX11
     _GLFWwindow*    disabledCursorWindow;
 
     // Window manager atoms
+    Atom            NET_SUPPORTED;
+    Atom            NET_SUPPORTING_WM_CHECK;
     Atom            WM_PROTOCOLS;
     Atom            WM_STATE;
     Atom            WM_DELETE_WINDOW;
@@ -193,6 +265,10 @@ typedef struct _GLFWlibraryX11
     Atom            NET_WM_STATE_DEMANDS_ATTENTION;
     Atom            NET_WM_BYPASS_COMPOSITOR;
     Atom            NET_WM_FULLSCREEN_MONITORS;
+    Atom            NET_WM_WINDOW_OPACITY;
+    Atom            NET_WM_CM_Sx;
+    Atom            NET_WORKAREA;
+    Atom            NET_CURRENT_DESKTOP;
     Atom            NET_ACTIVE_WINDOW;
     Atom            NET_FRAME_EXTENTS;
     Atom            NET_REQUEST_FRAME_EXTENTS;
@@ -213,7 +289,9 @@ typedef struct _GLFWlibraryX11
     // Selection (clipboard) atoms
     Atom            TARGETS;
     Atom            MULTIPLE;
+    Atom            INCR;
     Atom            CLIPBOARD;
+    Atom            PRIMARY;
     Atom            CLIPBOARD_MANAGER;
     Atom            SAVE_TARGETS;
     Atom            NULL_;
@@ -224,22 +302,41 @@ typedef struct _GLFWlibraryX11
 
     struct {
         GLFWbool    available;
+        void*       handle;
         int         eventBase;
         int         errorBase;
         int         major;
         int         minor;
         GLFWbool    gammaBroken;
         GLFWbool    monitorBroken;
+        PFN_XRRAllocGamma AllocGamma;
+        PFN_XRRFreeCrtcInfo FreeCrtcInfo;
+        PFN_XRRFreeGamma FreeGamma;
+        PFN_XRRFreeOutputInfo FreeOutputInfo;
+        PFN_XRRFreeScreenResources FreeScreenResources;
+        PFN_XRRGetCrtcGamma GetCrtcGamma;
+        PFN_XRRGetCrtcGammaSize GetCrtcGammaSize;
+        PFN_XRRGetCrtcInfo GetCrtcInfo;
+        PFN_XRRGetOutputInfo GetOutputInfo;
+        PFN_XRRGetOutputPrimary GetOutputPrimary;
+        PFN_XRRGetScreenResourcesCurrent GetScreenResourcesCurrent;
+        PFN_XRRQueryExtension QueryExtension;
+        PFN_XRRQueryVersion QueryVersion;
+        PFN_XRRSelectInput SelectInput;
+        PFN_XRRSetCrtcConfig SetCrtcConfig;
+        PFN_XRRSetCrtcGamma SetCrtcGamma;
+        PFN_XRRUpdateConfiguration UpdateConfiguration;
     } randr;
 
     struct {
-        GLFWbool    available;
-        GLFWbool    detectable;
-        int         majorOpcode;
-        int         eventBase;
-        int         errorBase;
-        int         major;
-        int         minor;
+        GLFWbool     available;
+        GLFWbool     detectable;
+        int          majorOpcode;
+        int          eventBase;
+        int          errorBase;
+        int          major;
+        int          minor;
+        unsigned int group;
     } xkb;
 
     struct {
@@ -257,14 +354,28 @@ typedef struct _GLFWlibraryX11
     } xdnd;
 
     struct {
+        void*       handle;
+        PFN_XcursorImageCreate ImageCreate;
+        PFN_XcursorImageDestroy ImageDestroy;
+        PFN_XcursorImageLoadCursor ImageLoadCursor;
+        PFN_XcursorGetTheme GetTheme;
+        PFN_XcursorGetDefaultSize GetDefaultSize;
+        PFN_XcursorLibraryLoadImage LibraryLoadImage;
+    } xcursor;
+
+    struct {
         GLFWbool    available;
+        void*       handle;
         int         major;
         int         minor;
+        PFN_XineramaIsActive IsActive;
+        PFN_XineramaQueryExtension QueryExtension;
+        PFN_XineramaQueryScreens QueryScreens;
     } xinerama;
 
     struct {
         void*       handle;
-        PFN_XGetXCBConnection XGetXCBConnection;
+        PFN_XGetXCBConnection GetXCBConnection;
     } x11xcb;
 
     struct {
@@ -289,6 +400,18 @@ typedef struct _GLFWlibraryX11
         PFN_XIQueryVersion QueryVersion;
         PFN_XISelectEvents SelectEvents;
     } xi;
+
+    struct {
+        GLFWbool    available;
+        void*       handle;
+        int         major;
+        int         minor;
+        int         eventBase;
+        int         errorBase;
+        PFN_XRenderQueryExtension QueryExtension;
+        PFN_XRenderQueryVersion QueryVersion;
+        PFN_XRenderFindVisualFormat FindVisualFormat;
+    } xrender;
 
 } _GLFWlibraryX11;
 
@@ -316,7 +439,7 @@ typedef struct _GLFWcursorX11
 
 
 void _glfwPollMonitorsX11(void);
-GLFWbool _glfwSetVideoModeX11(_GLFWmonitor* monitor, const GLFWvidmode* desired);
+void _glfwSetVideoModeX11(_GLFWmonitor* monitor, const GLFWvidmode* desired);
 void _glfwRestoreVideoModeX11(_GLFWmonitor* monitor);
 
 Cursor _glfwCreateCursorX11(const GLFWimage* image, int xhot, int yhot);
@@ -325,6 +448,7 @@ unsigned long _glfwGetWindowPropertyX11(Window window,
                                         Atom property,
                                         Atom type,
                                         unsigned char** value);
+GLFWbool _glfwIsVisualTransparentX11(Visual* visual);
 
 void _glfwGrabErrorHandlerX11(void);
 void _glfwReleaseErrorHandlerX11(void);

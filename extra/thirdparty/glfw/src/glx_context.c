@@ -1,8 +1,8 @@
 //========================================================================
-// GLFW 3.3 GLX - www.glfw.org
+// GLFW 3.4 GLX - www.glfw.org
 //------------------------------------------------------------------------
 // Copyright (c) 2002-2006 Marcus Geelnard
-// Copyright (c) 2006-2016 Camilla Löwy <elmindreda@glfw.org>
+// Copyright (c) 2006-2019 Camilla Löwy <elmindreda@glfw.org>
 //
 // This software is provided 'as-is', without any express or implied
 // warranty. In no event will the authors be held liable for any damages
@@ -23,6 +23,8 @@
 // 3. This notice may not be removed or altered from any source
 //    distribution.
 //
+//========================================================================
+// It is fine to use C99 in this file because it will not be built with VS
 //========================================================================
 
 #include "internal.h"
@@ -47,7 +49,8 @@ static int getGLXFBConfigAttrib(GLXFBConfig fbconfig, int attrib)
 
 // Return the GLXFBConfig most closely matching the specified hints
 //
-static GLFWbool chooseGLXFBConfig(const _GLFWfbconfig* desired, GLXFBConfig* result)
+static GLFWbool chooseGLXFBConfig(const _GLFWfbconfig* desired,
+                                  GLXFBConfig* result)
 {
     GLXFBConfig* nativeConfigs;
     _GLFWfbconfig* usableConfigs;
@@ -64,7 +67,7 @@ static GLFWbool chooseGLXFBConfig(const _GLFWfbconfig* desired, GLXFBConfig* res
 
     nativeConfigs =
         glXGetFBConfigs(_glfw.x11.display, _glfw.x11.screen, &nativeCount);
-    if (!nativeCount)
+    if (!nativeConfigs || !nativeCount)
     {
         _glfwInputError(GLFW_API_UNAVAILABLE, "GLX: No GLXFBConfigs returned");
         return GLFW_FALSE;
@@ -87,6 +90,16 @@ static GLFWbool chooseGLXFBConfig(const _GLFWfbconfig* desired, GLXFBConfig* res
         {
             if (trustWindowBit)
                 continue;
+        }
+
+        if (desired->transparent)
+        {
+            XVisualInfo* vi = glXGetVisualFromFBConfig(_glfw.x11.display, n);
+            if (vi)
+            {
+                u->transparent = _glfwIsVisualTransparentX11(vi->visual);
+                XFree(vi);
+            }
         }
 
         u->redBits = getGLXFBConfigAttrib(n, GLX_RED_SIZE);
@@ -212,11 +225,9 @@ static GLFWglproc getProcAddressGLX(const char* procname)
     else if (_glfw.glx.GetProcAddressARB)
         return _glfw.glx.GetProcAddressARB((const GLubyte*) procname);
     else
-        return dlsym(_glfw.glx.handle, procname);
+        return _glfw_dlsym(_glfw.glx.handle, procname);
 }
 
-// Destroy the OpenGL context
-//
 static void destroyContextGLX(_GLFWwindow* window)
 {
     if (window->context.glx.window)
@@ -244,7 +255,9 @@ GLFWbool _glfwInitGLX(void)
     int i;
     const char* sonames[] =
     {
-#if defined(__CYGWIN__)
+#if defined(_GLFW_GLX_LIBRARY)
+        _GLFW_GLX_LIBRARY,
+#elif defined(__CYGWIN__)
         "libGL-1.so",
 #else
         "libGL.so.1",
@@ -258,7 +271,7 @@ GLFWbool _glfwInitGLX(void)
 
     for (i = 0;  sonames[i];  i++)
     {
-        _glfw.glx.handle = dlopen(sonames[i], RTLD_LAZY | RTLD_GLOBAL);
+        _glfw.glx.handle = _glfw_dlopen(sonames[i]);
         if (_glfw.glx.handle)
             break;
     }
@@ -270,35 +283,35 @@ GLFWbool _glfwInitGLX(void)
     }
 
     _glfw.glx.GetFBConfigs =
-        dlsym(_glfw.glx.handle, "glXGetFBConfigs");
+        _glfw_dlsym(_glfw.glx.handle, "glXGetFBConfigs");
     _glfw.glx.GetFBConfigAttrib =
-        dlsym(_glfw.glx.handle, "glXGetFBConfigAttrib");
+        _glfw_dlsym(_glfw.glx.handle, "glXGetFBConfigAttrib");
     _glfw.glx.GetClientString =
-        dlsym(_glfw.glx.handle, "glXGetClientString");
+        _glfw_dlsym(_glfw.glx.handle, "glXGetClientString");
     _glfw.glx.QueryExtension =
-        dlsym(_glfw.glx.handle, "glXQueryExtension");
+        _glfw_dlsym(_glfw.glx.handle, "glXQueryExtension");
     _glfw.glx.QueryVersion =
-        dlsym(_glfw.glx.handle, "glXQueryVersion");
+        _glfw_dlsym(_glfw.glx.handle, "glXQueryVersion");
     _glfw.glx.DestroyContext =
-        dlsym(_glfw.glx.handle, "glXDestroyContext");
+        _glfw_dlsym(_glfw.glx.handle, "glXDestroyContext");
     _glfw.glx.MakeCurrent =
-        dlsym(_glfw.glx.handle, "glXMakeCurrent");
+        _glfw_dlsym(_glfw.glx.handle, "glXMakeCurrent");
     _glfw.glx.SwapBuffers =
-        dlsym(_glfw.glx.handle, "glXSwapBuffers");
+        _glfw_dlsym(_glfw.glx.handle, "glXSwapBuffers");
     _glfw.glx.QueryExtensionsString =
-        dlsym(_glfw.glx.handle, "glXQueryExtensionsString");
+        _glfw_dlsym(_glfw.glx.handle, "glXQueryExtensionsString");
     _glfw.glx.CreateNewContext =
-        dlsym(_glfw.glx.handle, "glXCreateNewContext");
+        _glfw_dlsym(_glfw.glx.handle, "glXCreateNewContext");
     _glfw.glx.CreateWindow =
-        dlsym(_glfw.glx.handle, "glXCreateWindow");
+        _glfw_dlsym(_glfw.glx.handle, "glXCreateWindow");
     _glfw.glx.DestroyWindow =
-        dlsym(_glfw.glx.handle, "glXDestroyWindow");
+        _glfw_dlsym(_glfw.glx.handle, "glXDestroyWindow");
     _glfw.glx.GetProcAddress =
-        dlsym(_glfw.glx.handle, "glXGetProcAddress");
+        _glfw_dlsym(_glfw.glx.handle, "glXGetProcAddress");
     _glfw.glx.GetProcAddressARB =
-        dlsym(_glfw.glx.handle, "glXGetProcAddressARB");
+        _glfw_dlsym(_glfw.glx.handle, "glXGetProcAddressARB");
     _glfw.glx.GetVisualFromFBConfig =
-        dlsym(_glfw.glx.handle, "glXGetVisualFromFBConfig");
+        _glfw_dlsym(_glfw.glx.handle, "glXGetVisualFromFBConfig");
 
     if (!_glfw.glx.GetFBConfigs ||
         !_glfw.glx.GetFBConfigAttrib ||
@@ -415,14 +428,14 @@ void _glfwTerminateGLX(void)
 
     if (_glfw.glx.handle)
     {
-        dlclose(_glfw.glx.handle);
+        _glfw_dlclose(_glfw.glx.handle);
         _glfw.glx.handle = NULL;
     }
 }
 
 #define setAttrib(a, v) \
 { \
-    assert((size_t) (index + 1) < sizeof(attribs) / sizeof(attribs[0])); \
+    assert(((size_t) index + 1) < sizeof(attribs) / sizeof(attribs[0])); \
     attribs[index++] = a; \
     attribs[index++] = v; \
 }
@@ -620,7 +633,8 @@ GLFWbool _glfwCreateContextGLX(_GLFWwindow* window,
 
 // Returns the Visual and depth of the chosen GLXFBConfig
 //
-GLFWbool _glfwChooseVisualGLX(const _GLFWctxconfig* ctxconfig,
+GLFWbool _glfwChooseVisualGLX(const _GLFWwndconfig* wndconfig,
+                              const _GLFWctxconfig* ctxconfig,
                               const _GLFWfbconfig* fbconfig,
                               Visual** visual, int* depth)
 {
@@ -643,7 +657,7 @@ GLFWbool _glfwChooseVisualGLX(const _GLFWctxconfig* ctxconfig,
     }
 
     *visual = result->visual;
-    *depth = result->depth;
+    *depth  = result->depth;
 
     XFree(result);
     return GLFW_TRUE;
