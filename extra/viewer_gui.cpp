@@ -64,9 +64,11 @@ void guiInit()
 		s_gui.cursors[i] = nullptr;
 	s_gui.cursors[ImGuiMouseCursor_Arrow] = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
 	s_gui.cursors[ImGuiMouseCursor_TextInput] = glfwCreateStandardCursor(GLFW_IBEAM_CURSOR);
-	s_gui.cursors[ImGuiMouseCursor_ResizeNS] = glfwCreateStandardCursor(GLFW_VRESIZE_CURSOR);
-	s_gui.cursors[ImGuiMouseCursor_ResizeEW] = glfwCreateStandardCursor(GLFW_HRESIZE_CURSOR);
-	s_gui.cursors[ImGuiMouseCursor_Hand] = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
+	s_gui.cursors[ImGuiMouseCursor_ResizeNS] = glfwCreateStandardCursor(GLFW_RESIZE_NS_CURSOR);
+	s_gui.cursors[ImGuiMouseCursor_ResizeEW] = glfwCreateStandardCursor(GLFW_RESIZE_EW_CURSOR);
+	s_gui.cursors[ImGuiMouseCursor_ResizeNESW] = glfwCreateStandardCursor(GLFW_RESIZE_NESW_CURSOR);
+	s_gui.cursors[ImGuiMouseCursor_ResizeNWSE] = glfwCreateStandardCursor(GLFW_RESIZE_NWSE_CURSOR);
+	s_gui.cursors[ImGuiMouseCursor_Hand] = glfwCreateStandardCursor(GLFW_POINTING_HAND_CURSOR);
 	// merge in icons from Font Awesome
 	const float fontSize = 16.0f;
 	io.Fonts->AddFontFromMemoryCompressedTTF(s_robotoRegular_compressed_data, s_robotoRegular_compressed_size, fontSize);
