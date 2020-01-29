@@ -2866,12 +2866,13 @@ public:
 		return area;
 	}
 
+	// Returned value is always positive, even if some triangles are flipped.
 	float computeParametricArea() const
 	{
 		float area = 0;
 		for (uint32_t f = 0; f < faceCount(); f++)
-			area += computeFaceParametricArea(f);
-		return fabsf(area); // May be negative, depends on texcoord winding.
+			area += fabsf(computeFaceParametricArea(f)); // May be negative, depends on texcoord winding.
+		return area; 
 	}
 
 	float computeFaceArea(uint32_t face) const
