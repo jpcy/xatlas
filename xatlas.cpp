@@ -4909,7 +4909,6 @@ struct Atlas
 		const uint32_t faceCount = m_mesh->faceCount();
 		m_facesLeft = faceCount;
 		m_options = options;
-		m_rand.reset();
 		const uint32_t chartCount = m_charts.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
 			m_charts[i]->~Chart();
@@ -4992,6 +4991,11 @@ struct Atlas
 			fclose(file);
 		}
 #endif
+		// Precompute planar region areas.
+		m_planarRegionAreas.resize(planarRegionCount);
+		m_planarRegionAreas.zeroOutMemory();
+		for (uint32_t f = 0; f < faceCount; f++)
+			m_planarRegionAreas[m_facePlanarRegionId[f]] += m_faceAreas[f];
 		XA_PROFILE_END(buildAtlasInit)
 	}
 
@@ -5005,7 +5009,7 @@ struct Atlas
 		//   - those points can be found using a simple flood filling algorithm.
 		//   - how do we weight the probabilities?
 		while (m_facesLeft > 0)
-			createRandomChart(threshold);
+			createChart(threshold);
 		XA_PROFILE_END(buildAtlasPlaceSeeds)
 	}
 
@@ -5101,7 +5105,7 @@ struct Atlas
 	{
 		XA_PROFILE_START(buildAtlasFillHoles)
 		while (m_facesLeft > 0)
-			createRandomChart(threshold);
+			createChart(threshold);
 		XA_PROFILE_END(buildAtlasFillHoles)
 	}
 
@@ -5212,16 +5216,22 @@ struct Atlas
 #endif
 
 private:
-	void createRandomChart(float threshold)
+	void createChart(float threshold)
 	{
 		Chart *chart = XA_NEW(MemTag::Default, Chart);
 		chart->id = (int)m_charts.size();
 		m_charts.push_back(chart);
-		// Pick random face that is not used by any chart yet.
-		uint32_t face = m_rand.getRange(m_mesh->faceCount() - 1);
-		while (m_faceCharts[face] != -1) {
-			if (++face >= m_mesh->faceCount())
-				face = 0;
+		// Pick a face not used by any chart yet, belonging to the largest planar region.
+		uint32_t face = 0;
+		float largestArea = 0.0f;
+		for (uint32_t f = 0; f < m_mesh->faceCount(); f++) {
+			if (m_faceCharts[f] != -1)
+				continue;
+			const float area = m_planarRegionAreas[m_facePlanarRegionId[f]];
+			if (area > largestArea) {
+				largestArea = area;
+				face = f;
+			}
 		}
 		chart->seeds.push_back(face);
 		addFaceToChart(chart, face);
@@ -5688,10 +5698,10 @@ private:
 	Array<int> m_faceCharts;
 	Array<Chart *> m_charts;
 	CostQueue m_bestTriangles;
-	KISSRng m_rand;
 	ChartOptions m_options;
 	Array<uint32_t> m_nextPlanarRegionFace;
 	Array<uint32_t> m_facePlanarRegionId;
+	Array<float> m_planarRegionAreas;
 	Array<Vector3> m_tempPoints;
 	UniformGrid2 m_boundaryGrid;
 #if XA_MERGE_CHARTS
