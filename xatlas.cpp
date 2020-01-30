@@ -4889,69 +4889,61 @@ static uint32_t s_debugExportObjPlanarRegionsCurrentIndex;
 static uint32_t s_debugExportObjPlanarRegionsCurrentRegion;
 #endif
 
-struct Atlas
+struct AtlasData
 {
-	Atlas() : m_edgeLengths(MemTag::SegmentAtlasMeshData), m_faceAreas(MemTag::SegmentAtlasMeshData), m_faceNormals(MemTag::SegmentAtlasMeshData), m_texcoords(MemTag::SegmentAtlasMeshData), m_bestTriangles(10), m_nextPlanarRegionFace(MemTag::SegmentAtlasPlanarRegions), m_facePlanarRegionId(MemTag::SegmentAtlasPlanarRegions) {}
+	ChartOptions options;
+	const Mesh *mesh;
+	Array<float> edgeLengths;
+	Array<float> faceAreas;
+	Array<Vector3> faceNormals;
 
-	~Atlas()
+	AtlasData() : edgeLengths(MemTag::SegmentAtlasMeshData), faceAreas(MemTag::SegmentAtlasMeshData), faceNormals(MemTag::SegmentAtlasMeshData) {}
+
+	void compute()
 	{
-		const uint32_t chartCount = m_charts.size();
-		for (uint32_t i = 0; i < chartCount; i++) {
-			m_charts[i]->~Chart();
-			XA_FREE(m_charts[i]);
-		}
-	}
-
-	uint32_t facesLeft() const { return m_facesLeft; }
-	uint32_t chartCount() const { return m_charts.size(); }
-	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_charts[i]->faces; }
-	const Basis &chartBasis(uint32_t chartIndex) const { return m_charts[chartIndex]->basis; }
-
-	void reset(const Mesh *mesh, const ChartOptions &options)
-	{
-		XA_PROFILE_START(buildAtlasInit)
-		m_mesh = mesh;
-		const uint32_t faceCount = m_mesh->faceCount();
-		m_facesLeft = faceCount;
-		m_options = options;
-		const uint32_t chartCount = m_charts.size();
-		for (uint32_t i = 0; i < chartCount; i++) {
-			m_charts[i]->~Chart();
-			XA_FREE(m_charts[i]);
-		}
-		m_charts.clear();
-		m_faceCharts.resize(faceCount);
-		m_faceCharts.setAll(-1);
-		m_texcoords.resize(faceCount * 3);
-		// Precompute edge lengths and face areas.
-		const uint32_t edgeCount = m_mesh->edgeCount();
-		m_edgeLengths.resize(edgeCount);
-		m_faceAreas.resize(faceCount);
-		m_faceNormals.resize(faceCount);
+		const uint32_t faceCount = mesh->faceCount();
+		const uint32_t edgeCount = mesh->edgeCount();
+		edgeLengths.resize(edgeCount);
+		faceAreas.resize(faceCount);
+		faceNormals.resize(faceCount);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t edge = f * 3 + i;
-				const Vector3 &p0 = mesh->position(m_mesh->vertexAt(meshEdgeIndex0(edge)));
-				const Vector3 &p1 = mesh->position(m_mesh->vertexAt(meshEdgeIndex1(edge)));
-				m_edgeLengths[edge] = length(p1 - p0);
-				XA_DEBUG_ASSERT(m_edgeLengths[edge] > 0.0f);
+				const Vector3 &p0 = mesh->position(mesh->vertexAt(meshEdgeIndex0(edge)));
+				const Vector3 &p1 = mesh->position(mesh->vertexAt(meshEdgeIndex1(edge)));
+				edgeLengths[edge] = length(p1 - p0);
+				XA_DEBUG_ASSERT(edgeLengths[edge] > 0.0f);
 			}
-			m_faceAreas[f] = m_mesh->computeFaceArea(f);
-			XA_DEBUG_ASSERT(m_faceAreas[f] > 0.0f);
-			m_faceNormals[f] = m_mesh->computeFaceNormal(f);
+			faceAreas[f] = mesh->computeFaceArea(f);
+			XA_DEBUG_ASSERT(m_data.faceAreas[f] > 0.0f);
+			faceNormals[f] = mesh->computeFaceNormal(f);
 		}
+	}
+};
+
+struct PlanarCharts
+{
+	PlanarCharts(AtlasData &data) : m_data(data), m_nextRegionFace(MemTag::SegmentAtlasPlanarRegions), m_faceToRegionId(MemTag::SegmentAtlasPlanarRegions) {}
+
+	uint32_t regionIdFromFace(uint32_t face) const { return m_faceToRegionId[face]; }
+	uint32_t nextRegionFace(uint32_t face) const { return m_nextRegionFace[face]; }
+	float regionArea(uint32_t region) const { return m_regionAreas[region]; }
+
+	void compute()
+	{
+		const uint32_t faceCount = m_data.mesh->faceCount();
 		// Precompute regions of coplanar incident faces.
-		m_nextPlanarRegionFace.resize(faceCount);
-		m_facePlanarRegionId.resize(faceCount);
+		m_nextRegionFace.resize(faceCount);
+		m_faceToRegionId.resize(faceCount);
 		for (uint32_t f = 0; f < faceCount; f++) {
-			m_nextPlanarRegionFace[f] = f;
-			m_facePlanarRegionId[f] = UINT32_MAX;
+			m_nextRegionFace[f] = f;
+			m_faceToRegionId[f] = UINT32_MAX;
 		}
 		Array<uint32_t> faceStack;
 		faceStack.reserve(min(faceCount, 16u));
 		uint32_t planarRegionCount = 0;
 		for (uint32_t f = 0; f < faceCount; f++) {
-			if (m_nextPlanarRegionFace[f] != f)
+			if (m_nextRegionFace[f] != f)
 				continue; // Already assigned.
 			faceStack.clear();
 			faceStack.push_back(f);
@@ -4959,20 +4951,20 @@ struct Atlas
 				if (faceStack.isEmpty())
 					break;
 				const uint32_t face = faceStack.back();
-				m_facePlanarRegionId[face] = planarRegionCount;
+				m_faceToRegionId[face] = planarRegionCount;
 				faceStack.pop_back();
-				for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
+				for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
 					const uint32_t oface = it.oppositeFace();
 					if (it.isBoundary())
 						continue;
-					if (m_nextPlanarRegionFace[oface] != oface)
+					if (m_nextRegionFace[oface] != oface)
 						continue; // Already assigned.
-					if (!equal(dot(m_faceNormals[face], m_faceNormals[oface]), 1.0f, kEpsilon))
+					if (!equal(dot(m_data.faceNormals[face], m_data.faceNormals[oface]), 1.0f, kEpsilon))
 						continue; // Not coplanar.
-					const uint32_t next = m_nextPlanarRegionFace[face];
-					m_nextPlanarRegionFace[face] = oface;
-					m_nextPlanarRegionFace[oface] = next;
-					m_facePlanarRegionId[oface] = planarRegionCount;
+					const uint32_t next = m_nextRegionFace[face];
+					m_nextRegionFace[face] = oface;
+					m_nextRegionFace[oface] = next;
+					m_faceToRegionId[oface] = planarRegionCount;
 					faceStack.push_back(oface);
 				}
 			}
@@ -4985,27 +4977,93 @@ struct Atlas
 			FILE *file;
 			XA_FOPEN(file, "debug_mesh_planar_regions.obj", "a");
 			if (file) {
-				m_mesh->writeObjVertices(file);
+				m_data.mesh->writeObjVertices(file);
 				fprintf(file, "s off\n");
 				for (uint32_t i = 0; i < planarRegionCount; i++) {
 					fprintf(file, "o region%u\n", s_debugExportObjPlanarRegionsCurrentRegion);
 					for (uint32_t j = 0; j < faceCount; j++) {
-						if (m_facePlanarRegionId[j] == i)
-							m_mesh->writeObjFace(file, j, s_debugExportObjPlanarRegionsCurrentIndex);
+						if (m_faceToRegionId[j] == i)
+							m_data.mesh->writeObjFace(file, j, s_debugExportObjPlanarRegionsCurrentIndex);
 					}
 					s_debugExportObjPlanarRegionsCurrentRegion++;
 				}
-				s_debugExportObjPlanarRegionsCurrentIndex += m_mesh->vertexCount();
+				s_debugExportObjPlanarRegionsCurrentIndex += m_data.mesh->vertexCount();
 				fclose(file);
 			}
 		}
 #endif
 		// Precompute planar region areas.
-		m_planarRegionAreas.resize(planarRegionCount);
-		m_planarRegionAreas.zeroOutMemory();
+		m_regionAreas.resize(planarRegionCount);
+		m_regionAreas.zeroOutMemory();
 		for (uint32_t f = 0; f < faceCount; f++)
-			m_planarRegionAreas[m_facePlanarRegionId[f]] += m_faceAreas[f];
-		XA_PROFILE_END(buildAtlasInit)
+			m_regionAreas[m_faceToRegionId[f]] += m_data.faceAreas[f];
+	}
+
+private:
+	AtlasData &m_data;
+	Array<uint32_t> m_nextRegionFace;
+	Array<uint32_t> m_faceToRegionId;
+	Array<float> m_regionAreas;
+};
+
+struct ClusteredCharts
+{
+	ClusteredCharts(AtlasData &data, const PlanarCharts &planarCharts) : m_data(data), m_planarCharts(planarCharts), m_texcoords(MemTag::SegmentAtlasMeshData), m_bestTriangles(10) {}
+
+	~ClusteredCharts()
+	{
+		const uint32_t chartCount = m_charts.size();
+		for (uint32_t i = 0; i < chartCount; i++) {
+			m_charts[i]->~Chart();
+			XA_FREE(m_charts[i]);
+		}
+	}
+
+	uint32_t facesLeft() const { return m_facesLeft; }
+	uint32_t chartCount() const { return m_charts.size(); }
+	const Array<uint32_t> &chartFaces(uint32_t chartIndex) const { return m_charts[chartIndex]->faces; }
+	const Basis &chartBasis(uint32_t chartIndex) const { return m_charts[chartIndex]->basis; }
+
+	void compute()
+	{
+		const uint32_t faceCount = m_data.mesh->faceCount();
+		m_facesLeft = faceCount;
+		const uint32_t chartCount = m_charts.size();
+		for (uint32_t i = 0; i < chartCount; i++) {
+			m_charts[i]->~Chart();
+			XA_FREE(m_charts[i]);
+		}
+		m_charts.clear();
+		m_faceCharts.resize(faceCount);
+		m_faceCharts.setAll(-1);
+		m_texcoords.resize(faceCount * 3);
+		if (m_facesLeft == 0)
+			return;
+		// Create initial charts greedely.
+		placeSeeds(m_data.options.maxThreshold * 0.5f);
+		if (m_data.options.maxIterations == 0) {
+			XA_DEBUG_ASSERT(m_facesLeft == 0);
+			return;
+		}
+		relocateSeeds();
+		resetCharts();
+		// Restart process growing charts in parallel.
+		uint32_t iteration = 0;
+		for (;;) {
+			growCharts(m_data.options.maxThreshold);
+			// When charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
+			fillHoles(m_data.options.maxThreshold * 0.5f);
+#if XA_MERGE_CHARTS
+			mergeCharts();
+#endif
+			if (++iteration == m_data.options.maxIterations)
+				break;
+			if (!relocateSeeds())
+				break;
+			resetCharts();
+		}
+		// Make sure no holes are left!
+		XA_DEBUG_ASSERT(m_facesLeft == 0);
 	}
 
 	void placeSeeds(float threshold)
@@ -5065,7 +5123,7 @@ struct Atlas
 			Chart *chart = m_charts[bestChart];
 			chart->candidates.pop(); // Pop the selected candidate from the queue.
 			if (!addFaceToChart(chart, bestFace))
-				chart->failedPlanarRegions.push_back(m_facePlanarRegionId[bestFace]);
+				chart->failedPlanarRegions.push_back(m_planarCharts.regionIdFromFace(bestFace));
 		}
 		XA_PROFILE_END(buildAtlasGrowCharts)
 	}
@@ -5073,7 +5131,7 @@ struct Atlas
 	void resetCharts()
 	{
 		XA_PROFILE_START(buildAtlasResetCharts)
-		const uint32_t faceCount = m_mesh->faceCount();
+		const uint32_t faceCount = m_data.mesh->faceCount();
 		for (uint32_t i = 0; i < faceCount; i++)
 			m_faceCharts[i] = -1;
 		m_facesLeft = faceCount;
@@ -5140,8 +5198,8 @@ struct Atlas
 				const uint32_t faceCount = chart->faces.size();
 				for (uint32_t i = 0; i < faceCount; i++) {
 					const uint32_t f = chart->faces[i];
-					for (Mesh::FaceEdgeIterator it(m_mesh, f); !it.isDone(); it.advance()) {
-						const float l = m_edgeLengths[it.edge()];
+					for (Mesh::FaceEdgeIterator it(m_data.mesh, f); !it.isDone(); it.advance()) {
+						const float l = m_data.edgeLengths[it.edge()];
 						if (it.isBoundary()) {
 							externalBoundaryLength += l;
 						} else {
@@ -5171,9 +5229,9 @@ struct Atlas
 					if (dot(chart2->basis.normal, chart->basis.normal) < XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION)
 						continue;
 					// Obey max chart area and boundary length.
-					if (m_options.maxChartArea > 0.0f && chart->area + chart2->area > m_options.maxChartArea)
+					if (m_data.options.maxChartArea > 0.0f && chart->area + chart2->area > m_data.options.maxChartArea)
 						continue;
-					if (m_options.maxBoundaryLength > 0.0f && chart->boundaryLength + chart2->boundaryLength - m_sharedBoundaryLengthsNoSeams[cc] > m_options.maxBoundaryLength)
+					if (m_data.options.maxBoundaryLength > 0.0f && chart->boundaryLength + chart2->boundaryLength - m_sharedBoundaryLengthsNoSeams[cc] > m_data.options.maxBoundaryLength)
 						continue;
 					// Merge if chart2 has a single face.
 					// chart1 must have more than 1 face.
@@ -5233,10 +5291,10 @@ private:
 		// Pick a face not used by any chart yet, belonging to the largest planar region.
 		uint32_t face = 0;
 		float largestArea = 0.0f;
-		for (uint32_t f = 0; f < m_mesh->faceCount(); f++) {
+		for (uint32_t f = 0; f < m_data.mesh->faceCount(); f++) {
 			if (m_faceCharts[f] != -1)
 				continue;
-			const float area = m_planarRegionAreas[m_facePlanarRegionId[f]];
+			const float area = m_planarCharts.regionArea(m_planarCharts.regionIdFromFace(f));
 			if (area > largestArea) {
 				largestArea = area;
 				face = f;
@@ -5252,7 +5310,7 @@ private:
 			if (m_faceCharts[f] != -1)
 				continue;
 			if (!addFaceToChart(chart, f)) {
-				chart->failedPlanarRegions.push_back(m_facePlanarRegionId[f]);
+				chart->failedPlanarRegions.push_back(m_planarCharts.regionIdFromFace(f));
 				continue;
 			}
 		}
@@ -5260,7 +5318,7 @@ private:
 
 	bool isChartBoundaryEdge(const Chart *chart, uint32_t edge) const
 	{
-		const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
+		const uint32_t oppositeEdge = m_data.mesh->oppositeEdge(edge);
 		const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
 		return oppositeEdge == UINT32_MAX || m_faceCharts[oppositeFace] != chart->id;
 	}
@@ -5272,7 +5330,7 @@ private:
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
 			for (uint32_t j = 0; j < 3; j++)
-				m_tempPoints[i * 3 + j] = m_mesh->position(m_mesh->vertexAt(f * 3 + j));
+				m_tempPoints[i * 3 + j] = m_data.mesh->position(m_data.mesh->vertexAt(f * 3 + j));
 		}
 		return Fit::computeBasis(m_tempPoints.data(), m_tempPoints.size(), basis);
 	}
@@ -5293,7 +5351,7 @@ private:
 			const uint32_t face = chart->faces[i];
 			for (uint32_t j = 0; j < 3; j++) {
 				const uint32_t offset = face * 3 + j;
-				const Vector3 &pos = m_mesh->position(m_mesh->vertexAt(offset));
+				const Vector3 &pos = m_data.mesh->position(m_data.mesh->vertexAt(offset));
 				m_texcoords[offset] = Vector2(dot(chart->basis.tangent, pos), dot(chart->basis.bitangent, pos));
 			}
 		}
@@ -5321,7 +5379,7 @@ private:
 					m_boundaryGrid.append(edge);
 			}
 		}
-		if (m_boundaryGrid.intersectSelf(m_mesh->epsilon()))
+		if (m_boundaryGrid.intersectSelf(m_data.mesh->epsilon()))
 			return false;
 		return true;
 	}
@@ -5333,11 +5391,11 @@ private:
 		const bool firstFace = oldFaceCount == 0;
 		// Append the face and any coplanar connected faces to the chart faces array.
 		chart->faces.push_back(face);
-		uint32_t coplanarFace = m_nextPlanarRegionFace[face];
+		uint32_t coplanarFace = m_planarCharts.nextRegionFace(face);
 		while (coplanarFace != face) { 
 			XA_DEBUG_ASSERT(m_faceCharts[coplanarFace] == -1);
 			chart->faces.push_back(coplanarFace);
-			coplanarFace = m_nextPlanarRegionFace[coplanarFace];
+			coplanarFace = m_planarCharts.nextRegionFace(coplanarFace);
 		}
 		const uint32_t faceCount = chart->faces.size();
 		// Compute basis.
@@ -5345,8 +5403,8 @@ private:
 		if (firstFace) {
 			// Use the first face normal.
 			// Use any edge as the tangent vector.
-			basis.normal = m_faceNormals[face];
-			basis.tangent = normalize(m_mesh->position(m_mesh->vertexAt(face * 3 + 0)) - m_mesh->position(m_mesh->vertexAt(face * 3 + 1)), kEpsilon);
+			basis.normal = m_data.faceNormals[face];
+			basis.tangent = normalize(m_data.mesh->position(m_data.mesh->vertexAt(face * 3 + 0)) - m_data.mesh->position(m_data.mesh->vertexAt(face * 3 + 1)), kEpsilon);
 			basis.bitangent = cross(basis.normal, basis.tangent);
 		} else {
 			// Use best fit normal.
@@ -5354,7 +5412,7 @@ private:
 				chart->faces.resize(oldFaceCount);
 				return false;
 			}
-			if (dot(basis.normal, m_faceNormals[face]) < 0.0f) // Flip normal if oriented in the wrong direction.
+			if (dot(basis.normal, m_data.faceNormals[face]) < 0.0f) // Flip normal if oriented in the wrong direction.
 				basis.normal = -basis.normal;
 		}
 		if (!firstFace) {
@@ -5377,7 +5435,7 @@ private:
 			const uint32_t f = chart->faces[i];
 			m_faceCharts[f] = chart->id;
 			m_facesLeft--;
-			chart->centroidSum += m_mesh->computeFaceCenter(f);
+			chart->centroidSum += m_data.mesh->computeFaceCenter(f);
 		}
 		chart->centroid = chart->centroidSum / float(chart->faces.size());
 		// Refresh candidates.
@@ -5387,13 +5445,13 @@ private:
 			const uint32_t f = chart->faces[i];
 			for (uint32_t j = 0; j < 3; j++) {
 				const uint32_t edge = f * 3 + j;
-				const uint32_t oedge = m_mesh->oppositeEdge(edge);
+				const uint32_t oedge = m_data.mesh->oppositeEdge(edge);
 				if (oedge == UINT32_MAX)
 					continue; // Boundary edge.
 				const uint32_t oface = meshEdgeFace(oedge);
 				if (m_faceCharts[oface] != -1)
 					continue; // Face belongs to another chart.
-				if (chart->failedPlanarRegions.contains(m_facePlanarRegionId[oface]))
+				if (chart->failedPlanarRegions.contains(m_planarCharts.regionIdFromFace(oface)))
 					continue; // Failed to add this faces planar region to the chart before.
 				const float cost = evaluateCost(chart, oface);
 				if (cost < FLT_MAX)
@@ -5420,7 +5478,7 @@ private:
 			if (m_bestTriangles.count() == 0)
 				break;
 			const uint32_t face = m_bestTriangles.pop();
-			Vector3 faceCentroid = m_mesh->computeFaceCenter(face);
+			Vector3 faceCentroid = m_data.mesh->computeFaceCenter(face);
 			const float distance = length(chart->centroid - faceCentroid);
 			if (distance > maxDistance) {
 				maxDistance = distance;
@@ -5431,7 +5489,7 @@ private:
 		// In order to prevent k-means cyles we record all the previously chosen seeds.
 		for (uint32_t i = 0; i < chart->seeds.size(); i++) {
 			// Treat seeds belong to the same planar region as equal.
-			if (chart->seeds[i] == leastCentral || m_facePlanarRegionId[chart->seeds[i]] == m_facePlanarRegionId[leastCentral]) {
+			if (chart->seeds[i] == leastCentral || m_planarCharts.regionIdFromFace(chart->seeds[i]) == m_planarCharts.regionIdFromFace(leastCentral)) {
 				// Move new seed to the end of the seed array.
 				uint32_t last = chart->seeds.size() - 1;
 				swap(chart->seeds[i], chart->seeds[last]);
@@ -5446,36 +5504,36 @@ private:
 	// Evaluate combined metric.
 	float evaluateCost(Chart *chart, uint32_t face) const
 	{
-		if (dot(m_faceNormals[face], chart->basis.normal) <= 0.26f) // ~75 degrees
+		if (dot(m_data.faceNormals[face], chart->basis.normal) <= 0.26f) // ~75 degrees
 			return FLT_MAX;
 		// Estimate boundary length and area:
 		float newChartArea = 0.0f, newBoundaryLength = 0.0f;
-		if (m_options.maxChartArea > 0.0f || m_options.roundnessMetricWeight > 0.0f)
+		if (m_data.options.maxChartArea > 0.0f || m_data.options.roundnessMetricWeight > 0.0f)
 			newChartArea = computeArea(chart, face);
-		if (m_options.maxBoundaryLength > 0.0f || m_options.roundnessMetricWeight > 0.0f)
+		if (m_data.options.maxBoundaryLength > 0.0f || m_data.options.roundnessMetricWeight > 0.0f)
 			newBoundaryLength = computeBoundaryLength(chart, face);
 		// Enforce limits strictly:
-		if (m_options.maxChartArea > 0.0f && newChartArea > m_options.maxChartArea)
+		if (m_data.options.maxChartArea > 0.0f && newChartArea > m_data.options.maxChartArea)
 			return FLT_MAX;
-		if (m_options.maxBoundaryLength > 0.0f && newBoundaryLength > m_options.maxBoundaryLength)
+		if (m_data.options.maxBoundaryLength > 0.0f && newBoundaryLength > m_data.options.maxBoundaryLength)
 			return FLT_MAX;
 		float cost = 0.0f;
-		if (m_options.normalSeamMetricWeight > 0.0f) {
+		if (m_data.options.normalSeamMetricWeight > 0.0f) {
 			// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
 			// Make sure normal seams are fully respected:
 			const float N = evaluateNormalSeamMetric(chart, face);
-			if (m_options.normalSeamMetricWeight >= 1000.0f && N > 0.0f)
+			if (m_data.options.normalSeamMetricWeight >= 1000.0f && N > 0.0f)
 				return FLT_MAX;
-			cost += m_options.normalSeamMetricWeight * N;
+			cost += m_data.options.normalSeamMetricWeight * N;
 		}
-		if (m_options.proxyFitMetricWeight > 0.0f)
-			cost += m_options.proxyFitMetricWeight * evaluateProxyFitMetric(chart, face);
-		if (m_options.roundnessMetricWeight > 0.0f)
-			cost += m_options.roundnessMetricWeight * evaluateRoundnessMetric(chart, newBoundaryLength, newChartArea);
-		if (m_options.straightnessMetricWeight > 0.0f)
-			cost += m_options.straightnessMetricWeight * evaluateStraightnessMetric(chart, face);
-		if (m_options.textureSeamMetricWeight > 0.0f)
-			cost += m_options.textureSeamMetricWeight * evaluateTextureSeamMetric(chart, face);
+		if (m_data.options.proxyFitMetricWeight > 0.0f)
+			cost += m_data.options.proxyFitMetricWeight * evaluateProxyFitMetric(chart, face);
+		if (m_data.options.roundnessMetricWeight > 0.0f)
+			cost += m_data.options.roundnessMetricWeight * evaluateRoundnessMetric(chart, newBoundaryLength, newChartArea);
+		if (m_data.options.straightnessMetricWeight > 0.0f)
+			cost += m_data.options.straightnessMetricWeight * evaluateStraightnessMetric(chart, face);
+		if (m_data.options.textureSeamMetricWeight > 0.0f)
+			cost += m_data.options.textureSeamMetricWeight * evaluateTextureSeamMetric(chart, face);
 		//float R = evaluateCompletenessMetric(chart, face);
 		//float D = evaluateDihedralAngleMetric(chart, face);
 		// @@ Add a metric based on local dihedral angle.
@@ -5489,7 +5547,7 @@ private:
 	float evaluateProxyFitMetric(Chart *chart, uint32_t face) const
 	{
 		// All faces in coplanar regions have the same normal, can use any face.
-		const Vector3 faceNormal = m_faceNormals[face];
+		const Vector3 faceNormal = m_data.faceNormals[face];
 		// Use plane fitting metric for now:
 		return 1 - dot(faceNormal, chart->basis.normal); // @@ normal deviations should be weighted by face area
 	}
@@ -5508,21 +5566,21 @@ private:
 	float evaluateStraightnessMetric(Chart *chart, uint32_t firstFace) const
 	{
 		float l_out = 0.0f, l_in = 0.0f;
-		const uint32_t planarRegionId = m_facePlanarRegionId[firstFace];
+		const uint32_t planarRegionId = m_planarCharts.regionIdFromFace(firstFace);
 		uint32_t face = firstFace;
 		for (;;) { 
-			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
-				const float l = m_edgeLengths[it.edge()];
+			for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
+				const float l = m_data.edgeLengths[it.edge()];
 				if (it.isBoundary()) {
 					l_out += l;
-				} else if (m_facePlanarRegionId[it.oppositeFace()] != planarRegionId) {
+				} else if (m_planarCharts.regionIdFromFace(it.oppositeFace()) != planarRegionId) {
 					if (m_faceCharts[it.oppositeFace()] != chart->id)
 						l_out += l;
 					else
 						l_in += l;
 				}
 			}
-			face = m_nextPlanarRegionFace[face];
+			face = m_planarCharts.nextRegionFace(face);
 			if (face == firstFace)
 				break;
 		}
@@ -5533,23 +5591,23 @@ private:
 
 	bool isNormalSeam(uint32_t edge) const
 	{
-		const uint32_t oppositeEdge = m_mesh->oppositeEdge(edge);
+		const uint32_t oppositeEdge = m_data.mesh->oppositeEdge(edge);
 		if (oppositeEdge == UINT32_MAX)
 			return false; // boundary edge
-		if (m_mesh->flags() & MeshFlags::HasNormals) {
-			const uint32_t v0 = m_mesh->vertexAt(meshEdgeIndex0(edge));
-			const uint32_t v1 = m_mesh->vertexAt(meshEdgeIndex1(edge));
-			const uint32_t ov0 = m_mesh->vertexAt(meshEdgeIndex0(oppositeEdge));
-			const uint32_t ov1 = m_mesh->vertexAt(meshEdgeIndex1(oppositeEdge));
+		if (m_data.mesh->flags() & MeshFlags::HasNormals) {
+			const uint32_t v0 = m_data.mesh->vertexAt(meshEdgeIndex0(edge));
+			const uint32_t v1 = m_data.mesh->vertexAt(meshEdgeIndex1(edge));
+			const uint32_t ov0 = m_data.mesh->vertexAt(meshEdgeIndex0(oppositeEdge));
+			const uint32_t ov1 = m_data.mesh->vertexAt(meshEdgeIndex1(oppositeEdge));
 			if (v0 == ov1 && v1 == ov0)
 				return false;
-			return !equal(m_mesh->normal(v0), m_mesh->normal(ov1), kNormalEpsilon) || !equal(m_mesh->normal(v1), m_mesh->normal(ov0), kNormalEpsilon);
+			return !equal(m_data.mesh->normal(v0), m_data.mesh->normal(ov1), kNormalEpsilon) || !equal(m_data.mesh->normal(v1), m_data.mesh->normal(ov0), kNormalEpsilon);
 		}
 		const uint32_t f0 = meshEdgeFace(edge);
 		const uint32_t f1 = meshEdgeFace(oppositeEdge);
-		if (m_facePlanarRegionId[f0] == m_facePlanarRegionId[f1])
+		if (m_planarCharts.regionIdFromFace(f0) == m_planarCharts.regionIdFromFace(f1))
 			return false;
-		return !equal(m_faceNormals[f0], m_faceNormals[f1], kNormalEpsilon);
+		return !equal(m_data.faceNormals[f0], m_data.faceNormals[f1], kNormalEpsilon);
 	}
 
 	float evaluateNormalSeamMetric(Chart *chart, uint32_t firstFace) const
@@ -5557,34 +5615,34 @@ private:
 		float seamFactor = 0.0f, totalLength = 0.0f;
 		uint32_t face = firstFace;
 		for (;;) { 
-			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
+			for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
 				if (it.isBoundary())
 					continue;
 				if (m_faceCharts[it.oppositeFace()] != chart->id)
 					continue;
-				float l = m_edgeLengths[it.edge()];
+				float l = m_data.edgeLengths[it.edge()];
 				totalLength += l;
 				if (!it.isSeam())
 					continue;
 				// Make sure it's a normal seam.
 				if (isNormalSeam(it.edge())) {
 					float d;
-					if (m_mesh->flags() & MeshFlags::HasNormals) {
-						const Vector3 &n0 = m_mesh->normal(it.vertex0());
-						const Vector3 &n1 = m_mesh->normal(it.vertex1());
-						const Vector3 &on0 = m_mesh->normal(m_mesh->vertexAt(meshEdgeIndex0(it.oppositeEdge())));
-						const Vector3 &on1 = m_mesh->normal(m_mesh->vertexAt(meshEdgeIndex1(it.oppositeEdge())));
+					if (m_data.mesh->flags() & MeshFlags::HasNormals) {
+						const Vector3 &n0 = m_data.mesh->normal(it.vertex0());
+						const Vector3 &n1 = m_data.mesh->normal(it.vertex1());
+						const Vector3 &on0 = m_data.mesh->normal(m_data.mesh->vertexAt(meshEdgeIndex0(it.oppositeEdge())));
+						const Vector3 &on1 = m_data.mesh->normal(m_data.mesh->vertexAt(meshEdgeIndex1(it.oppositeEdge())));
 						const float d0 = clamp(dot(n0, on1), 0.0f, 1.0f);
 						const float d1 = clamp(dot(n1, on0), 0.0f, 1.0f);
 						d = (d0 + d1) * 0.5f;
 					} else {
-						d = clamp(dot(m_faceNormals[face], m_faceNormals[meshEdgeFace(it.oppositeEdge())]), 0.0f, 1.0f);
+						d = clamp(dot(m_data.faceNormals[face], m_data.faceNormals[meshEdgeFace(it.oppositeEdge())]), 0.0f, 1.0f);
 					}
 					l *= 1 - d;
 					seamFactor += l;
 				}
 			}
-			face = m_nextPlanarRegionFace[face];
+			face = m_planarCharts.nextRegionFace(face);
 			if (face == firstFace)
 				break;
 		}
@@ -5598,12 +5656,12 @@ private:
 		float seamLength = 0.0f, totalLength = 0.0f;
 		uint32_t face = firstFace;
 		for (;;) { 
-			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
+			for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
 				if (it.isBoundary())
 					continue;
 				if (m_faceCharts[it.oppositeFace()] != chart->id)
 					continue;
-				float l = m_edgeLengths[it.edge()];
+				float l = m_data.edgeLengths[it.edge()];
 				totalLength += l;
 				if (!it.isSeam())
 					continue;
@@ -5611,7 +5669,7 @@ private:
 				if (it.isTextureSeam())
 					seamLength += l;
 			}
-			face = m_nextPlanarRegionFace[face];
+			face = m_planarCharts.nextRegionFace(face);
 			if (face == firstFace)
 				break;
 		}
@@ -5625,8 +5683,8 @@ private:
 		float area = chart->area;
 		uint32_t face = firstFace;
 		for (;;) { 
-			area += m_faceAreas[face];
-			face = m_nextPlanarRegionFace[face];
+			area += m_data.faceAreas[face];
+			face = m_planarCharts.nextRegionFace(face);
 			if (face == firstFace)
 				break;
 		}
@@ -5637,21 +5695,21 @@ private:
 	{
 		float boundaryLength = chart->boundaryLength;
 		// Add new edges, subtract edges shared with the chart.
-		const uint32_t planarRegionId = m_facePlanarRegionId[firstFace];
+		const uint32_t planarRegionId = m_planarCharts.regionIdFromFace(firstFace);
 		uint32_t face = firstFace;
 		for (;;) { 
-			for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
-				const float edgeLength = m_edgeLengths[it.edge()];
+			for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
+				const float edgeLength = m_data.edgeLengths[it.edge()];
 				if (it.isBoundary()) {
 					boundaryLength += edgeLength;
-				} else if (m_facePlanarRegionId[it.oppositeFace()] != planarRegionId) {
+				} else if (m_planarCharts.regionIdFromFace(it.oppositeFace()) != planarRegionId) {
 					if (m_faceCharts[it.oppositeFace()] != chart->id)
 						boundaryLength += edgeLength;
 					else
 						boundaryLength -= edgeLength;
 				}
 			}
-			face = m_nextPlanarRegionFace[face];
+			face = m_planarCharts.nextRegionFace(face);
 			if (face == firstFace)
 				break;
 		}
@@ -5675,7 +5733,7 @@ private:
 				m_faceCharts[chart->faces[i]] = chart->id;
 			return false;
 		}
-		if (dot(basis.normal, m_faceNormals[owner->faces[0]]) < 0.0f) // Flip normal if oriented in the wrong direction.
+		if (dot(basis.normal, m_data.faceNormals[owner->faces[0]]) < 0.0f) // Flip normal if oriented in the wrong direction.
 			basis.normal = -basis.normal;
 		// Compute orthogonal parameterization and check that it is valid.
 		parameterizeChart(owner);
@@ -5698,19 +5756,14 @@ private:
 		return true;
 	}
 
-	const Mesh *m_mesh;
-	Array<float> m_edgeLengths;
-	Array<float> m_faceAreas;
-	Array<Vector3> m_faceNormals;
+private:
+	AtlasData &m_data;
+	const PlanarCharts &m_planarCharts;
 	Array<Vector2> m_texcoords;
 	uint32_t m_facesLeft;
 	Array<int> m_faceCharts;
 	Array<Chart *> m_charts;
 	CostQueue m_bestTriangles;
-	ChartOptions m_options;
-	Array<uint32_t> m_nextPlanarRegionFace;
-	Array<uint32_t> m_facePlanarRegionId;
-	Array<float> m_planarRegionAreas;
 	Array<Vector3> m_tempPoints;
 	UniformGrid2 m_boundaryGrid;
 #if XA_MERGE_CHARTS
@@ -5719,6 +5772,46 @@ private:
 	Array<float> m_sharedBoundaryLengthsNoSeams;
 	Array<uint32_t> m_sharedBoundaryEdgeCountNoSeams;
 #endif
+};
+
+struct Atlas
+{
+	Atlas() : m_planarCharts(m_data), m_clusteredCharts(m_data, m_planarCharts) {}
+
+	uint32_t chartCount() const
+	{
+		return m_clusteredCharts.chartCount();
+	}
+
+	const Array<uint32_t> &chartFaces(uint32_t chartIndex) const
+	{
+		return m_clusteredCharts.chartFaces(chartIndex);
+	}
+
+	const Basis &chartBasis(uint32_t chartIndex) const
+	{
+		return m_clusteredCharts.chartBasis(chartIndex);
+	}
+
+	void reset(const Mesh *mesh, const ChartOptions &options)
+	{
+		XA_PROFILE_START(buildAtlasInit)
+		m_data.options = options;
+		m_data.mesh = mesh;
+		m_data.compute();
+		XA_PROFILE_END(buildAtlasInit)
+	}
+
+	void compute()
+	{
+		m_planarCharts.compute();
+		m_clusteredCharts.compute();
+	}
+
+private:
+	AtlasData m_data;
+	PlanarCharts m_planarCharts;
+	ClusteredCharts m_clusteredCharts;
 };
 
 } // namespace segment
@@ -7189,7 +7282,7 @@ public:
 #else
 		XA_PROFILE_START(buildAtlas)
 		atlas.reset(m_mesh, options);
-		buildAtlas(atlas, options);
+		atlas.compute();
 		XA_PROFILE_END(buildAtlas)
 		const uint32_t chartCount = atlas.chartCount();
 		m_charts.resize(chartCount);
@@ -7335,37 +7428,6 @@ public:
 	}
 
 private:
-	void buildAtlas(segment::Atlas &atlas, const ChartOptions &options)
-	{
-		if (atlas.facesLeft() == 0)
-			return;
-		// Create initial charts greedely.
-		atlas.placeSeeds(options.maxThreshold * 0.5f);
-		if (options.maxIterations == 0) {
-			XA_DEBUG_ASSERT(atlas.facesLeft() == 0);
-			return;
-		}
-		atlas.relocateSeeds();
-		atlas.resetCharts();
-		// Restart process growing charts in parallel.
-		uint32_t iteration = 0;
-		for (;;) {
-			atlas.growCharts(options.maxThreshold);
-			// When charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
-			atlas.fillHoles(options.maxThreshold * 0.5f);
-#if XA_MERGE_CHARTS
-			atlas.mergeCharts();
-#endif
-			if (++iteration == options.maxIterations)
-				break;
-			if (!atlas.relocateSeeds())
-				break;
-			atlas.resetCharts();
-		}
-		// Make sure no holes are left!
-		XA_DEBUG_ASSERT(atlas.facesLeft() == 0);
-	}
-
 	void removeChart(const Chart *chart)
 	{
 		for (uint32_t i = 0; i < m_charts.size(); i++) {
