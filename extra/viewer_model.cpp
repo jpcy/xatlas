@@ -960,17 +960,32 @@ void modelRender(const float *view, const float *projection)
 			bgfx::setState(state);
 			bgfx::setTransform(modelMatrix);
 			bgfx::setUniform(s_model.u_lightDir, lightDir);
-			if (!mat) {
-				const float diffuse[] = { 0.5f, 0.5f, 0.5f, 1.0f };
-				const float emission[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-				bgfx::setUniform(s_model.u_diffuse, diffuse);
-				bgfx::setUniform(s_model.u_emission, emission);
+			float diffuse[4], emission[4];
+			if (g_options.shadeMode == ShadeMode::Random) {
+				srand(i);
+				uint8_t color[4];
+				randomRGB(color);
+				diffuse[0] = color[0] / 255.0f;
+				diffuse[1] = color[1] / 255.0f;
+				diffuse[2] = color[2] / 255.0f;
+				diffuse[3] = 1.0f;
+				emission[0] = emission[1] = emission[2] = emission[3] = 0.0f;
+			} else if (!mat) {
+				diffuse[0] = diffuse[1] = diffuse[2] = 0.5f;
+				diffuse[3] = 1.0f;
+				emission[0] = emission[1] = emission[2] = emission[3] = 0.0f;
 			} else {
-				const float diffuse[] = { mat->diffuse[0], mat->diffuse[1], mat->diffuse[2], mat->opacity };
-				const float emission[] = { mat->emission[0], mat->emission[1], mat->emission[2], mat->opacity };
-				bgfx::setUniform(s_model.u_diffuse, diffuse);
-				bgfx::setUniform(s_model.u_emission, emission);
+				diffuse[0] = mat->diffuse[0];
+				diffuse[1] = mat->diffuse[1];
+				diffuse[2] = mat->diffuse[2];
+				diffuse[3] = mat->opacity;
+				emission[0] = mat->emission[0];
+				emission[1] = mat->emission[1];
+				emission[2] = mat->emission[2];
+				emission[3] = mat->opacity;
 			}
+			bgfx::setUniform(s_model.u_diffuse, diffuse);
+			bgfx::setUniform(s_model.u_emission, emission);
 			float shade_diffuse_emission[4];
 			shade_diffuse_emission[1] = DIFFUSE_COLOR;
 			shade_diffuse_emission[2] = EMISSION_COLOR;

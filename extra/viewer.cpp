@@ -638,16 +638,19 @@ int main(int argc, char **argv)
 							ImGui::EndMenu();
 						}
 					}
-					if (atlasIsReady()) {
-						if (ImGui::BeginMenu("Shading")) {
-							ImGui::RadioButton("Flat", (int *)&g_options.shadeMode, (int)ShadeMode::Flat);
+					if (ImGui::BeginMenu("Shading")) {
+						ImGui::RadioButton("Flat", (int *)&g_options.shadeMode, (int)ShadeMode::Flat);
+						if (atlasIsReady()) {
 							ImGui::RadioButton("Charts##shading", (int *)&g_options.shadeMode, (int)ShadeMode::Charts);
 							if (bakeIsLightmapReady()) {
 								ImGui::RadioButton("Lightmap", (int *)&g_options.shadeMode, (int)ShadeMode::Lightmap);
 								ImGui::RadioButton("Lightmap only", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapOnly);
 							}
-							ImGui::EndMenu();
 						}
+						ImGui::RadioButton("Random", (int *)&g_options.shadeMode, (int)ShadeMode::Random);
+						ImGui::EndMenu();
+					}
+					if (atlasIsReady()) {
 						if (g_options.shadeMode == ShadeMode::Charts) {
 							if (ImGui::BeginMenu("Chart color")) {
 								ImGui::RadioButton("Individual", (int *)&g_options.chartColorMode, (int)ChartColorMode::Individual);
