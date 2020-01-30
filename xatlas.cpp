@@ -2429,7 +2429,8 @@ public:
 			m_normals.reserve(approxVertexCount);
 	}
 
-	static constexpr uint16_t kInvalidFaceGroup = UINT16_MAX;
+	typedef uint32_t FaceGroup;
+	static constexpr FaceGroup kInvalidFaceGroup = UINT32_MAX;
 	uint32_t flags() const { return m_flags; }
 	uint32_t id() const { return m_id; }
 
@@ -2527,7 +2528,7 @@ public:
 	}
 
 	// Check if the face duplicates any edges of any face already in the group.
-	bool faceDuplicatesGroupEdge(uint16_t group, uint32_t face) const
+	bool faceDuplicatesGroupEdge(FaceGroup group, uint32_t face) const
 	{
 		for (FaceEdgeIterator edgeIt(this, face); !edgeIt.isDone(); edgeIt.advance()) {
 			for (ColocalEdgeIterator colocalEdgeIt(this, edgeIt.vertex0(), edgeIt.vertex1()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
@@ -2541,7 +2542,7 @@ public:
 	void createFaceGroups()
 	{
 		uint32_t firstUnassignedFace = 0;
-		uint16_t group = 0;
+		FaceGroup group = 0;
 		Array<uint32_t> growFaces;
 		const uint32_t n = faceCount();
 		m_faceGroupNextFace.resize(n);
@@ -2990,7 +2991,7 @@ public:
 	XA_INLINE Vector2 *texcoords() { return m_texcoords.data(); }
 	XA_INLINE uint32_t ignoredFaceCount() const { return m_ignoredFaceCount; }
 	XA_INLINE uint32_t faceCount() const { return m_indices.size() / 3; }
-	XA_INLINE uint16_t faceGroupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups[face]; }
+	XA_INLINE FaceGroup faceGroupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups[face]; }
 	XA_INLINE uint32_t faceGroupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroupFaceCounts.size(); }
 	XA_INLINE uint32_t faceGroupNextFace(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroupNextFace[face]; }
 	XA_INLINE uint32_t faceGroupFaceCount(uint32_t group) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroupFaceCounts[group]; }
@@ -3011,7 +3012,7 @@ private:
 	Array<Vector2> m_texcoords;
 
 	// Populated by createFaceGroups
-	Array<uint16_t> m_faceGroups;
+	Array<FaceGroup> m_faceGroups;
 	Array<uint32_t> m_faceGroupFirstFace;
 	Array<uint32_t> m_faceGroupNextFace; // In: face. Out: the next face in the same group.
 	Array<uint32_t> m_faceGroupFaceCounts; // In: face group. Out: number of faces in the group.
@@ -3257,9 +3258,9 @@ public:
 	class GroupFaceIterator
 	{
 	public:
-		GroupFaceIterator(const Mesh *mesh, uint32_t group) : m_mesh(mesh)
+		GroupFaceIterator(const Mesh *mesh, FaceGroup group) : m_mesh(mesh)
 		{
-			XA_DEBUG_ASSERT(group != UINT32_MAX);
+			XA_DEBUG_ASSERT(group != kInvalidFaceGroup);
 			m_current = mesh->m_faceGroupFirstFace[group];
 		}
 
@@ -3284,7 +3285,7 @@ public:
 	};
 };
 
-constexpr uint16_t Mesh::kInvalidFaceGroup;
+constexpr Mesh::FaceGroup Mesh::kInvalidFaceGroup;
 
 static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const Vector3 &normal)
 {
@@ -7020,7 +7021,7 @@ static void runParameterizeChartTask(void *userData)
 class ChartGroup
 {
 public:
-	ChartGroup(uint32_t id, const Mesh *sourceMesh, uint16_t faceGroup) : m_sourceId(sourceMesh->id()), m_id(id), m_isVertexMap(faceGroup == Mesh::kInvalidFaceGroup), m_paramAddedChartsCount(0), m_paramDeletedChartsCount(0)
+	ChartGroup(uint32_t id, const Mesh *sourceMesh, Mesh::FaceGroup faceGroup) : m_sourceId(sourceMesh->id()), m_id(id), m_isVertexMap(faceGroup == Mesh::kInvalidFaceGroup), m_paramAddedChartsCount(0), m_paramDeletedChartsCount(0)
 	{
 		// Create new mesh from the source mesh, using faces that belong to this group.
 		const uint32_t sourceFaceCount = sourceMesh->faceCount();
@@ -7381,7 +7382,7 @@ private:
 
 struct CreateChartGroupTaskArgs
 {
-	uint16_t faceGroup;
+	Mesh::FaceGroup faceGroup;
 	uint32_t groupId;
 	const Mesh *mesh;
 	ChartGroup **chartGroup;
@@ -7500,7 +7501,7 @@ public:
 		for (uint32_t g = 0; g < chartGroups.size(); g++) {
 			CreateChartGroupTaskArgs &args = taskArgs[g];
 			args.chartGroup = &chartGroups[g];
-			args.faceGroup = uint16_t(g < mesh->faceGroupCount() ? g : Mesh::kInvalidFaceGroup);
+			args.faceGroup = Mesh::FaceGroup(g < mesh->faceGroupCount() ? g : Mesh::kInvalidFaceGroup);
 			args.groupId = g;
 			args.mesh = mesh;
 		}
