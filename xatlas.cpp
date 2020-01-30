@@ -2797,11 +2797,11 @@ public:
 			fprintf(file, "vt %g %g\n", m_texcoords[i].x, m_texcoords[i].y);
 	}
 
-	void writeObjFace(FILE *file, uint32_t face) const
+	void writeObjFace(FILE *file, uint32_t face, uint32_t offset = 0) const
 	{
 		fprintf(file, "f ");
 		for (uint32_t j = 0; j < 3; j++) {
-			const uint32_t index = m_indices[face * 3 + j] + 1; // 1-indexed
+			const uint32_t index = m_indices[face * 3 + j] + 1 + offset; // 1-indexed
 			fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
 		}
 	}
@@ -4884,6 +4884,11 @@ struct Chart
 	CostQueue candidates;
 };
 
+#if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
+static uint32_t s_debugExportObjPlanarRegionsCurrentIndex;
+static uint32_t s_debugExportObjPlanarRegionsCurrentRegion;
+#endif
+
 struct Atlas
 {
 	Atlas() : m_edgeLengths(MemTag::SegmentAtlasMeshData), m_faceAreas(MemTag::SegmentAtlasMeshData), m_faceNormals(MemTag::SegmentAtlasMeshData), m_texcoords(MemTag::SegmentAtlasMeshData), m_bestTriangles(10), m_nextPlanarRegionFace(MemTag::SegmentAtlasPlanarRegions), m_facePlanarRegionId(MemTag::SegmentAtlasPlanarRegions) {}
@@ -4902,10 +4907,8 @@ struct Atlas
 	const Array<uint32_t> &chartFaces(uint32_t i) const { return m_charts[i]->faces; }
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_charts[chartIndex]->basis; }
 
-	void reset(uint32_t meshId, uint32_t chartGroupId, const Mesh *mesh, const ChartOptions &options)
+	void reset(const Mesh *mesh, const ChartOptions &options)
 	{
-		XA_UNUSED(meshId);
-		XA_UNUSED(chartGroupId);
 		XA_PROFILE_START(buildAtlasInit)
 		m_mesh = mesh;
 		const uint32_t faceCount = m_mesh->faceCount();
@@ -4976,21 +4979,25 @@ struct Atlas
 			planarRegionCount++;
 		}
 #if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
-		char filename[256];
-		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_planar_regions.obj", meshId, chartGroupId);
-		FILE *file;
-		XA_FOPEN(file, filename, "w");
-		if (file) {
-			m_mesh->writeObjVertices(file);
-			fprintf(file, "s off\n");
-			for (uint32_t i = 0; i < planarRegionCount; i++) {
-				fprintf(file, "o region%u\n", i);
-				for (uint32_t j = 0; j < faceCount; j++) {
-					if (m_facePlanarRegionId[j] == i)
-						m_mesh->writeObjFace(file, j);
+		static std::mutex s_mutex;
+		{
+			std::lock_guard<std::mutex> lock(s_mutex);
+			FILE *file;
+			XA_FOPEN(file, "debug_mesh_planar_regions.obj", "a");
+			if (file) {
+				m_mesh->writeObjVertices(file);
+				fprintf(file, "s off\n");
+				for (uint32_t i = 0; i < planarRegionCount; i++) {
+					fprintf(file, "o region%u\n", s_debugExportObjPlanarRegionsCurrentRegion);
+					for (uint32_t j = 0; j < faceCount; j++) {
+						if (m_facePlanarRegionId[j] == i)
+							m_mesh->writeObjFace(file, j, s_debugExportObjPlanarRegionsCurrentIndex);
+					}
+					s_debugExportObjPlanarRegionsCurrentRegion++;
 				}
+				s_debugExportObjPlanarRegionsCurrentIndex += m_mesh->vertexCount();
+				fclose(file);
 			}
-			fclose(file);
 		}
 #endif
 		// Precompute planar region areas.
@@ -7181,7 +7188,7 @@ public:
 		m_charts.push_back(chart);
 #else
 		XA_PROFILE_START(buildAtlas)
-		atlas.reset(m_sourceId, m_id, m_mesh, options);
+		atlas.reset(m_mesh, options);
 		buildAtlas(atlas, options);
 		XA_PROFILE_END(buildAtlas)
 		const uint32_t chartCount = atlas.chartCount();
@@ -7547,6 +7554,13 @@ public:
 
 	bool computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
+#if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
+		FILE *file;
+		XA_FOPEN(file, "debug_mesh_planar_regions.obj", "w");
+		if (file)
+			fclose(file);
+		segment::s_debugExportObjPlanarRegionsCurrentIndex = segment::s_debugExportObjPlanarRegionsCurrentRegion = 0;
+#endif
 		m_chartsComputed = false;
 		m_chartsParameterized = false;
 		// Ignore vertex maps.
