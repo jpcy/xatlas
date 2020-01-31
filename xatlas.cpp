@@ -126,7 +126,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES_PER_CHART 0 // Export an atlas image after each chart is added.
 #define XA_DEBUG_EXPORT_BOUNDARY_GRID 0
 #define XA_DEBUG_EXPORT_TGA (XA_DEBUG_EXPORT_ATLAS_IMAGES || XA_DEBUG_EXPORT_BOUNDARY_GRID)
-#define XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES 0
+#define XA_DEBUG_EXPORT_OBJ_FACE_GROUPS 0
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
 #define XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
@@ -137,7 +137,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS 0
 
 #define XA_DEBUG_EXPORT_OBJ (0 \
-	|| XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES \
+	|| XA_DEBUG_EXPORT_OBJ_FACE_GROUPS \
 	|| XA_DEBUG_EXPORT_OBJ_CHART_GROUPS \
 	|| XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
@@ -8724,6 +8724,10 @@ struct AddMeshTaskArgs
 	internal::Mesh *mesh;
 };
 
+#if XA_DEBUG_EXPORT_OBJ_FACE_GROUPS
+static uint32_t s_faceGroupsCurrentVertex = 0;
+#endif
+
 static void runAddMeshTask(void *userData)
 {
 	XA_PROFILE_START(addMeshThread)
@@ -8746,35 +8750,40 @@ static void runAddMeshTask(void *userData)
 	}
 	if (progress->cancel)
 		goto cleanup;
-#if XA_DEBUG_EXPORT_OBJ_SOURCE_MESHES
-	char filename[256];
-	XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u.obj", mesh->id());
-	FILE *file;
-	XA_FOPEN(file, filename, "w");
-	if (file) {
-		mesh->writeObjVertices(file);
-		// groups
-		uint32_t numGroups = 0;
-		for (uint32_t i = 0; i < mesh->faceCount(); i++) {
-			if (mesh->faceGroupAt(i) != Mesh::kInvalidFaceGroup)
-				numGroups = internal::max(numGroups, mesh->faceGroupAt(i) + 1);
-		}
-		for (uint32_t i = 0; i < numGroups; i++) {
-			fprintf(file, "o group_%04d\n", i);
+#if XA_DEBUG_EXPORT_OBJ_FACE_GROUPS
+	static std::mutex s_mutex;
+	{
+		std::lock_guard<std::mutex> lock(s_mutex);
+		char filename[256];
+		XA_SPRINTF(filename, sizeof(filename), "debug_face_groups.obj");
+		FILE *file;
+		XA_FOPEN(file, filename, s_faceGroupsCurrentVertex == 0 ? "w" : "a");
+		if (file) {
+			mesh->writeObjVertices(file);
+			// groups
+			uint32_t numGroups = 0;
+			for (uint32_t i = 0; i < mesh->faceCount(); i++) {
+				if (mesh->faceGroupAt(i) != internal::Mesh::kInvalidFaceGroup)
+					numGroups = internal::max(numGroups, mesh->faceGroupAt(i) + 1);
+			}
+			for (uint32_t i = 0; i < numGroups; i++) {
+				fprintf(file, "o mesh_%03u_group_%04d\n", mesh->id(), i);
+				fprintf(file, "s off\n");
+				for (uint32_t f = 0; f < mesh->faceCount(); f++) {
+					if (mesh->faceGroupAt(f) == i)
+						mesh->writeObjFace(file, f, s_faceGroupsCurrentVertex);
+				}
+			}
+			fprintf(file, "o mesh_%03u_group_ignored\n", mesh->id());
 			fprintf(file, "s off\n");
 			for (uint32_t f = 0; f < mesh->faceCount(); f++) {
-				if (mesh->faceGroupAt(f) == i)
-					mesh->writeObjFace(file, f);
+				if (mesh->faceGroupAt(f) == internal::Mesh::kInvalidFaceGroup)
+					mesh->writeObjFace(file, f, s_faceGroupsCurrentVertex);
 			}
+			mesh->writeObjBoundaryEges(file);
+			s_faceGroupsCurrentVertex += mesh->vertexCount();
+			fclose(file);
 		}
-		fprintf(file, "o group_ignored\n");
-		fprintf(file, "s off\n");
-		for (uint32_t f = 0; f < mesh->faceCount(); f++) {
-			if (mesh->faceGroupAt(f) == Mesh::kInvalidFaceGroup)
-				mesh->writeObjFace(file, f);
-		}
-		mesh->writeObjBoundaryEges(file);
-		fclose(file);
 	}
 #endif
 	{
@@ -8986,6 +8995,9 @@ void AddMeshJoin(Atlas *atlas)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart groups (real): ", addMeshCreateChartGroupsReal)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart groups (thread): ", addMeshCreateChartGroupsThread)
 	XA_PRINT_MEM_USAGE
+#if XA_DEBUG_EXPORT_OBJ_FACE_GROUPS
+	s_faceGroupsCurrentVertex = 0;
+#endif
 }
 
 struct EdgeKey
