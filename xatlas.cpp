@@ -4884,11 +4884,6 @@ struct Chart
 	CostQueue candidates;
 };
 
-#if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
-static uint32_t s_debugExportObjPlanarRegionsCurrentIndex;
-static uint32_t s_debugExportObjPlanarRegionsCurrentRegion;
-#endif
-
 struct AtlasData
 {
 	ChartOptions options;
@@ -4920,6 +4915,11 @@ struct AtlasData
 		}
 	}
 };
+
+#if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
+static uint32_t s_planarRegionsCurrentRegion;
+static uint32_t s_planarRegionsCurrentVertex;
+#endif
 
 struct PlanarCharts
 {
@@ -4975,19 +4975,19 @@ struct PlanarCharts
 		{
 			std::lock_guard<std::mutex> lock(s_mutex);
 			FILE *file;
-			XA_FOPEN(file, "debug_mesh_planar_regions.obj", "a");
+			XA_FOPEN(file, "debug_mesh_planar_regions.obj", s_planarRegionsCurrentRegion == 0 ? "w" : "a");
 			if (file) {
 				m_data.mesh->writeObjVertices(file);
 				fprintf(file, "s off\n");
 				for (uint32_t i = 0; i < planarRegionCount; i++) {
-					fprintf(file, "o region%u\n", s_debugExportObjPlanarRegionsCurrentRegion);
+					fprintf(file, "o region%u\n", s_planarRegionsCurrentRegion);
 					for (uint32_t j = 0; j < faceCount; j++) {
 						if (m_faceToRegionId[j] == i)
-							m_data.mesh->writeObjFace(file, j, s_debugExportObjPlanarRegionsCurrentIndex);
+							m_data.mesh->writeObjFace(file, j, s_planarRegionsCurrentVertex);
 					}
-					s_debugExportObjPlanarRegionsCurrentRegion++;
+					s_planarRegionsCurrentRegion++;
 				}
-				s_debugExportObjPlanarRegionsCurrentIndex += m_data.mesh->vertexCount();
+				s_planarRegionsCurrentVertex += m_data.mesh->vertexCount();
 				fclose(file);
 			}
 		}
@@ -7617,11 +7617,7 @@ public:
 	bool computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
 #if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
-		FILE *file;
-		XA_FOPEN(file, "debug_mesh_planar_regions.obj", "w");
-		if (file)
-			fclose(file);
-		segment::s_debugExportObjPlanarRegionsCurrentIndex = segment::s_debugExportObjPlanarRegionsCurrentRegion = 0;
+		segment::s_planarRegionsCurrentRegion = segment::s_planarRegionsCurrentVertex = 0;
 #endif
 		m_chartsComputed = false;
 		m_chartsParameterized = false;
