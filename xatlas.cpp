@@ -120,7 +120,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_FIX_INTERNAL_BOUNDARY_LOOPS 1
 #define XA_PRINT_CHART_WARNINGS 0
 
-#define XA_DEBUG_HEAP 0
+#define XA_DEBUG_HEAP 1
 #define XA_DEBUG_SINGLE_CHART 0
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES_PER_CHART 0 // Export an atlas image after each chart is added.
@@ -1164,9 +1164,9 @@ struct ArrayBase
 	}
 
 #if XA_DEBUG_HEAP
-	void setMemTag(int memTag)
+	void setMemTag(int _memTag)
 	{
-		this->memTag = memTag;
+		this->memTag = _memTag;
 	}
 #endif
 
@@ -8744,6 +8744,7 @@ static void runAddMeshTask(void *userData)
 	XA_PROFILE_START(addMeshThread)
 	auto args = (AddMeshTaskArgs *)userData; // Responsible for freeing this.
 	internal::Mesh *mesh = args->mesh;
+	internal::MeshFaceGroups *meshFaceGroups = nullptr;
 	internal::Progress *progress = args->ctx->addMeshProgress;
 	if (progress->cancel)
 		goto cleanup;
@@ -8754,7 +8755,7 @@ static void runAddMeshTask(void *userData)
 	}
 	if (progress->cancel)
 		goto cleanup;
-	internal::MeshFaceGroups *meshFaceGroups = XA_NEW_ARGS(internal::MemTag::Mesh, internal::MeshFaceGroups, mesh);
+	meshFaceGroups = XA_NEW_ARGS(internal::MemTag::Mesh, internal::MeshFaceGroups, mesh);
 	{
 		XA_PROFILE_START(addMeshCreateFaceGroups)
 		meshFaceGroups->compute();
