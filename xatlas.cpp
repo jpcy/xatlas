@@ -120,7 +120,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_FIX_INTERNAL_BOUNDARY_LOOPS 1
 #define XA_PRINT_CHART_WARNINGS 0
 
-#define XA_DEBUG_HEAP 1
+#define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES_PER_CHART 0 // Export an atlas image after each chart is added.
@@ -3156,10 +3156,10 @@ struct MeshFaceGroups
 		
 	}
 
-	XA_INLINE Handle groupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_groups[face]; }
-	XA_INLINE uint32_t groupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceCount.size(); }
-	XA_INLINE uint32_t nextFace(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_nextFace[face]; }
-	XA_INLINE uint32_t faceCount(uint32_t group) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceCount[group]; }
+	XA_INLINE Handle groupAt(uint32_t face) const { return m_groups[face]; }
+	XA_INLINE uint32_t groupCount() const { return m_faceCount.size(); }
+	XA_INLINE uint32_t nextFace(uint32_t face) const { return m_nextFace[face]; }
+	XA_INLINE uint32_t faceCount(uint32_t group) const { return m_faceCount[group]; }
 
 	void compute()
 	{
@@ -3250,7 +3250,7 @@ struct MeshFaceGroups
 	public:
 		Iterator(const MeshFaceGroups *meshFaceGroups, Handle group) : m_meshFaceGroups(meshFaceGroups)
 		{
-			XA_DEBUG_ASSERT(group != kInvalidFaceGroup);
+			XA_DEBUG_ASSERT(group != kInvalid);
 			m_current = m_meshFaceGroups->m_firstFace[group];
 		}
 
@@ -4919,7 +4919,7 @@ struct AtlasData
 				XA_DEBUG_ASSERT(edgeLengths[edge] > 0.0f);
 			}
 			faceAreas[f] = mesh->computeFaceArea(f);
-			XA_DEBUG_ASSERT(m_data.faceAreas[f] > 0.0f);
+			XA_DEBUG_ASSERT(faceAreas[f] > 0.0f);
 			faceNormals[f] = mesh->computeFaceNormal(f);
 		}
 	}
