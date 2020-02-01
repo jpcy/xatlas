@@ -408,6 +408,7 @@ static double clockToSeconds(clock_t c)
 static constexpr float kPi = 3.14159265358979323846f;
 static constexpr float kPi2 = 6.28318530717958647692f;
 static constexpr float kPi4 = 12.56637061435917295384f;
+static constexpr float kRadiansToDegrees = 180.0f / kPi;
 static constexpr float kEpsilon = 0.0001f;
 static constexpr float kAreaEpsilon = FLT_EPSILON;
 static constexpr float kNormalEpsilon = 0.001f;
@@ -3153,7 +3154,6 @@ struct MeshFaceGroups
 
 	MeshFaceGroups(const Mesh *mesh) : m_mesh(mesh), m_groups(MemTag::Mesh), m_firstFace(MemTag::Mesh), m_nextFace(MemTag::Mesh), m_faceCount(MemTag::Mesh)
 	{
-		
 	}
 
 	XA_INLINE Handle groupAt(uint32_t face) const { return m_groups[face]; }
@@ -3204,6 +3204,17 @@ struct MeshFaceGroups
 					for (Mesh::ColocalEdgeIterator oppositeEdgeIt(m_mesh, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
 						const uint32_t oppositeEdge = oppositeEdgeIt.edge();
 						const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
+#if 0
+						// Reject opposite face is dihedral angle > threshold.
+						{
+							Vector3 a = m_mesh->computeFaceNormal(f);
+							Vector3 b = m_mesh->computeFaceNormal(oppositeFace);
+							const float dihedralAngle = atan2f(length(cross(a, b)), dot(a, b)) * kRadiansToDegrees;
+							XA_DEBUG_ASSERT(!isNan(dihedralAngle));
+							if (dihedralAngle >= 90.0f)
+								continue;
+						}
+#endif
 						if (m_mesh->isFaceIgnored(oppositeFace))
 							continue; // Don't add ignored faces to group.
 						if (m_groups[oppositeFace] == group) {
