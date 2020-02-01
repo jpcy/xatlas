@@ -2404,9 +2404,8 @@ struct MeshFlags
 {
 	enum
 	{
-		HasFaceGroups = 1<<0,
-		HasIgnoredFaces = 1<<1,
-		HasNormals = 1<<2
+		HasIgnoredFaces = 1<<0,
+		HasNormals = 1<<1
 	};
 };
 
@@ -2416,21 +2415,17 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_ignoredFaceCount(0), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_faceGroups(MemTag::Mesh), m_faceGroupFirstFace(MemTag::Mesh), m_faceGroupNextFace(MemTag::Mesh), m_faceGroupFaceCounts(MemTag::Mesh), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_ignoredFaceCount(0), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
 		m_texcoords.reserve(approxVertexCount);
-		if (m_flags & MeshFlags::HasFaceGroups)
-			m_faceGroups.reserve(approxFaceCount);
 		if (m_flags & MeshFlags::HasIgnoredFaces)
 			m_faceIgnore.reserve(approxFaceCount);
 		if (m_flags & MeshFlags::HasNormals)
 			m_normals.reserve(approxVertexCount);
 	}
 
-	typedef uint32_t FaceGroup;
-	static constexpr FaceGroup kInvalidFaceGroup = UINT32_MAX;
 	uint32_t flags() const { return m_flags; }
 	uint32_t id() const { return m_id; }
 
@@ -2464,8 +2459,6 @@ public:
 	AddFaceResult::Enum addFace(const uint32_t *indices, bool ignore = false, bool hashEdge = true)
 	{
 		AddFaceResult::Enum result = AddFaceResult::OK;
-		if (m_flags & MeshFlags::HasFaceGroups)
-			m_faceGroups.push_back(kInvalidFaceGroup);
 		if (m_flags & MeshFlags::HasIgnoredFaces) {
 			m_faceIgnore.push_back(ignore);
 			if (ignore)
@@ -2524,99 +2517,6 @@ public:
 			for (uint32_t j = 0; j < colocals.size(); j++)
 				m_nextColocalVertex[colocals[j]] = colocals[(j + 1) % colocals.size()];
 			XA_DEBUG_ASSERT(m_nextColocalVertex[i] != UINT32_MAX);
-		}
-	}
-
-	// Check if the face duplicates any edges of any face already in the group.
-	bool faceDuplicatesGroupEdge(FaceGroup group, uint32_t face) const
-	{
-		for (FaceEdgeIterator edgeIt(this, face); !edgeIt.isDone(); edgeIt.advance()) {
-			for (ColocalEdgeIterator colocalEdgeIt(this, edgeIt.vertex0(), edgeIt.vertex1()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
-				if (m_faceGroups[meshEdgeFace(colocalEdgeIt.edge())] == group)
-					return true;
-			}
-		}
-		return false;
-	}
-
-	void createFaceGroups()
-	{
-		uint32_t firstUnassignedFace = 0;
-		FaceGroup group = 0;
-		Array<uint32_t> growFaces;
-		const uint32_t n = faceCount();
-		m_faceGroupNextFace.resize(n);
-		for (;;) {
-			// Find an unassigned face.
-			uint32_t face = UINT32_MAX;
-			for (uint32_t f = firstUnassignedFace; f < n; f++) {
-				if (m_faceGroups[f] == kInvalidFaceGroup && !isFaceIgnored(f)) {
-					face = f;
-					firstUnassignedFace = f + 1;
-					break;
-				}
-			}
-			if (face == UINT32_MAX)
-				break; // All faces assigned to a group (except ignored faces).
-			m_faceGroups[face] = group;
-			m_faceGroupNextFace[face] = UINT32_MAX;
-			m_faceGroupFirstFace.push_back(face);
-			growFaces.clear();
-			growFaces.push_back(face);
-			uint32_t prevFace = face, groupFaceCount = 1;
-			// Find faces connected to the face and assign them to the same group as the face, unless they are already assigned to another group.
-			for (;;) {
-				if (growFaces.isEmpty())
-					break;
-				const uint32_t f = growFaces.back();
-				growFaces.pop_back();
-				for (FaceEdgeIterator edgeIt(this, f); !edgeIt.isDone(); edgeIt.advance()) {
-					// Iterate opposite edges. There may be more than one - non-manifold geometry can have duplicate edges.
-					// Prioritize the one with exact vertex match, not just colocal.
-					// If *any* of the opposite edges are already assigned to this group, don't do anything.
-					bool alreadyAssignedToThisGroup = false;
-					uint32_t bestConnectedFace = UINT32_MAX;
-					for (ColocalEdgeIterator oppositeEdgeIt(this, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
-						const uint32_t oppositeEdge = oppositeEdgeIt.edge();
-						const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
-						if (isFaceIgnored(oppositeFace))
-							continue; // Don't add ignored faces to group.
-						if (m_faceGroups[oppositeFace] == group) {
-							alreadyAssignedToThisGroup = true;
-							break;
-						}
-						if (m_faceGroups[oppositeFace] != kInvalidFaceGroup)
-							continue; // Connected face is already assigned to another group.
-						if (faceDuplicatesGroupEdge(group, oppositeFace))
-							continue; // Don't want duplicate edges in a group.
-						const uint32_t oppositeVertex0 = m_indices[meshEdgeIndex0(oppositeEdge)];
-						const uint32_t oppositeVertex1 = m_indices[meshEdgeIndex1(oppositeEdge)];
-						if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
-							bestConnectedFace = oppositeFace;
-#if 0
-						else {
-							// Choose the opposite face with the smallest dihedral angle.
-							const float d1 = 1.0f - dot(computeFaceNormal(f), computeFaceNormal(bestConnectedFace));
-							const float d2 = 1.0f - dot(computeFaceNormal(f), computeFaceNormal(oppositeFace));
-							if (d2 < d1)
-								bestConnectedFace = oppositeFace;
-						}
-#endif
-					}
-					if (!alreadyAssignedToThisGroup && bestConnectedFace != UINT32_MAX) {
-						m_faceGroups[bestConnectedFace] = group;
-						m_faceGroupNextFace[bestConnectedFace] = UINT32_MAX;
-						if (prevFace != UINT32_MAX)
-							m_faceGroupNextFace[prevFace] = bestConnectedFace;
-						prevFace = bestConnectedFace;
-						groupFaceCount++;
-						growFaces.push_back(bestConnectedFace);
-					}
-				}
-			}
-			m_faceGroupFaceCounts.push_back(groupFaceCount);
-			group++;
-			XA_ASSERT(group < kInvalidFaceGroup);
 		}
 	}
 
@@ -2991,15 +2891,11 @@ public:
 	XA_INLINE Vector2 *texcoords() { return m_texcoords.data(); }
 	XA_INLINE uint32_t ignoredFaceCount() const { return m_ignoredFaceCount; }
 	XA_INLINE uint32_t faceCount() const { return m_indices.size() / 3; }
-	XA_INLINE FaceGroup faceGroupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroups[face]; }
-	XA_INLINE uint32_t faceGroupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroupFaceCounts.size(); }
-	XA_INLINE uint32_t faceGroupNextFace(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroupNextFace[face]; }
-	XA_INLINE uint32_t faceGroupFaceCount(uint32_t group) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceGroupFaceCounts[group]; }
 	XA_INLINE const uint32_t *indices() const { return m_indices.data(); }
 	XA_INLINE uint32_t indexCount() const { return m_indices.size(); }
+	XA_INLINE bool isFaceIgnored(uint32_t face) const { return (m_flags & MeshFlags::HasIgnoredFaces) && m_faceIgnore[face]; }
 
 private:
-	bool isFaceIgnored(uint32_t face) const { return (m_flags & MeshFlags::HasIgnoredFaces) && m_faceIgnore[face]; }
 
 	float m_epsilon;
 	uint32_t m_flags;
@@ -3010,12 +2906,6 @@ private:
 	Array<Vector3> m_positions;
 	Array<Vector3> m_normals;
 	Array<Vector2> m_texcoords;
-
-	// Populated by createFaceGroups
-	Array<FaceGroup> m_faceGroups;
-	Array<uint32_t> m_faceGroupFirstFace;
-	Array<uint32_t> m_faceGroupNextFace; // In: face. Out: the next face in the same group.
-	Array<uint32_t> m_faceGroupFaceCounts; // In: face group. Out: number of faces in the group.
 
 	// Populated by createColocals
 	uint32_t m_colocalVertexCount;
@@ -3254,19 +3144,119 @@ public:
 		uint32_t m_edge;
 		uint32_t m_relativeEdge;
 	};
+};
 
-	class GroupFaceIterator
+struct MeshFaceGroups
+{
+	typedef uint32_t Handle;
+	static constexpr Handle kInvalid = UINT32_MAX;
+
+	MeshFaceGroups(const Mesh *mesh) : m_mesh(mesh), m_groups(MemTag::Mesh), m_firstFace(MemTag::Mesh), m_nextFace(MemTag::Mesh), m_faceCount(MemTag::Mesh)
+	{
+		
+	}
+
+	XA_INLINE Handle groupAt(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_groups[face]; }
+	XA_INLINE uint32_t groupCount() const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceCount.size(); }
+	XA_INLINE uint32_t nextFace(uint32_t face) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_nextFace[face]; }
+	XA_INLINE uint32_t faceCount(uint32_t group) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasFaceGroups); return m_faceCount[group]; }
+
+	void compute()
+	{
+		m_groups.resize(m_mesh->faceCount());
+		for (uint32_t i = 0; i < m_mesh->faceCount(); i++)
+			m_groups[i] = kInvalid; // TODO: memset
+		uint32_t firstUnassignedFace = 0;
+		Handle group = 0;
+		Array<uint32_t> growFaces;
+		const uint32_t n = m_mesh->faceCount();
+		m_nextFace.resize(n);
+		for (;;) {
+			// Find an unassigned face.
+			uint32_t face = UINT32_MAX;
+			for (uint32_t f = firstUnassignedFace; f < n; f++) {
+				if (m_groups[f] == kInvalid && !m_mesh->isFaceIgnored(f)) {
+					face = f;
+					firstUnassignedFace = f + 1;
+					break;
+				}
+			}
+			if (face == UINT32_MAX)
+				break; // All faces assigned to a group (except ignored faces).
+			m_groups[face] = group;
+			m_nextFace[face] = UINT32_MAX;
+			m_firstFace.push_back(face);
+			growFaces.clear();
+			growFaces.push_back(face);
+			uint32_t prevFace = face, groupFaceCount = 1;
+			// Find faces connected to the face and assign them to the same group as the face, unless they are already assigned to another group.
+			for (;;) {
+				if (growFaces.isEmpty())
+					break;
+				const uint32_t f = growFaces.back();
+				growFaces.pop_back();
+				for (Mesh::FaceEdgeIterator edgeIt(m_mesh, f); !edgeIt.isDone(); edgeIt.advance()) {
+					// Iterate opposite edges. There may be more than one - non-manifold geometry can have duplicate edges.
+					// Prioritize the one with exact vertex match, not just colocal.
+					// If *any* of the opposite edges are already assigned to this group, don't do anything.
+					bool alreadyAssignedToThisGroup = false;
+					uint32_t bestConnectedFace = UINT32_MAX;
+					for (Mesh::ColocalEdgeIterator oppositeEdgeIt(m_mesh, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
+						const uint32_t oppositeEdge = oppositeEdgeIt.edge();
+						const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
+						if (m_mesh->isFaceIgnored(oppositeFace))
+							continue; // Don't add ignored faces to group.
+						if (m_groups[oppositeFace] == group) {
+							alreadyAssignedToThisGroup = true;
+							break;
+						}
+						if (m_groups[oppositeFace] != kInvalid)
+							continue; // Connected face is already assigned to another group.
+						if (faceDuplicatesGroupEdge(group, oppositeFace))
+							continue; // Don't want duplicate edges in a group.
+						const uint32_t oppositeVertex0 = m_mesh->vertexAt(meshEdgeIndex0(oppositeEdge));
+						const uint32_t oppositeVertex1 = m_mesh->vertexAt(meshEdgeIndex1(oppositeEdge));
+						if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
+							bestConnectedFace = oppositeFace;
+#if 0
+						else {
+							// Choose the opposite face with the smallest dihedral angle.
+							const float d1 = 1.0f - dot(computeFaceNormal(f), computeFaceNormal(bestConnectedFace));
+							const float d2 = 1.0f - dot(computeFaceNormal(f), computeFaceNormal(oppositeFace));
+							if (d2 < d1)
+								bestConnectedFace = oppositeFace;
+						}
+#endif
+					}
+					if (!alreadyAssignedToThisGroup && bestConnectedFace != UINT32_MAX) {
+						m_groups[bestConnectedFace] = group;
+						m_nextFace[bestConnectedFace] = UINT32_MAX;
+						if (prevFace != UINT32_MAX)
+							m_nextFace[prevFace] = bestConnectedFace;
+						prevFace = bestConnectedFace;
+						groupFaceCount++;
+						growFaces.push_back(bestConnectedFace);
+					}
+				}
+			}
+			m_faceCount.push_back(groupFaceCount);
+			group++;
+			XA_ASSERT(group < kInvalid);
+		}
+	}
+
+	class Iterator
 	{
 	public:
-		GroupFaceIterator(const Mesh *mesh, FaceGroup group) : m_mesh(mesh)
+		Iterator(const MeshFaceGroups *meshFaceGroups, Handle group) : m_meshFaceGroups(meshFaceGroups)
 		{
 			XA_DEBUG_ASSERT(group != kInvalidFaceGroup);
-			m_current = mesh->m_faceGroupFirstFace[group];
+			m_current = m_meshFaceGroups->m_firstFace[group];
 		}
 
 		void advance()
 		{
-			m_current = m_mesh->m_faceGroupNextFace[m_current];
+			m_current = m_meshFaceGroups->m_nextFace[m_current];
 		}
 
 		bool isDone() const
@@ -3280,12 +3270,31 @@ public:
 		}
 
 	private:
-		const Mesh *m_mesh;
+		const MeshFaceGroups *m_meshFaceGroups;
 		uint32_t m_current;
 	};
+
+private:
+	// Check if the face duplicates any edges of any face already in the group.
+	bool faceDuplicatesGroupEdge(Handle group, uint32_t face) const
+	{
+		for (Mesh::FaceEdgeIterator edgeIt(m_mesh, face); !edgeIt.isDone(); edgeIt.advance()) {
+			for (Mesh::ColocalEdgeIterator colocalEdgeIt(m_mesh, edgeIt.vertex0(), edgeIt.vertex1()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
+				if (m_groups[meshEdgeFace(colocalEdgeIt.edge())] == group)
+					return true;
+			}
+		}
+		return false;
+	}
+
+	const Mesh *m_mesh;
+	Array<Handle> m_groups;
+	Array<uint32_t> m_firstFace;
+	Array<uint32_t> m_nextFace; // In: face. Out: the next face in the same group.
+	Array<uint32_t> m_faceCount; // In: face group. Out: number of faces in the group.
 };
 
-constexpr Mesh::FaceGroup Mesh::kInvalidFaceGroup;
+constexpr MeshFaceGroups::Handle MeshFaceGroups::kInvalid;
 
 static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const Vector3 &normal)
 {
@@ -7121,21 +7130,21 @@ static void runParameterizeChartTask(void *userData)
 class ChartGroup
 {
 public:
-	ChartGroup(uint32_t id, const Mesh *sourceMesh, Mesh::FaceGroup faceGroup) : m_sourceId(sourceMesh->id()), m_id(id), m_isVertexMap(faceGroup == Mesh::kInvalidFaceGroup), m_paramAddedChartsCount(0), m_paramDeletedChartsCount(0)
+	ChartGroup(uint32_t id, const Mesh *sourceMesh, const MeshFaceGroups *meshFaceGroups, MeshFaceGroups::Handle faceGroup) : m_sourceId(sourceMesh->id()), m_id(id), m_isVertexMap(faceGroup == MeshFaceGroups::kInvalid), m_paramAddedChartsCount(0), m_paramDeletedChartsCount(0)
 	{
 		// Create new mesh from the source mesh, using faces that belong to this group.
 		const uint32_t sourceFaceCount = sourceMesh->faceCount();
 		if (!m_isVertexMap) {
-			m_faceToSourceFaceMap.reserve(sourceMesh->faceGroupFaceCount(faceGroup));
-			for (Mesh::GroupFaceIterator it(sourceMesh, faceGroup); !it.isDone(); it.advance())
+			m_faceToSourceFaceMap.reserve(meshFaceGroups->faceCount(faceGroup));
+			for (MeshFaceGroups::Iterator it(meshFaceGroups, faceGroup); !it.isDone(); it.advance())
 				m_faceToSourceFaceMap.push_back(it.face());
 		} else {
 			for (uint32_t f = 0; f < sourceFaceCount; f++) {
-				if (sourceMesh->faceGroupAt(f) == faceGroup)
+				if (meshFaceGroups->groupAt(f) == faceGroup)
 					m_faceToSourceFaceMap.push_back(f);
 			}
 		}
-		// Only initial meshes have face groups and ignored faces. The only flag we care about is HasNormals.
+		// Only initial meshes has ignored faces. The only flag we care about is HasNormals.
 		const uint32_t faceCount = m_faceToSourceFaceMap.size();
 		XA_DEBUG_ASSERT(faceCount > 0);
 		const uint32_t approxVertexCount = faceCount * 3;
@@ -7451,9 +7460,10 @@ private:
 
 struct CreateChartGroupTaskArgs
 {
-	Mesh::FaceGroup faceGroup;
+	MeshFaceGroups::Handle faceGroup;
 	uint32_t groupId;
 	const Mesh *mesh;
+	const MeshFaceGroups *meshFaceGroups;
 	ChartGroup **chartGroup;
 };
 
@@ -7461,7 +7471,7 @@ static void runCreateChartGroupTask(void *userData)
 {
 	XA_PROFILE_START(addMeshCreateChartGroupsThread)
 	auto args = (CreateChartGroupTaskArgs *)userData;
-	*(args->chartGroup) = XA_NEW_ARGS(MemTag::Default, ChartGroup, args->groupId, args->mesh, args->faceGroup);
+	*(args->chartGroup) = XA_NEW_ARGS(MemTag::Default, ChartGroup, args->groupId, args->mesh, args->meshFaceGroups, args->faceGroup);
 	XA_PROFILE_END(addMeshCreateChartGroupsThread)
 }
 
@@ -7558,21 +7568,22 @@ public:
 	}
 
 	// This function is thread safe.
-	void addMesh(TaskScheduler *taskScheduler, const Mesh *mesh)
+	void addMesh(TaskScheduler *taskScheduler, const Mesh *mesh, const MeshFaceGroups *meshFaceGroups)
 	{
 		// Create one chart group per face group.
 		// If there's any ignored faces in the mesh, create an extra face group for that (vertex map).
 		// Chart group creation is slow since it copies a chunk of the source mesh, so use tasks.
 		Array<ChartGroup *> chartGroups;
-		chartGroups.resize(mesh->faceGroupCount() + (mesh->ignoredFaceCount() > 0 ? 1 : 0));
+		chartGroups.resize(meshFaceGroups->groupCount() + (mesh->ignoredFaceCount() > 0 ? 1 : 0));
 		Array<CreateChartGroupTaskArgs> taskArgs;
 		taskArgs.resize(chartGroups.size());
 		for (uint32_t g = 0; g < chartGroups.size(); g++) {
 			CreateChartGroupTaskArgs &args = taskArgs[g];
 			args.chartGroup = &chartGroups[g];
-			args.faceGroup = Mesh::FaceGroup(g < mesh->faceGroupCount() ? g : Mesh::kInvalidFaceGroup);
+			args.faceGroup = MeshFaceGroups::Handle(g < meshFaceGroups->groupCount() ? g : MeshFaceGroups::kInvalid);
 			args.groupId = g;
 			args.mesh = mesh;
+			args.meshFaceGroups = meshFaceGroups;
 		}
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartGroups.size());
 		for (uint32_t g = 0; g < chartGroups.size(); g++) {
@@ -8743,13 +8754,18 @@ static void runAddMeshTask(void *userData)
 	}
 	if (progress->cancel)
 		goto cleanup;
+	internal::MeshFaceGroups *meshFaceGroups = XA_NEW_ARGS(internal::MemTag::Mesh, internal::MeshFaceGroups, mesh);
 	{
 		XA_PROFILE_START(addMeshCreateFaceGroups)
-		mesh->createFaceGroups();
+		meshFaceGroups->compute();
 		XA_PROFILE_END(addMeshCreateFaceGroups)
 	}
 	if (progress->cancel)
+	{
+		meshFaceGroups->~MeshFaceGroups();
+		XA_FREE(meshFaceGroups);
 		goto cleanup;
+	}
 #if XA_DEBUG_EXPORT_OBJ_FACE_GROUPS
 	static std::mutex s_mutex;
 	{
@@ -8763,21 +8779,21 @@ static void runAddMeshTask(void *userData)
 			// groups
 			uint32_t numGroups = 0;
 			for (uint32_t i = 0; i < mesh->faceCount(); i++) {
-				if (mesh->faceGroupAt(i) != internal::Mesh::kInvalidFaceGroup)
-					numGroups = internal::max(numGroups, mesh->faceGroupAt(i) + 1);
+				if (meshFaceGroups->groupAt(i) != internal::MeshFaceGroups::kInvalid)
+					numGroups = internal::max(numGroups, meshFaceGroups->groupAt(i) + 1);
 			}
 			for (uint32_t i = 0; i < numGroups; i++) {
 				fprintf(file, "o mesh_%03u_group_%04d\n", mesh->id(), i);
 				fprintf(file, "s off\n");
 				for (uint32_t f = 0; f < mesh->faceCount(); f++) {
-					if (mesh->faceGroupAt(f) == i)
+					if (meshFaceGroups->groupAt(f) == i)
 						mesh->writeObjFace(file, f, s_faceGroupsCurrentVertex);
 				}
 			}
 			fprintf(file, "o mesh_%03u_group_ignored\n", mesh->id());
 			fprintf(file, "s off\n");
 			for (uint32_t f = 0; f < mesh->faceCount(); f++) {
-				if (mesh->faceGroupAt(f) == internal::Mesh::kInvalidFaceGroup)
+				if (meshFaceGroups->groupAt(f) == internal::MeshFaceGroups::kInvalid)
 					mesh->writeObjFace(file, f, s_faceGroupsCurrentVertex);
 			}
 			mesh->writeObjBoundaryEges(file);
@@ -8788,7 +8804,7 @@ static void runAddMeshTask(void *userData)
 #endif
 	{
 		XA_PROFILE_START(addMeshCreateChartGroupsReal)
-		args->ctx->paramAtlas.addMesh(args->ctx->taskScheduler, mesh); // addMesh is thread safe
+		args->ctx->paramAtlas.addMesh(args->ctx->taskScheduler, mesh, meshFaceGroups); // addMesh is thread safe
 		XA_PROFILE_END(addMeshCreateChartGroupsReal)
 	}
 	if (progress->cancel)
@@ -8870,7 +8886,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 				return AddMeshError::IndexOutOfRange;
 		}
 	}
-	uint32_t meshFlags = internal::MeshFlags::HasFaceGroups | internal::MeshFlags::HasIgnoredFaces;
+	uint32_t meshFlags = internal::MeshFlags::HasIgnoredFaces;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
 	internal::Mesh *mesh = XA_NEW_ARGS(internal::MemTag::Mesh, internal::Mesh, meshDecl.epsilon, meshDecl.vertexCount, indexCount / 3, meshFlags, ctx->meshCount);
