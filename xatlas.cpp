@@ -518,33 +518,6 @@ static uint32_t nextPowerOfTwo(uint32_t x)
 	return x + 1;
 }
 
-static uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
-{
-	const uint8_t *data = (const uint8_t *) data_in;
-	uint32_t i = 0;
-	while (i < size) {
-		h = (h << 16) + (h << 6) - h + (uint32_t ) data[i++];
-	}
-	return h;
-}
-
-template <typename T>
-static uint32_t hash(const T &t, uint32_t h = 5381)
-{
-	return sdbmHash(&t, sizeof(T), h);
-}
-
-// Functors for hash table:
-template <typename Key> struct Hash
-{
-	uint32_t operator()(const Key &k) const { return hash(k); }
-};
-
-template <typename Key> struct Equal
-{
-	bool operator()(const Key &k0, const Key &k1) const { return k0 == k1; }
-};
-
 class Vector2
 {
 public:
@@ -1245,11 +1218,16 @@ public:
 			((T *)m_base.buffer)[i].~T();
 	}
 
-	void setAll(const T &value)
+	void fill(const T &value)
 	{
 		auto buffer = (T *)m_base.buffer;
 		for (uint32_t i = 0; i < m_base.size; i++)
 			buffer[i] = value;
+	}
+
+	void fillBytes(uint8_t value)
+	{
+		memset(m_base.buffer, (int)value, m_base.size * m_base.elementSize);
 	}
 
 #if XA_DEBUG_HEAP
@@ -1948,6 +1926,40 @@ public:
 
 private:
 	Array<float> m_array;
+};
+
+static uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
+{
+	const uint8_t *data = (const uint8_t *) data_in;
+	uint32_t i = 0;
+	while (i < size) {
+		h = (h << 16) + (h << 6) - h + (uint32_t ) data[i++];
+	}
+	return h;
+}
+
+template <typename T>
+static uint32_t hash(const T &t, uint32_t h = 5381)
+{
+	return sdbmHash(&t, sizeof(T), h);
+}
+
+template <typename Key>
+struct Hash
+{
+	uint32_t operator()(const Key &k) const { return hash(k); }
+};
+
+template <typename Key>
+struct PassthroughHash
+{
+	uint32_t operator()(const Key &k) const { return (uint32_t)k; }
+};
+
+template <typename Key>
+struct Equal
+{
+	bool operator()(const Key &k0, const Key &k1) const { return k0 == k1; }
 };
 
 template<typename Key, typename H = Hash<Key>, typename E = Equal<Key> >
@@ -5055,7 +5067,7 @@ struct ClusteredCharts
 		}
 		m_charts.clear();
 		m_faceCharts.resize(faceCount);
-		m_faceCharts.setAll(-1);
+		m_faceCharts.fill(-1);
 		m_texcoords.resize(faceCount * 3);
 		if (m_facesLeft == 0)
 			return;
@@ -6783,10 +6795,10 @@ public:
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
 		Array<uint32_t> &chartMeshIndices = buffers.chartMeshIndices;
 		chartMeshIndices.resize(originalMesh->vertexCount());
-		chartMeshIndices.setAll(UINT32_MAX);
+		chartMeshIndices.fillBytes(0xff);
 		Array<uint32_t> &unifiedMeshIndices = buffers.unifiedMeshIndices;
 		unifiedMeshIndices.resize(originalMesh->vertexCount());
-		unifiedMeshIndices.setAll(UINT32_MAX);
+		unifiedMeshIndices.fillBytes(0xff);
 		// Add vertices.
 		const uint32_t faceCount = m_initialFaceCount = m_faceArray.size();
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -6926,10 +6938,10 @@ public:
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, originalMesh->epsilon(), m_faceArray.size() * 3, m_faceArray.size());
 		Array<uint32_t> &chartMeshIndices = buffers.chartMeshIndices;
 		chartMeshIndices.resize(originalMesh->vertexCount());
-		chartMeshIndices.setAll(UINT32_MAX);
+		chartMeshIndices.fillBytes(0xff);
 		Array<uint32_t> &unifiedMeshIndices = buffers.unifiedMeshIndices;
 		unifiedMeshIndices.resize(originalMesh->vertexCount());
-		unifiedMeshIndices.setAll(UINT32_MAX);
+		unifiedMeshIndices.fillBytes(0xff);
 		// Add vertices.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
@@ -7158,10 +7170,10 @@ public:
 		// Only initial meshes has ignored faces. The only flag we care about is HasNormals.
 		const uint32_t faceCount = m_faceToSourceFaceMap.size();
 		XA_DEBUG_ASSERT(faceCount > 0);
-		const uint32_t approxVertexCount = faceCount * 3;
+		const uint32_t approxVertexCount = min(faceCount * 3, sourceMesh->vertexCount());
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faceCount, sourceMesh->flags() & MeshFlags::HasNormals);
 		m_vertexToSourceVertexMap.reserve(approxVertexCount);
-		HashMap<uint32_t> sourceVertexToVertexMap(MemTag::Mesh, approxVertexCount);
+		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToVertexMap(MemTag::Mesh, approxVertexCount);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const uint32_t face = m_faceToSourceFaceMap[f];
 			for (uint32_t i = 0; i < 3; i++) {
