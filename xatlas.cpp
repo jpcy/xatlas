@@ -122,6 +122,7 @@ Copyright (c) 2012 Brandon Pelfrey
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
+#define XA_DEBUG_ALL_CHARTS_INVALID 0
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES 0
 #define XA_DEBUG_EXPORT_ATLAS_IMAGES_PER_CHART 0 // Export an atlas image after each chart is added.
 #define XA_DEBUG_EXPORT_BOUNDARY_GRID 0
@@ -7303,11 +7304,13 @@ public:
 		}
 		m_charts.clear();
 #if XA_DEBUG_SINGLE_CHART
-		Array<uint32_t> chartFaces;
-		chartFaces.resize(m_mesh->faceCount());
-		for (uint32_t i = 0; i < chartFaces.size(); i++)
-			chartFaces[i] = i;
-		Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, m_mesh, chartFaces, m_sourceId, m_id, 0);
+		Array<uint32_t> faces;
+		faces.resize(m_mesh->faceCount());
+		for (uint32_t i = 0; i < faces.size(); i++)
+			faces[i] = i;
+		Basis basis;
+		Fit::computeBasis(&m_mesh->position(0), m_mesh->vertexCount(), &basis);
+		Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, chartBuffers->get(), basis, faces, m_mesh, m_sourceId, m_id, 0);
 		m_charts.push_back(chart);
 #else
 		XA_PROFILE_START(buildAtlas)
@@ -7388,9 +7391,13 @@ public:
 		Array<Chart *> invalidCharts;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_charts[i];
+#if XA_DEBUG_ALL_CHARTS_INVALID
+			invalidCharts.push_back(chart);
+#else
 			const Quality &quality = chart->quality();
 			if (quality.boundaryIntersection || quality.flippedTriangleCount > 0)
 				invalidCharts.push_back(chart);
+#endif
 		}
 		if (invalidCharts.isEmpty())
 			return;
