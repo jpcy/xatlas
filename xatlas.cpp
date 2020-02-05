@@ -3217,13 +3217,11 @@ struct MeshFaceGroups
 						const uint32_t oppositeEdge = oppositeEdgeIt.edge();
 						const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
 #if 0
-						// Reject opposite face is dihedral angle > threshold.
+						// Reject opposite face if dihedral angle >= 90 degrees.
 						{
 							Vector3 a = m_mesh->computeFaceNormal(f);
 							Vector3 b = m_mesh->computeFaceNormal(oppositeFace);
-							const float dihedralAngle = atan2f(length(cross(a, b)), dot(a, b)) * kRadiansToDegrees;
-							XA_DEBUG_ASSERT(!isNan(dihedralAngle));
-							if (dihedralAngle >= 90.0f)
+							if (dot(a, b) <= 0.0f)
 								continue;
 						}
 #endif
