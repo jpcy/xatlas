@@ -8381,10 +8381,8 @@ struct Atlas
 				}
 				texcoord.x = best_x + t.x;
 				texcoord.y = best_y + t.y;
-				if (!options.blockAlign) {
-					texcoord.x -= (float)options.padding;
-					texcoord.y -= (float)options.padding;
-				}
+				texcoord.x -= (float)options.padding;
+				texcoord.y -= (float)options.padding;
 				XA_ASSERT(texcoord.x >= 0 && texcoord.y >= 0);
 				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 			}
@@ -8397,21 +8395,12 @@ struct Atlas
 				}
 			}
 		}
-		if (options.blockAlign) {
-			if (maxResolution == 0) {
-				m_width = max(0, atlasSizes[0].x);
-				m_height = max(0, atlasSizes[0].y);
-			} else {
-				m_width = m_height = maxResolution;
-			}
+		// Remove padding from outer edges.
+		if (maxResolution == 0) {
+			m_width = max(0, atlasSizes[0].x - (int)options.padding * 2);
+			m_height = max(0, atlasSizes[0].y - (int)options.padding * 2);
 		} else {
-			// Remove padding from outer edges.
-			if (maxResolution == 0) {
-				m_width = max(0, atlasSizes[0].x - (int)options.padding * 2);
-				m_height = max(0, atlasSizes[0].y - (int)options.padding * 2);
-			} else {
-				m_width = m_height = maxResolution - (int)options.padding * 2;
-			}
+			m_width = m_height = maxResolution - (int)options.padding * 2;
 		}
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
 		m_utilization.resize(m_bitImages.size());
@@ -9444,7 +9433,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	if (packOptions.createImage) {
 		atlas->image = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, atlas->atlasCount * atlas->width * atlas->height);
 		for (uint32_t i = 0; i < atlas->atlasCount; i++)
-			packAtlas.getImages()[i]->copyTo(&atlas->image[atlas->width * atlas->height * i], atlas->width, atlas->height, packOptions.blockAlign ? 0 : packOptions.padding);
+			packAtlas.getImages()[i]->copyTo(&atlas->image[atlas->width * atlas->height * i], atlas->width, atlas->height, packOptions.padding);
 	}
 	XA_PROFILE_PRINT_AND_RESET("   Total: ", packCharts)
 	XA_PROFILE_PRINT_AND_RESET("      Add charts (real): ", packChartsAddCharts)
