@@ -8923,6 +8923,8 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			texcoord = DecodeUv(meshDecl, i);
 		mesh->addVertex(DecodePosition(meshDecl, i), normal, texcoord);
 	}
+	const uint32_t kMaxWarnings = 50;
+	uint32_t warningCount = 0;
 	for (uint32_t i = 0; i < indexCount / 3; i++) {
 		uint32_t tri[3];
 		for (int j = 0; j < 3; j++)
@@ -8934,14 +8936,16 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			const uint32_t index2 = tri[(j + 1) % 3];
 			if (index1 == index2) {
 				ignore = true;
-				XA_PRINT("   Degenerate edge: index %d, index %d\n", index1, index2);
+				if (++warningCount <= kMaxWarnings)
+					XA_PRINT("   Degenerate edge: index %d, index %d\n", index1, index2);
 				break;
 			}
 			const internal::Vector3 &pos1 = mesh->position(index1);
 			const internal::Vector3 &pos2 = mesh->position(index2);
 			if (internal::length(pos2 - pos1) <= 0.0f) {
 				ignore = true;
-				XA_PRINT("   Zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
+				if (++warningCount <= kMaxWarnings)
+					XA_PRINT("   Zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
 				break;
 			}
 		}
@@ -8950,14 +8954,16 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			for (int j = 0; j < 3; j++) {
 				const internal::Vector3 &pos = mesh->position(tri[j]);
 				if (internal::isNan(pos.x) || internal::isNan(pos.y) || internal::isNan(pos.z)) {
-					XA_PRINT("   NAN position in face: %d\n", i);
+					if (++warningCount <= kMaxWarnings)
+						XA_PRINT("   NAN position in face: %d\n", i);
 					ignore = true;
 					break;
 				}
 				if (meshDecl.vertexNormalData) {
 					const internal::Vector3 &normal = mesh->normal(tri[j]);
 					if (internal::isNan(normal.x) || internal::isNan(normal.y) || internal::isNan(normal.z)) {
-						XA_PRINT("   NAN normal in face: %d\n", i);
+						if (++warningCount <= kMaxWarnings)
+							XA_PRINT("   NAN normal in face: %d\n", i);
 						ignore = true;
 						break;
 					}
@@ -8965,7 +8971,8 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 				if (meshDecl.vertexUvData) {
 					const internal::Vector2 &uv = mesh->texcoord(tri[j]);
 					if (internal::isNan(uv.x) || internal::isNan(uv.y)) {
-						XA_PRINT("   NAN texture coordinate in face: %d\n", i);
+						if (++warningCount <= kMaxWarnings)
+							XA_PRINT("   NAN texture coordinate in face: %d\n", i);
 						ignore = true;
 						break;
 					}
@@ -8981,19 +8988,23 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
 			if (area <= internal::kAreaEpsilon) {
 				ignore = true;
-				XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", i, tri[0], tri[1], tri[2], area);
+				if (++warningCount <= kMaxWarnings)
+					XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", i, tri[0], tri[1], tri[2], area);
 			}
 		}
 		if (!ignore) {
 			if (internal::equal(a, b, meshDecl.epsilon) || internal::equal(a, c, meshDecl.epsilon) || internal::equal(b, c, meshDecl.epsilon)) {
 				ignore = true;
-				XA_PRINT("   Degenerate face: %d, area is %f\n", i, area);
+				if (++warningCount <= kMaxWarnings)
+					XA_PRINT("   Degenerate face: %d, area is %f\n", i, area);
 			}
 		}
 		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
 			ignore = true;
 		mesh->addFace(tri[0], tri[1], tri[2], ignore);
 	}
+	if (warningCount > kMaxWarnings)
+		XA_PRINT("   %u additional warnings truncated\n", warningCount - kMaxWarnings);
 	XA_PROFILE_END(addMeshCopyData)
 	if (ctx->addMeshTaskGroup.value == UINT32_MAX)
 		ctx->addMeshTaskGroup = ctx->taskScheduler->createTaskGroup();
