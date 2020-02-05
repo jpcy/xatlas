@@ -363,12 +363,14 @@ struct ProfileData
 	std::atomic<clock_t> computeChartsThread;
 	std::atomic<clock_t> buildAtlas;
 	std::atomic<clock_t> buildAtlasInit;
-	std::atomic<clock_t> buildAtlasPlaceSeeds;
-	std::atomic<clock_t> buildAtlasRelocateSeeds;
-	std::atomic<clock_t> buildAtlasResetCharts;
-	std::atomic<clock_t> buildAtlasGrowCharts;
-	std::atomic<clock_t> buildAtlasMergeCharts;
-	std::atomic<clock_t> buildAtlasFillHoles;
+	std::atomic<clock_t> planarCharts;
+	std::atomic<clock_t> clusteredCharts;
+	std::atomic<clock_t> clusteredChartsPlaceSeeds;
+	std::atomic<clock_t> clusteredChartsRelocateSeeds;
+	std::atomic<clock_t> clusteredChartsReset;
+	std::atomic<clock_t> clusteredChartsGrow;
+	std::atomic<clock_t> clusteredChartsMerge;
+	std::atomic<clock_t> clusteredChartsFillHoles;
 	std::atomic<clock_t> createChartMeshesReal;
 	std::atomic<clock_t> createChartMeshesThread;
 	std::atomic<clock_t> fixChartMeshTJunctions;
@@ -1320,7 +1322,13 @@ public:
 	void set(uint32_t index)
 	{
 		XA_DEBUG_ASSERT(index < m_size);
-		m_wordArray[index >> 5] |=  (1 << (index & 31));
+		m_wordArray[index >> 5] |= (1 << (index & 31));
+	}
+
+	void unset(uint32_t index)
+	{
+		XA_DEBUG_ASSERT(index < m_size);
+		m_wordArray[index >> 5] &= ~(1 << (index & 31));
 	}
 
 	void zeroOutMemory()
@@ -4899,39 +4907,28 @@ private:
 	Array<Pair> m_pairs;
 };
 
-struct Chart
-{
-	Chart() : faces(MemTag::SegmentAtlasChartFaces) {}
-
-	int id = -1;
-	Basis basis; // Best fit normal.
-	float area = 0.0f;
-	float boundaryLength = 0.0f;
-	Vector3 centroidSum = Vector3(0.0f); // Sum of chart face centroids.
-	Vector3 centroid = Vector3(0.0f); // Average centroid of chart faces.
-	Array<uint32_t> seeds;
-	Array<uint32_t> faces;
-	Array<uint32_t> failedPlanarRegions;
-	CostQueue candidates;
-};
-
 struct AtlasData
 {
 	ChartOptions options;
 	const Mesh *mesh;
+	Array<float> edgeDihedralAngles;
 	Array<float> edgeLengths;
 	Array<float> faceAreas;
 	Array<Vector3> faceNormals;
+	BitArray isFaceInChart;
 
-	AtlasData() : edgeLengths(MemTag::SegmentAtlasMeshData), faceAreas(MemTag::SegmentAtlasMeshData), faceNormals(MemTag::SegmentAtlasMeshData) {}
+	AtlasData() : edgeDihedralAngles(MemTag::SegmentAtlasMeshData), edgeLengths(MemTag::SegmentAtlasMeshData), faceAreas(MemTag::SegmentAtlasMeshData), faceNormals(MemTag::SegmentAtlasMeshData) {}
 
 	void compute()
 	{
 		const uint32_t faceCount = mesh->faceCount();
 		const uint32_t edgeCount = mesh->edgeCount();
+		edgeDihedralAngles.resize(edgeCount);
 		edgeLengths.resize(edgeCount);
 		faceAreas.resize(faceCount);
 		faceNormals.resize(faceCount);
+		isFaceInChart.resize(faceCount);
+		isFaceInChart.zeroOutMemory();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t edge = f * 3 + i;
@@ -4944,6 +4941,18 @@ struct AtlasData
 			XA_DEBUG_ASSERT(faceAreas[f] > 0.0f);
 			faceNormals[f] = mesh->computeFaceNormal(f);
 		}
+		for (uint32_t face = 0; face < faceCount; face++) {
+			for (uint32_t i = 0; i < 3; i++) {
+				const uint32_t edge = face * 3 + i;
+				const uint32_t oedge = mesh->oppositeEdge(edge);
+				if (oedge == UINT32_MAX)
+					edgeDihedralAngles[edge] = FLT_MAX;
+				else {
+					const uint32_t oface = meshEdgeFace(oedge);
+					edgeDihedralAngles[edge] = edgeDihedralAngles[oedge] = dot(faceNormals[face], faceNormals[oface]);
+				}
+			}
+		}
 	}
 };
 
@@ -4955,6 +4964,14 @@ static uint32_t s_planarRegionsCurrentVertex;
 struct PlanarCharts
 {
 	PlanarCharts(AtlasData &data) : m_data(data), m_nextRegionFace(MemTag::SegmentAtlasPlanarRegions), m_faceToRegionId(MemTag::SegmentAtlasPlanarRegions) {}
+	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartBasis[chartIndex]; }
+	uint32_t chartCount() const { return m_charts.size(); }
+	
+	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const
+	{
+		const Chart &chart = m_charts[chartIndex];
+		return ConstArrayView<uint32_t>(&m_chartFaces[chart.firstFace], chart.faceCount);
+	}
 
 	uint32_t regionIdFromFace(uint32_t face) const { return m_faceToRegionId[face]; }
 	uint32_t nextRegionFace(uint32_t face) const { return m_nextRegionFace[face]; }
@@ -4964,6 +4981,7 @@ struct PlanarCharts
 	{
 		const uint32_t faceCount = m_data.mesh->faceCount();
 		// Precompute regions of coplanar incident faces.
+		m_regionFirstFace.clear();
 		m_nextRegionFace.resize(faceCount);
 		m_faceToRegionId.resize(faceCount);
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -4972,7 +4990,7 @@ struct PlanarCharts
 		}
 		Array<uint32_t> faceStack;
 		faceStack.reserve(min(faceCount, 16u));
-		uint32_t planarRegionCount = 0;
+		uint32_t regionCount = 0;
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_nextRegionFace[f] != f)
 				continue; // Already assigned.
@@ -4982,7 +5000,7 @@ struct PlanarCharts
 				if (faceStack.isEmpty())
 					break;
 				const uint32_t face = faceStack.back();
-				m_faceToRegionId[face] = planarRegionCount;
+				m_faceToRegionId[face] = regionCount;
 				faceStack.pop_back();
 				for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
 					const uint32_t oface = it.oppositeFace();
@@ -4995,11 +5013,12 @@ struct PlanarCharts
 					const uint32_t next = m_nextRegionFace[face];
 					m_nextRegionFace[face] = oface;
 					m_nextRegionFace[oface] = next;
-					m_faceToRegionId[oface] = planarRegionCount;
+					m_faceToRegionId[oface] = regionCount;
 					faceStack.push_back(oface);
 				}
 			}
-			planarRegionCount++;
+			m_regionFirstFace.push_back(f);
+			regionCount++;
 		}
 #if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
 		static std::mutex s_mutex;
@@ -5010,7 +5029,7 @@ struct PlanarCharts
 			if (file) {
 				m_data.mesh->writeObjVertices(file);
 				fprintf(file, "s off\n");
-				for (uint32_t i = 0; i < planarRegionCount; i++) {
+				for (uint32_t i = 0; i < regionCount; i++) {
 					fprintf(file, "o region%u\n", s_planarRegionsCurrentRegion);
 					for (uint32_t j = 0; j < faceCount; j++) {
 						if (m_faceToRegionId[j] == i)
@@ -5024,17 +5043,78 @@ struct PlanarCharts
 		}
 #endif
 		// Precompute planar region areas.
-		m_regionAreas.resize(planarRegionCount);
+		m_regionAreas.resize(regionCount);
 		m_regionAreas.zeroOutMemory();
 		for (uint32_t f = 0; f < faceCount; f++)
 			m_regionAreas[m_faceToRegionId[f]] += m_data.faceAreas[f];
+		// Create charts from suitable planar regions.
+		// The dihedral angle of all boundary edges must be >= 90 degrees.
+		m_charts.clear();
+		m_chartFaces.clear();
+		for (uint32_t region = 0; region < regionCount; region++) {
+			const uint32_t firstRegionFace = m_regionFirstFace[region];
+			uint32_t face = firstRegionFace;
+			bool createChart = true;
+			do {
+				for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
+					if (it.isBoundary())
+						continue; // Ignore mesh boundary edges.
+					const uint32_t oface = it.oppositeFace();
+					if (m_faceToRegionId[oface] == region)
+						continue; // Ignore internal edges.
+					const float angle = m_data.edgeDihedralAngles[it.edge()];
+					if (angle > 0.0f && angle < FLT_MAX) { // FLT_MAX on boundaries.
+						createChart = false;
+						break;
+					}
+				}
+				if (!createChart)
+					break;
+				face = m_nextRegionFace[face];
+			}
+			while (face != firstRegionFace);
+			// Create a chart.
+			if (createChart) {
+				Chart chart;
+				chart.firstFace = m_chartFaces.size();
+				chart.faceCount = 0;
+				face = firstRegionFace;
+				do {
+					m_data.isFaceInChart.set(face);
+					m_chartFaces.push_back(face);
+					chart.faceCount++;
+					face = m_nextRegionFace[face];
+				}
+				while (face != firstRegionFace);
+				m_charts.push_back(chart);
+			}
+		}
+		// Compute basis for each chart using the first face normal (all faces have the same normal).
+		m_chartBasis.resize(m_charts.size());
+		for (uint32_t c = 0; c < m_charts.size(); c++)
+		{
+			const uint32_t face = m_chartFaces[m_charts[c].firstFace];
+			Basis &basis = m_chartBasis[c];
+			basis.normal = m_data.faceNormals[face];
+			basis.tangent = Basis::computeTangent(basis.normal);
+			basis.bitangent = Basis::computeBitangent(basis.normal, basis.tangent);
+		}
 	}
 
 private:
+	struct Chart
+	{
+		uint32_t firstFace, faceCount;
+	};
+
 	AtlasData &m_data;
+	Array<uint32_t> m_regionFirstFace;
 	Array<uint32_t> m_nextRegionFace;
 	Array<uint32_t> m_faceToRegionId;
 	Array<float> m_regionAreas;
+	Array<Chart> m_charts;
+	Array<uint32_t> m_chartFaces;
+	Array<Basis> m_chartBasis;
 };
 
 struct ClusteredCharts
@@ -5050,15 +5130,18 @@ struct ClusteredCharts
 		}
 	}
 
-	uint32_t facesLeft() const { return m_facesLeft; }
 	uint32_t chartCount() const { return m_charts.size(); }
-	const Array<uint32_t> &chartFaces(uint32_t chartIndex) const { return m_charts[chartIndex]->faces; }
+	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const { return m_charts[chartIndex]->faces; }
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_charts[chartIndex]->basis; }
 
 	void compute()
 	{
 		const uint32_t faceCount = m_data.mesh->faceCount();
-		m_facesLeft = faceCount;
+		m_facesLeft = 0;
+		for (uint32_t i = 0; i < faceCount; i++) {
+			if (!m_data.isFaceInChart.get(i))
+				m_facesLeft++;
+		}
 		const uint32_t chartCount = m_charts.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
 			m_charts[i]->~Chart();
@@ -5097,9 +5180,26 @@ struct ClusteredCharts
 		XA_DEBUG_ASSERT(m_facesLeft == 0);
 	}
 
+private:
+	struct Chart
+	{
+		Chart() : faces(MemTag::SegmentAtlasChartFaces) {}
+
+		int id = -1;
+		Basis basis; // Best fit normal.
+		float area = 0.0f;
+		float boundaryLength = 0.0f;
+		Vector3 centroidSum = Vector3(0.0f); // Sum of chart face centroids.
+		Vector3 centroid = Vector3(0.0f); // Average centroid of chart faces.
+		Array<uint32_t> seeds;
+		Array<uint32_t> faces;
+		Array<uint32_t> failedPlanarRegions;
+		CostQueue candidates;
+	};
+
 	void placeSeeds(float threshold)
 	{
-		XA_PROFILE_START(buildAtlasPlaceSeeds)
+		XA_PROFILE_START(clusteredChartsPlaceSeeds)
 		// Instead of using a predefiened number of seeds:
 		// - Add seeds one by one, growing chart until a certain treshold.
 		// - Undo charts and restart growing process.
@@ -5108,13 +5208,13 @@ struct ClusteredCharts
 		//   - how do we weight the probabilities?
 		while (m_facesLeft > 0)
 			createChart(threshold);
-		XA_PROFILE_END(buildAtlasPlaceSeeds)
+		XA_PROFILE_END(clusteredChartsPlaceSeeds)
 	}
 
 	// Returns true if any of the charts can grow more.
 	void growCharts(float threshold)
 	{
-		XA_PROFILE_START(buildAtlasGrowCharts)
+		XA_PROFILE_START(clusteredChartsGrow)
 		for (;;) {
 			if (m_facesLeft == 0)
 				break;
@@ -5132,7 +5232,7 @@ struct ClusteredCharts
 						break;
 					cost = chart->candidates.peekCost();
 					face = chart->candidates.peekFace();
-					if (m_faceCharts[face] == -1)
+					if (!m_data.isFaceInChart.get(face))
 						break;
 					else {
 						// Face belongs to another chart. Pop from queue so the next best candidate can be retrieved.
@@ -5156,16 +5256,23 @@ struct ClusteredCharts
 			if (!addFaceToChart(chart, bestFace))
 				chart->failedPlanarRegions.push_back(m_planarCharts.regionIdFromFace(bestFace));
 		}
-		XA_PROFILE_END(buildAtlasGrowCharts)
+		XA_PROFILE_END(clusteredChartsGrow)
 	}
 
 	void resetCharts()
 	{
-		XA_PROFILE_START(buildAtlasResetCharts)
+		XA_PROFILE_START(clusteredChartsReset)
 		const uint32_t faceCount = m_data.mesh->faceCount();
-		for (uint32_t i = 0; i < faceCount; i++)
+		for (uint32_t i = 0; i < faceCount; i++) {
+			if (m_faceCharts[i] != -1)
+				m_data.isFaceInChart.unset(i);
 			m_faceCharts[i] = -1;
-		m_facesLeft = faceCount;
+		}
+		m_facesLeft = 0;
+		for (uint32_t i = 0; i < faceCount; i++) {
+			if (!m_data.isFaceInChart.get(i))
+				m_facesLeft++;
+		}
 		const uint32_t chartCount = m_charts.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_charts[i];
@@ -5182,12 +5289,12 @@ struct ClusteredCharts
 			chart->failedPlanarRegions.clear();
 			addFaceToChart(chart, seed);
 		}
-		XA_PROFILE_END(buildAtlasResetCharts)
+		XA_PROFILE_END(clusteredChartsReset)
 	}
 
 	bool relocateSeeds()
 	{
-		XA_PROFILE_START(buildAtlasRelocateSeeds)
+		XA_PROFILE_START(clusteredChartsRelocateSeeds)
 		bool anySeedChanged = false;
 		const uint32_t chartCount = m_charts.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
@@ -5195,22 +5302,22 @@ struct ClusteredCharts
 				anySeedChanged = true;
 			}
 		}
-		XA_PROFILE_END(buildAtlasRelocateSeeds)
+		XA_PROFILE_END(clusteredChartsRelocateSeeds)
 		return anySeedChanged;
 	}
 
 	void fillHoles(float threshold)
 	{
-		XA_PROFILE_START(buildAtlasFillHoles)
+		XA_PROFILE_START(clusteredChartsFillHoles)
 		while (m_facesLeft > 0)
 			createChart(threshold);
-		XA_PROFILE_END(buildAtlasFillHoles)
+		XA_PROFILE_END(clusteredChartsFillHoles)
 	}
 
 #if XA_MERGE_CHARTS
 	void mergeCharts()
 	{
-		XA_PROFILE_START(buildAtlasMergeCharts)
+		XA_PROFILE_START(clusteredChartsMerge)
 		const uint32_t chartCount = m_charts.size();
 		// Merge charts progressively until there's none left to merge.
 		for (;;) {
@@ -5235,7 +5342,9 @@ struct ClusteredCharts
 							externalBoundaryLength += l;
 						} else {
 							const int neighborChart = m_faceCharts[it.oppositeFace()];
-							if (m_charts[neighborChart] != chart) {
+							if (neighborChart == -1)
+								externalBoundaryLength += l;
+							else if (m_charts[neighborChart] != chart) {
 								if ((it.isSeam() && (isNormalSeam(it.edge()) || it.isTextureSeam()))) {
 									externalBoundaryLength += l;
 								} else {
@@ -5309,7 +5418,7 @@ struct ClusteredCharts
 				c++;
 			}
 		}
-		XA_PROFILE_END(buildAtlasMergeCharts)
+		XA_PROFILE_END(clusteredChartsMerge)
 	}
 #endif
 
@@ -5323,7 +5432,7 @@ private:
 		uint32_t face = 0;
 		float largestArea = 0.0f;
 		for (uint32_t f = 0; f < m_data.mesh->faceCount(); f++) {
-			if (m_faceCharts[f] != -1)
+			if (m_data.isFaceInChart.get(f))
 				continue;
 			const float area = m_planarCharts.regionArea(m_planarCharts.regionIdFromFace(f));
 			if (area > largestArea) {
@@ -5338,7 +5447,7 @@ private:
 			if (chart->candidates.count() == 0 || chart->candidates.peekCost() > threshold)
 				break;
 			const uint32_t f = chart->candidates.pop();
-			if (m_faceCharts[f] != -1)
+			if (m_data.isFaceInChart.get(f))
 				continue;
 			if (!addFaceToChart(chart, f)) {
 				chart->failedPlanarRegions.push_back(m_planarCharts.regionIdFromFace(f));
@@ -5417,14 +5526,14 @@ private:
 
 	bool addFaceToChart(Chart *chart, uint32_t face)
 	{
-		XA_DEBUG_ASSERT(m_faceCharts[face] == -1);
+		XA_DEBUG_ASSERT(!m_data.isFaceInChart.get(face));
 		const uint32_t oldFaceCount = chart->faces.size();
 		const bool firstFace = oldFaceCount == 0;
 		// Append the face and any coplanar connected faces to the chart faces array.
 		chart->faces.push_back(face);
 		uint32_t coplanarFace = m_planarCharts.nextRegionFace(face);
 		while (coplanarFace != face) { 
-			XA_DEBUG_ASSERT(m_faceCharts[coplanarFace] == -1);
+			XA_DEBUG_ASSERT(!m_data.isFaceInChart.get(coplanarFace));
 			chart->faces.push_back(coplanarFace);
 			coplanarFace = m_planarCharts.nextRegionFace(coplanarFace);
 		}
@@ -5466,6 +5575,7 @@ private:
 			const uint32_t f = chart->faces[i];
 			m_faceCharts[f] = chart->id;
 			m_facesLeft--;
+			m_data.isFaceInChart.set(f);
 			chart->centroidSum += m_data.mesh->computeFaceCenter(f);
 		}
 		chart->centroid = chart->centroidSum / float(chart->faces.size());
@@ -5480,7 +5590,7 @@ private:
 				if (oedge == UINT32_MAX)
 					continue; // Boundary edge.
 				const uint32_t oface = meshEdgeFace(oedge);
-				if (m_faceCharts[oface] != -1)
+				if (m_data.isFaceInChart.get(oface))
 					continue; // Face belongs to another chart.
 				if (chart->failedPlanarRegions.contains(m_planarCharts.regionIdFromFace(oface)))
 					continue; // Failed to add this faces planar region to the chart before.
@@ -5811,16 +5921,22 @@ struct Atlas
 
 	uint32_t chartCount() const
 	{
-		return m_clusteredCharts.chartCount();
+		return m_planarCharts.chartCount() + m_clusteredCharts.chartCount();
 	}
 
-	const Array<uint32_t> &chartFaces(uint32_t chartIndex) const
+	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const
 	{
+		if (chartIndex < m_planarCharts.chartCount())
+			return m_planarCharts.chartFaces(chartIndex);
+		chartIndex -= m_planarCharts.chartCount();
 		return m_clusteredCharts.chartFaces(chartIndex);
 	}
 
 	const Basis &chartBasis(uint32_t chartIndex) const
 	{
+		if (chartIndex < m_planarCharts.chartCount())
+			return m_planarCharts.chartBasis(chartIndex);
+		chartIndex -= m_planarCharts.chartCount();
 		return m_clusteredCharts.chartBasis(chartIndex);
 	}
 
@@ -5835,8 +5951,12 @@ struct Atlas
 
 	void compute()
 	{
+		XA_PROFILE_START(planarCharts)
 		m_planarCharts.compute();
+		XA_PROFILE_END(planarCharts)
+		XA_PROFILE_START(clusteredCharts)
 		m_clusteredCharts.compute();
+		XA_PROFILE_END(clusteredCharts)
 	}
 
 private:
@@ -9228,12 +9348,14 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", computeChartsThread)
 	XA_PROFILE_PRINT_AND_RESET("      Build atlas: ", buildAtlas)
 	XA_PROFILE_PRINT_AND_RESET("         Init: ", buildAtlasInit)
-	XA_PROFILE_PRINT_AND_RESET("         Place seeds: ", buildAtlasPlaceSeeds)
-	XA_PROFILE_PRINT_AND_RESET("         Relocate seeds: ", buildAtlasRelocateSeeds)
-	XA_PROFILE_PRINT_AND_RESET("         Reset charts: ", buildAtlasResetCharts)
-	XA_PROFILE_PRINT_AND_RESET("         Grow charts: ", buildAtlasGrowCharts)
-	XA_PROFILE_PRINT_AND_RESET("         Merge charts: ", buildAtlasMergeCharts)
-	XA_PROFILE_PRINT_AND_RESET("         Fill holes: ", buildAtlasFillHoles)
+	XA_PROFILE_PRINT_AND_RESET("         Planar charts: ", planarCharts)
+	XA_PROFILE_PRINT_AND_RESET("         Clustered charts: ", clusteredCharts)
+	XA_PROFILE_PRINT_AND_RESET("            Place seeds: ", clusteredChartsPlaceSeeds)
+	XA_PROFILE_PRINT_AND_RESET("            Relocate seeds: ", clusteredChartsRelocateSeeds)
+	XA_PROFILE_PRINT_AND_RESET("            Reset: ", clusteredChartsReset)
+	XA_PROFILE_PRINT_AND_RESET("            Grow: ", clusteredChartsGrow)
+	XA_PROFILE_PRINT_AND_RESET("            Merge: ", clusteredChartsMerge)
+	XA_PROFILE_PRINT_AND_RESET("            Fill holes: ", clusteredChartsFillHoles)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (real): ", createChartMeshesReal)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (thread): ", createChartMeshesThread)
 	XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
