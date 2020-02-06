@@ -7127,6 +7127,7 @@ public:
 
 	const Basis &basis() const { return m_basis; }
 	ChartType::Enum type() const { return m_type; }
+	void setType(ChartType::Enum type) { m_type = type; }
 	uint32_t warningFlags() const { return m_warningFlags; }
 	uint32_t closedHolesCount() const { return m_closedHolesCount; }
 	uint32_t fixedTJunctionsCount() const { return m_fixedTJunctionsCount; }
@@ -9432,7 +9433,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 			if (chartGroup->isVertexMap())
 				continue;
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
-				const internal::param::Chart *chart = chartGroup->chartAt(k);
+				internal::param::Chart *chart = chartGroup->chartAt(k);
 				const internal::param::Quality &quality = chart->quality();
 #if XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION
 				{
@@ -9451,10 +9452,12 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 					type = "piecewise";
 				if (quality.boundaryIntersection) {
 					invalid = true;
+					chart->setType(ChartType::Invalid);
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u) (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, i, j, k, type);
 				}
 				if (quality.flippedTriangleCount > 0) {
 					invalid = true;
+					chart->setType(ChartType::Invalid);
 					XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, i, j, k, type, quality.flippedTriangleCount, quality.totalTriangleCount);
 				}
 				if (invalid)

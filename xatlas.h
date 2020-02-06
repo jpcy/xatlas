@@ -42,7 +42,8 @@ struct ChartType
 		Planar,
 		Ortho,
 		LSCM,
-		Piecewise
+		Piecewise,
+		Invalid
 	};
 };
 

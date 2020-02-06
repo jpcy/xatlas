@@ -653,8 +653,12 @@ int main(int argc, char **argv)
 					if (atlasIsReady()) {
 						if (g_options.shadeMode == ShadeMode::Charts) {
 							if (ImGui::BeginMenu("Chart color")) {
-								ImGui::RadioButton("Individual", (int *)&g_options.chartColorMode, (int)ChartColorMode::Individual);
+								ImGui::RadioButton("Planar", (int *)&g_options.chartColorMode, (int)ChartColorMode::Planar);
+								ImGui::RadioButton("Ortho", (int *)&g_options.chartColorMode, (int)ChartColorMode::Ortho);
+								ImGui::RadioButton("LSCM", (int *)&g_options.chartColorMode, (int)ChartColorMode::LSCM);
+								ImGui::RadioButton("Piecewise", (int *)&g_options.chartColorMode, (int)ChartColorMode::Piecewise);
 								ImGui::RadioButton("Invalid", (int *)&g_options.chartColorMode, (int)ChartColorMode::Invalid);
+								ImGui::RadioButton("All", (int *)&g_options.chartColorMode, (int)ChartColorMode::All);
 								ImGui::EndMenu();
 							}
 							ImGui::PushItemWidth(100.0f);

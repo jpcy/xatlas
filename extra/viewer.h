@@ -170,8 +170,14 @@ enum class WireframeMode
 
 enum class ChartColorMode
 {
-	Individual,
-	Invalid
+	// Sync with xatlas::ChartType
+	Planar,
+	Ortho,
+	LSCM,
+	Piecewise,
+	Invalid,
+	// Not in xatlas::ChartType
+	All
 };
 
 struct Options
@@ -180,7 +186,7 @@ struct Options
 	bool wireframe = true;
 	ShadeMode shadeMode = ShadeMode::Flat;
 	WireframeMode wireframeMode = WireframeMode::Triangles;
-	ChartColorMode chartColorMode = ChartColorMode::Individual;
+	ChartColorMode chartColorMode = ChartColorMode::All;
 	int chartCellSize = 1;
 	bool lightmapPointSampling = false;
 	bool useDenoisedLightmap = true;

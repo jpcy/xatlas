@@ -12,3 +12,11 @@
 #define LIGHTMAP_OP_CLEAR_SUM   1u
 #define LIGHTMAP_OP_WRITE_FINAL 2u
 #define LIGHTMAP_OP_FINISH_PASS 3u
+
+// Sync with ChartColorMode
+#define CHART_TYPE_PLANAR 0u
+#define CHART_TYPE_ORTHO 1u
+#define CHART_TYPE_LSCM 2u
+#define CHART_TYPE_PIECEWISE 3u
+#define CHART_TYPE_INVALID 4u
+#define CHART_TYPE_ANY 5u
