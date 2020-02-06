@@ -4245,11 +4245,11 @@ private:
 			}
 			if (currentCell[0] >= m_gridWidth || currentCell[1] >= m_gridHeight)
 				break;
-			if (stepX == 0 && currentCell[0] < lastCell[0])
+			if (stepX == -1 && currentCell[0] < lastCell[0])
 				break;
 			if (stepX == 1 && currentCell[0] > lastCell[0])
 				break;
-			if (stepY == 0 && currentCell[1] < lastCell[1])
+			if (stepY == -1 && currentCell[1] < lastCell[1])
 				break;
 			if (stepY == 1 && currentCell[1] > lastCell[1])
 				break;
