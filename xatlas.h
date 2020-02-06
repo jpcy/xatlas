@@ -50,11 +50,11 @@ struct ChartType
 // A group of connected faces, belonging to a single atlas.
 struct Chart
 {
-	uint32_t atlasIndex; // Sub-atlas index.
 	uint32_t *faceArray;
+	uint32_t atlasIndex; // Sub-atlas index.
 	uint32_t faceCount;
-	uint32_t material;
 	ChartType::Enum type;
+	uint32_t material;
 };
 
 // Output vertex.
@@ -70,10 +70,10 @@ struct Vertex
 struct Mesh
 {
 	Chart *chartArray;
-	uint32_t chartCount;
 	uint32_t *indexArray;
-	uint32_t indexCount;
 	Vertex *vertexArray;
+	uint32_t chartCount;
+	uint32_t indexCount;
 	uint32_t vertexCount;
 };
 
@@ -85,15 +85,15 @@ static const uint32_t kImageIsPaddingBit = 0x20000000;
 // Empty on creation. Populated after charts are packed.
 struct Atlas
 {
+	uint32_t *image;
+	Mesh *meshes; // The output meshes, corresponding to each AddMesh call.
 	uint32_t width; // Atlas width in texels.
 	uint32_t height; // Atlas height in texels.
 	uint32_t atlasCount; // Number of sub-atlases. Equal to 0 unless PackOptions resolution is changed from default (0).
 	uint32_t chartCount; // Total number of charts in all meshes.
 	uint32_t meshCount; // Number of output meshes. Equal to the number of times AddMesh was called.
-	Mesh *meshes; // The output meshes, corresponding to each AddMesh call.
 	float *utilization; // Normalized atlas texel utilization array. E.g. a value of 0.8 means 20% empty space. atlasCount in length.
 	float texelsPerUnit; // Equal to PackOptions texelsPerUnit if texelsPerUnit > 0, otherwise an estimated value to match PackOptions resolution.
-	uint32_t *image;
 };
 
 // Create an empty atlas.
@@ -113,21 +113,22 @@ struct IndexFormat
 // Input mesh declaration.
 struct MeshDecl
 {
-	uint32_t vertexCount = 0;
 	const void *vertexPositionData = nullptr;
-	uint32_t vertexPositionStride = 0;
 	const void *vertexNormalData = nullptr; // optional
-	uint32_t vertexNormalStride = 0; // optional
 	const void *vertexUvData = nullptr; // optional. The input UVs are provided as a hint to the chart generator.
-	uint32_t vertexUvStride = 0; // optional
-	uint32_t indexCount = 0;
 	const void *indexData = nullptr; // optional
-	int32_t indexOffset = 0; // optional. Add this offset to all indices.
-	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
 	
 	// Optional. indexCount / 3 (triangle count) in length.
 	// Don't atlas faces set to true. Ignored faces still exist in the output meshes, Vertex uv is set to (0, 0) and Vertex atlasIndex to -1.
 	const bool *faceIgnoreData = nullptr;
+
+	uint32_t vertexCount = 0;
+	uint32_t vertexPositionStride = 0;
+	uint32_t vertexNormalStride = 0; // optional
+	uint32_t vertexUvStride = 0; // optional
+	uint32_t indexCount = 0;
+	int32_t indexOffset = 0; // optional. Add this offset to all indices.
+	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
 
 	// Vertex positions within epsilon distance of each other are considered colocal.
 	float epsilon = 1.192092896e-07F;
@@ -152,14 +153,14 @@ void AddMeshJoin(Atlas *atlas);
 
 struct UvMeshDecl
 {
+	const void *vertexUvData = nullptr;
+	const void *indexData = nullptr; // optional
+	const uint32_t *faceMaterialData = nullptr; // Optional. Faces with different materials won't be assigned to the same chart. Must be indexCount / 3 in length.
 	uint32_t vertexCount = 0;
 	uint32_t vertexStride = 0;
-	const void *vertexUvData = nullptr;
 	uint32_t indexCount = 0;
-	const void *indexData = nullptr; // optional
 	int32_t indexOffset = 0; // optional. Add this offset to all indices.
 	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
-	const uint32_t *faceMaterialData = nullptr; // Optional. Faces with different materials won't be assigned to the same chart. Must be indexCount / 3 in length.
 	bool rotateCharts = true;
 };
 

@@ -854,7 +854,7 @@ struct Extents2
 		return Vector2(min.x + (max.x - min.x) * 0.5f, min.y + (max.y - min.y) * 0.5f);
 	}
 
-	static bool intersect(Extents2 e1, Extents2 e2)
+	static bool intersect(const Extents2 &e1, const Extents2 &e2)
 	{
 		return e1.min.x <= e2.max.x && e1.max.x >= e2.min.x && e1.min.y <= e2.max.y && e1.max.y >= e2.min.y;
 	}
@@ -3775,7 +3775,7 @@ public:
 		return handle;
 	}
 
-	void run(TaskGroupHandle handle, Task task)
+	void run(TaskGroupHandle handle, const Task &task)
 	{
 		XA_DEBUG_ASSERT(handle.value != UINT32_MAX);
 		TaskGroup &group = m_groups[handle.value];
@@ -3837,9 +3837,9 @@ private:
 	};
 
 	TaskGroup *m_groups;
-	uint32_t m_maxGroups;
 	Array<Worker> m_workers;
 	std::atomic<bool> m_shutdown;
+	uint32_t m_maxGroups;
 	static thread_local uint32_t m_threadIndex;
 
 	static void workerThread(TaskScheduler *scheduler, Worker *worker, uint32_t threadIndex)
@@ -4437,12 +4437,8 @@ typedef bool (*SamplingCallback)(void *param, int x, int y);
 /// A triangle for rasterization.
 struct Triangle
 {
-	Triangle(const Vector2 &v0, const Vector2 &v1, const Vector2 &v2)
+	Triangle(const Vector2 &_v0, const Vector2 &_v1, const Vector2 &_v2) : v1(_v0), v2(_v2), v3(_v1)
 	{
-		// Init vertices.
-		this->v1 = v0;
-		this->v2 = v2;
-		this->v3 = v1;
 		// make sure every triangle is front facing.
 		flipBackface();
 		// Compute deltas.
