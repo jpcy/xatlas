@@ -411,7 +411,6 @@ static double clockToSeconds(clock_t c)
 static constexpr float kPi = 3.14159265358979323846f;
 static constexpr float kPi2 = 6.28318530717958647692f;
 static constexpr float kPi4 = 12.56637061435917295384f;
-static constexpr float kRadiansToDegrees = 180.0f / kPi;
 static constexpr float kEpsilon = 0.0001f;
 static constexpr float kAreaEpsilon = FLT_EPSILON;
 static constexpr float kNormalEpsilon = 0.001f;
