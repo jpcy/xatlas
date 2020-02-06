@@ -2101,45 +2101,38 @@ private:
 class RadixSort
 {
 public:
-	RadixSort() : m_size(0), m_ranks(nullptr), m_ranks2(nullptr), m_validRanks(false) {}
-
-	~RadixSort()
+	void sort(const float *input, uint32_t count)
 	{
-		// Release everything
-		XA_FREE(m_ranks2);
-		XA_FREE(m_ranks);
-	}
-
-	RadixSort &sort(const float *input, uint32_t count)
-	{
-		if (input == nullptr || count == 0) return *this;
-		// Resize lists if needed
-		if (count != m_size) {
-			if (count > m_size) {
-				m_ranks2 = XA_REALLOC(MemTag::Default, m_ranks2, uint32_t, count);
-				m_ranks = XA_REALLOC(MemTag::Default, m_ranks, uint32_t, count);
-			}
-			m_size = count;
-			m_validRanks = false;
+		if (input == nullptr || count == 0) {
+			m_buffer1.clear();
+			m_buffer2.clear();
+			m_ranks = m_buffer1.data();
+			m_ranks2 = m_buffer2.data();
+			return;
 		}
-		if (count < 32) {
+		// Resize lists if needed
+		m_buffer1.resize(count);
+		m_buffer2.resize(count);
+		m_ranks = m_buffer1.data();
+		m_ranks2 = m_buffer2.data();
+		m_validRanks = false;
+		if (count < 32)
 			insertionSort(input, count);
-		} else {
+		else {
 			// @@ Avoid touching the input multiple times.
 			for (uint32_t i = 0; i < count; i++) {
-				FloatFlip((uint32_t &)input[i]);
+				floatFlip((uint32_t &)input[i]);
 			}
 			radixSort<uint32_t>((const uint32_t *)input, count);
 			for (uint32_t i = 0; i < count; i++) {
-				IFloatFlip((uint32_t &)input[i]);
+				ifloatFlip((uint32_t &)input[i]);
 			}
 		}
-		return *this;
 	}
 
-	RadixSort &sort(const Array<float> &input)
+	void sort(const Array<float> &input)
 	{
-		return sort(input.data(), input.size());
+		sort(input.data(), input.size());
 	}
 
 	// Access to results. m_ranks is a list of indices in sorted order, i.e. in the order you may further process your data
@@ -2149,25 +2142,18 @@ public:
 		return m_ranks;
 	}
 
-	uint32_t *ranks()
-	{
-		XA_DEBUG_ASSERT(m_validRanks);
-		return m_ranks;
-	}
-
 private:
-	uint32_t m_size;
-	uint32_t *m_ranks;
-	uint32_t *m_ranks2;
+	uint32_t *m_ranks, *m_ranks2;
+	Array<uint32_t> m_buffer1, m_buffer2;
 	bool m_validRanks;
 
-	void FloatFlip(uint32_t &f)
+	void floatFlip(uint32_t &f)
 	{
 		int32_t mask = (int32_t(f) >> 31) | 0x80000000; // Warren Hunt, Manchor Ko.
 		f ^= mask;
 	}
 
-	void IFloatFlip(uint32_t &f)
+	void ifloatFlip(uint32_t &f)
 	{
 		uint32_t mask = ((f >> 31) - 1) | 0x80000000; // Michael Herf.
 		f ^= mask;
@@ -2201,7 +2187,8 @@ private:
 		}
 	}
 
-	template <typename T> void insertionSort(const T *input, uint32_t count)
+	template <typename T>
+	void insertionSort(const T *input, uint32_t count)
 	{
 		if (!m_validRanks) {
 			m_ranks[0] = 0;
@@ -2232,7 +2219,8 @@ private:
 		}
 	}
 
-	template <typename T> void radixSort(const T *input, uint32_t count)
+	template <typename T>
+	void radixSort(const T *input, uint32_t count)
 	{
 		const uint32_t P = sizeof(T); // pass count
 		// Allocate histograms & offsets on the stack
@@ -2269,9 +2257,8 @@ private:
 		}
 		// All values were equal, generate linear ranks.
 		if (!m_validRanks) {
-			for (uint32_t i = 0; i < count; i++) {
+			for (uint32_t i = 0; i < count; i++)
 				m_ranks[i] = i;
-			}
 			m_validRanks = true;
 		}
 	}
@@ -2349,9 +2336,8 @@ private:
 		m_coords.resize(inputCount);
 		for (uint32_t i = 0; i < inputCount; i++)
 			m_coords[i] = input[i].x;
-		RadixSort radix;
-		radix.sort(m_coords);
-		const uint32_t *ranks = radix.ranks();
+		m_radix.sort(m_coords);
+		const uint32_t *ranks = m_radix.ranks();
 		m_top.clear();
 		m_bottom.clear();
 		m_top.reserve(inputCount);
@@ -2411,6 +2397,7 @@ private:
 	Array<Vector2> m_boundaryVertices;
 	Array<float> m_coords;
 	Array<Vector2> m_top, m_bottom, m_hull;
+	RadixSort m_radix;
 };
 
 static uint32_t meshEdgeFace(uint32_t edge) { return edge / 3; }
@@ -7805,7 +7792,6 @@ public:
 			}
 		}
 		// Sort chart groups by mesh indexCount.
-		m_chartGroupsRadix = RadixSort();
 		Array<float> chartGroupSortData;
 		chartGroupSortData.resize(chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++)
@@ -8314,7 +8300,6 @@ struct Atlas
 			maxChartPerimeter = max(maxChartPerimeter, chartOrderArray[c]);
 		}
 		// Sort charts by perimeter.
-		m_radix = RadixSort();
 		m_radix.sort(chartOrderArray);
 		const uint32_t *ranks = m_radix.ranks();
 		// Divide chart perimeter range into buckets.
