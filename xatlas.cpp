@@ -2930,7 +2930,6 @@ private:
 
 	struct EdgeKey
 	{
-		EdgeKey() {}
 		EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
 		EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
 		bool operator==(const EdgeKey &k) const { return v0 == k.v0 && v1 == k.v1; }
@@ -4342,6 +4341,7 @@ public:
 		m_verticesA[2] = c;
 		m_vertexBuffers[0] = m_verticesA;
 		m_vertexBuffers[1] = m_verticesB;
+		m_area = 0;
 	}
 
 	void clipHorizontalPlane(float offset, float clipdirection)
@@ -4897,7 +4897,7 @@ private:
 struct AtlasData
 {
 	ChartOptions options;
-	const Mesh *mesh;
+	const Mesh *mesh = nullptr;
 	Array<float> edgeDihedralAngles;
 	Array<float> edgeLengths;
 	Array<float> faceAreas;
@@ -8800,19 +8800,19 @@ static void DestroyOutputMeshes(Context *ctx)
 		return;
 	for (int i = 0; i < (int)ctx->atlas.meshCount; i++) {
 		Mesh &mesh = ctx->atlas.meshes[i];
-		for (uint32_t j = 0; j < mesh.chartCount; j++) {
-			if (mesh.chartArray[j].faceArray)
-				XA_FREE(mesh.chartArray[j].faceArray);
-		}
-		if (mesh.chartArray)
+		if (mesh.chartArray) {
+			for (uint32_t j = 0; j < mesh.chartCount; j++) {
+				if (mesh.chartArray[j].faceArray)
+					XA_FREE(mesh.chartArray[j].faceArray);
+			}
 			XA_FREE(mesh.chartArray);
+		}
 		if (mesh.vertexArray)
 			XA_FREE(mesh.vertexArray);
 		if (mesh.indexArray)
 			XA_FREE(mesh.indexArray);
 	}
-	if (ctx->atlas.meshes)
-		XA_FREE(ctx->atlas.meshes);
+	XA_FREE(ctx->atlas.meshes);
 	ctx->atlas.meshes = nullptr;
 }
 
