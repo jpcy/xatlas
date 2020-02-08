@@ -6424,13 +6424,11 @@ struct PiecewiseParam
 			// Find the candidate with the lowest cost.
 			float lowestCost = FLT_MAX;
 			Candidate *bestCandidate = nullptr;
-			uint32_t bestCandidateIndex = UINT32_MAX;
 			for (uint32_t i = 0; i < m_candidates.size(); i++) {
 				Candidate *candidate = m_candidates[i];
 				if (candidate->maxCost < lowestCost) {
 					lowestCost = candidate->maxCost;
 					bestCandidate = candidate;
-					bestCandidateIndex = i;
 				}
 			}
 			if (!bestCandidate)
@@ -6693,7 +6691,6 @@ private:
 					break;
 				}
 			}
-			memset(current, 0xffffffff, sizeof(Candidate));
 			XA_FREE(current);
 			current = next;
 		}
