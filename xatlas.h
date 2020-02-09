@@ -172,13 +172,13 @@ struct ChartOptions
 	float maxBoundaryLength = 0.0f; // Don't grow charts to have a longer boundary than this. 0 means no limit.
 
 	// Weights determine chart growth. Higher weights mean higher cost for that metric.
-	float proxyFitMetricWeight = 2.0f; // Angle between face and average chart normal.
-	float roundnessMetricWeight = 0.01f;
-	float straightnessMetricWeight = 6.0f;
-	float normalSeamMetricWeight = 4.0f; // If > 1000, normal seams are fully respected.
-	float textureSeamMetricWeight = 0.5f;
+	float normalDeviationWeight = 2.0f; // Angle between face and average chart normal.
+	float roundnessWeight = 0.01f;
+	float straightnessWeight = 6.0f;
+	float normalSeamWeight = 4.0f; // If > 1000, normal seams are fully respected.
+	float textureSeamWeight = 0.5f;
 
-	float maxThreshold = 2.0f; // If total of all metrics * weights > maxThreshold, don't grow chart. Lower values result in more charts.
+	float maxCost = 2.0f; // If total of all metrics * weights > maxCost, don't grow chart. Lower values result in more charts.
 	uint32_t maxIterations = 1; // Number of iterations of the chart growing and seeding phases. Higher values result in better charts.
 };
 

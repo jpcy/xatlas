@@ -1088,12 +1088,12 @@ void atlasShowGuiOptions()
 		ImGui::Indent(indent);
 		bool changed = false;
 		ImGui::Columns(2, nullptr, false);
-		changed |= guiColumnInputFloat("Proxy fit metric weight", "##chartOption1", &s_atlas.options.chart.proxyFitMetricWeight);
-		changed |= guiColumnInputFloat("Roundness metric weight", "##chartOption2", &s_atlas.options.chart.roundnessMetricWeight);
-		changed |= guiColumnInputFloat("Straightness metric weight", "##chartOption3", &s_atlas.options.chart.straightnessMetricWeight);
-		changed |= guiColumnInputFloat("Normal seam metric weight", "##chartOption4", &s_atlas.options.chart.normalSeamMetricWeight);
-		changed |= guiColumnInputFloat("Texture seam metric weight", "##chartOption5", &s_atlas.options.chart.textureSeamMetricWeight);
-		changed |= guiColumnInputFloat("Max threshold", "##chartOption6", &s_atlas.options.chart.maxThreshold);
+		changed |= guiColumnInputFloat("Normal deviation weight", "##chartOption1", &s_atlas.options.chart.normalDeviationWeight);
+		changed |= guiColumnInputFloat("Roundness weight", "##chartOption2", &s_atlas.options.chart.roundnessWeight);
+		changed |= guiColumnInputFloat("Straightness weight", "##chartOption3", &s_atlas.options.chart.straightnessWeight);
+		changed |= guiColumnInputFloat("Normal seam weight", "##chartOption4", &s_atlas.options.chart.normalSeamWeight);
+		changed |= guiColumnInputFloat("Texture seam weight", "##chartOption5", &s_atlas.options.chart.textureSeamWeight);
+		changed |= guiColumnInputFloat("Max cost", "##chartOption6", &s_atlas.options.chart.maxCost);
 		changed |= guiColumnInputInt("Max iterations", "##chartOption7", (int *)&s_atlas.options.chart.maxIterations);
 		changed |= guiColumnInputFloat("Max chart area", "##chartOption8", &s_atlas.options.chart.maxChartArea);
 		changed |= guiColumnInputFloat("Max boundary length", "##chartOption9", &s_atlas.options.chart.maxBoundaryLength);

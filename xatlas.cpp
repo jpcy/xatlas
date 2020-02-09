@@ -5148,7 +5148,7 @@ struct ClusteredCharts
 		if (m_facesLeft == 0)
 			return;
 		// Create initial charts greedely.
-		placeSeeds(m_data.options.maxThreshold * 0.5f);
+		placeSeeds(m_data.options.maxCost * 0.5f);
 		if (m_data.options.maxIterations == 0) {
 			XA_DEBUG_ASSERT(m_facesLeft == 0);
 			return;
@@ -5158,9 +5158,9 @@ struct ClusteredCharts
 		// Restart process growing charts in parallel.
 		uint32_t iteration = 0;
 		for (;;) {
-			growCharts(m_data.options.maxThreshold);
+			growCharts(m_data.options.maxCost);
 			// When charts cannot grow more: fill holes, merge charts, relocate seeds and start new iteration.
-			fillHoles(m_data.options.maxThreshold * 0.5f);
+			fillHoles(m_data.options.maxCost * 0.5f);
 #if XA_MERGE_CHARTS
 			mergeCharts();
 #endif
@@ -5588,7 +5588,7 @@ private:
 					continue; // Face belongs to another chart.
 				if (chart->failedPlanarRegions.contains(m_planarCharts.regionIdFromFace(oface)))
 					continue; // Failed to add this faces planar region to the chart before.
-				const float cost = evaluateCost(chart, oface);
+				const float cost = computeCost(chart, oface);
 				if (cost < FLT_MAX)
 					chart->candidates.push(cost, oface);
 			}
@@ -5603,7 +5603,7 @@ private:
 		const uint32_t faceCount = chart->faces.size();
 		m_bestTriangles.clear();
 		for (uint32_t i = 0; i < faceCount; i++) {
-			const float cost = evaluateProxyFitMetric(chart, chart->faces[i]);
+			const float cost = computeNormalDeviationMetric(chart, chart->faces[i]);
 			m_bestTriangles.push(cost, chart->faces[i]);
 		}
 		// Of those, choose the least central triangle.
@@ -5636,39 +5636,32 @@ private:
 		return true;
 	}
 
-	// Evaluate combined metric.
-	float evaluateCost(Chart *chart, uint32_t face) const
+	// Cost is combined metrics * weights.
+	float computeCost(Chart *chart, uint32_t face) const
 	{
-		if (dot(m_data.faceNormals[face], chart->basis.normal) <= 0.26f) // ~75 degrees
-			return FLT_MAX;
 		// Estimate boundary length and area:
-		float newChartArea = 0.0f, newBoundaryLength = 0.0f;
-		if (m_data.options.maxChartArea > 0.0f || m_data.options.roundnessMetricWeight > 0.0f)
-			newChartArea = computeArea(chart, face);
-		if (m_data.options.maxBoundaryLength > 0.0f || m_data.options.roundnessMetricWeight > 0.0f)
-			newBoundaryLength = computeBoundaryLength(chart, face);
+		const float newChartArea = computeArea(chart, face);
+		const float newBoundaryLength = computeBoundaryLength(chart, face);
 		// Enforce limits strictly:
 		if (m_data.options.maxChartArea > 0.0f && newChartArea > m_data.options.maxChartArea)
 			return FLT_MAX;
 		if (m_data.options.maxBoundaryLength > 0.0f && newBoundaryLength > m_data.options.maxBoundaryLength)
 			return FLT_MAX;
+		// Compute metrics.
 		float cost = 0.0f;
-		if (m_data.options.normalSeamMetricWeight > 0.0f) {
-			// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
-			// Make sure normal seams are fully respected:
-			const float N = evaluateNormalSeamMetric(chart, face);
-			if (m_data.options.normalSeamMetricWeight >= 1000.0f && N > 0.0f)
-				return FLT_MAX;
-			cost += m_data.options.normalSeamMetricWeight * N;
-		}
-		if (m_data.options.proxyFitMetricWeight > 0.0f)
-			cost += m_data.options.proxyFitMetricWeight * evaluateProxyFitMetric(chart, face);
-		if (m_data.options.roundnessMetricWeight > 0.0f)
-			cost += m_data.options.roundnessMetricWeight * evaluateRoundnessMetric(chart, newBoundaryLength, newChartArea);
-		if (m_data.options.straightnessMetricWeight > 0.0f)
-			cost += m_data.options.straightnessMetricWeight * evaluateStraightnessMetric(chart, face);
-		if (m_data.options.textureSeamMetricWeight > 0.0f)
-			cost += m_data.options.textureSeamMetricWeight * evaluateTextureSeamMetric(chart, face);
+		const float normalDeviation = computeNormalDeviationMetric(chart, face);
+		if (normalDeviation >= 0.707f) // ~75 degrees
+			return FLT_MAX;
+		cost += m_data.options.normalDeviationWeight * normalDeviation;
+		// Penalize faces that cross seams, reward faces that close seams or reach boundaries.
+		// Make sure normal seams are fully respected:
+		const float normalSeam = computeNormalSeamMetric(chart, face);
+		if (m_data.options.normalSeamWeight >= 1000.0f && normalSeam > 0.0f)
+			return FLT_MAX;
+		cost += m_data.options.normalSeamWeight * normalSeam;
+		cost += m_data.options.roundnessWeight * computeRoundnessMetric(chart, newBoundaryLength, newChartArea);
+		cost += m_data.options.straightnessWeight * computeStraightnessMetric(chart, face);
+		cost += m_data.options.textureSeamWeight * computeTextureSeamMetric(chart, face);
 		//float R = evaluateCompletenessMetric(chart, face);
 		//float D = evaluateDihedralAngleMetric(chart, face);
 		// @@ Add a metric based on local dihedral angle.
@@ -5679,15 +5672,17 @@ private:
 	}
 
 	// Returns a value in [0-1].
-	float evaluateProxyFitMetric(Chart *chart, uint32_t face) const
+	// 0 if face normal is coplanar to the chart's best fit normal.
+	// 1 if face normal is perpendicular.
+	float computeNormalDeviationMetric(Chart *chart, uint32_t face) const
 	{
 		// All faces in coplanar regions have the same normal, can use any face.
 		const Vector3 faceNormal = m_data.faceNormals[face];
 		// Use plane fitting metric for now:
-		return 1 - dot(faceNormal, chart->basis.normal); // @@ normal deviations should be weighted by face area
+		return min(1.0f - dot(faceNormal, chart->basis.normal), 1.0f); // @@ normal deviations should be weighted by face area
 	}
 
-	float evaluateRoundnessMetric(Chart *chart, float newBoundaryLength, float newChartArea) const
+	float computeRoundnessMetric(Chart *chart, float newBoundaryLength, float newChartArea) const
 	{
 		const float roundness = square(chart->boundaryLength) / chart->area;
 		const float newBoundaryLengthSq = square(newBoundaryLength);
@@ -5698,9 +5693,10 @@ private:
 		return 0;
 	}
 
-	float evaluateStraightnessMetric(Chart *chart, uint32_t firstFace) const
+	float computeStraightnessMetric(Chart *chart, uint32_t firstFace) const
 	{
-		float l_out = 0.0f, l_in = 0.0f;
+		float l_out = 0.0f; // Length of firstFace planar region boundary that doesn't border the chart.
+		float l_in = 0.0f; // Length that does border the chart.
 		const uint32_t planarRegionId = m_planarCharts.regionIdFromFace(firstFace);
 		uint32_t face = firstFace;
 		for (;;) { 
@@ -5745,7 +5741,7 @@ private:
 		return !equal(m_data.faceNormals[f0], m_data.faceNormals[f1], kNormalEpsilon);
 	}
 
-	float evaluateNormalSeamMetric(Chart *chart, uint32_t firstFace) const
+	float computeNormalSeamMetric(Chart *chart, uint32_t firstFace) const
 	{
 		float seamFactor = 0.0f, totalLength = 0.0f;
 		uint32_t face = firstFace;
@@ -5786,7 +5782,7 @@ private:
 		return seamFactor / totalLength;
 	}
 
-	float evaluateTextureSeamMetric(Chart *chart, uint32_t firstFace) const
+	float computeTextureSeamMetric(Chart *chart, uint32_t firstFace) const
 	{
 		float seamLength = 0.0f, totalLength = 0.0f;
 		uint32_t face = firstFace;
