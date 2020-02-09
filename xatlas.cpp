@@ -5684,13 +5684,9 @@ private:
 
 	float computeRoundnessMetric(Chart *chart, float newBoundaryLength, float newChartArea) const
 	{
-		const float roundness = square(chart->boundaryLength) / chart->area;
-		const float newBoundaryLengthSq = square(newBoundaryLength);
-		const float newRoundness = newBoundaryLengthSq / newChartArea;
-		if (newRoundness > roundness)
-			return newBoundaryLengthSq / (newChartArea * kPi4);
-		// Offer no impedance to faces that improve roundness.
-		return 0;
+		const float oldRoundness = square(chart->boundaryLength) / chart->area;
+		const float newRoundness = square(newBoundaryLength) / newChartArea;
+		return 1.0f - oldRoundness / newRoundness;
 	}
 
 	float computeStraightnessMetric(Chart *chart, uint32_t firstFace) const
@@ -5715,9 +5711,13 @@ private:
 			if (face == firstFace)
 				break;
 		}
+#if 1
 		XA_DEBUG_ASSERT(l_in != 0.0f); // Candidate face must be adjacent to chart. @@ This is not true if the input mesh has zero-length edges.
 		float ratio = (l_out - l_in) / (l_out + l_in);
 		return min(ratio, 0.0f); // Only use the straightness metric to close gaps.
+#else
+		return 1.0f - l_in / l_out;
+#endif
 	}
 
 	bool isNormalSeam(uint32_t edge) const
