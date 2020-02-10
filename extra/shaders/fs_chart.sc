@@ -20,6 +20,6 @@ void main()
 	if (colorChartType == CHART_TYPE_ANY || colorChartType == chartType)
 		rgb = v_color0.rgb * scale;
 	else
-		rgb = vec3_splat(0.75);
+		rgb = vec3_splat(0.75) * scale;
 	gl_FragColor = vec4(rgb, 1.0);
 }
