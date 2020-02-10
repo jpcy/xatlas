@@ -8810,13 +8810,13 @@ private:
 struct Context
 {
 	Atlas atlas;
-	uint32_t meshCount = 0;
 	internal::Progress *addMeshProgress = nullptr;
 	internal::TaskGroupHandle addMeshTaskGroup;
 	internal::param::Atlas paramAtlas;
 	ProgressFunc progressFunc = nullptr;
 	void *progressUserData = nullptr;
 	internal::TaskScheduler *taskScheduler;
+	internal::Array<internal::Mesh *> meshes;
 	internal::Array<internal::UvMesh *> uvMeshes;
 	internal::Array<internal::UvMeshInstance *> uvMeshInstances;
 };
@@ -8866,6 +8866,11 @@ void Destroy(Atlas *atlas)
 	}
 	ctx->taskScheduler->~TaskScheduler();
 	XA_FREE(ctx->taskScheduler);
+	for (uint32_t i = 0; i < ctx->meshes.size(); i++) {
+		internal::Mesh *mesh = ctx->meshes[i];
+		mesh->~Mesh();
+		XA_FREE(mesh);
+	}
 	for (uint32_t i = 0; i < ctx->uvMeshes.size(); i++) {
 		internal::UvMesh *mesh = ctx->uvMeshes[i];
 		for (uint32_t j = 0; j < mesh->charts.size(); j++) {
@@ -8971,8 +8976,6 @@ static void runAddMeshTask(void *userData)
 	progress->value++;
 	progress->update();
 cleanup:
-	mesh->~Mesh();
-	XA_FREE(mesh);
 	args->~AddMeshTaskArgs();
 	XA_FREE(args);
 	XA_PROFILE_END(addMeshThread)
@@ -9020,7 +9023,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 		return AddMeshError::Error;
 	}
 #if XA_PROFILE
-	if (ctx->meshCount == 0)
+	if (ctx->meshes.isEmpty())
 		internal::s_profile.addMeshReal = clock();
 #endif
 	// Don't know how many times AddMesh will be called, so progress needs to adjusted each time.
@@ -9028,12 +9031,12 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 		ctx->addMeshProgress = XA_NEW_ARGS(internal::MemTag::Default, internal::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
 	}
 	else {
-		ctx->addMeshProgress->setMaxValue(internal::max(ctx->meshCount + 1, meshCountHint));
+		ctx->addMeshProgress->setMaxValue(internal::max(ctx->meshes.size() + 1, meshCountHint));
 	}
 	XA_PROFILE_START(addMeshCopyData)
 	const bool hasIndices = meshDecl.indexCount > 0;
 	const uint32_t indexCount = hasIndices ? meshDecl.indexCount : meshDecl.vertexCount;
-	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", ctx->meshCount, meshDecl.vertexCount, indexCount / 3);
+	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", ctx->meshes.size(), meshDecl.vertexCount, indexCount / 3);
 	// Expecting triangle faces.
 	if ((indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
@@ -9048,7 +9051,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	uint32_t meshFlags = internal::MeshFlags::HasIgnoredFaces;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
-	internal::Mesh *mesh = XA_NEW_ARGS(internal::MemTag::Mesh, internal::Mesh, meshDecl.epsilon, meshDecl.vertexCount, indexCount / 3, meshFlags, ctx->meshCount);
+	internal::Mesh *mesh = XA_NEW_ARGS(internal::MemTag::Mesh, internal::Mesh, meshDecl.epsilon, meshDecl.vertexCount, indexCount / 3, meshFlags, ctx->meshes.size());
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0.0f);
 		internal::Vector2 texcoord(0.0f);
@@ -9140,6 +9143,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	}
 	if (warningCount > kMaxWarnings)
 		XA_PRINT("   %u additional warnings truncated\n", warningCount - kMaxWarnings);
+	ctx->meshes.push_back(mesh);
 	XA_PROFILE_END(addMeshCopyData)
 	if (ctx->addMeshTaskGroup.value == UINT32_MAX)
 		ctx->addMeshTaskGroup = ctx->taskScheduler->createTaskGroup();
@@ -9150,7 +9154,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	task.userData = taskArgs;
 	task.func = runAddMeshTask;
 	ctx->taskScheduler->run(ctx->addMeshTaskGroup, task);
-	ctx->meshCount++;
 	return AddMeshError::Success;
 }
 
@@ -9170,7 +9173,7 @@ void AddMeshJoin(Atlas *atlas)
 	ctx->addMeshProgress = nullptr;
 	ctx->paramAtlas.sortChartGroups();
 #if XA_PROFILE
-	XA_PRINT("Added %u meshes\n", ctx->meshCount);
+	XA_PRINT("Added %u meshes\n", ctx->meshes.size());
 	internal::s_profile.addMeshReal = clock() - internal::s_profile.addMeshReal;
 #endif
 	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", addMeshReal)
@@ -9205,7 +9208,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		return AddMeshError::Error;
 	}
 	Context *ctx = (Context *)atlas;
-	if (ctx->meshCount > 0) {
+	if (!ctx->meshes.isEmpty()) {
 		XA_PRINT_WARNING("AddUvMesh: Meshes and UV meshes cannot be added to the same atlas.\n");
 		return AddMeshError::Error;
 	}
@@ -9320,7 +9323,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 		return;
 	}
 	AddMeshJoin(atlas);
-	if (ctx->meshCount == 0) {
+	if (ctx->meshes.isEmpty()) {
 		XA_PRINT_WARNING("ComputeCharts: No meshes. Call AddMesh first.\n");
 		return;
 	}
@@ -9333,7 +9336,8 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	}
 	XA_PROFILE_END(computeChartsReal)
 	// Count charts and print warnings.
-	for (uint32_t i = 0; i < ctx->meshCount; i++) {
+	const uint32_t meshCount = ctx->meshes.size();
+	for (uint32_t i = 0; i < meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
 			if (chartGroup->isVertexMap())
@@ -9419,8 +9423,9 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 			return;
 	}
 	XA_PROFILE_END(parameterizeChartsReal)
+	const uint32_t meshCount = ctx->meshes.size();
 	uint32_t chartCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
-	for (uint32_t i = 0; i < ctx->meshCount; i++) {
+	for (uint32_t i = 0; i < meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
 			if (chartGroup->isVertexMap())
@@ -9447,7 +9452,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 		XA_PRINT("   %u charts\n", chartCount);
 	}
 	uint32_t chartIndex = 0, invalidParamCount = 0;
-	for (uint32_t i = 0; i < ctx->meshCount; i++) {
+	for (uint32_t i = 0; i < meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
 			if (chartGroup->isVertexMap())
@@ -9530,7 +9535,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		return;
 	}
 	Context *ctx = (Context *)atlas;
-	if (ctx->meshCount == 0 && ctx->uvMeshInstances.isEmpty()) {
+	if (ctx->meshes.isEmpty() && ctx->uvMeshInstances.isEmpty()) {
 		XA_PRINT_WARNING("PackCharts: No meshes. Call AddMesh or AddUvMesh first.\n");
 		return;
 	}
@@ -9606,14 +9611,14 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 			return;
 	}
 	if (ctx->uvMeshInstances.isEmpty())
-		atlas->meshCount = ctx->meshCount;
+		atlas->meshCount = ctx->meshes.size();
 	else
 		atlas->meshCount = ctx->uvMeshInstances.size();
 	atlas->meshes = XA_ALLOC_ARRAY(internal::MemTag::Default, Mesh, atlas->meshCount);
 	memset(atlas->meshes, 0, sizeof(Mesh) * atlas->meshCount);
 	if (ctx->uvMeshInstances.isEmpty()) {
 		uint32_t chartIndex = 0;
-		for (uint32_t i = 0; i < ctx->meshCount; i++) {
+		for (uint32_t i = 0; i < atlas->meshCount; i++) {
 			Mesh &outputMesh = atlas->meshes[i];
 			// Count and alloc arrays. Ignore vertex mapped chart groups in Mesh::chartCount, since they're ignored faces.
 			for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
@@ -9778,7 +9783,7 @@ void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFun
 		XA_PRINT_WARNING("Generate: This function should not be called with UV meshes.\n");
 		return;
 	}
-	if (ctx->meshCount == 0) {
+	if (ctx->meshes.isEmpty()) {
 		XA_PRINT_WARNING("Generate: No meshes. Call AddMesh first.\n");
 		return;
 	}
