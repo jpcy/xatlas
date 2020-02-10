@@ -412,7 +412,6 @@ static double clockToSeconds(clock_t c)
 
 static constexpr float kPi = 3.14159265358979323846f;
 static constexpr float kPi2 = 6.28318530717958647692f;
-static constexpr float kPi4 = 12.56637061435917295384f;
 static constexpr float kEpsilon = 0.0001f;
 static constexpr float kAreaEpsilon = FLT_EPSILON;
 static constexpr float kNormalEpsilon = 0.001f;
@@ -2435,7 +2434,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_ignoredFaceCount(0), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -2467,35 +2466,30 @@ public:
 		};
 	};
 
-	AddFaceResult::Enum addFace(uint32_t v0, uint32_t v1, uint32_t v2, bool ignore = false, bool hashEdge = true)
+	AddFaceResult::Enum addFace(uint32_t v0, uint32_t v1, uint32_t v2, bool ignore = false)
 	{
 		uint32_t indexArray[3];
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
-		return addFace(indexArray, ignore, hashEdge);
+		return addFace(indexArray, ignore);
 	}
 
-	AddFaceResult::Enum addFace(const uint32_t *indices, bool ignore = false, bool hashEdge = true)
+	AddFaceResult::Enum addFace(const uint32_t *indices, bool ignore = false)
 	{
 		AddFaceResult::Enum result = AddFaceResult::OK;
-		if (m_flags & MeshFlags::HasIgnoredFaces) {
+		if (m_flags & MeshFlags::HasIgnoredFaces)
 			m_faceIgnore.push_back(ignore);
-			if (ignore)
-				m_ignoredFaceCount++;
-		}
 		const uint32_t firstIndex = m_indices.size();
 		for (uint32_t i = 0; i < 3; i++)
 			m_indices.push_back(indices[i]);
-		if (hashEdge) {
-			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t vertex0 = m_indices[firstIndex + i];
-				const uint32_t vertex1 = m_indices[firstIndex + (i + 1) % 3];
-				const EdgeKey key(vertex0, vertex1);
-				if (m_edgeMap.get(key) != UINT32_MAX)
-					result = AddFaceResult::DuplicateEdge;
-				m_edgeMap.add(key);
-			}
+		for (uint32_t i = 0; i < 3; i++) {
+			const uint32_t vertex0 = m_indices[firstIndex + i];
+			const uint32_t vertex1 = m_indices[firstIndex + (i + 1) % 3];
+			const EdgeKey key(vertex0, vertex1);
+			if (m_edgeMap.get(key) != UINT32_MAX)
+				result = AddFaceResult::DuplicateEdge;
+			m_edgeMap.add(key);
 		}
 		return result;
 	}
@@ -2909,7 +2903,6 @@ public:
 	XA_INLINE Vector2 &texcoord(uint32_t vertex) { return m_texcoords[vertex]; }
 	XA_INLINE const Vector2 *texcoords() const { return m_texcoords.data(); }
 	XA_INLINE Vector2 *texcoords() { return m_texcoords.data(); }
-	XA_INLINE uint32_t ignoredFaceCount() const { return m_ignoredFaceCount; }
 	XA_INLINE uint32_t faceCount() const { return m_indices.size() / 3; }
 	XA_INLINE const uint32_t *indices() const { return m_indices.data(); }
 	XA_INLINE uint32_t indexCount() const { return m_indices.size(); }
@@ -2921,7 +2914,6 @@ private:
 	uint32_t m_flags;
 	uint32_t m_id;
 	Array<bool> m_faceIgnore;
-	uint32_t m_ignoredFaceCount;
 	Array<uint32_t> m_indices;
 	Array<Vector3> m_positions;
 	Array<Vector3> m_normals;
@@ -3170,10 +3162,7 @@ struct MeshFaceGroups
 	typedef uint32_t Handle;
 	static constexpr Handle kInvalid = UINT32_MAX;
 
-	MeshFaceGroups(const Mesh *mesh) : m_mesh(mesh), m_groups(MemTag::Mesh), m_firstFace(MemTag::Mesh), m_nextFace(MemTag::Mesh), m_faceCount(MemTag::Mesh)
-	{
-	}
-
+	MeshFaceGroups(const Mesh *mesh) : m_mesh(mesh), m_groups(MemTag::Mesh), m_firstFace(MemTag::Mesh), m_nextFace(MemTag::Mesh), m_faceCount(MemTag::Mesh) {}
 	XA_INLINE Handle groupAt(uint32_t face) const { return m_groups[face]; }
 	XA_INLINE uint32_t groupCount() const { return m_faceCount.size(); }
 	XA_INLINE uint32_t nextFace(uint32_t face) const { return m_nextFace[face]; }
@@ -7290,20 +7279,13 @@ static void runParameterizeChartTask(void *userData)
 class ChartGroup
 {
 public:
-	ChartGroup(uint32_t id, const Mesh *sourceMesh, const MeshFaceGroups *meshFaceGroups, MeshFaceGroups::Handle faceGroup) : m_sourceId(sourceMesh->id()), m_id(id), m_isVertexMap(faceGroup == MeshFaceGroups::kInvalid), m_paramAddedChartsCount(0), m_paramDeletedChartsCount(0)
+	ChartGroup(uint32_t id, const Mesh *sourceMesh, const MeshFaceGroups *meshFaceGroups, MeshFaceGroups::Handle faceGroup) : m_sourceId(sourceMesh->id()), m_id(id), m_paramAddedChartsCount(0), m_paramDeletedChartsCount(0)
 	{
+		XA_DEBUG_ASSERT(faceGroup != MeshFaceGroups::kInvalid);
 		// Create new mesh from the source mesh, using faces that belong to this group.
-		const uint32_t sourceFaceCount = sourceMesh->faceCount();
-		if (!m_isVertexMap) {
-			m_faceToSourceFaceMap.reserve(meshFaceGroups->faceCount(faceGroup));
-			for (MeshFaceGroups::Iterator it(meshFaceGroups, faceGroup); !it.isDone(); it.advance())
-				m_faceToSourceFaceMap.push_back(it.face());
-		} else {
-			for (uint32_t f = 0; f < sourceFaceCount; f++) {
-				if (meshFaceGroups->groupAt(f) == faceGroup)
-					m_faceToSourceFaceMap.push_back(f);
-			}
-		}
+		m_faceToSourceFaceMap.reserve(meshFaceGroups->faceCount(faceGroup));
+		for (MeshFaceGroups::Iterator it(meshFaceGroups, faceGroup); !it.isDone(); it.advance())
+			m_faceToSourceFaceMap.push_back(it.face());
 		// Only initial meshes has ignored faces. The only flag we care about is HasNormals.
 		const uint32_t faceCount = m_faceToSourceFaceMap.size();
 		XA_DEBUG_ASSERT(faceCount > 0);
@@ -7328,22 +7310,20 @@ public:
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const uint32_t face = m_faceToSourceFaceMap[f];
+			XA_DEBUG_ASSERT(!m_mesh->isFaceIgnored(face));
 			uint32_t indices[3];
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = sourceMesh->vertexAt(face * 3 + i);
 				indices[i] = sourceVertexToVertexMap.get(vertex);
 				XA_DEBUG_ASSERT(indices[i] != UINT32_MAX);
 			}
-			// Don't copy flags, it doesn't matter if a face is ignored after this point. All ignored faces get their own vertex map (m_isVertexMap) ChartGroup.
-			// Don't hash edges if m_isVertexMap, they may be degenerate.
-			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices, false, !m_isVertexMap);
+			// Don't copy flags - ignored faces aren't used by chart groups, they are handled by InvalidMeshGeometry.
+			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
-		if (!m_isVertexMap) {
-			m_mesh->createColocals();
-			m_mesh->createBoundaries();
-		}
+		m_mesh->createColocals();
+		m_mesh->createBoundaries();
 #if XA_DEBUG_EXPORT_OBJ_CHART_GROUPS
 		char filename[256];
 		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u.obj", m_sourceId, m_id);
@@ -7367,7 +7347,6 @@ public:
 	Chart *chartAt(uint32_t i) const { return m_charts[i]; }
 	uint32_t paramAddedChartsCount() const { return m_paramAddedChartsCount; }
 	uint32_t paramDeletedChartsCount() const { return m_paramDeletedChartsCount; }
-	bool isVertexMap() const { return m_isVertexMap; }
 	uint32_t mapFaceToSourceFace(uint32_t face) const { return m_faceToSourceFaceMap[face]; }
 	uint32_t mapVertexToSourceVertex(uint32_t i) const { return m_vertexToSourceVertexMap[i]; }
 	const Mesh *mesh() const { return m_mesh; }
@@ -7619,7 +7598,6 @@ private:
 	}
 
 	uint32_t m_sourceId, m_id;
-	bool m_isVertexMap;
 	Mesh *m_mesh;
 	Array<uint32_t> m_faceToSourceFaceMap; // List of faces of the source mesh that belong to this chart group.
 	Array<uint32_t> m_vertexToSourceVertexMap; // Map vertices of the mesh to vertices of the source mesh.
@@ -7645,6 +7623,45 @@ static void runCreateChartGroupTask(void *userData)
 	*(args->chartGroup) = XA_NEW_ARGS(MemTag::Default, ChartGroup, args->groupId, args->mesh, args->meshFaceGroups, args->faceGroup);
 	XA_PROFILE_END(addMeshCreateChartGroupsThread)
 }
+
+// References invalid faces and vertices in a mesh.
+struct InvalidMeshGeometry
+{
+	// Invalid faces have the face groups MeshFaceGroups::kInvalid.
+	void extract(const Mesh *mesh, const MeshFaceGroups *meshFaceGroups)
+	{
+		// Copy invalid faces.
+		m_faces.clear();
+		const uint32_t meshFaceCount = mesh->faceCount();
+		for (uint32_t f = 0; f < meshFaceCount; f++) {
+			if (meshFaceGroups->groupAt(f) == MeshFaceGroups::kInvalid)
+				m_faces.push_back(f);
+		}
+		// Create *unique* list of vertices of invalid faces.
+		const uint32_t faceCount = m_faces.size();
+		const uint32_t approxVertexCount = min(faceCount * 3, mesh->vertexCount());
+		m_vertexToSourceVertex.clear();
+		m_vertexToSourceVertex.reserve(approxVertexCount);
+		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToVertexMap(MemTag::Mesh, approxVertexCount);
+		for (uint32_t f = 0; f < faceCount; f++) {
+			const uint32_t face = m_faces[f];
+			for (uint32_t i = 0; i < 3; i++) {
+				const uint32_t vertex = mesh->vertexAt(face * 3 + i);
+				if (sourceVertexToVertexMap.get(vertex) == UINT32_MAX) {
+					sourceVertexToVertexMap.add(vertex);
+					m_vertexToSourceVertex.push_back(vertex);
+				}
+			}
+		}
+	}
+
+	ConstArrayView<uint32_t> faces() const { return m_faces; }
+	ConstArrayView<uint32_t> vertices() const { return m_vertexToSourceVertex; }
+
+private:
+	Array<uint32_t> m_faces;
+	Array<uint32_t> m_vertexToSourceVertex; // Map face vertices to vertices of the source mesh.
+};
 
 struct ComputeChartsTaskArgs
 {
@@ -7701,7 +7718,7 @@ static void runParameterizeChartsJob(void *userData)
 class Atlas
 {
 public:
-	Atlas() : m_meshCount(0), m_chartsComputed(false), m_chartsParameterized(false) {}
+	Atlas() : m_chartsComputed(false), m_chartsParameterized(false) {}
 
 	~Atlas()
 	{
@@ -7711,6 +7728,8 @@ public:
 		}
 	}
 
+	uint32_t meshCount() const { return m_meshes.size(); }
+	const InvalidMeshGeometry &invalidMeshGeometry(uint32_t meshIndex) const { return m_invalidMeshGeometry[meshIndex]; }
 	bool chartsComputed() const { return m_chartsComputed; }
 	bool chartsParameterized() const { return m_chartsParameterized; }
 	uint32_t chartGroupCount() const { return m_chartGroups.size(); }
@@ -7738,20 +7757,27 @@ public:
 		return nullptr;
 	}
 
-	// This function is thread safe.
-	void addMesh(TaskScheduler *taskScheduler, const Mesh *mesh, const MeshFaceGroups *meshFaceGroups)
+	void addMesh(const Mesh *mesh)
 	{
+		m_meshes.push_back(mesh);
+		m_invalidMeshGeometry.push_back(InvalidMeshGeometry());
+	}
+
+	// This function is thread safe.
+	void createMeshChartGroups(TaskScheduler *taskScheduler, const Mesh *mesh, const MeshFaceGroups *meshFaceGroups)
+	{
+		// Extract invalid geometry via the invalid face group (MeshFaceGroups::kInvalid).
+		m_invalidMeshGeometry[mesh->id()].extract(mesh, meshFaceGroups);
 		// Create one chart group per face group.
-		// If there's any ignored faces in the mesh, create an extra face group for that (vertex map).
 		// Chart group creation is slow since it copies a chunk of the source mesh, so use tasks.
 		Array<ChartGroup *> chartGroups;
-		chartGroups.resize(meshFaceGroups->groupCount() + (mesh->ignoredFaceCount() > 0 ? 1 : 0));
+		chartGroups.resize(meshFaceGroups->groupCount());
 		Array<CreateChartGroupTaskArgs> taskArgs;
 		taskArgs.resize(chartGroups.size());
 		for (uint32_t g = 0; g < chartGroups.size(); g++) {
 			CreateChartGroupTaskArgs &args = taskArgs[g];
 			args.chartGroup = &chartGroups[g];
-			args.faceGroup = MeshFaceGroups::Handle(g < meshFaceGroups->groupCount() ? g : MeshFaceGroups::kInvalid);
+			args.faceGroup = MeshFaceGroups::Handle(g);
 			args.groupId = g;
 			args.mesh = mesh;
 			args.meshFaceGroups = meshFaceGroups;
@@ -7765,13 +7791,12 @@ public:
 		}
 		taskScheduler->wait(&taskGroup);
 		// Thread-safe append.
-		m_addMeshMutex.lock();
+		m_createChartGroupsMutex.lock();
 		for (uint32_t g = 0; g < chartGroups.size(); g++) {
 			m_chartGroups.push_back(chartGroups[g]);
 			m_chartGroupSourceMeshes.push_back(mesh->id());
 		}
-		m_meshCount++;
-		m_addMeshMutex.unlock();
+		m_createChartGroupsMutex.unlock();
 	}
 
 	// Chart id/index is determined by depth-first hierarchy of mesh -> chart group -> chart.
@@ -7785,7 +7810,8 @@ public:
 		oldChartGroupSourceMeshes.resize(m_chartGroupSourceMeshes.size());
 		memcpy(oldChartGroupSourceMeshes.data(), m_chartGroupSourceMeshes.data(), sizeof(uint32_t) * m_chartGroupSourceMeshes.size());
 		uint32_t current = 0;
-		for (uint32_t i = 0; i < m_meshCount; i++) {
+		const uint32_t meshCount = m_meshes.size();
+		for (uint32_t i = 0; i < meshCount; i++) {
 			for (uint32_t j = 0; j < oldChartGroups.size(); j++) {
 				if (oldChartGroupSourceMeshes[j] == i) {
 					m_chartGroups[current] = oldChartGroups[j];
@@ -7803,28 +7829,20 @@ public:
 #endif
 		m_chartsComputed = false;
 		m_chartsParameterized = false;
-		// Ignore vertex maps.
-		uint32_t chartGroupCount = 0;
-		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
-			if (!m_chartGroups[i]->isVertexMap())
-				chartGroupCount++;
-		}
+		const uint32_t chartGroupCount = m_chartGroups.size();
 		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, chartGroupCount);
 		ThreadLocal<segment::Atlas> atlas;
 		ThreadLocal<ChartCtorBuffers> chartBuffers;
 		Array<ComputeChartsTaskArgs> taskArgs;
-		taskArgs.reserve(chartGroupCount);
-		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
-			if (!m_chartGroups[i]->isVertexMap()) {
-				ComputeChartsTaskArgs args;
-				args.taskScheduler = taskScheduler;
-				args.chartGroup = m_chartGroups[i];
-				args.atlas = &atlas;
-				args.chartBuffers = &chartBuffers;
-				args.options = &options;
-				args.progress = &progress;
-				taskArgs.push_back(args);
-			}
+		taskArgs.resize(chartGroupCount);
+		for (uint32_t i = 0; i < chartGroupCount; i++) {
+			ComputeChartsTaskArgs &args = taskArgs[i];
+			args.taskScheduler = taskScheduler;
+			args.chartGroup = m_chartGroups[i];
+			args.atlas = &atlas;
+			args.chartBuffers = &chartBuffers;
+			args.options = &options;
+			args.progress = &progress;
 		}
 		// Sort chart groups by mesh indexCount.
 		Array<float> chartGroupSortData;
@@ -7850,12 +7868,7 @@ public:
 	bool parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
 	{
 		m_chartsParameterized = false;
-		// Ignore vertex maps.
-		uint32_t chartGroupCount = 0;
-		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
-			if (!m_chartGroups[i]->isVertexMap())
-				chartGroupCount++;
-		}
+		const uint32_t chartGroupCount = m_chartGroups.size();
 		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
 		ThreadLocal<UniformGrid2> boundaryGrid; // For Quality boundary intersection.
 		ThreadLocal<ChartCtorBuffers> chartBuffers;
@@ -7863,21 +7876,18 @@ public:
 		ThreadLocal<PiecewiseParam> piecewiseParam;
 #endif
 		Array<ParameterizeChartsTaskArgs> taskArgs;
-		taskArgs.reserve(chartGroupCount);
-		for (uint32_t i = 0; i < m_chartGroups.size(); i++) {
-			if (!m_chartGroups[i]->isVertexMap()) {
-				ParameterizeChartsTaskArgs args;
-				args.taskScheduler = taskScheduler;
-				args.chartGroup = m_chartGroups[i];
-				args.func = func;
-				args.boundaryGrid = &boundaryGrid;
-				args.chartBuffers = &chartBuffers;
+		taskArgs.resize(chartGroupCount);
+		for (uint32_t i = 0; i < chartGroupCount; i++) {
+			ParameterizeChartsTaskArgs &args = taskArgs[i];
+			args.taskScheduler = taskScheduler;
+			args.chartGroup = m_chartGroups[i];
+			args.func = func;
+			args.boundaryGrid = &boundaryGrid;
+			args.chartBuffers = &chartBuffers;
 #if XA_RECOMPUTE_CHARTS
-				args.piecewiseParam = &piecewiseParam;
+			args.piecewiseParam = &piecewiseParam;
 #endif
-				args.progress = &progress;
-				taskArgs.push_back(args);
-			}
+			args.progress = &progress;
 		}
 		// Larger chart group meshes are added first to reduce the chance of thread starvation.
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartGroupCount);
@@ -7895,8 +7905,9 @@ public:
 	}
 
 private:
-	std::mutex m_addMeshMutex;
-	uint32_t m_meshCount;
+	Array<const Mesh *> m_meshes;
+	Array<InvalidMeshGeometry> m_invalidMeshGeometry;
+	std::mutex m_createChartGroupsMutex;
 	bool m_chartsComputed;
 	bool m_chartsParameterized;
 	Array<ChartGroup *> m_chartGroups;
@@ -8110,8 +8121,6 @@ struct Atlas
 		const uint32_t chartGroupsCount = paramAtlas->chartGroupCount();
 		for (uint32_t i = 0; i < chartGroupsCount; i++) {
 			const param::ChartGroup *chartGroup = paramAtlas->chartGroupAt(i);
-			if (chartGroup->isVertexMap())
-				continue;
 			chartCount += chartGroup->chartCount();
 		}
 		if (chartCount == 0)
@@ -8124,8 +8133,6 @@ struct Atlas
 		ThreadLocal<BoundingBox2D> boundingBox;
 		for (uint32_t i = 0; i < chartGroupsCount; i++) {
 			const param::ChartGroup *chartGroup = paramAtlas->chartGroupAt(i);
-			if (chartGroup->isVertexMap())
-				continue;
 			const uint32_t count = chartGroup->chartCount();
 			for (uint32_t j = 0; j < count; j++) {
 				AddChartTaskArgs &args = taskArgs[chartIndex];
@@ -8968,7 +8975,7 @@ static void runAddMeshTask(void *userData)
 #endif
 	{
 		XA_PROFILE_START(addMeshCreateChartGroupsReal)
-		args->ctx->paramAtlas.addMesh(args->ctx->taskScheduler, mesh, meshFaceGroups); // addMesh is thread safe
+		args->ctx->paramAtlas.createMeshChartGroups(args->ctx->taskScheduler, mesh, meshFaceGroups); // createMeshChartGroups is thread safe
 		XA_PROFILE_END(addMeshCreateChartGroupsReal)
 	}
 	if (progress->cancel)
@@ -9143,8 +9150,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	}
 	if (warningCount > kMaxWarnings)
 		XA_PRINT("   %u additional warnings truncated\n", warningCount - kMaxWarnings);
-	ctx->meshes.push_back(mesh);
 	XA_PROFILE_END(addMeshCopyData)
+	ctx->meshes.push_back(mesh);
+	ctx->paramAtlas.addMesh(mesh);
 	if (ctx->addMeshTaskGroup.value == UINT32_MAX)
 		ctx->addMeshTaskGroup = ctx->taskScheduler->createTaskGroup();
 	AddMeshTaskArgs *taskArgs = XA_NEW(internal::MemTag::Default, AddMeshTaskArgs); // The task frees this.
@@ -9340,8 +9348,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	for (uint32_t i = 0; i < meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-			if (chartGroup->isVertexMap())
-				continue;
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 #if XA_PRINT_CHART_WARNINGS
@@ -9428,8 +9434,6 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	for (uint32_t i = 0; i < meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-			if (chartGroup->isVertexMap())
-				continue;
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
 				if (chart->type() == ChartType::Planar)
@@ -9455,8 +9459,6 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	for (uint32_t i = 0; i < meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-			if (chartGroup->isVertexMap())
-				continue;
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				internal::param::Chart *chart = chartGroup->chartAt(k);
 				const internal::param::Quality &quality = chart->quality();
@@ -9620,19 +9622,17 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		uint32_t chartIndex = 0;
 		for (uint32_t i = 0; i < atlas->meshCount; i++) {
 			Mesh &outputMesh = atlas->meshes[i];
-			// Count and alloc arrays. Ignore vertex mapped chart groups in Mesh::chartCount, since they're ignored faces.
+			// Count and alloc arrays.
+			const internal::param::InvalidMeshGeometry &invalid = ctx->paramAtlas.invalidMeshGeometry(i);
+			outputMesh.vertexCount += invalid.vertices().length;
+			outputMesh.indexCount += invalid.faces().length * 3;
 			for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
 				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
-				if (chartGroup->isVertexMap()) {
-					outputMesh.vertexCount += chartGroup->mesh()->vertexCount();
-					outputMesh.indexCount += chartGroup->mesh()->faceCount() * 3;
-				} else {
-					for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
-						const internal::param::Chart *chart = chartGroup->chartAt(c);
-						outputMesh.vertexCount += chart->mesh()->vertexCount();
-						outputMesh.indexCount += chart->mesh()->faceCount() * 3;
-						outputMesh.chartCount++;
-					}
+				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
+					const internal::param::Chart *chart = chartGroup->chartAt(c);
+					outputMesh.vertexCount += chart->mesh()->vertexCount();
+					outputMesh.indexCount += chart->mesh()->faceCount() * 3;
+					outputMesh.chartCount++;
 				}
 			}
 			outputMesh.vertexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, Vertex, outputMesh.vertexCount);
@@ -9640,62 +9640,64 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 			outputMesh.chartArray = XA_ALLOC_ARRAY(internal::MemTag::Default, Chart, outputMesh.chartCount);
 			XA_PRINT("   mesh %u: %u vertices, %u triangles, %u charts\n", i, outputMesh.vertexCount, outputMesh.indexCount / 3, outputMesh.chartCount);
 			// Copy mesh data.
-			uint32_t firstVertex = 0, meshChartIndex = 0;
+			uint32_t firstVertex = 0;
+			{
+				const internal::param::InvalidMeshGeometry &mesh = ctx->paramAtlas.invalidMeshGeometry(i);
+				internal::ConstArrayView<uint32_t> vertices = mesh.vertices();
+				internal::ConstArrayView<uint32_t> faces = mesh.faces();
+				// Vertices.
+				for (uint32_t v = 0; v < vertices.length; v++) {
+					Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
+					vertex.atlasIndex = -1;
+					vertex.chartIndex = -1;
+					vertex.uv[0] = vertex.uv[1] = 0.0f;
+					vertex.xref = vertices[v];
+				}
+				// Indices.
+				for (uint32_t f = 0; f < faces.length; f++) {
+					const uint32_t indexOffset = faces[f] * 3;
+					for (uint32_t j = 0; j < 3; j++)
+						outputMesh.indexArray[indexOffset + j] = firstVertex + vertices[f * 3 + j];
+				}
+				firstVertex += vertices.length;
+			}
+			uint32_t meshChartIndex = 0;
 			for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
 				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
-				if (chartGroup->isVertexMap()) {
-					const internal::Mesh *mesh = chartGroup->mesh();
+				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
+					const internal::param::Chart *chart = chartGroup->chartAt(c);
+					const internal::Mesh *mesh = chart->mesh();
 					// Vertices.
 					for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
 						Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
-						vertex.atlasIndex = -1;
-						vertex.chartIndex = -1;
-						vertex.uv[0] = vertex.uv[1] = 0.0f;
-						vertex.xref = chartGroup->mapVertexToSourceVertex(v);
+						vertex.atlasIndex = packAtlas.getChart(chartIndex)->atlasIndex;
+						XA_DEBUG_ASSERT(vertex.atlasIndex >= 0);
+						vertex.chartIndex = (int32_t)chartIndex;
+						const internal::Vector2 &uv = mesh->texcoord(v);
+						vertex.uv[0] = internal::max(0.0f, uv.x);
+						vertex.uv[1] = internal::max(0.0f, uv.y);
+						vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
 					}
 					// Indices.
 					for (uint32_t f = 0; f < mesh->faceCount(); f++) {
-						const uint32_t indexOffset = chartGroup->mapFaceToSourceFace(f) * 3;
+						const uint32_t indexOffset = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f)) * 3;
 						for (uint32_t j = 0; j < 3; j++)
 							outputMesh.indexArray[indexOffset + j] = firstVertex + mesh->vertexAt(f * 3 + j);
 					}
+					// Charts.
+					Chart *outputChart = &outputMesh.chartArray[meshChartIndex];
+					const int32_t atlasIndex = packAtlas.getChart(chartIndex)->atlasIndex;
+					XA_DEBUG_ASSERT(atlasIndex >= 0);
+					outputChart->atlasIndex = (uint32_t)atlasIndex;
+					outputChart->type = chart->type();
+					outputChart->faceCount = mesh->faceCount();
+					outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
+					for (uint32_t f = 0; f < outputChart->faceCount; f++)
+						outputChart->faceArray[f] = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f));
+					outputChart->material = 0;
+					meshChartIndex++;
+					chartIndex++;
 					firstVertex += mesh->vertexCount();
-				} else {
-					for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
-						const internal::param::Chart *chart = chartGroup->chartAt(c);
-						const internal::Mesh *mesh = chart->mesh();
-						// Vertices.
-						for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
-							Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
-							vertex.atlasIndex = packAtlas.getChart(chartIndex)->atlasIndex;
-							XA_DEBUG_ASSERT(vertex.atlasIndex >= 0);
-							vertex.chartIndex = (int32_t)chartIndex;
-							const internal::Vector2 &uv = mesh->texcoord(v);
-							vertex.uv[0] = internal::max(0.0f, uv.x);
-							vertex.uv[1] = internal::max(0.0f, uv.y);
-							vertex.xref = chartGroup->mapVertexToSourceVertex(chart->mapChartVertexToOriginalVertex(v));
-						}
-						// Indices.
-						for (uint32_t f = 0; f < mesh->faceCount(); f++) {
-							const uint32_t indexOffset = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f)) * 3;
-							for (uint32_t j = 0; j < 3; j++)
-								outputMesh.indexArray[indexOffset + j] = firstVertex + mesh->vertexAt(f * 3 + j);
-						}
-						// Charts.
-						Chart *outputChart = &outputMesh.chartArray[meshChartIndex];
-						const int32_t atlasIndex = packAtlas.getChart(chartIndex)->atlasIndex;
-						XA_DEBUG_ASSERT(atlasIndex >= 0);
-						outputChart->atlasIndex = (uint32_t)atlasIndex;
-						outputChart->type = chart->type();
-						outputChart->faceCount = mesh->faceCount();
-						outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
-						for (uint32_t f = 0; f < outputChart->faceCount; f++)
-							outputChart->faceArray[f] = chartGroup->mapFaceToSourceFace(chart->mapFaceToSourceFace(f));
-						outputChart->material = 0;
-						meshChartIndex++;
-						chartIndex++;
-						firstVertex += mesh->vertexCount();
-					}
 				}
 			}
 			XA_DEBUG_ASSERT(outputMesh.vertexCount == firstVertex);
