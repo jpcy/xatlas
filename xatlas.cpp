@@ -371,6 +371,7 @@ struct ProfileData
 	std::atomic<clock_t> clusteredChartsGrow;
 	std::atomic<clock_t> clusteredChartsMerge;
 	std::atomic<clock_t> clusteredChartsFillHoles;
+	std::atomic<clock_t> copyChartFaces;
 	std::atomic<clock_t> createChartMeshesReal;
 	std::atomic<clock_t> createChartMeshesThread;
 	std::atomic<clock_t> fixChartMeshTJunctions;
@@ -7411,7 +7412,7 @@ public:
 		  - emphasize roundness metrics to prevent those cases.
 	  - If interior self-overlaps: preserve boundary parameterization and use mean-value map.
 	*/
-	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<ChartCtorBuffers> *chartBuffers)
+	void computeChartFaces(const ChartOptions &options, segment::Atlas &atlas)
 	{
 		m_chartOptions = options;
 		// This function may be called multiple times, so destroy existing charts.
@@ -7421,27 +7422,68 @@ public:
 		}
 		m_charts.clear();
 #if XA_DEBUG_SINGLE_CHART
-		Array<uint32_t> faces;
-		faces.resize(m_mesh->faceCount());
-		for (uint32_t i = 0; i < faces.size(); i++)
-			faces[i] = i;
-		Basis basis;
-		Fit::computeBasis(&m_mesh->position(0), m_mesh->vertexCount(), &basis);
-		Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, chartBuffers->get(), basis, faces, m_mesh, m_sourceId, m_id, 0);
-		m_charts.push_back(chart);
+		m_chartBasis.resize(1);
+		Fit::computeBasis(&m_mesh->position(0), m_mesh->vertexCount(), &m_chartBasis[0]);
+		m_chartFaces.resize(1 + m_mesh->faceCount());
+		m_chartFaces[0] = m_mesh->faceCount();
+		for (uint32_t i = 0; i < m_chartFaces.size(); i++)
+			m_chartFaces[i + 1] = i;
 #else
 		XA_PROFILE_START(buildAtlas)
 		atlas.reset(m_mesh, options);
 		atlas.compute();
 		XA_PROFILE_END(buildAtlas)
+		XA_PROFILE_START(copyChartFaces)
+		// Copy basis.
 		const uint32_t chartCount = atlas.chartCount();
+		m_chartBasis.resize(chartCount);
+		for (uint32_t i = 0; i < chartCount; i++)
+			m_chartBasis[i] = atlas.chartBasis(i);
+		// Copy faces from segment::Atlas to m_chartFaces array with <chart 0 face count> <face 0> <face n> <chart 1 face count> etc. encoding.
+		m_chartFaces.resize(chartCount + m_mesh->faceCount());
+		uint32_t offset = 0;
+		for (uint32_t i = 0; i < chartCount; i++) {
+			ConstArrayView<uint32_t> faces = atlas.chartFaces(i);
+			m_chartFaces[offset++] = faces.length;
+			memcpy(&m_chartFaces[offset], faces.data, faces.length * sizeof(uint32_t));
+			offset += faces.length;
+		}
+		XA_PROFILE_END(copyChartFaces)
+#if XA_DEBUG_EXPORT_OBJ_CHARTS
+		char filename[256];
+		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_charts.obj", m_sourceId, m_id);
+		FILE *file;
+		XA_FOPEN(file, filename, "w");
+		if (file) {
+			m_mesh->writeObjVertices(file);
+			for (uint32_t i = 0; i < chartCount; i++) {
+				fprintf(file, "o chart_%04d\n", i);
+				fprintf(file, "s off\n");
+				ConstArrayView<uint32_t> faces = atlas.chartFaces(i);
+				for (uint32_t f = 0; f < faces.length; f++)
+					m_mesh->writeObjFace(file, faces[f]);
+			}
+			m_mesh->writeObjBoundaryEges(file);
+			m_mesh->writeObjLinkedBoundaries(file);
+			fclose(file);
+		}
+#endif
+#endif
+	}
+
+	void createCharts(TaskScheduler *taskScheduler, ThreadLocal<ChartCtorBuffers> *chartBuffers)
+	{
+		const uint32_t chartCount = m_chartBasis.size();
 		m_charts.resize(chartCount);
 		Array<CreateChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
+		uint32_t offset = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			CreateChartTaskArgs &args = taskArgs[i];
-			args.basis = &atlas.chartBasis(i);
-			args.faces = atlas.chartFaces(i);
+			args.basis = &m_chartBasis[i];
+			const uint32_t faceCount = m_chartFaces[offset++];
+			args.faces = ConstArrayView<uint32_t>(&m_chartFaces[offset], faceCount);
+			offset += faceCount;
 			args.mesh = m_mesh;
 			args.meshId = m_sourceId;
 			args.chartGroupId = m_id;
@@ -7459,26 +7501,6 @@ public:
 		}
 		taskScheduler->wait(&taskGroup);
 		XA_PROFILE_END(createChartMeshesReal)
-#endif
-#if XA_DEBUG_EXPORT_OBJ_CHARTS
-		char filename[256];
-		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_charts.obj", m_sourceId, m_id);
-		FILE *file;
-		XA_FOPEN(file, filename, "w");
-		if (file) {
-			m_mesh->writeObjVertices(file);
-			for (uint32_t i = 0; i < chartCount; i++) {
-				fprintf(file, "o chart_%04d\n", i);
-				fprintf(file, "s off\n");
-				const Array<uint32_t> &faces = builder.chartFaces(i);
-				for (uint32_t f = 0; f < faces.size(); f++)
-					m_mesh->writeObjFace(file, faces[f]);
-			}
-			m_mesh->writeObjBoundaryEges(file);
-			m_mesh->writeObjLinkedBoundaries(file);
-			fclose(file);
-		}
-#endif
 	}
 
 #if XA_RECOMPUTE_CHARTS
@@ -7601,6 +7623,8 @@ private:
 	Mesh *m_mesh;
 	Array<uint32_t> m_faceToSourceFaceMap; // List of faces of the source mesh that belong to this chart group.
 	Array<uint32_t> m_vertexToSourceVertexMap; // Map vertices of the mesh to vertices of the source mesh.
+	Array<Basis> m_chartBasis; // Copied from segment::Atlas.
+	Array<uint32_t> m_chartFaces; // Copied from segment::Atlas. Encoding: <chart 0 face count> <face 0> <face n> <chart 1 face count> etc.
 	Array<Chart *> m_charts;
 	ChartOptions m_chartOptions;
 	uint32_t m_paramAddedChartsCount; // Number of new charts added by recomputing charts with invalid parameterizations.
@@ -7663,23 +7687,21 @@ private:
 	Array<uint32_t> m_vertexToSourceVertex; // Map face vertices to vertices of the source mesh.
 };
 
-struct ComputeChartsTaskArgs
+struct ComputeChartFacesTaskArgs
 {
-	TaskScheduler *taskScheduler;
 	ChartGroup *chartGroup;
 	ThreadLocal<segment::Atlas> *atlas;
-	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 	const ChartOptions *options;
 	Progress *progress;
 };
 
-static void runComputeChartsJob(void *userData)
+static void runComputeChartFacesJob(void *userData)
 {
-	auto args = (ComputeChartsTaskArgs *)userData;
+	auto args = (ComputeChartFacesTaskArgs *)userData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(computeChartsThread)
-	args->chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->chartBuffers);
+	args->chartGroup->computeChartFaces(*args->options, args->atlas->get());
 	XA_PROFILE_END(computeChartsThread)
 	args->progress->value++;
 	args->progress->update();
@@ -7832,15 +7854,12 @@ public:
 		const uint32_t chartGroupCount = m_chartGroups.size();
 		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, chartGroupCount);
 		ThreadLocal<segment::Atlas> atlas;
-		ThreadLocal<ChartCtorBuffers> chartBuffers;
-		Array<ComputeChartsTaskArgs> taskArgs;
+		Array<ComputeChartFacesTaskArgs> taskArgs;
 		taskArgs.resize(chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
-			ComputeChartsTaskArgs &args = taskArgs[i];
-			args.taskScheduler = taskScheduler;
+			ComputeChartFacesTaskArgs &args = taskArgs[i];
 			args.chartGroup = m_chartGroups[i];
 			args.atlas = &atlas;
-			args.chartBuffers = &chartBuffers;
 			args.options = &options;
 			args.progress = &progress;
 		}
@@ -7855,10 +7874,16 @@ public:
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			Task task;
 			task.userData = &taskArgs[m_chartGroupsRadix.ranks()[chartGroupCount - i - 1]];
-			task.func = runComputeChartsJob;
+			task.func = runComputeChartFacesJob;
 			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
+		if (progress.cancel)
+			return false;
+		// Create charts from chart faces.
+		ThreadLocal<ChartCtorBuffers> chartBuffers;
+		for (uint32_t i = 0; i < chartGroupCount; i++)
+			m_chartGroups[i]->createCharts(taskScheduler, &chartBuffers);
 		if (progress.cancel)
 			return false;
 		m_chartsComputed = true;
@@ -9387,6 +9412,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT_AND_RESET("            Grow: ", clusteredChartsGrow)
 	XA_PROFILE_PRINT_AND_RESET("            Merge: ", clusteredChartsMerge)
 	XA_PROFILE_PRINT_AND_RESET("            Fill holes: ", clusteredChartsFillHoles)
+	XA_PROFILE_PRINT_AND_RESET("      Copy chart faces: ", copyChartFaces)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (real): ", createChartMeshesReal)
 	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (thread): ", createChartMeshesThread)
 	XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
