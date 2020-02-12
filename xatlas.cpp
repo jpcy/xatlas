@@ -7657,6 +7657,7 @@ struct InvalidMeshGeometry
 		}
 		// Create *unique* list of vertices of invalid faces.
 		const uint32_t faceCount = m_faces.size();
+		m_indices.resize(faceCount * 3);
 		const uint32_t approxVertexCount = min(faceCount * 3, mesh->vertexCount());
 		m_vertexToSourceVertexMap.clear();
 		m_vertexToSourceVertexMap.reserve(approxVertexCount);
@@ -7665,6 +7666,7 @@ struct InvalidMeshGeometry
 			const uint32_t face = m_faces[f];
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = mesh->vertexAt(face * 3 + i);
+				m_indices[f * 3 + i] = m_vertexToSourceVertexMap.size();;
 				if (sourceVertexToVertexMap.get(vertex) == UINT32_MAX) {
 					sourceVertexToVertexMap.add(vertex);
 					m_vertexToSourceVertexMap.push_back(vertex);
@@ -7674,10 +7676,11 @@ struct InvalidMeshGeometry
 	}
 
 	ConstArrayView<uint32_t> faces() const { return m_faces; }
+	ConstArrayView<uint32_t> indices() const { return m_indices; }
 	ConstArrayView<uint32_t> vertices() const { return m_vertexToSourceVertexMap; }
 
 private:
-	Array<uint32_t> m_faces;
+	Array<uint32_t> m_faces, m_indices;
 	Array<uint32_t> m_vertexToSourceVertexMap; // Map face vertices to vertices of the source mesh.
 };
 
@@ -9663,8 +9666,9 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 			uint32_t firstVertex = 0;
 			{
 				const internal::param::InvalidMeshGeometry &mesh = ctx->paramAtlas.invalidMeshGeometry(i);
-				internal::ConstArrayView<uint32_t> vertices = mesh.vertices();
 				internal::ConstArrayView<uint32_t> faces = mesh.faces();
+				internal::ConstArrayView<uint32_t> indices = mesh.indices();
+				internal::ConstArrayView<uint32_t> vertices = mesh.vertices();
 				// Vertices.
 				for (uint32_t v = 0; v < vertices.length; v++) {
 					Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
@@ -9677,7 +9681,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				for (uint32_t f = 0; f < faces.length; f++) {
 					const uint32_t indexOffset = faces[f] * 3;
 					for (uint32_t j = 0; j < 3; j++)
-						outputMesh.indexArray[indexOffset + j] = firstVertex + vertices[f * 3 + j];
+						outputMesh.indexArray[indexOffset + j] = firstVertex + indices[f * 3 + j];
 				}
 				firstVertex += vertices.length;
 			}
