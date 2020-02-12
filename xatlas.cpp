@@ -372,12 +372,12 @@ struct ProfileData
 	std::atomic<clock_t> clusteredChartsMerge;
 	std::atomic<clock_t> clusteredChartsFillHoles;
 	std::atomic<clock_t> copyChartFaces;
+	clock_t parameterizeChartsReal;
+	std::atomic<clock_t> parameterizeChartsThread;
 	std::atomic<clock_t> createChartMeshesReal;
 	std::atomic<clock_t> createChartMeshesThread;
 	std::atomic<clock_t> fixChartMeshTJunctions;
 	std::atomic<clock_t> closeChartMeshHoles;
-	clock_t parameterizeChartsReal;
-	std::atomic<clock_t> parameterizeChartsThread;
 	std::atomic<clock_t> parameterizeChartsOrthogonal;
 	std::atomic<clock_t> parameterizeChartsLSCM;
 	std::atomic<clock_t> parameterizeChartsRecompute;
@@ -7340,6 +7340,7 @@ public:
 		}
 	}
 
+	uint32_t segmentChartCount() const { return m_chartBasis.size(); }
 	uint32_t chartCount() const { return m_charts.size(); }
 	Chart *chartAt(uint32_t i) const { return m_charts[i]; }
 	uint32_t paramAddedChartsCount() const { return m_paramAddedChartsCount; }
@@ -7723,6 +7724,7 @@ static void runParameterizeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(parameterizeChartsThread)
+	args->chartGroup->createCharts(args->taskScheduler, args->chartBuffers);
 #if XA_RECOMPUTE_CHARTS
 	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
 #else
@@ -7875,12 +7877,6 @@ public:
 			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
-		if (progress.cancel)
-			return false;
-		// Create charts from chart faces.
-		ThreadLocal<ChartCtorBuffers> chartBuffers;
-		for (uint32_t i = 0; i < chartGroupCount; i++)
-			m_chartGroups[i]->createCharts(taskScheduler, &chartBuffers);
 		if (progress.cancel)
 			return false;
 		m_chartsComputed = true;
@@ -9358,44 +9354,21 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 		return;
 	}
 	XA_PRINT("Computing charts\n");
-	uint32_t chartCount = 0, chartsWithHolesCount = 0, holesCount = 0, chartsWithTJunctionsCount = 0, tJunctionsCount = 0;
 	XA_PROFILE_START(computeChartsReal)
 	if (!ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, ctx->progressFunc, ctx->progressUserData)) {
 		XA_PRINT("   Cancelled by user\n");
 		return;
 	}
 	XA_PROFILE_END(computeChartsReal)
-	// Count charts and print warnings.
+	// Count charts.
+	uint32_t chartCount = 0;
 	const uint32_t meshCount = ctx->meshes.size();
 	for (uint32_t i = 0; i < meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
-				const internal::param::Chart *chart = chartGroup->chartAt(k);
-#if XA_PRINT_CHART_WARNINGS
-				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesFailed)
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): failed to close holes\n", chartCount, i, j, k);
-				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions created non-manifold geometry\n", chartCount, i, j, k);
-				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsFailed)
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
-				if (chart->warningFlags() & internal::param::ChartWarningFlags::TriangulateDuplicatedEdge)
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): triangulation created non-manifold geometry\n", chartCount, i, j, k);
-#endif
-				holesCount += chart->closedHolesCount();
-				if (chart->closedHolesCount() > 0)
-					chartsWithHolesCount++;
-				tJunctionsCount += chart->fixedTJunctionsCount();
-				if (chart->fixedTJunctionsCount() > 0)
-					chartsWithTJunctionsCount++;
-				chartCount++;
-			}
+			chartCount += chartGroup->segmentChartCount();
 		}
 	}
-	if (holesCount > 0)
-		XA_PRINT("   Closed %u holes in %u charts\n", holesCount, chartsWithHolesCount);
-	if (tJunctionsCount > 0)
-		XA_PRINT("   Fixed %u t-junctions in %u charts\n", tJunctionsCount, chartsWithTJunctionsCount);
 	XA_PRINT("   %u charts\n", chartCount);
 	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", computeChartsReal)
 	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", computeChartsThread)
@@ -9410,10 +9383,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT_AND_RESET("            Merge: ", clusteredChartsMerge)
 	XA_PROFILE_PRINT_AND_RESET("            Fill holes: ", clusteredChartsFillHoles)
 	XA_PROFILE_PRINT_AND_RESET("      Copy chart faces: ", copyChartFaces)
-	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (real): ", createChartMeshesReal)
-	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (thread): ", createChartMeshesThread)
-	XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
-	XA_PROFILE_PRINT_AND_RESET("         Close holes: ", closeChartMeshHoles)
 	XA_PRINT_MEM_USAGE
 }
 
@@ -9453,12 +9422,28 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	}
 	XA_PROFILE_END(parameterizeChartsReal)
 	const uint32_t meshCount = ctx->meshes.size();
-	uint32_t chartCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
+	uint32_t chartCount = 0, chartsWithHolesCount = 0, holesCount = 0, chartsWithTJunctionsCount = 0, tJunctionsCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
 	for (uint32_t i = 0; i < meshCount; i++) {
 		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
 			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 				const internal::param::Chart *chart = chartGroup->chartAt(k);
+#if XA_PRINT_CHART_WARNINGS
+				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesFailed)
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): failed to close holes\n", chartCount, i, j, k);
+				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions created non-manifold geometry\n", chartCount, i, j, k);
+				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsFailed)
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
+				if (chart->warningFlags() & internal::param::ChartWarningFlags::TriangulateDuplicatedEdge)
+					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): triangulation created non-manifold geometry\n", chartCount, i, j, k);
+#endif
+				holesCount += chart->closedHolesCount();
+				if (chart->closedHolesCount() > 0)
+					chartsWithHolesCount++;
+				tJunctionsCount += chart->fixedTJunctionsCount();
+				if (chart->fixedTJunctionsCount() > 0)
+					chartsWithTJunctionsCount++;
 				if (chart->type() == ChartType::Planar)
 					planarChartsCount++;
 				else if (chart->type() == ChartType::Ortho)
@@ -9473,6 +9458,10 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 			chartsDeletedCount += chartGroup->paramDeletedChartsCount();
 		}
 	}
+	if (holesCount > 0)
+		XA_PRINT("   %u holes closed in %u charts\n", holesCount, chartsWithHolesCount);
+	if (tJunctionsCount > 0)
+		XA_PRINT("   %u t-junctions fixed in %u charts\n", tJunctionsCount, chartsWithTJunctionsCount);
 	XA_PRINT("   %u planar charts, %u ortho charts, %u LSCM charts, %u piecewise charts\n", planarChartsCount, orthoChartsCount, lscmChartsCount, piecewiseChartsCount);
 	if (chartsDeletedCount > 0) {
 		XA_PRINT("   %u charts with invalid parameterizations replaced with %u new charts\n", chartsDeletedCount, chartsAddedCount);
@@ -9544,6 +9533,10 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 		XA_PRINT_WARNING("   %u charts with invalid parameterizations\n", invalidParamCount);
 	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", parameterizeChartsReal)
 	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", parameterizeChartsThread)
+	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (real): ", createChartMeshesReal)
+	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (thread): ", createChartMeshesThread)
+	XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
+	XA_PROFILE_PRINT_AND_RESET("         Close holes: ", closeChartMeshHoles)
 	XA_PROFILE_PRINT_AND_RESET("      Orthogonal: ", parameterizeChartsOrthogonal)
 	XA_PROFILE_PRINT_AND_RESET("      LSCM: ", parameterizeChartsLSCM)
 	XA_PROFILE_PRINT_AND_RESET("      Recompute: ", parameterizeChartsRecompute)
