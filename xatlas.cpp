@@ -6585,8 +6585,9 @@ private:
 		const Vector2 localEdgeVec = texcoords[localVertex1] - texcoords[localVertex0];
 		const float len1 = length(patchEdgeVec);
 		const float len2 = length(localEdgeVec);
+		if (len1 <= 0.0f || len2 <= 0.0f)
+			return; // Zero length edge.
 		const float scale = len1 / len2;
-		XA_ASSERT(scale > 0.0f);
 		for (uint32_t i = 0; i < 3; i++)
 			texcoords[i] *= scale;
 		// Translate to the first vertex on the patch edge.
@@ -6608,6 +6609,8 @@ private:
 			uv.x = x + texcoords[localVertex0].x;
 			uv.y = y + texcoords[localVertex0].y;
 		}
+		if (isNan(texcoords[localFreeVertex].x) || isNan(texcoords[localFreeVertex].y))
+			return;
 		// Check for local overlap (flipped triangle).
 		// The patch face vertex that isn't on the active edge and the free vertex should be oriented on opposite sides to the active edge.
 		const float freeVertexOrient = orientToEdge(m_texcoords[vertex0], m_texcoords[vertex1], texcoords[localFreeVertex]);
