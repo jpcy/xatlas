@@ -7410,12 +7410,6 @@ public:
 	void computeChartFaces(const ChartOptions &options, segment::Atlas &atlas)
 	{
 		m_chartOptions = options;
-		// This function may be called multiple times, so destroy existing charts.
-		for (uint32_t i = 0; i < m_charts.size(); i++) {
-			m_charts[i]->~Chart();
-			XA_FREE(m_charts[i]);
-		}
-		m_charts.clear();
 #if XA_DEBUG_SINGLE_CHART
 		m_chartBasis.resize(1);
 		Fit::computeBasis(&m_mesh->position(0), m_mesh->vertexCount(), &m_chartBasis[0]);
@@ -7469,6 +7463,11 @@ public:
 
 	void createCharts(TaskScheduler *taskScheduler, ThreadLocal<ChartCtorBuffers> *chartBuffers)
 	{
+		// This function may be called multiple times, so destroy existing charts.
+		for (uint32_t i = 0; i < m_charts.size(); i++) {
+			m_charts[i]->~Chart();
+			XA_FREE(m_charts[i]);
+		}
 		const uint32_t chartCount = m_chartBasis.size();
 		m_charts.resize(chartCount);
 		Array<CreateChartTaskArgs> taskArgs;
