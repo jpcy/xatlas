@@ -1998,7 +1998,7 @@ public:
 			XA_FREE(m_slots);
 	}
 
-	void add(const Key &key)
+	uint32_t add(const Key &key)
 	{
 		if (!m_slots)
 			alloc();
@@ -2006,6 +2006,7 @@ public:
 		m_keys.push_back(key);
 		m_next.push_back(m_slots[hash]);
 		m_slots[hash] = m_next.size() - 1;
+		return m_keys.size() - 1;
 	}
 
 	uint32_t get(const Key &key) const
@@ -3174,8 +3175,7 @@ struct MeshFaceGroups
 	void compute()
 	{
 		m_groups.resize(m_mesh->faceCount());
-		for (uint32_t i = 0; i < m_mesh->faceCount(); i++)
-			m_groups[i] = kInvalid; // TODO: memset
+		m_groups.fillBytes(0xff); // Set all faces to kInvalid
 		uint32_t firstUnassignedFace = 0;
 		Handle group = 0;
 		Array<uint32_t> growFaces;
@@ -6919,30 +6919,26 @@ public:
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
 		m_faceToSourceFaceMap.copyFrom(faces.data, faces.length);
-		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), faces.length * 3, faces.length);
-		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), faces.length * 3, faces.length);
-		Array<uint32_t> &chartMeshIndices = buffers.chartMeshIndices;
-		chartMeshIndices.resize(sourceMesh->vertexCount());
-		chartMeshIndices.fillBytes(0xff);
-		Array<uint32_t> &unifiedMeshIndices = buffers.unifiedMeshIndices;
-		unifiedMeshIndices.resize(sourceMesh->vertexCount());
-		unifiedMeshIndices.fillBytes(0xff);
+		const uint32_t approxVertexCount = min(faces.length * 3, sourceMesh->vertexCount());
+		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faces.length);
+		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faces.length);
+		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToUnifiedVertexMap(MemTag::Mesh, approxVertexCount), sourceVertexToChartVertexMap(MemTag::Mesh, approxVertexCount);
 		// Add vertices.
 		const uint32_t faceCount = m_initialFaceCount = faces.length;
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t vertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
-				const uint32_t unifiedVertex = sourceMesh->firstColocal(vertex);
-				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
-					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
-					XA_DEBUG_ASSERT(equal(sourceMesh->position(vertex), sourceMesh->position(unifiedVertex), sourceMesh->epsilon()));
-					m_unifiedMesh->addVertex(sourceMesh->position(vertex));
+				const uint32_t sourceVertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
+				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocal(sourceVertex);
+				uint32_t unifiedVertex = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
+				if (unifiedVertex == UINT32_MAX) {
+					unifiedVertex = sourceVertexToUnifiedVertexMap.add(sourceUnifiedVertex);
+					m_unifiedMesh->addVertex(sourceMesh->position(sourceVertex));
 				}
-				if (chartMeshIndices[vertex] == (uint32_t)~0) {
-					chartMeshIndices[vertex] = m_mesh->vertexCount();
-					m_vertexToSourceVertexMap.push_back(vertex);
-					m_chartVertexToUnifiedVertexMap.push_back(unifiedMeshIndices[unifiedVertex]);
-					m_mesh->addVertex(sourceMesh->position(vertex), Vector3(0.0f), sourceMesh->texcoord(vertex));
+				if (sourceVertexToChartVertexMap.get(sourceVertex) == UINT32_MAX) {
+					sourceVertexToChartVertexMap.add(sourceVertex);
+					m_vertexToSourceVertexMap.push_back(sourceVertex);
+					m_chartVertexToUnifiedVertexMap.push_back(unifiedVertex);
+					m_mesh->addVertex(sourceMesh->position(sourceVertex), Vector3(0.0f), sourceMesh->texcoord(sourceVertex));
 				}
 			}
 		}
@@ -6950,9 +6946,12 @@ public:
 		for (uint32_t f = 0; f < faceCount; f++) {
 			uint32_t indices[3], unifiedIndices[3];
 			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t vertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
-				indices[i] = chartMeshIndices[vertex];
-				unifiedIndices[i] = unifiedMeshIndices[sourceMesh->firstColocal(vertex)];
+				const uint32_t sourceVertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
+				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocal(sourceVertex);
+				indices[i] = sourceVertexToChartVertexMap.get(sourceVertex);
+				XA_DEBUG_ASSERT(indices[i] != UINT32_MAX);
+				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
+				XA_DEBUG_ASSERT(unifiedIndices[i] != UINT32_MAX);
 			}
 			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
 			XA_UNUSED(result);
