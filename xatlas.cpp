@@ -7308,9 +7308,9 @@ public:
 		// Segment mesh into charts (arrays of faces).
 #if XA_DEBUG_SINGLE_CHART
 		m_chartBasis.resize(1);
-		Fit::computeBasis(&m_mesh->position(0), m_mesh->vertexCount(), &m_chartBasis[0]);
-		m_chartFaces.resize(1 + m_mesh->faceCount());
-		m_chartFaces[0] = m_mesh->faceCount();
+		Fit::computeBasis(&mesh->position(0), mesh->vertexCount(), &m_chartBasis[0]);
+		m_chartFaces.resize(1 + mesh->faceCount());
+		m_chartFaces[0] = mesh->faceCount();
 		for (uint32_t i = 0; i < m_chartFaces.size(); i++)
 			m_chartFaces[i + 1] = i;
 #else
@@ -7318,6 +7318,25 @@ public:
 		atlas.reset(mesh, options);
 		atlas.compute();
 		XA_PROFILE_END(buildAtlas)
+#if XA_DEBUG_EXPORT_OBJ_CHARTS
+		char filename[256];
+		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_charts.obj", m_sourceMesh->id(), m_id);
+		FILE *file;
+		XA_FOPEN(file, filename, "w");
+		if (file) {
+			mesh->writeObjVertices(file);
+			for (uint32_t i = 0; i < atlas.chartCount(); i++) {
+				fprintf(file, "o chart_%04d\n", i);
+				fprintf(file, "s off\n");
+				ConstArrayView<uint32_t> faces = atlas.chartFaces(i);
+				for (uint32_t f = 0; f < faces.length; f++)
+					mesh->writeObjFace(file, faces[f]);
+			}
+			mesh->writeObjBoundaryEges(file);
+			mesh->writeObjLinkedBoundaries(file);
+			fclose(file);
+		}
+#endif
 		// Destroy mesh.
 		const uint32_t faceCount = mesh->faceCount();
 		mesh->~Mesh();
@@ -7339,32 +7358,13 @@ public:
 				m_chartFaces[offset++] = m_faceToSourceFaceMap[faces[j]];
 		}
 		XA_PROFILE_END(copyChartFaces)
-#if XA_DEBUG_EXPORT_OBJ_CHARTS
-		char filename[256];
-		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_charts.obj", m_sourceMesh->id(), m_id);
-		FILE *file;
-		XA_FOPEN(file, filename, "w");
-		if (file) {
-			m_mesh->writeObjVertices(file);
-			for (uint32_t i = 0; i < chartCount; i++) {
-				fprintf(file, "o chart_%04d\n", i);
-				fprintf(file, "s off\n");
-				ConstArrayView<uint32_t> faces = atlas.chartFaces(i);
-				for (uint32_t f = 0; f < faces.length; f++)
-					m_mesh->writeObjFace(file, faces[f]);
-			}
-			m_mesh->writeObjBoundaryEges(file);
-			m_mesh->writeObjLinkedBoundaries(file);
-			fclose(file);
-		}
-#endif
 #endif
 	}
 
 #if XA_RECOMPUTE_CHARTS
 	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
 #else
-	void parameterizeCharts(TaskScheduler* taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2>* boundaryGrid, ThreadLocal<ChartCtorBuffers>* /*chartBuffers*/)
+	void parameterizeCharts(TaskScheduler* taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2>* boundaryGrid, ThreadLocal<ChartCtorBuffers>* chartBuffers)
 #endif
 	{
 		createCharts(taskScheduler, chartBuffers);
