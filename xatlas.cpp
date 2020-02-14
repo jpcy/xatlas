@@ -6934,7 +6934,7 @@ struct ChartCtorBuffers
 class Chart
 {
 public:
-	Chart(ChartCtorBuffers &buffers, const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(ChartCtorBuffers &buffers, const ParameterizeOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
 	{
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
@@ -6990,14 +6990,16 @@ public:
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_unifiedMesh->createBoundaries();
-		if (meshIsPlanar(*m_unifiedMesh))
+		if (meshIsPlanar(*m_unifiedMesh)) {
 			m_type = ChartType::Planar;
-		else {
-			m_unifiedMesh->linkBoundaries();
+			return;
+		}
+		m_unifiedMesh->linkBoundaries();
 #if XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
-			m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
+		m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
 #endif
-			bool duplicatedEdge = false, failed = false;
+		bool duplicatedEdge = false, failed = false;
+		if (options.fixTJunctions) {
 			XA_PROFILE_START(fixChartMeshTJunctions)
 			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh, &duplicatedEdge, &failed, &m_fixedTJunctionsCount);
 			XA_PROFILE_END(fixChartMeshTJunctions)
@@ -7012,6 +7014,8 @@ public:
 				m_unifiedMesh->linkBoundaries();
 				m_initialFaceCount = m_unifiedMesh->faceCount(); // Fixing t-junctions rewrites faces.
 			}
+		}
+		if (options.closeHoles) {
 			// See if there are any holes that need closing.
 			Array<uint32_t> &boundaryLoops = buffers.boundaryLoops;
 			meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
@@ -7242,27 +7246,28 @@ private:
 
 struct CreateChartTaskArgs
 {
-	const Mesh *mesh;
 	const Basis *basis;
+	Chart **chart;
+	ThreadLocal<ChartCtorBuffers> *chartBuffers;
+	const Mesh *mesh;
+	const ParameterizeOptions *options;
 	ConstArrayView<uint32_t> faces;
 	uint32_t chartGroupId;
 	uint32_t chartId;
-	ThreadLocal<ChartCtorBuffers> *chartBuffers;
-	Chart **chart;
 };
 
 static void runCreateChartTask(void *userData)
 {
 	XA_PROFILE_START(createChartMeshesThread)
 	auto args = (CreateChartTaskArgs *)userData;
-	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), *(args->basis), args->faces, args->mesh, args->chartGroupId, args->chartId);
+	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), *args->options, *(args->basis), args->faces, args->mesh, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMeshesThread)
 }
 
 struct ParameterizeChartTaskArgs
 {
 	Chart *chart;
-	ParameterizeFunc func;
+	const ParameterizeOptions *options;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
 };
 
@@ -7284,8 +7289,8 @@ static void runParameterizeChartTask(void *userData)
 		args->chart->evaluateOrthoQuality(args->boundaryGrid->get());
 	if (args->chart->type() == ChartType::LSCM) {
 		XA_PROFILE_START(parameterizeChartsLSCM)
-		if (args->func)
-			args->func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
+		if (args->options->func)
+			args->options->func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
 		else
 			computeLeastSquaresConformalMap(mesh);
 		XA_PROFILE_END(parameterizeChartsLSCM)
@@ -7381,12 +7386,12 @@ public:
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	void parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
+	void parameterizeCharts(TaskScheduler *taskScheduler, const ParameterizeOptions &options, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
 #else
-	void parameterizeCharts(TaskScheduler* taskScheduler, ParameterizeFunc func, ThreadLocal<UniformGrid2>* boundaryGrid, ThreadLocal<ChartCtorBuffers>* chartBuffers)
+	void parameterizeCharts(TaskScheduler* taskScheduler, const ParameterizeOptions &options, ThreadLocal<UniformGrid2>* boundaryGrid, ThreadLocal<ChartCtorBuffers>* chartBuffers)
 #endif
 	{
-		createCharts(taskScheduler, chartBuffers);
+		createCharts(taskScheduler, options, chartBuffers);
 		m_paramAddedChartsCount = 0;
 		const uint32_t chartCount = m_charts.size();
 		Array<ParameterizeChartTaskArgs> taskArgs;
@@ -7395,7 +7400,7 @@ public:
 		for (uint32_t i = 0; i < chartCount; i++) {
 			ParameterizeChartTaskArgs &args = taskArgs[i];
 			args.chart = m_charts[i];
-			args.func = func;
+			args.options = &options;
 			args.boundaryGrid = boundaryGrid;
 			Task task;
 			task.userData = &args;
@@ -7542,7 +7547,7 @@ private:
 		return mesh;
 	}
 
-	void createCharts(TaskScheduler *taskScheduler, ThreadLocal<ChartCtorBuffers> *chartBuffers)
+	void createCharts(TaskScheduler *taskScheduler, const ParameterizeOptions &options, ThreadLocal<ChartCtorBuffers> *chartBuffers)
 	{
 		// This function may be called multiple times, so destroy existing charts.
 		for (uint32_t i = 0; i < m_charts.size(); i++) {
@@ -7565,6 +7570,7 @@ private:
 			args.chartId = i;
 			args.chartBuffers = chartBuffers;
 			args.chart = &m_charts[i];
+			args.options = &options;
 		}
 		XA_PROFILE_START(createChartMeshesReal)
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
@@ -7770,7 +7776,7 @@ struct ParameterizeChartsTaskArgs
 {
 	TaskScheduler *taskScheduler;
 	ChartGroup *chartGroup;
-	ParameterizeFunc func;
+	const ParameterizeOptions *options;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 #if XA_RECOMPUTE_CHARTS
@@ -7786,9 +7792,9 @@ static void runParameterizeChartsJob(void *userData)
 		return;
 	XA_PROFILE_START(parameterizeChartsThread)
 #if XA_RECOMPUTE_CHARTS
-	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
+	args->chartGroup->parameterizeCharts(args->taskScheduler, *args->options, args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
 #else
-	args->chartGroup->parameterizeCharts(args->taskScheduler, args->func, args->boundaryGrid, args->chartBuffers);
+	args->chartGroup->parameterizeCharts(args->taskScheduler, *args->options, args->boundaryGrid, args->chartBuffers);
 #endif
 	XA_PROFILE_END(parameterizeChartsThread)
 	args->progress->value++;
@@ -7883,7 +7889,7 @@ public:
 		return true;
 	}
 
-	bool parameterizeCharts(TaskScheduler *taskScheduler, ParameterizeFunc func, ProgressFunc progressFunc, void *progressUserData)
+	bool parameterizeCharts(TaskScheduler *taskScheduler, const ParameterizeOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
 		m_chartsParameterized = false;
 		uint32_t chartGroupCount = 0;
@@ -7905,7 +7911,7 @@ public:
 					ParameterizeChartsTaskArgs &args = taskArgs[k];
 					args.taskScheduler = taskScheduler;
 					args.chartGroup = m_meshChartGroups[i][j];
-					args.func = func;
+					args.options = &options;
 					args.boundaryGrid = &boundaryGrid;
 					args.chartBuffers = &chartBuffers;
 #if XA_RECOMPUTE_CHARTS
@@ -9301,7 +9307,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 	return AddMeshError::Success;
 }
 
-void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
+void ComputeCharts(Atlas *atlas, ChartOptions options)
 {
 	if (!atlas) {
 		XA_PRINT_WARNING("ComputeCharts: atlas is null.\n");
@@ -9319,7 +9325,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	}
 	XA_PRINT("Computing charts\n");
 	XA_PROFILE_START(computeChartsReal)
-	if (!ctx->paramAtlas.computeCharts(ctx->taskScheduler, chartOptions, ctx->progressFunc, ctx->progressUserData)) {
+	if (!ctx->paramAtlas.computeCharts(ctx->taskScheduler, options, ctx->progressFunc, ctx->progressUserData)) {
 		XA_PRINT("   Cancelled by user\n");
 		return;
 	}
@@ -9371,7 +9377,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PRINT_MEM_USAGE
 }
 
-void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
+void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options)
 {
 	if (!atlas) {
 		XA_PRINT_WARNING("ParameterizeCharts: atlas is null.\n");
@@ -9401,7 +9407,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func)
 	DestroyOutputMeshes(ctx);
 	XA_PRINT("Parameterizing charts\n");
 	XA_PROFILE_START(parameterizeChartsReal)
-	if (!ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, func, ctx->progressFunc, ctx->progressUserData)) {
+	if (!ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, options, ctx->progressFunc, ctx->progressUserData)) {
 		XA_PRINT("   Cancelled by user\n");
 			return;
 	}
@@ -9785,7 +9791,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	XA_PRINT_MEM_USAGE
 }
 
-void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFunc, PackOptions packOptions)
+void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeOptions parameterizeOptions, PackOptions packOptions)
 {
 	if (!atlas) {
 		XA_PRINT_WARNING("Generate: atlas is null.\n");
@@ -9801,7 +9807,7 @@ void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeFunc paramFun
 		return;
 	}
 	ComputeCharts(atlas, chartOptions);
-	ParameterizeCharts(atlas, paramFunc);
+	ParameterizeCharts(atlas, parameterizeOptions);
 	PackCharts(atlas, packOptions);
 }
 

@@ -183,13 +183,20 @@ struct ChartOptions
 };
 
 // Call after all AddMesh calls. Can be called multiple times to recompute charts with different options.
-void ComputeCharts(Atlas *atlas, ChartOptions chartOptions = ChartOptions());
+void ComputeCharts(Atlas *atlas, ChartOptions options = ChartOptions());
 
 // Custom parameterization function. texcoords initial values are an orthogonal parameterization.
 typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount);
 
+struct ParameterizeOptions
+{
+	ParameterizeFunc func = nullptr;
+	bool closeHoles = true; // If the custom parameterization function works with multiple boundaries, this can be set to false to improve performance.
+	bool fixTJunctions = true; // If meshes don't have T-junctions, this can be set to false to improve performance.
+};
+
 // Call after ComputeCharts. Can be called multiple times to re-parameterize charts with a different ParameterizeFunc.
-void ParameterizeCharts(Atlas *atlas, ParameterizeFunc func = nullptr);
+void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options = ParameterizeOptions());
 
 struct PackOptions
 {
@@ -226,7 +233,7 @@ struct PackOptions
 void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions());
 
 // Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence. Can be called multiple times to regenerate with different options.
-void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeFunc paramFunc = nullptr, PackOptions packOptions = PackOptions());
+void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeOptions parameterizeOptions = ParameterizeOptions(), PackOptions packOptions = PackOptions());
 
 // Progress tracking.
 struct ProgressCategory

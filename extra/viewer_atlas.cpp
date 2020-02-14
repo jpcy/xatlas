@@ -678,12 +678,12 @@ static void atlasGenerateThread()
 		}
 	}
 	if (firstRun || s_atlas.options.chartChanged || s_atlas.options.paramChanged) {
-		xatlas::ParameterizeFunc paramFunc = nullptr;
+		xatlas::ParameterizeOptions options;
 #if USE_LIBIGL || USE_OPENNL
 		if (s_atlas.options.paramMethod != ParamMethod::LSCM)
-			paramFunc = atlasParameterizationCallback;
+			options.func = atlasParameterizationCallback;
 #endif
-		xatlas::ParameterizeCharts(s_atlas.data, paramFunc);
+		xatlas::ParameterizeCharts(s_atlas.data, options);
 		if (s_atlas.status.getCancel()) {
 			s_atlas.options.paramChanged = true; // Force ParameterizeCharts to be called next time.
 			s_atlas.status.set(AtlasStatus::NotGenerated);
