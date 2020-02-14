@@ -7815,6 +7815,8 @@ public:
 				XA_FREE(m_meshChartGroups[i][j]);
 			}
 		}
+		m_meshChartGroups.runDtors();
+		m_invalidMeshGeometry.runDtors();
 	}
 
 	uint32_t meshCount() const { return m_meshes.size(); }
