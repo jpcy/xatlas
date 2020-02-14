@@ -186,6 +186,8 @@ struct ProfileData
 	std::atomic<clock_t> chartGroupComputeChartsReal;
 	std::atomic<clock_t> chartGroupComputeChartsThread;
 	std::atomic<clock_t> createChartGroupMesh;
+	std::atomic<clock_t> createChartGroupMeshColocals;
+	std::atomic<clock_t> createChartGroupMeshBoundaries;
 	std::atomic<clock_t> buildAtlas;
 	std::atomic<clock_t> buildAtlasInit;
 	std::atomic<clock_t> planarCharts;
@@ -2449,7 +2451,7 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_colocalVertexCount(0), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -2519,10 +2521,8 @@ public:
 		BVH bvh(aabbs);
 		Array<uint32_t> colocals(MemTag::MeshColocals);
 		Array<uint32_t> potential(MemTag::MeshColocals);
-		m_colocalVertexCount = 0;
 		m_nextColocalVertex.resize(vertexCount);
-		for (uint32_t i = 0; i < vertexCount; i++)
-			m_nextColocalVertex[i] = UINT32_MAX;
+		m_nextColocalVertex.fillBytes(0xff);
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			if (m_nextColocalVertex[i] != UINT32_MAX)
 				continue; // Already linked.
@@ -2540,7 +2540,6 @@ public:
 				m_nextColocalVertex[i] = i;
 				continue; 
 			}
-			m_colocalVertexCount += colocals.size();
 			// Link in ascending order.
 			insertionSort(colocals.data(), colocals.size());
 			for (uint32_t j = 0; j < colocals.size(); j++)
@@ -2909,7 +2908,6 @@ public:
 	XA_INLINE bool isBoundaryEdge(uint32_t edge) const { return m_oppositeEdges[edge] == UINT32_MAX; }
 	XA_INLINE const Array<uint32_t> &boundaryEdges() const { return m_boundaryEdges; }
 	XA_INLINE bool isBoundaryVertex(uint32_t vertex) const { return m_isBoundaryVertex.get(vertex); }
-	XA_INLINE uint32_t colocalVertexCount() const { return m_colocalVertexCount; }
 	XA_INLINE uint32_t vertexCount() const { return m_positions.size(); }
 	XA_INLINE uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
 	XA_INLINE const Vector3 &position(uint32_t vertex) const { return m_positions[vertex]; }
@@ -2935,7 +2933,6 @@ private:
 	Array<Vector2> m_texcoords;
 
 	// Populated by createColocals
-	uint32_t m_colocalVertexCount;
 	Array<uint32_t> m_nextColocalVertex; // In: vertex index. Out: the vertex index of the next colocal position.
 
 	// Populated by createBoundaries
@@ -7531,8 +7528,12 @@ private:
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
+		XA_PROFILE_START(createChartGroupMeshColocals)
 		mesh->createColocals();
+		XA_PROFILE_END(createChartGroupMeshColocals)
+		XA_PROFILE_START(createChartGroupMeshBoundaries)
 		mesh->createBoundaries();
+		XA_PROFILE_END(createChartGroupMeshBoundaries)
 #if XA_DEBUG_EXPORT_OBJ_CHART_GROUPS
 		char filename[256];
 		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u.obj", m_sourceMesh->id(), m_id);
@@ -9349,6 +9350,8 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT_AND_RESET("      Chart group compute charts (real): ", chartGroupComputeChartsReal)
 	XA_PROFILE_PRINT_AND_RESET("      Chart group compute charts (thread): ", chartGroupComputeChartsThread)
 	XA_PROFILE_PRINT_AND_RESET("         Create chart group mesh: ", createChartGroupMesh)
+	XA_PROFILE_PRINT_AND_RESET("            Create colocals: ", createChartGroupMeshColocals)
+	XA_PROFILE_PRINT_AND_RESET("            Create boundaries: ", createChartGroupMeshBoundaries)
 	XA_PROFILE_PRINT_AND_RESET("         Build atlas: ", buildAtlas)
 	XA_PROFILE_PRINT_AND_RESET("            Init: ", buildAtlasInit)
 	XA_PROFILE_PRINT_AND_RESET("            Planar charts: ", planarCharts)
