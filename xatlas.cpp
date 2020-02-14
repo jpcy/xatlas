@@ -191,9 +191,11 @@ struct ProfileData
 	std::atomic<clock_t> planarCharts;
 	std::atomic<clock_t> clusteredCharts;
 	std::atomic<clock_t> clusteredChartsPlaceSeeds;
+	std::atomic<clock_t> clusteredChartsPlaceSeedsBoundaryIntersection;
 	std::atomic<clock_t> clusteredChartsRelocateSeeds;
 	std::atomic<clock_t> clusteredChartsReset;
 	std::atomic<clock_t> clusteredChartsGrow;
+	std::atomic<clock_t> clusteredChartsGrowBoundaryIntersection;
 	std::atomic<clock_t> clusteredChartsMerge;
 	std::atomic<clock_t> clusteredChartsFillHoles;
 	std::atomic<clock_t> copyChartFaces;
@@ -4090,7 +4092,7 @@ public:
 	bool intersectSelf(float epsilon)
 	{
 		const uint32_t edgeCount = m_edges.size();
-		bool bruteForce = edgeCount <= 64;
+		bool bruteForce = edgeCount <= 20;
 		if (!bruteForce && m_cellDataOffsets.isEmpty())
 			bruteForce = !createGrid();
 		for (uint32_t i = 0; i < edgeCount; i++) {
@@ -5114,7 +5116,7 @@ private:
 
 struct ClusteredCharts
 {
-	ClusteredCharts(AtlasData &data, const PlanarCharts &planarCharts) : m_data(data), m_planarCharts(planarCharts), m_texcoords(MemTag::SegmentAtlasMeshData), m_bestTriangles(10) {}
+	ClusteredCharts(AtlasData &data, const PlanarCharts &planarCharts) : m_data(data), m_planarCharts(planarCharts), m_texcoords(MemTag::SegmentAtlasMeshData), m_bestTriangles(10), m_placingSeeds(false) {}
 
 	~ClusteredCharts()
 	{
@@ -5195,6 +5197,7 @@ private:
 	void placeSeeds(float threshold)
 	{
 		XA_PROFILE_START(clusteredChartsPlaceSeeds)
+		m_placingSeeds = true;
 		// Instead of using a predefiened number of seeds:
 		// - Add seeds one by one, growing chart until a certain treshold.
 		// - Undo charts and restart growing process.
@@ -5203,6 +5206,7 @@ private:
 		//   - how do we weight the probabilities?
 		while (m_facesLeft > 0)
 			createChart(threshold);
+		m_placingSeeds = false;
 		XA_PROFILE_END(clusteredChartsPlaceSeeds)
 	}
 
@@ -5505,6 +5509,8 @@ private:
 		if (flippedFaceCount != 0 && flippedFaceCount != faceCount)
 			return false;
 		// Check for boundary intersection in the parameterization.
+		XA_PROFILE_START(clusteredChartsPlaceSeedsBoundaryIntersection)
+		XA_PROFILE_START(clusteredChartsGrowBoundaryIntersection)
 		m_boundaryGrid.reset(m_texcoords.data());
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
@@ -5514,7 +5520,14 @@ private:
 					m_boundaryGrid.append(edge);
 			}
 		}
-		if (m_boundaryGrid.intersectSelf(m_data.mesh->epsilon()))
+		const bool intersection = m_boundaryGrid.intersectSelf(m_data.mesh->epsilon());
+#if XA_PROFILE
+		if (m_placingSeeds)
+			XA_PROFILE_END(clusteredChartsPlaceSeedsBoundaryIntersection)
+		else
+			XA_PROFILE_END(clusteredChartsGrowBoundaryIntersection)
+#endif
+		if (intersection)
 			return false;
 		return true;
 	}
@@ -5904,6 +5917,7 @@ private:
 	Array<float> m_sharedBoundaryLengthsNoSeams;
 	Array<uint32_t> m_sharedBoundaryEdgeCountNoSeams;
 #endif
+	bool m_placingSeeds;
 };
 
 struct Atlas
@@ -9340,9 +9354,11 @@ void ComputeCharts(Atlas *atlas, ChartOptions chartOptions)
 	XA_PROFILE_PRINT_AND_RESET("            Planar charts: ", planarCharts)
 	XA_PROFILE_PRINT_AND_RESET("            Clustered charts: ", clusteredCharts)
 	XA_PROFILE_PRINT_AND_RESET("               Place seeds: ", clusteredChartsPlaceSeeds)
+	XA_PROFILE_PRINT_AND_RESET("                  Boundary intersection: ", clusteredChartsPlaceSeedsBoundaryIntersection)
 	XA_PROFILE_PRINT_AND_RESET("               Relocate seeds: ", clusteredChartsRelocateSeeds)
 	XA_PROFILE_PRINT_AND_RESET("               Reset: ", clusteredChartsReset)
 	XA_PROFILE_PRINT_AND_RESET("               Grow: ", clusteredChartsGrow)
+	XA_PROFILE_PRINT_AND_RESET("                  Boundary intersection: ", clusteredChartsGrowBoundaryIntersection)
 	XA_PROFILE_PRINT_AND_RESET("               Merge: ", clusteredChartsMerge)
 	XA_PROFILE_PRINT_AND_RESET("               Fill holes: ", clusteredChartsFillHoles)
 	XA_PROFILE_PRINT_AND_RESET("         Copy chart faces: ", copyChartFaces)
