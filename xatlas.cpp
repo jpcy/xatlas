@@ -8924,8 +8924,6 @@ static void runAddMeshTask(void *userData)
 	}
 	if (progress->cancel)
 	{
-		meshFaceGroups->~MeshFaceGroups();
-		XA_FREE(meshFaceGroups);
 		goto cleanup;
 	}
 #if XA_DEBUG_EXPORT_OBJ_FACE_GROUPS
@@ -8974,6 +8972,8 @@ static void runAddMeshTask(void *userData)
 	progress->value++;
 	progress->update();
 cleanup:
+	meshFaceGroups->~MeshFaceGroups();
+	XA_FREE(meshFaceGroups);
 	mesh->~Mesh();
 	XA_FREE(mesh);
 	args->~AddMeshTaskArgs();
