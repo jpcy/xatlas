@@ -203,8 +203,7 @@ struct ProfileData
 	std::atomic<clock_t> copyChartFaces;
 	clock_t parameterizeChartsReal;
 	std::atomic<clock_t> parameterizeChartsThread;
-	std::atomic<clock_t> createChartMeshesReal;
-	std::atomic<clock_t> createChartMeshesThread;
+	std::atomic<clock_t> createChartMesh;
 	std::atomic<clock_t> fixChartMeshTJunctions;
 	std::atomic<clock_t> closeChartMeshHoles;
 	std::atomic<clock_t> parameterizeChartsOrthogonal;
@@ -7244,10 +7243,11 @@ private:
 #endif
 };
 
-struct CreateChartTaskArgs
+struct CreateAndParameterizeChartTaskArgs
 {
 	const Basis *basis;
-	Chart **chart;
+	ThreadLocal<UniformGrid2> *boundaryGrid;
+	Chart **chart; // output
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 	const Mesh *mesh;
 	const ParameterizeOptions *options;
@@ -7256,48 +7256,37 @@ struct CreateChartTaskArgs
 	uint32_t chartId;
 };
 
-static void runCreateChartTask(void *userData)
+static void runCreateAndParameterizeChartTask(void *userData)
 {
-	XA_PROFILE_START(createChartMeshesThread)
-	auto args = (CreateChartTaskArgs *)userData;
+	auto args = (CreateAndParameterizeChartTaskArgs *)userData;
+	XA_PROFILE_START(createChartMesh)
 	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), *args->options, *(args->basis), args->faces, args->mesh, args->chartGroupId, args->chartId);
-	XA_PROFILE_END(createChartMeshesThread)
-}
-
-struct ParameterizeChartTaskArgs
-{
-	Chart *chart;
-	const ParameterizeOptions *options;
-	ThreadLocal<UniformGrid2> *boundaryGrid;
-};
-
-static void runParameterizeChartTask(void *userData)
-{
-	auto args = (ParameterizeChartTaskArgs *)userData;
-	Mesh *mesh = args->chart->unifiedMesh();
+	XA_PROFILE_END(createChartMesh)
+	Chart *chart = *(args->chart);
+	Mesh *mesh = chart->unifiedMesh();
 	XA_PROFILE_START(parameterizeChartsOrthogonal)
 	{
 		// Project vertices to plane.
 		const uint32_t vertexCount = mesh->vertexCount();
-		const Basis &basis = args->chart->basis();
+		const Basis &basis = chart->basis();
 		for (uint32_t i = 0; i < vertexCount; i++)
 			mesh->texcoord(i) = Vector2(dot(basis.tangent, mesh->position(i)), dot(basis.bitangent, mesh->position(i)));
 	}
 	XA_PROFILE_END(parameterizeChartsOrthogonal)
 	// Computing charts checks for flipped triangles and boundary intersection. Don't need to do that again here if chart is planar.
-	if (args->chart->type() != ChartType::Planar)
-		args->chart->evaluateOrthoQuality(args->boundaryGrid->get());
-	if (args->chart->type() == ChartType::LSCM) {
+	if (chart->type() != ChartType::Planar)
+		chart->evaluateOrthoQuality(args->boundaryGrid->get());
+	if (chart->type() == ChartType::LSCM) {
 		XA_PROFILE_START(parameterizeChartsLSCM)
 		if (args->options->func)
 			args->options->func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
 		else
 			computeLeastSquaresConformalMap(mesh);
 		XA_PROFILE_END(parameterizeChartsLSCM)
-		args->chart->evaluateQuality(args->boundaryGrid->get());
+		chart->evaluateQuality(args->boundaryGrid->get());
 	}
 	// Transfer parameterization from unified mesh to chart mesh.
-	args->chart->transferParameterization();
+	chart->transferParameterization();
 }
 
 // Set of charts corresponding to mesh faces in the same face group.
@@ -7391,20 +7380,34 @@ public:
 	void parameterizeCharts(TaskScheduler* taskScheduler, const ParameterizeOptions &options, ThreadLocal<UniformGrid2>* boundaryGrid, ThreadLocal<ChartCtorBuffers>* chartBuffers)
 #endif
 	{
-		createCharts(taskScheduler, options, chartBuffers);
+		// This function may be called multiple times, so destroy existing charts.
+		for (uint32_t i = 0; i < m_charts.size(); i++) {
+			m_charts[i]->~Chart();
+			XA_FREE(m_charts[i]);
+		}
 		m_paramAddedChartsCount = 0;
-		const uint32_t chartCount = m_charts.size();
-		Array<ParameterizeChartTaskArgs> taskArgs;
+		const uint32_t chartCount = m_chartBasis.size();
+		m_charts.resize(chartCount);
+		Array<CreateAndParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
+		uint32_t offset = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
-			ParameterizeChartTaskArgs &args = taskArgs[i];
-			args.chart = m_charts[i];
-			args.options = &options;
+			CreateAndParameterizeChartTaskArgs &args = taskArgs[i];
+			args.basis = &m_chartBasis[i];
 			args.boundaryGrid = boundaryGrid;
+			args.chart = &m_charts[i];
+			args.chartGroupId = m_id;
+			args.chartId = i;
+			args.chartBuffers = chartBuffers;
+			const uint32_t faceCount = m_chartFaces[offset++];
+			args.faces = ConstArrayView<uint32_t>(&m_chartFaces[offset], faceCount);
+			offset += faceCount;
+			args.mesh = m_sourceMesh;
+			args.options = &options;
 			Task task;
 			task.userData = &args;
-			task.func = runParameterizeChartTask;
+			task.func = runCreateAndParameterizeChartTask;
 			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
@@ -7545,43 +7548,6 @@ private:
 		mesh->writeObjFile(filename);
 #endif
 		return mesh;
-	}
-
-	void createCharts(TaskScheduler *taskScheduler, const ParameterizeOptions &options, ThreadLocal<ChartCtorBuffers> *chartBuffers)
-	{
-		// This function may be called multiple times, so destroy existing charts.
-		for (uint32_t i = 0; i < m_charts.size(); i++) {
-			m_charts[i]->~Chart();
-			XA_FREE(m_charts[i]);
-		}
-		const uint32_t chartCount = m_chartBasis.size();
-		m_charts.resize(chartCount);
-		Array<CreateChartTaskArgs> taskArgs;
-		taskArgs.resize(chartCount);
-		uint32_t offset = 0;
-		for (uint32_t i = 0; i < chartCount; i++) {
-			CreateChartTaskArgs &args = taskArgs[i];
-			args.basis = &m_chartBasis[i];
-			const uint32_t faceCount = m_chartFaces[offset++];
-			args.faces = ConstArrayView<uint32_t>(&m_chartFaces[offset], faceCount);
-			offset += faceCount;
-			args.mesh = m_sourceMesh;
-			args.chartGroupId = m_id;
-			args.chartId = i;
-			args.chartBuffers = chartBuffers;
-			args.chart = &m_charts[i];
-			args.options = &options;
-		}
-		XA_PROFILE_START(createChartMeshesReal)
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
-		for (uint32_t i = 0; i < chartCount; i++) {
-			Task task;
-			task.userData = &taskArgs[i];
-			task.func = runCreateChartTask;
-			taskScheduler->run(taskGroup, task);
-		}
-		taskScheduler->wait(&taskGroup);
-		XA_PROFILE_END(createChartMeshesReal)
 	}
 
 	void removeChart(const Chart *chart)
@@ -9526,8 +9492,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options)
 		XA_PRINT_WARNING("   %u charts with invalid parameterizations\n", invalidParamCount);
 	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", parameterizeChartsReal)
 	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", parameterizeChartsThread)
-	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (real): ", createChartMeshesReal)
-	XA_PROFILE_PRINT_AND_RESET("      Create chart meshes (thread): ", createChartMeshesThread)
+	XA_PROFILE_PRINT_AND_RESET("      Create chart mesh: ", createChartMesh)
 	XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
 	XA_PROFILE_PRINT_AND_RESET("         Close holes: ", closeChartMeshHoles)
 	XA_PROFILE_PRINT_AND_RESET("      Orthogonal: ", parameterizeChartsOrthogonal)
