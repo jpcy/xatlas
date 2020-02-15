@@ -7155,7 +7155,6 @@ public:
 		}
 	}
 
-	const Basis &basis() const { return m_basis; }
 	ChartType::Enum type() const { return m_type; }
 	void setType(ChartType::Enum type) { m_type = type; }
 	uint32_t warningFlags() const { return m_warningFlags; }
@@ -7171,32 +7170,49 @@ public:
 	const Mesh *mesh() const { return m_mesh; }
 	Mesh *mesh() { return m_mesh; }
 	const Mesh *unifiedMesh() const { return m_unifiedMesh; }
-	Mesh *unifiedMesh() { return m_unifiedMesh; }
 	const Mesh *unmodifiedUnifiedMesh() const { return m_unmodifiedUnifiedMesh; }
 
-	void evaluateOrthoQuality(UniformGrid2 &boundaryGrid)
+	void parameterize(const ParameterizeOptions &options, UniformGrid2 &boundaryGrid)
 	{
-		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
-		m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
-		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
-		m_quality.computeMetrics(m_unifiedMesh, m_initialFaceCount);
-		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
-		// Use orthogonal parameterization if quality is acceptable.
-		if (!m_quality.boundaryIntersection && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
-			m_type = ChartType::Ortho;
-	}
-
-	void evaluateQuality(UniformGrid2 &boundaryGrid)
-	{
-		XA_PROFILE_START(parameterizeChartsEvaluateQuality)
-		m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
+		XA_PROFILE_START(parameterizeChartsOrthogonal)
+		{
+			// Project vertices to plane.
+			const uint32_t vertexCount = m_unifiedMesh->vertexCount();
+			for (uint32_t i = 0; i < vertexCount; i++)
+				m_unifiedMesh->texcoord(i) = Vector2(dot(m_basis.tangent, m_unifiedMesh->position(i)), dot(m_basis.bitangent, m_unifiedMesh->position(i)));
+		}
+		XA_PROFILE_END(parameterizeChartsOrthogonal)
+		// Computing charts checks for flipped triangles and boundary intersection. Don't need to do that again here if chart is planar.
+		if (m_type != ChartType::Planar) {
+			XA_PROFILE_START(parameterizeChartsEvaluateQuality)
+			m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
+			m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
+			m_quality.computeMetrics(m_unifiedMesh, m_initialFaceCount);
+			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
+			// Use orthogonal parameterization if quality is acceptable.
+			if (!m_quality.boundaryIntersection && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
+				m_type = ChartType::Ortho;
+		}
+		if (m_type == ChartType::LSCM) {
+			XA_PROFILE_START(parameterizeChartsLSCM)
+			if (options.func) {
+				options.func(&m_unifiedMesh->position(0).x, &m_unifiedMesh->texcoord(0).x, m_unifiedMesh->vertexCount(), m_unifiedMesh->indices(), m_unifiedMesh->indexCount());
+			}
+			else
+				computeLeastSquaresConformalMap(m_unifiedMesh);
+			XA_PROFILE_END(parameterizeChartsLSCM)
+			XA_PROFILE_START(parameterizeChartsEvaluateQuality)
+			m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, &m_paramFlippedFaces);
+			m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, &m_paramFlippedFaces);
 #else
-		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
+			m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
 #endif
-		// Don't need to call computeMetrics here, that's only used in evaluateOrthoQuality to determine if quality is acceptable enough to use ortho projection.
-		XA_PROFILE_END(parameterizeChartsEvaluateQuality)
+			// Don't need to call computeMetrics here, that's only used in evaluateOrthoQuality to determine if quality is acceptable enough to use ortho projection.
+			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
+		}
+		// Transfer parameterization from unified mesh to chart mesh.
+		transferParameterization();
 	}
 
 	// Transfer parameterization from unified mesh to chart mesh.
@@ -7260,33 +7276,9 @@ static void runCreateAndParameterizeChartTask(void *userData)
 {
 	auto args = (CreateAndParameterizeChartTaskArgs *)userData;
 	XA_PROFILE_START(createChartMesh)
-	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), *args->options, *(args->basis), args->faces, args->mesh, args->chartGroupId, args->chartId);
+	*(args->chart) = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), *args->options, *args->basis, args->faces, args->mesh, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMesh)
-	Chart *chart = *(args->chart);
-	Mesh *mesh = chart->unifiedMesh();
-	XA_PROFILE_START(parameterizeChartsOrthogonal)
-	{
-		// Project vertices to plane.
-		const uint32_t vertexCount = mesh->vertexCount();
-		const Basis &basis = chart->basis();
-		for (uint32_t i = 0; i < vertexCount; i++)
-			mesh->texcoord(i) = Vector2(dot(basis.tangent, mesh->position(i)), dot(basis.bitangent, mesh->position(i)));
-	}
-	XA_PROFILE_END(parameterizeChartsOrthogonal)
-	// Computing charts checks for flipped triangles and boundary intersection. Don't need to do that again here if chart is planar.
-	if (chart->type() != ChartType::Planar)
-		chart->evaluateOrthoQuality(args->boundaryGrid->get());
-	if (chart->type() == ChartType::LSCM) {
-		XA_PROFILE_START(parameterizeChartsLSCM)
-		if (args->options->func)
-			args->options->func(&mesh->position(0).x, &mesh->texcoord(0).x, mesh->vertexCount(), mesh->indices(), mesh->indexCount());
-		else
-			computeLeastSquaresConformalMap(mesh);
-		XA_PROFILE_END(parameterizeChartsLSCM)
-		chart->evaluateQuality(args->boundaryGrid->get());
-	}
-	// Transfer parameterization from unified mesh to chart mesh.
-	chart->transferParameterization();
+	(*args->chart)->parameterize(*args->options, args->boundaryGrid->get());
 }
 
 // Set of charts corresponding to mesh faces in the same face group.
