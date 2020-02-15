@@ -210,6 +210,7 @@ struct ProfileData
 	std::atomic<clock_t> parameterizeChartsLSCM;
 	std::atomic<clock_t> parameterizeChartsRecompute;
 	std::atomic<clock_t> parameterizeChartsPiecewise;
+	std::atomic<clock_t> parameterizeChartsPiecewiseBoundaryIntersection;
 	std::atomic<clock_t> parameterizeChartsEvaluateQuality;
 	clock_t packCharts;
 	clock_t packChartsAddCharts;
@@ -1273,6 +1274,7 @@ private:
 template<typename T>
 struct ArrayView
 {
+	ArrayView() : data(nullptr), length(0) {}
 	ArrayView(Array<T> &a) : data(a.data()), length(a.size()) {}
 	ArrayView(T *data, uint32_t length) : data(data), length(length) {}
 	ArrayView &operator=(Array<T> &a) { data = a.data(); length = a.size(); return *this; }
@@ -1284,6 +1286,7 @@ struct ArrayView
 template<typename T>
 struct ConstArrayView
 {
+	ConstArrayView() : data(nullptr), length(0) {}
 	ConstArrayView(const Array<T> &a) : data(a.data()), length(a.size()) {}
 	ConstArrayView(const T *data, uint32_t length) : data(data), length(length) {}
 	ConstArrayView &operator=(const Array<T> &a) { data = a.data(); length = a.size(); return *this; }
@@ -4062,7 +4065,7 @@ public:
 	bool intersect(Vector2 v1, Vector2 v2, float epsilon)
 	{
 		const uint32_t edgeCount = m_edges.size();
-		bool bruteForce = edgeCount <= 64;
+		bool bruteForce = edgeCount <= 20;
 		if (!bruteForce && m_cellDataOffsets.isEmpty())
 			bruteForce = !createGrid();
 		if (bruteForce) {
@@ -4086,17 +4089,29 @@ public:
 		return false;
 	}
 
-	bool intersectSelf(float epsilon)
+	// If edges is empty, checks for intersection with all edges in the grid.
+	bool intersect(float epsilon, ConstArrayView<uint32_t> edges = ConstArrayView<uint32_t>(), ConstArrayView<uint32_t> ignoreEdges = ConstArrayView<uint32_t>())
 	{
-		const uint32_t edgeCount = m_edges.size();
-		bool bruteForce = edgeCount <= 20;
+		bool bruteForce = m_edges.size() <= 20;
 		if (!bruteForce && m_cellDataOffsets.isEmpty())
 			bruteForce = !createGrid();
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			const uint32_t edge1 = m_edges[i];
+		if (edges.length == 0)
+			edges = m_edges;
+		const uint32_t gridEdgeCount = m_edges.size();
+		for (uint32_t i = 0; i < edges.length; i++) {
+			const uint32_t edge1 = edges[i];
 			if (bruteForce) {
-				for (uint32_t j = 0; j < edgeCount; j++) {
+				for (uint32_t j = 0; j < gridEdgeCount; j++) {
 					const uint32_t edge2 = m_edges[j];
+					bool ignore = false;
+					for (uint32_t k = 0; k < ignoreEdges.length; k++) {
+						if (edge2 == ignoreEdges[k]) {
+							ignore = true;
+							break;
+						}
+					}
+					if (ignore)
+						continue;
 					if (edgesIntersect(edge1, edge2, epsilon))
 						return true;
 				}
@@ -4107,9 +4122,18 @@ public:
 					const uint32_t edge2 = m_potentialEdges[j];
 					if (edge2 == prevEdge)
 						continue;
+					prevEdge = edge2;
+					bool ignore = false;
+					for (uint32_t k = 0; k < ignoreEdges.length; k++) {
+						if (edge2 == ignoreEdges[k]) {
+							ignore = true;
+							break;
+						}
+					}
+					if (ignore)
+						continue;
 					if (edgesIntersect(edge1, edge2, epsilon))
 						return true;
-					prevEdge = edge2;
 				}
 			}
 		}
@@ -5517,7 +5541,7 @@ private:
 					m_boundaryGrid.append(edge);
 			}
 		}
-		const bool intersection = m_boundaryGrid.intersectSelf(m_data.mesh->epsilon());
+		const bool intersection = m_boundaryGrid.intersect(m_data.mesh->epsilon());
 #if XA_PROFILE
 		if (m_placingSeeds)
 			XA_PROFILE_END(clusteredChartsPlaceSeedsBoundaryIntersection)
@@ -6424,6 +6448,10 @@ struct PiecewiseParam
 				m_texcoords[vertex] = texcoords[i];
 			}
 			addFaceToPatch(seed);
+			// Initialize the boundary grid.
+			m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices());
+			for (Mesh::FaceEdgeIterator it(m_mesh, seed); !it.isDone(); it.advance())
+				m_boundaryGrid.append(it.edge());
 			break;
 		}
 		if (seed == UINT32_MAX)
@@ -6467,21 +6495,21 @@ struct PiecewiseParam
 			}
 			// Check for boundary intersection.
 			if (!invalid) {
-				m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices());
-				// Add edges on the patch boundary to the grid.
-				// Temporarily adding candidate faces to the patch makes it simpler to detect which edges are on the boundary.
-				const uint32_t oldPatchSize = m_patch.size();
-				for (CandidateIterator it(bestCandidate); !it.isDone(); it.advance())
-					m_patch.push_back(it.current()->face);
-				for (uint32_t i = 0; i < m_patch.size(); i++) {
-					for (Mesh::FaceEdgeIterator it(m_mesh, m_patch[i]); !it.isDone(); it.advance()) {
+				XA_PROFILE_START(parameterizeChartsPiecewiseBoundaryIntersection)
+				// Test candidate edges that would form part of the new patch boundary.
+				// Ignore boundary edges that would become internal if the candidate faces were added to the patch.
+				Array<uint32_t> newBoundaryEdges, ignoreEdges;
+				for (CandidateIterator candidateIt(bestCandidate); !candidateIt.isDone(); candidateIt.advance()) {
+					for (Mesh::FaceEdgeIterator it(m_mesh, candidateIt.current()->face); !it.isDone(); it.advance()) {
 						const uint32_t oface = it.oppositeFace();
 						if (oface == UINT32_MAX || oface >= m_faceCount || !m_faceInPatch.get(oface))
-							m_boundaryGrid.append(it.edge());
+							newBoundaryEdges.push_back(it.edge());
+						if (oface != UINT32_MAX && oface < m_faceCount && m_faceInPatch.get(oface))
+							ignoreEdges.push_back(it.oppositeEdge());
 					}
 				}
-				invalid = m_boundaryGrid.intersectSelf(m_mesh->epsilon());
-				m_patch.resize(oldPatchSize);
+				invalid = m_boundaryGrid.intersect(m_mesh->epsilon(), newBoundaryEdges, ignoreEdges);
+				XA_PROFILE_END(parameterizeChartsPiecewiseBoundaryIntersection)
 			}
 			if (invalid) {
 				// Mark all faces of linked candidates as invalid.
@@ -6494,8 +6522,19 @@ struct PiecewiseParam
 				// Add faces to the patch.
 				for (CandidateIterator it(bestCandidate); !it.isDone(); it.advance())
 					addFaceToPatch(it.current()->face);
-				removeLinkedCandidates(bestCandidate);
 				// Successfully added candidate face(s) to patch.
+				removeLinkedCandidates(bestCandidate);
+				// Reset the grid with all edges on the patch boundary.
+				XA_PROFILE_START(parameterizeChartsPiecewiseBoundaryIntersection)
+				m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices());
+				for (uint32_t i = 0; i < m_patch.size(); i++) {
+					for (Mesh::FaceEdgeIterator it(m_mesh, m_patch[i]); !it.isDone(); it.advance()) {
+						const uint32_t oface = it.oppositeFace();
+						if (oface == UINT32_MAX || oface >= m_faceCount || !m_faceInPatch.get(oface))
+							m_boundaryGrid.append(it.edge());
+					}
+				}
+				XA_PROFILE_END(parameterizeChartsPiecewiseBoundaryIntersection)
 			}
 		}
 		return true;
@@ -6774,7 +6813,7 @@ struct Quality
 		boundaryGrid.reset(mesh->texcoords(), mesh->indices(), boundaryEdgeCount);
 		for (uint32_t i = 0; i < boundaryEdgeCount; i++)
 			boundaryGrid.append(boundaryEdges[i]);
-		boundaryIntersection = boundaryGrid.intersectSelf(mesh->epsilon());
+		boundaryIntersection = boundaryGrid.intersect(mesh->epsilon());
 #if XA_DEBUG_EXPORT_BOUNDARY_GRID
 		static int exportIndex = 0;
 		char filename[256];
@@ -7110,14 +7149,6 @@ public:
 			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
-#if XA_DEBUG
-			// Unifying colocals may create degenerate edges. e.g. if two triangle vertices are colocal.
-			for (int i = 0; i < 3; i++) {
-				const uint32_t index1 = unifiedIndices[i];
-				const uint32_t index2 = unifiedIndices[(i + 1) % 3];
-				XA_DEBUG_ASSERT(index1 != index2);
-			}
-#endif
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		// Need to store texcoords for backup/restore so packing can be run multiple times.
@@ -7192,6 +7223,9 @@ public:
 				m_isInvalid = true;
 			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 		}
+#if XA_DEBUG_ALL_CHARTS_INVALID
+		m_isInvalid = true;
+#endif
 		// Transfer parameterization from unified mesh to chart mesh.
 		const uint32_t vertexCount = m_mesh->vertexCount();
 		for (uint32_t v = 0; v < vertexCount; v++)
@@ -7420,12 +7454,8 @@ public:
 		Array<Chart *> invalidCharts;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_charts[i];
-#if XA_DEBUG_ALL_CHARTS_INVALID
-			invalidCharts.push_back(chart);
-#else
 			if (chart->isInvalid())
 				invalidCharts.push_back(chart);
-#endif
 		}
 		if (invalidCharts.isEmpty())
 			return;
@@ -9495,6 +9525,7 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options)
 	XA_PROFILE_PRINT_AND_RESET("      LSCM: ", parameterizeChartsLSCM)
 	XA_PROFILE_PRINT_AND_RESET("      Recompute: ", parameterizeChartsRecompute)
 	XA_PROFILE_PRINT_AND_RESET("         Piecewise: ", parameterizeChartsPiecewise)
+	XA_PROFILE_PRINT_AND_RESET("            Boundary intersection: ", parameterizeChartsPiecewiseBoundaryIntersection)
 	XA_PROFILE_PRINT_AND_RESET("      Evaluate quality: ", parameterizeChartsEvaluateQuality)
 #if XA_PROFILE_ALLOC
 	XA_PROFILE_PRINT_AND_RESET("   Alloc: ", alloc)
