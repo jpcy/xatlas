@@ -1222,6 +1222,7 @@ public:
 	void copyTo(Array &other) const { m_base.copyTo(other.m_base); }
 	XA_INLINE const T *data() const { return (const T *)m_base.buffer; }
 	XA_INLINE T *data() { return (T *)m_base.buffer; }
+	void destroy() { m_base.destroy(); }
 	XA_INLINE T *end() { return (T *)m_base.buffer + m_base.size; }
 	XA_INLINE bool isEmpty() const { return m_base.size == 0; }
 	void insertAt(uint32_t index, const T &value) { m_base.insertAt(index, (const uint8_t *)&value); }
@@ -6933,7 +6934,7 @@ struct ChartCtorBuffers
 class Chart
 {
 public:
-	Chart(ChartCtorBuffers &buffers, const ParameterizeOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(ChartCtorBuffers &buffers, const ParameterizeOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_isInvalid(false)
 	{
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
@@ -7074,7 +7075,7 @@ public:
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0)
+	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_isInvalid(false)
 	{
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
@@ -7084,39 +7085,27 @@ public:
 			m_faceToSourceFaceMap[i] = parent->m_faceToSourceFaceMap[faces[i]]; // Map faces to parent chart source mesh.
 		// Copy face indices.
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), m_faceToSourceFaceMap.size() * 3, m_faceToSourceFaceMap.size());
-		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), m_faceToSourceFaceMap.size() * 3, m_faceToSourceFaceMap.size());
 		Array<uint32_t> &chartMeshIndices = buffers.chartMeshIndices;
 		chartMeshIndices.resize(sourceMesh->vertexCount());
 		chartMeshIndices.fillBytes(0xff);
-		Array<uint32_t> &unifiedMeshIndices = buffers.unifiedMeshIndices;
-		unifiedMeshIndices.resize(sourceMesh->vertexCount());
-		unifiedMeshIndices.fillBytes(0xff);
 		// Add vertices.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
-				const uint32_t unifiedVertex = sourceMesh->firstColocal(vertex);
 				const uint32_t parentVertex = parentMesh->vertexAt(faces[f] * 3 + i);
-				if (unifiedMeshIndices[unifiedVertex] == (uint32_t)~0) {
-					unifiedMeshIndices[unifiedVertex] = m_unifiedMesh->vertexCount();
-					XA_DEBUG_ASSERT(equal(sourceMesh->position(vertex), sourceMesh->position(unifiedVertex), sourceMesh->epsilon()));
-					m_unifiedMesh->addVertex(sourceMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
-				}
 				if (chartMeshIndices[vertex] == (uint32_t)~0) {
 					chartMeshIndices[vertex] = m_mesh->vertexCount();
 					m_vertexToSourceVertexMap.push_back(vertex);
-					m_chartVertexToUnifiedVertexMap.push_back(unifiedMeshIndices[unifiedVertex]);
 					m_mesh->addVertex(sourceMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
 				}
 			}
 		}
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
-			uint32_t indices[3], unifiedIndices[3];
+			uint32_t indices[3];
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
 				indices[i] = chartMeshIndices[vertex];
-				unifiedIndices[i] = unifiedMeshIndices[sourceMesh->firstColocal(vertex)];
 			}
 			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
 			XA_UNUSED(result);
@@ -7129,13 +7118,10 @@ public:
 				XA_DEBUG_ASSERT(index1 != index2);
 			}
 #endif
-			result = m_unifiedMesh->addFace(unifiedIndices);
-			XA_UNUSED(result);
-			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
-		m_unifiedMesh->createBoundaries();
-		m_unifiedMesh->linkBoundaries();
+		// Need to store texcoords for backup/restore so packing can be run multiple times.
+		backupTexcoords();
 	}
 #endif
 
@@ -7145,18 +7131,11 @@ public:
 			m_mesh->~Mesh();
 			XA_FREE(m_mesh);
 		}
-		if (m_unifiedMesh) {
-			m_unifiedMesh->~Mesh();
-			XA_FREE(m_unifiedMesh);
-		}
-		if (m_unmodifiedUnifiedMesh) {
-			m_unmodifiedUnifiedMesh->~Mesh();
-			XA_FREE(m_unmodifiedUnifiedMesh);
-		}
+		destroyUnifiedMesh();
 	}
 
+	bool isInvalid() const { return m_isInvalid; }
 	ChartType::Enum type() const { return m_type; }
-	void setType(ChartType::Enum type) { m_type = type; }
 	uint32_t warningFlags() const { return m_warningFlags; }
 	uint32_t closedHolesCount() const { return m_closedHolesCount; }
 	uint32_t fixedTJunctionsCount() const { return m_fixedTJunctionsCount; }
@@ -7190,7 +7169,7 @@ public:
 			m_quality.computeMetrics(m_unifiedMesh, m_initialFaceCount);
 			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 			// Use orthogonal parameterization if quality is acceptable.
-			if (!m_quality.boundaryIntersection && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
+			if (!m_quality.boundaryIntersection && m_quality.flippedTriangleCount == 0 && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
 				m_type = ChartType::Ortho;
 		}
 		if (m_type == ChartType::LSCM) {
@@ -7209,18 +7188,20 @@ public:
 			m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
 #endif
 			// Don't need to call computeMetrics here, that's only used in evaluateOrthoQuality to determine if quality is acceptable enough to use ortho projection.
+			if (m_quality.boundaryIntersection || m_quality.flippedTriangleCount > 0)
+				m_isInvalid = true;
 			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 		}
 		// Transfer parameterization from unified mesh to chart mesh.
-		transferParameterization();
-	}
-
-	// Transfer parameterization from unified mesh to chart mesh.
-	void transferParameterization()
-	{
 		const uint32_t vertexCount = m_mesh->vertexCount();
 		for (uint32_t v = 0; v < vertexCount; v++)
 			m_mesh->texcoord(v) = m_unifiedMesh->texcoord(m_chartVertexToUnifiedVertexMap[v]);
+		// Can destroy unified mesh now.
+		// But not if the parameterization is invalid, the unified mesh will be needed for PiecewiseParameterization.
+		if (!m_isInvalid)
+			destroyUnifiedMesh();
+		// Need to store texcoords for backup/restore so packing can be run multiple times.
+		backupTexcoords();
 	}
 
 	Vector2 computeParametricBounds() const
@@ -7235,7 +7216,34 @@ public:
 		return (maxCorner - minCorner) * 0.5f;
 	}
 
+	void restoreTexcoords()
+	{
+		memcpy(m_mesh->texcoords(), m_backupTexcoords.data(), m_mesh->vertexCount() * sizeof(Vector2));
+	}
+
 private:
+	void backupTexcoords()
+	{
+		m_backupTexcoords.resize(m_mesh->vertexCount());
+		memcpy(m_backupTexcoords.data(), m_mesh->texcoords(), m_mesh->vertexCount() * sizeof(Vector2));
+	}
+
+	void destroyUnifiedMesh()
+	{
+		if (m_unifiedMesh) {
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
+			m_unifiedMesh = nullptr;
+		}
+		if (m_unmodifiedUnifiedMesh) {
+			m_unmodifiedUnifiedMesh->~Mesh();
+			XA_FREE(m_unmodifiedUnifiedMesh);
+			m_unmodifiedUnifiedMesh = nullptr;
+		}
+		// Don't need this when unified meshes are destroyed.
+		m_chartVertexToUnifiedVertexMap.destroy();
+	}
+
 	Basis m_basis;
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
@@ -7253,10 +7261,13 @@ private:
 
 	Array<uint32_t> m_chartVertexToUnifiedVertexMap;
 
+	Array<Vector2> m_backupTexcoords;
+
 	Quality m_quality;
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	Array<uint32_t> m_paramFlippedFaces;
 #endif
+	bool m_isInvalid;
 };
 
 struct CreateAndParameterizeChartTaskArgs
@@ -7412,8 +7423,7 @@ public:
 #if XA_DEBUG_ALL_CHARTS_INVALID
 			invalidCharts.push_back(chart);
 #else
-			const Quality &quality = chart->quality();
-			if (quality.boundaryIntersection || quality.flippedTriangleCount > 0)
+			if (chart->isInvalid())
 				invalidCharts.push_back(chart);
 #endif
 		}
@@ -8057,7 +8067,7 @@ static void runAddChartTask(void *userData)
 	auto args = (AddChartTaskArgs *)userData;
 	param::Chart *paramChart = args->paramChart;
 	XA_PROFILE_START(packChartsAddChartsRestoreTexcoords)
-	paramChart->transferParameterization();
+	paramChart->restoreTexcoords();
 	XA_PROFILE_END(packChartsAddChartsRestoreTexcoords)
 	Mesh *mesh = paramChart->mesh();
 	Chart *chart = args->chart = XA_NEW(MemTag::Default, Chart);
@@ -9432,7 +9442,6 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options)
 					chart->unifiedMesh()->writeObjFile(filename);
 				}
 #endif
-				bool invalid = false;
 				const char *type = "LSCM";
 				if (chart->type() == ChartType::Planar)
 					type = "planar";
@@ -9440,20 +9449,15 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options)
 					type = "ortho";
 				else if (chart->type() == ChartType::Piecewise)
 					type = "piecewise";
-				if (quality.boundaryIntersection) {
-					invalid = true;
-					chart->setType(ChartType::Invalid);
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u) (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, i, j, k, type);
-				}
-				if (quality.flippedTriangleCount > 0) {
-					invalid = true;
-					chart->setType(ChartType::Invalid);
-					XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, i, j, k, type, quality.flippedTriangleCount, quality.totalTriangleCount);
-				}
-				if (invalid)
+				if (chart->isInvalid()) {
+					if (quality.boundaryIntersection) {
+						XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u) (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, i, j, k, type);
+					}
+					if (quality.flippedTriangleCount > 0) {
+						XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, i, j, k, type, quality.flippedTriangleCount, quality.totalTriangleCount);
+					}
 					invalidParamCount++;
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-				if (invalid) {
 					char filename[256];
 					XA_SPRINTF(filename, sizeof(filename), "debug_chart_%03u_invalid_parameterization.obj", chartIndex);
 					const internal::Mesh *mesh = chart->unifiedMesh();
@@ -9474,8 +9478,8 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options)
 						mesh->writeObjLinkedBoundaries(file);
 						fclose(file);
 					}
-				}
 #endif
+				}
 				chartIndex++;
 			}
 		}
@@ -9662,7 +9666,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 					const int32_t atlasIndex = packAtlas.getChart(chartIndex)->atlasIndex;
 					XA_DEBUG_ASSERT(atlasIndex >= 0);
 					outputChart->atlasIndex = (uint32_t)atlasIndex;
-					outputChart->type = chart->type();
+					outputChart->type = chart->isInvalid() ? ChartType::Invalid : chart->type();
 					outputChart->faceCount = mesh->faceCount();
 					outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
 					for (uint32_t f = 0; f < outputChart->faceCount; f++)
