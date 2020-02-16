@@ -2014,6 +2014,16 @@ public:
 			XA_FREE(m_slots);
 	}
 
+	void destroy()
+	{
+		if (m_slots) {
+			XA_FREE(m_slots);
+			m_slots = nullptr;
+		}
+		m_keys.destroy();
+		m_next.destroy();
+	}
+
 	uint32_t add(const Key &key)
 	{
 		if (!m_slots)
@@ -2713,6 +2723,15 @@ public:
 			}
 		}
 		return result;
+	}
+
+	// Edge map can be destroyed when no longer used to reduce memory usage. It's used by:
+	//   * Mesh::createBoundaries()
+	//   * Mesh::ColocalEdgeIterator (used by MeshFaceGroups)
+	//   * meshCloseHole()
+	void destroyEdgeMap()
+	{
+		m_edgeMap.destroy();
 	}
 
 #if XA_DEBUG_EXPORT_OBJ
@@ -7017,6 +7036,7 @@ public:
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
+		m_mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
 		m_unifiedMesh->createBoundaries();
 		if (meshIsPlanar(*m_unifiedMesh)) {
 			m_type = ChartType::Planar;
@@ -7138,6 +7158,7 @@ public:
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
+		m_mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
 		// Need to store texcoords for backup/restore so packing can be run multiple times.
 		backupTexcoords();
 	}
@@ -7585,6 +7606,7 @@ private:
 		XA_PROFILE_END(createChartGroupMeshColocals)
 		XA_PROFILE_START(createChartGroupMeshBoundaries)
 		mesh->createBoundaries();
+		mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
 		XA_PROFILE_END(createChartGroupMeshBoundaries)
 #if XA_DEBUG_EXPORT_OBJ_CHART_GROUPS
 		char filename[256];
