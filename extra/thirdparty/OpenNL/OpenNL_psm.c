@@ -2000,15 +2000,6 @@ void nlTransition(NLenum from_state, NLenum to_state) {
 /* Preconditioner setup and default solver */
 
 static void nlSetupPreconditioner() {
-    /* Check compatibility between solver and preconditioner */
-    if(
-        nlCurrentContext->solver == NL_GMRES && 
-        nlCurrentContext->preconditioner != NL_PRECOND_NONE
-    ) {
-        nlWarning("nlSolve", "Preconditioner not implemented yet for GMRES");
-        nlCurrentContext->preconditioner = NL_PRECOND_NONE;        
-    }
-
     nlDeleteMatrix(nlCurrentContext->P);
     nlCurrentContext->P = NULL;
     
@@ -2090,7 +2081,7 @@ NLboolean nlDefaultSolver() {
     switch(nlCurrentContext->solver) {
 	case NL_CG:
 	case NL_BICGSTAB:
-	case NL_GMRES: {
+    {
 	    result = nlSolveIterative();
 	} break;
 	default:
@@ -3866,115 +3857,6 @@ static NLuint nlSolveSystem_PRE_BICGSTAB(
     return its;
 }
 
-/* 
- * Note: this one cannot be executed on device (GPU)
- * because it directly manipulates the vectors.
- */
-static NLuint nlSolveSystem_GMRES(
-    NLBlas_t blas,
-    NLMatrix M, NLdouble* b, NLdouble* x,
-    double eps, NLuint max_iter, NLuint inner_iter
-) {
-    NLint    n    = (NLint)M->n;
-    NLint    m    = (NLint)inner_iter;
-    typedef NLdouble *NLdoubleP;     
-    NLdouble *V   = NL_NEW_ARRAY(NLdouble, n*(m+1)   );
-    NLdouble *U   = NL_NEW_ARRAY(NLdouble, m*(m+1)/2 );
-    NLdouble *r   = NL_NEW_ARRAY(NLdouble, n         );
-    NLdouble *y   = NL_NEW_ARRAY(NLdouble, m+1       );
-    NLdouble *c   = NL_NEW_ARRAY(NLdouble, m         );
-    NLdouble *s   = NL_NEW_ARRAY(NLdouble, m         );
-    NLdouble **v  = NL_NEW_ARRAY(NLdoubleP, m+1      );
-    NLint i, j, io, uij, u0j; 
-    NLint its = -1;
-    NLdouble beta, h, rd, dd, nrm2b;
-
-    /* 
-     * The way it is written, this routine will not
-     * work on the GPU since it directly modifies the
-     * vectors.
-     */
-    nl_assert(nlBlasHasUnifiedMemory(blas));
-    
-    for ( i=0; i<=m; ++i ){
-        v[i]=V+i*n;
-    }
-    
-    nrm2b=blas->Dnrm2(blas,n,b,1);
-    io=0;
-
-    do  { /* outer loop */
-        ++io;
-	nlMultMatrixVector(M,x,r);
-        blas->Daxpy(blas,n,-1.,b,1,r,1);
-        beta=blas->Dnrm2(blas,n,r,1);
-        blas->Dcopy(blas,n,r,1,v[0],1);
-        blas->Dscal(blas,n,1./beta,v[0],1);
-
-        y[0]=beta;
-        j=0;
-        uij=0;
-        do { /* inner loop: j=0,...,m-1 */
-            u0j=uij;
-	    nlMultMatrixVector(M,v[j],v[j+1]);
-            blas->Dgemv(
-                blas,Transpose,n,j+1,1.,V,n,v[j+1],1,0.,U+u0j,1
-            );
-            blas->Dgemv(
-                blas,NoTranspose,n,j+1,-1.,V,n,U+u0j,1,1.,v[j+1],1
-            );
-            h=blas->Dnrm2(blas,n,v[j+1],1);
-            blas->Dscal(blas,n,1./h,v[j+1],1);
-            for (i=0; i<j; ++i ) { /* rotiere neue Spalte */
-                double tmp = c[i]*U[uij]-s[i]*U[uij+1];
-                U[uij+1]   = s[i]*U[uij]+c[i]*U[uij+1];
-                U[uij]     = tmp;
-                ++uij;
-            }
-            { /* berechne neue Rotation */
-                rd     = U[uij];
-                dd     = sqrt(rd*rd+h*h);
-                c[j]   = rd/dd;
-                s[j]   = -h/dd;
-                U[uij] = dd;
-                ++uij;
-            }
-            { /* rotiere rechte Seite y (vorher: y[j+1]=0) */
-                y[j+1] = s[j]*y[j];
-                y[j]   = c[j]*y[j];
-            }
-            ++j;
-        } while ( 
-            j<m && fabs(y[j])>=eps*nrm2b 
-        );
-        { /* minimiere bzgl Y */
-            blas->Dtpsv(
-		blas,
-                UpperTriangle,
-                NoTranspose,
-                NotUnitTriangular,
-                j,U,y,1
-            );
-            /* correct X */
-            blas->Dgemv(blas,NoTranspose,n,j,-1.,V,n,y,1,1.,x,1);
-        }
-    } while ( fabs(y[j])>=eps*nrm2b && (m*(io-1)+j) < (NLint)max_iter);
-    
-    /* Count the inner iterations */
-    its = m*(io-1)+j;
-    blas->sq_bnorm = nrm2b*nrm2b;
-    blas->sq_rnorm = y[j]*y[j];
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, n, V);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, n, U);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, n, r);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, n, y);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, n, c);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, n, s);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, n, v);
-    return (NLuint)its;
-}
-
-
 /* Main driver routine */
 
 NLuint nlSolveSystemIterative(
@@ -4020,9 +3902,6 @@ NLuint nlSolveSystemIterative(
 	    } else {
 		result = nlSolveSystem_PRE_BICGSTAB(blas,M,P,b,x,eps,max_iter);
 	    }
-	    break;
-	case NL_GMRES:
-	    result = nlSolveSystem_GMRES(blas,M,b,x,eps,max_iter,inner_iter);
 	    break;
 	default:
 	    nl_assert_not_reached;
