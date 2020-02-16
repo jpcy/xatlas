@@ -5642,24 +5642,24 @@ private:
 			m_bestTriangles.push(cost, chart->faces[i]);
 		}
 		// Of those, choose the least central triangle.
-		uint32_t leastCentral = 0;
-		float maxDistance = -1;
+		uint32_t mostCentral = 0;
+		float minDistance = FLT_MAX;
 		for (;;) {
 			if (m_bestTriangles.count() == 0)
 				break;
 			const uint32_t face = m_bestTriangles.pop();
 			Vector3 faceCentroid = m_data.mesh->computeFaceCenter(face);
 			const float distance = length(chart->centroid - faceCentroid);
-			if (distance > maxDistance) {
-				maxDistance = distance;
-				leastCentral = face;
+			if (distance < minDistance) {
+				minDistance = distance;
+				mostCentral = face;
 			}
 		}
 		XA_DEBUG_ASSERT(maxDistance >= 0);
 		// In order to prevent k-means cyles we record all the previously chosen seeds.
 		for (uint32_t i = 0; i < chart->seeds.size(); i++) {
 			// Treat seeds belong to the same planar region as equal.
-			if (chart->seeds[i] == leastCentral || m_planarCharts.regionIdFromFace(chart->seeds[i]) == m_planarCharts.regionIdFromFace(leastCentral)) {
+			if (chart->seeds[i] == mostCentral || m_planarCharts.regionIdFromFace(chart->seeds[i]) == m_planarCharts.regionIdFromFace(mostCentral)) {
 				// Move new seed to the end of the seed array.
 				uint32_t last = chart->seeds.size() - 1;
 				swap(chart->seeds[i], chart->seeds[last]);
@@ -5667,7 +5667,7 @@ private:
 			}
 		}
 		// Append new seed.
-		chart->seeds.push_back(leastCentral);
+		chart->seeds.push_back(mostCentral);
 		return true;
 	}
 
