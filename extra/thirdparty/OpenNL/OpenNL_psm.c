@@ -239,8 +239,6 @@ typedef double (*FUNPTR_ddot)(
     NLBlas_t blas, int n, const double *x, int incx, const double *y, int incy
 );
 
-typedef double (*FUNPTR_dnrm2)(NLBlas_t blas, int n, const double *x, int incx);
-
 typedef void (*FUNPTR_daxpy)(
     NLBlas_t blas, int n,
     double a, const double *x, int incx, double *y, int incy
@@ -253,7 +251,6 @@ struct NLBlas {
 
     FUNPTR_dscal Dscal;
     FUNPTR_ddot  Ddot;
-    FUNPTR_dnrm2 Dnrm2;
     FUNPTR_daxpy Daxpy;
 
     NLboolean has_unified_memory;
@@ -1352,8 +1349,7 @@ int NL_FORTRAN_WRAP(xerbla)(char *srname, int *info) {
  * daxpy
  * ddot
  * dscal
- * dnrm2
-   */
+    */
 
 
 
@@ -1745,91 +1741,6 @@ L40:
 } /* dscal_ */
 #undef DX
 
-static doublereal NL_FORTRAN_WRAP(dnrm2)(integer *n, doublereal *x, integer *incx)
-{
-
-
-    /* System generated locals */
-    integer i__1, i__2;
-    doublereal ret_val, d__1;
-
-    /* Builtin functions */
-    /* BL: already declared in the included <math.h>, 
-       we do not need it here. */
-    /*double sqrt(doublereal); */
-
-    /* Local variables */
-    static doublereal norm, scale, absxi;
-    static integer ix;
-    static doublereal ssq;
-
-
-/*  DNRM2 returns the euclidean norm of a vector via the function   
-    name, so that   
-
-       DNRM2 := sqrt( x'*x )   
-
-
-
-    -- This version written on 25-October-1982.   
-       Modified on 14-October-1993 to inline the call to DLASSQ.   
-       Sven Hammarling, Nag Ltd.   
-
-
-    
-   Parameter adjustments   
-       Function Body */
-#ifdef X
-#undef X
-#endif
-#define X(I) x[(I)-1]
-
-
-    if (*n < 1 || *incx < 1) {
-        norm = 0.;
-    } else if (*n == 1) {
-        norm = fabs(X(1));
-    } else {
-        scale = 0.;
-        ssq = 1.;
-/*        The following loop is equivalent to this call to the LAPACK 
-  
-          auxiliary routine:   
-          CALL DLASSQ( N, X, INCX, SCALE, SSQ ) */
-
-        i__1 = (*n - 1) * *incx + 1;
-        i__2 = *incx;
-        for (ix = 1; *incx < 0 ? ix >= (*n-1)**incx+1 : ix <= (*n-1)**incx+1; ix += *incx) {
-            if (X(ix) != 0.) {
-                absxi = (d__1 = X(ix), fabs(d__1));
-                if (scale < absxi) {
-/* Computing 2nd power */
-                    d__1 = scale / absxi;
-                    ssq = ssq * (d__1 * d__1) + 1.;
-                    scale = absxi;
-                } else {
-/* Computing 2nd power */
-                    d__1 = absxi / scale;
-                    ssq += d__1 * d__1;
-                }
-            }
-/* L10: */
-        }
-        norm = scale * sqrt(ssq);
-    }
-
-    ret_val = norm;
-
-    nl_arg_used(i__1);
-    nl_arg_used(i__2);
-
-    return ret_val;
-
-/*     End of DNRM2. */
-
-} /* dnrm2_ */
-#undef X
-
 /* End of BLAS routines */
 
 
@@ -1904,13 +1815,6 @@ static double host_blas_ddot(
     return NL_FORTRAN_WRAP(ddot)(&n,(double*)x,&incx,(double*)y,&incy);
 }
 
-static double host_blas_dnrm2(
-    NLBlas_t blas, int n, const double *x, int incx
-) {
-    blas->flops += (NLulong)(2*n);
-    return NL_FORTRAN_WRAP(dnrm2)(&n,(double*)x,&incx);
-}
-
 static void host_blas_daxpy(
     NLBlas_t blas, int n, double a, const double *x, int incx, double *y, int incy
 ) {
@@ -1935,7 +1839,6 @@ NLBlas_t nlHostBlas() {
 	blas.Free = host_blas_free;
 	blas.Memcpy = host_blas_memcpy;
 	blas.Ddot = host_blas_ddot;
-	blas.Dnrm2 = host_blas_dnrm2;
 	blas.Daxpy = host_blas_daxpy;
 	blas.Dscal = host_blas_dscal;
 	nlBlasResetStats(&blas);
