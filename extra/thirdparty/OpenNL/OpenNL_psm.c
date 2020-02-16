@@ -660,8 +660,6 @@ typedef struct {
 
     NLProgressFunc   progress_func;
 
-    NLboolean        verbose;
-
     NLulong          flops;
 
     NLenum           eigen_solver;
@@ -1501,7 +1499,6 @@ NLContext nlNewContext() {
     result->inner_iterations    = 5;
     result->solver_func         = nlDefaultSolver;
     result->progress_func       = NULL;
-    result->verbose             = NL_FALSE;
     result->nb_systems          = 1;
     result->matrix_mode         = NL_STIFFNESS_MATRIX;
     nlMakeCurrent(result);
@@ -3182,9 +3179,6 @@ static NLuint nlSolveSystem_CG(
 	    if(nlCurrentContext->progress_func != NULL) {
 		nlCurrentContext->progress_func(its, max_iter, curr_err, err);
 	    }
-	    if(nlCurrentContext->verbose && !(its % 100)) {
-		nl_printf ( "%d : %.10e -- %.10e\n", its, curr_err, err );
-	    }
 	}
 	nlMultMatrixVector(M,r,p);
         rho=blas->Ddot(blas,N,p,1,p,1);
@@ -3234,9 +3228,6 @@ static NLuint nlSolveSystem_PRE_CG(
 	if(nlCurrentContext != NULL) {
 	    if(nlCurrentContext->progress_func != NULL) {
 		nlCurrentContext->progress_func(its, max_iter, curr_err, err);
-	    }
-	    if( nlCurrentContext->verbose && !(its % 100)) {
-		nl_printf ( "%d : %.10e -- %.10e\n", its, curr_err, err );
 	    }
 	}
 	nlMultMatrixVector(M,d,Ad);
@@ -3310,16 +3301,8 @@ NLuint nlSolveSystemIterative(
 	rnorm = sqrt(blas->sq_rnorm);
 	if(bnorm == 0.0) {
 	    nlCurrentContext->error = rnorm;
-	    if(nlCurrentContext->verbose) {
-		nl_printf("in OpenNL : ||Ax-b|| = %e\n",nlCurrentContext->error);
-	    }
 	} else {
 	    nlCurrentContext->error = rnorm/bnorm;
-	    if(nlCurrentContext->verbose) {
-		nl_printf("in OpenNL : ||Ax-b||/||b|| = %e\n",
-		       nlCurrentContext->error
-		);
-	    }
 	}
     }
     nlCurrentContext->used_iterations = result;
@@ -3542,9 +3525,6 @@ void nlGetIntegerv(NLenum pname, NLint* params) {
 
 void nlEnable(NLenum pname) {
     switch(pname) {
-	case NL_VERBOSE: {
-	    nlCurrentContext->verbose = NL_TRUE;
-	} break;
 	case NL_VARIABLES_BUFFER: {
 	    nlCurrentContext->user_variable_buffers = NL_TRUE;
 	} break;
@@ -3557,9 +3537,6 @@ void nlEnable(NLenum pname) {
 
 void nlDisable(NLenum pname) {
     switch(pname) {
-	case NL_VERBOSE: {
-	    nlCurrentContext->verbose = NL_FALSE;
-	} break;
 	case NL_VARIABLES_BUFFER: {
 	    nlCurrentContext->user_variable_buffers = NL_FALSE;
 	} break;
@@ -3573,9 +3550,6 @@ void nlDisable(NLenum pname) {
 NLboolean nlIsEnabled(NLenum pname) {
     NLboolean result = NL_FALSE;
     switch(pname) {
-	case NL_VERBOSE: {
-	    result = nlCurrentContext->verbose;
-	} break;
 	case NL_VARIABLES_BUFFER: {
 	    result = nlCurrentContext->user_variable_buffers;
 	} break;

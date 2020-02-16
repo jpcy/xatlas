@@ -205,9 +205,6 @@ typedef void* NLContext;
 
 #define NL_PRECOND_USER       0x303
 
-#define NL_VERBOSE         0x401
-
-
     NLAPI NLContext NLAPIENTRY nlNewContext(void);
 
     NLAPI void NLAPIENTRY nlDeleteContext(NLContext context);
