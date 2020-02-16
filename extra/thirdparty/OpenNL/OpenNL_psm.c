@@ -516,15 +516,7 @@ NLAPI void NLAPIENTRY nlMatrixCompress(NLMatrix* M);
 
 NLAPI NLuint NLAPIENTRY nlMatrixNNZ(NLMatrix M);
 
-NLAPI NLMatrix NLAPIENTRY nlMatrixFactorize(NLMatrix M, NLenum solver);
-    
-
-
     typedef void(*NLMatrixFunc)(const double* x, double* y);
-
-NLAPI NLMatrix NLAPIENTRY nlMatrixNewFromFunction(
-    NLuint m, NLuint n, NLMatrixFunc func
-);	     
 
 NLAPI NLMatrix NLAPIENTRY nlMatrixNewFromProduct(
     NLMatrix M, NLboolean product_owns_M,
@@ -548,9 +540,6 @@ NLAPI NLMatrix NLAPIENTRY nlMatrixNewFromProduct(
 
 
 /* NLContext data structure */
-
-
-typedef NLboolean(*NLSolverFunc)(void);
 
 typedef void(*NLProgressFunc)(
     NLuint cur_iter, NLuint max_iter, double cur_err, double max_err
@@ -600,8 +589,6 @@ typedef struct {
 
     NLdouble*        b;
 
-    NLenum           solver;
-
     NLenum           preconditioner;
 
     NLboolean        preconditioner_defined;
@@ -634,8 +621,6 @@ typedef struct {
     
     NLdouble         elapsed_time;
 
-    NLSolverFunc     solver_func;
-
     NLProgressFunc   progress_func;
 
     NLulong          flops;
@@ -647,8 +632,6 @@ extern NLContextStruct* nlCurrentContext;
 void nlCheckState(NLenum state);
 
 void nlTransition(NLenum from_state, NLenum to_state);
-
-NLboolean nlDefaultSolver(void);
 
 #endif
 
@@ -663,7 +646,6 @@ NLboolean nlDefaultSolver(void);
 NLAPI NLuint NLAPIENTRY nlSolveSystemIterative(
     NLBlas_t blas,
     NLMatrix M, NLMatrix P, NLdouble* b, NLdouble* x,
-    NLenum solver,
     double eps, NLuint max_iter, NLuint inner_iter
 );
 
@@ -1260,15 +1242,6 @@ NLuint nlMatrixNNZ(NLMatrix M) {
     return M->m * M->n;
 }
 
-NLMatrix nlMatrixFactorize(NLMatrix M, NLenum solver) {
-    NLMatrix result = NULL;
-    switch(solver) {
-	default:
-	    nlError("nlMatrixFactorize","unknown solver");
-    }
-    return result;
-}
-
 typedef struct {
     NLuint m;
 
@@ -1339,12 +1312,10 @@ NLContextStruct* nlCurrentContext = NULL;
 NLContext nlNewContext() {
     NLContextStruct* result     = NL_NEW(NLContextStruct);
     result->state               = NL_STATE_INITIAL;
-    result->solver              = NL_SOLVER_DEFAULT;
     result->max_iterations      = 100;
     result->threshold           = 1e-6;
     result->omega               = 1.5;
     result->inner_iterations    = 5;
-    result->solver_func         = nlDefaultSolver;
     result->progress_func       = NULL;
     result->nb_systems          = 1;
     nlMakeCurrent(result);
@@ -1422,27 +1393,6 @@ static void nlSetupPreconditioner() {
     nlMatrixCompress(&nlCurrentContext->M);
 }
 
-static NLboolean nlSolveDirect() {
-    NLdouble* b = nlCurrentContext->b;
-    NLdouble* x = nlCurrentContext->x;
-    NLuint n = nlCurrentContext->n;
-    NLuint k;
-    
-    NLMatrix F = nlMatrixFactorize(
-	nlCurrentContext->M, nlCurrentContext->solver
-    );
-    if(F == NULL) {
-	return NL_FALSE;
-    }
-    for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	nlMultMatrixVector(F, b, x);
-	b += n;
-	x += n;
-    }
-    nlDeleteMatrix(F);
-    return NL_TRUE;
-}
-
 static NLboolean nlSolveIterative() {
     NLdouble* b = nlCurrentContext->b;
     NLdouble* x = nlCurrentContext->x;
@@ -1462,7 +1412,6 @@ static NLboolean nlSolveIterative() {
 	    P,
 	    b,
 	    x,
-	    nlCurrentContext->solver,
 	    nlCurrentContext->threshold,
 	    nlCurrentContext->max_iterations,
 	    nlCurrentContext->inner_iterations
@@ -1473,22 +1422,6 @@ static NLboolean nlSolveIterative() {
 
     nlCurrentContext->flops += blas->flops;
     return NL_TRUE;
-}
-
-
-
-NLboolean nlDefaultSolver() {
-    NLboolean result = NL_TRUE;
-    nlSetupPreconditioner();
-    switch(nlCurrentContext->solver) {
-	case NL_CG:
-    {
-	    result = nlSolveIterative();
-	} break;
-	default:
-	    nl_assert_not_reached;
-    }
-    return result;
 }
 
 /******* extracted from nl_blas.c *******/
@@ -3094,7 +3027,6 @@ static NLuint nlSolveSystem_PRE_CG(
 NLuint nlSolveSystemIterative(
     NLBlas_t blas,
     NLMatrix M, NLMatrix P, NLdouble* b_in, NLdouble* x_in,
-    NLenum solver,
     double eps, NLuint max_iter, NLuint inner_iter
 ) {
     NLuint N = M->n;
@@ -3120,18 +3052,11 @@ NLuint nlSolveSystemIterative(
 	);	
     }
 
-    switch(solver) {
-	case NL_CG:
-	    if(P == NULL) {
-		result = nlSolveSystem_CG(blas,M,b,x,eps,max_iter);
-	    } else {
-		result = nlSolveSystem_PRE_CG(blas,M,P,b,x,eps,max_iter);
-	    }
-	    break;
-	default:
-	    nl_assert_not_reached;
-    }
-
+	if(P == NULL) {
+	result = nlSolveSystem_CG(blas,M,b,x,eps,max_iter);
+	} else {
+	result = nlSolveSystem_PRE_CG(blas,M,P,b,x,eps,max_iter);
+	}
 
     /* Get residual norm and rhs norm from BLAS context */
     if(nlCurrentContext != NULL) {
@@ -3247,9 +3172,6 @@ void nlSolverParameterd(NLenum pname, NLdouble param) {
 void nlSolverParameteri(NLenum pname, NLint param) {
     nlCheckState(NL_STATE_INITIAL);
     switch(pname) {
-    case NL_SOLVER: {
-        nlCurrentContext->solver = (NLenum)param;
-    } break;
     case NL_NB_VARIABLES: {
         nl_assert(param > 0);
         nlCurrentContext->nb_variables = (NLuint)param;
@@ -3309,9 +3231,6 @@ void nlGetDoublev(NLenum pname, NLdouble* params) {
 
 void nlGetIntegerv(NLenum pname, NLint* params) {
     switch(pname) {
-    case NL_SOLVER: {
-        *params = (NLint)(nlCurrentContext->solver);
-    } break;
     case NL_NB_VARIABLES: {
         *params = (NLint)(nlCurrentContext->nb_variables);
     } break;
@@ -3456,22 +3375,14 @@ static void nlInitializeM() {
     }
 
     nlCurrentContext->n = n;
-
-    /*
-     * If the user trusts OpenNL and has left solver as NL_SOLVER_DEFAULT,
-     * then we setup reasonable parameters for him.
-     */
-    if(nlCurrentContext->solver == NL_SOLVER_DEFAULT) {
-        nlCurrentContext->solver = NL_CG;
-        if(!nlCurrentContext->preconditioner_defined) {
-            nlCurrentContext->preconditioner = NL_PRECOND_JACOBI;
-        }
-        if(!nlCurrentContext->max_iterations_defined) {
-            nlCurrentContext->max_iterations = n*5;
-        }
-        if(!nlCurrentContext->threshold_defined) {
-            nlCurrentContext->threshold = 1e-6;
-        }
+    if(!nlCurrentContext->preconditioner_defined) {
+        nlCurrentContext->preconditioner = NL_PRECOND_JACOBI;
+    }
+    if(!nlCurrentContext->max_iterations_defined) {
+        nlCurrentContext->max_iterations = n*5;
+    }
+    if(!nlCurrentContext->threshold_defined) {
+        nlCurrentContext->threshold = 1e-6;
     }
 
     nlCurrentContext->M = (NLMatrix)(NL_NEW(NLSparseMatrix));
@@ -3617,7 +3528,8 @@ NLboolean nlSolve() {
     nlCurrentContext->start_time = nlCurrentTime();
     nlCurrentContext->elapsed_time = 0.0;
     nlCurrentContext->flops = 0;    
-    result = nlCurrentContext->solver_func();
+	nlSetupPreconditioner();
+	result = nlSolveIterative();
     nlVectorToVariables();
     nlCurrentContext->elapsed_time = nlCurrentTime() - nlCurrentContext->start_time;
     nlTransition(NL_STATE_SYSTEM_CONSTRUCTED, NL_STATE_SOLVED);

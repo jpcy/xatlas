@@ -166,9 +166,6 @@ typedef void* NLContext;
 #define NL_FALSE   0x0
 #define NL_TRUE    0x1
 
-
-#define NL_SOLVER           0x100
-
 #define NL_NB_VARIABLES     0x101
 
 #define NL_MAX_ITERATIONS   0x103
@@ -193,11 +190,6 @@ typedef void* NLContext;
 
 
 #define NL_NB_SYSTEMS       0x10e
-    
-
-#define NL_SOLVER_DEFAULT        0x000
-
-#define NL_CG                    0x200
 
 #define NL_PRECOND_NONE       0x000
 
