@@ -5209,10 +5209,10 @@ private:
 		float boundaryLength = 0.0f;
 		Vector3 centroidSum = Vector3(0.0f); // Sum of chart face centroids.
 		Vector3 centroid = Vector3(0.0f); // Average centroid of chart faces.
-		Array<uint32_t> seeds;
 		Array<uint32_t> faces;
 		Array<uint32_t> failedPlanarRegions;
 		CostQueue candidates;
+		uint32_t seed;
 	};
 
 	void placeSeeds(float threshold)
@@ -5296,7 +5296,6 @@ private:
 		const uint32_t chartCount = m_charts.size();
 		for (uint32_t i = 0; i < chartCount; i++) {
 			Chart *chart = m_charts[i];
-			const uint32_t seed = chart->seeds.back();
 			chart->area = 0.0f;
 			chart->boundaryLength = 0.0f;
 			chart->basis.normal = Vector3(0.0f);
@@ -5307,7 +5306,7 @@ private:
 			chart->faces.clear();
 			chart->candidates.clear();
 			chart->failedPlanarRegions.clear();
-			addFaceToChart(chart, seed);
+			addFaceToChart(chart, chart->seed);
 		}
 		XA_PROFILE_END(clusteredChartsReset)
 	}
@@ -5449,7 +5448,7 @@ private:
 		chart->id = (int)m_charts.size();
 		m_charts.push_back(chart);
 		// Pick a face not used by any chart yet, belonging to the largest planar region.
-		uint32_t face = 0;
+		chart->seed = 0;
 		float largestArea = 0.0f;
 		for (uint32_t f = 0; f < m_data.mesh->faceCount(); f++) {
 			if (m_data.isFaceInChart.get(f))
@@ -5457,11 +5456,10 @@ private:
 			const float area = m_planarCharts.regionArea(m_planarCharts.regionIdFromFace(f));
 			if (area > largestArea) {
 				largestArea = area;
-				face = f;
+				chart->seed = f;
 			}
 		}
-		chart->seeds.push_back(face);
-		addFaceToChart(chart, face);
+		addFaceToChart(chart, chart->seed);
 		// Grow the chart as much as possible within the given threshold.
 		for (;;) {
 			if (chart->candidates.count() == 0 || chart->candidates.peekCost() > threshold)
@@ -5641,7 +5639,7 @@ private:
 			const float cost = computeNormalDeviationMetric(chart, chart->faces[i]);
 			m_bestTriangles.push(cost, chart->faces[i]);
 		}
-		// Of those, choose the least central triangle.
+		// Of those, choose the most central triangle.
 		uint32_t mostCentral = 0;
 		float minDistance = FLT_MAX;
 		for (;;) {
@@ -5655,19 +5653,10 @@ private:
 				mostCentral = face;
 			}
 		}
-		XA_DEBUG_ASSERT(maxDistance >= 0);
-		// In order to prevent k-means cyles we record all the previously chosen seeds.
-		for (uint32_t i = 0; i < chart->seeds.size(); i++) {
-			// Treat seeds belong to the same planar region as equal.
-			if (chart->seeds[i] == mostCentral || m_planarCharts.regionIdFromFace(chart->seeds[i]) == m_planarCharts.regionIdFromFace(mostCentral)) {
-				// Move new seed to the end of the seed array.
-				uint32_t last = chart->seeds.size() - 1;
-				swap(chart->seeds[i], chart->seeds[last]);
-				return false;
-			}
-		}
-		// Append new seed.
-		chart->seeds.push_back(mostCentral);
+		XA_DEBUG_ASSERT(minDistance < FLT_MAX);
+		if (mostCentral == chart->seed)
+			return false;
+		chart->seed = mostCentral;
 		return true;
 	}
 
