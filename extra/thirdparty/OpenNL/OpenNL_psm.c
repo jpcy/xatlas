@@ -461,8 +461,6 @@ NLAPI NLuint NLAPIENTRY nlCRSMatrixNNZ(NLCRSMatrix* M);
 
 /* SparseMatrix data structure */
 
-#define NL_MATRIX_STORE_ROWS          1
-  
 typedef struct {
     NLuint m;
     
@@ -479,8 +477,6 @@ typedef struct {
 
     NLuint diag_capacity;
     
-    NLenum storage;
-
     NLRowColumn* row;
 
     NLRowColumn* column;
@@ -495,11 +491,11 @@ typedef struct {
 
 
 NLAPI NLMatrix NLAPIENTRY nlSparseMatrixNew(
-    NLuint m, NLuint n, NLenum storage
+    NLuint m, NLuint n
 );
 
 NLAPI void NLAPIENTRY nlSparseMatrixConstruct(
-    NLSparseMatrix* M, NLuint m, NLuint n, NLenum storage
+    NLSparseMatrix* M, NLuint m, NLuint n
 );
 
 NLAPI void NLAPIENTRY nlSparseMatrixDestroy(NLSparseMatrix* M);
@@ -1182,13 +1178,10 @@ void nlCRSMatrixConstruct(
 
 static void nlSparseMatrixDestroyRowColumns(NLSparseMatrix* M) {
     NLuint i;
-    if(M->storage & NL_MATRIX_STORE_ROWS) {
-        for(i=0; i<M->m; i++) {
-            nlRowColumnDestroy(&(M->row[i]));
-        }
-        NL_DELETE_ARRAY(M->row);
+    for(i=0; i<M->m; i++) {
+        nlRowColumnDestroy(&(M->row[i]));
     }
-    M->storage = (NLenum)((int)(M->storage) & ~NL_MATRIX_STORE_ROWS);
+    NL_DELETE_ARRAY(M->row);
 }
 
 void nlSparseMatrixDestroy(NLSparseMatrix* M) {
@@ -1206,9 +1199,7 @@ void nlSparseMatrixAdd(NLSparseMatrix* M, NLuint i, NLuint j, NLdouble value) {
     if(i == j) {
         M->diag[i] += value;
     }
-    if(M->storage & NL_MATRIX_STORE_ROWS) {
-        nlRowColumnAdd(&(M->row[i]), j, value);
-    }
+    nlRowColumnAdd(&(M->row[i]), j, value);
 }
 
 static void nlSparseMatrixAddSparseMatrix(
@@ -1217,7 +1208,6 @@ static void nlSparseMatrixAddSparseMatrix(
     NLuint i,jj;
     nl_assert(M->m == N->m);
     nl_assert(M->n == N->n);
-    if(N->storage & NL_MATRIX_STORE_ROWS) {
 	for(i=0; i<N->m; ++i) {
 	    for(jj=0; jj<N->row[i].size; ++jj) {
 		nlSparseMatrixAdd(
@@ -1227,7 +1217,6 @@ static void nlSparseMatrixAddSparseMatrix(
 		);
 	    }
 	}
-    }
 }
 
 static void nlSparseMatrixAddCRSMatrix(
@@ -1266,20 +1255,16 @@ void nlSparseMatrixAddMatrix(
 
 void nlSparseMatrixZero( NLSparseMatrix* M) {
     NLuint i;
-    if(M->storage & NL_MATRIX_STORE_ROWS) {
-        for(i=0; i<M->m; i++) {
-            nlRowColumnZero(&(M->row[i]));
-        }
+    for(i=0; i<M->m; i++) {
+        nlRowColumnZero(&(M->row[i]));
     }
     NL_CLEAR_ARRAY(NLdouble, M->diag, M->diag_size);
 }
 
 void nlSparseMatrixClear( NLSparseMatrix* M) {
     NLuint i;
-    if(M->storage & NL_MATRIX_STORE_ROWS) {
-        for(i=0; i<M->m; i++) {
-            nlRowColumnClear(&(M->row[i]));
-        }
+    for(i=0; i<M->m; i++) {
+        nlRowColumnClear(&(M->row[i]));
     }
     NL_CLEAR_ARRAY(NLdouble, M->diag, M->diag_size);
 }
@@ -1288,23 +1273,17 @@ void nlSparseMatrixClear( NLSparseMatrix* M) {
 NLuint nlSparseMatrixNNZ( NLSparseMatrix* M) {
     NLuint nnz = 0;
     NLuint i;
-    if(M->storage & NL_MATRIX_STORE_ROWS) {
-        for(i = 0; i<M->m; i++) {
-            nnz += M->row[i].size;
-        }
-    } else {
-        nl_assert_not_reached;
+    for(i = 0; i<M->m; i++) {
+        nnz += M->row[i].size;
     }
     return nnz;
 }
 
 void nlSparseMatrixSort( NLSparseMatrix* M) {
     NLuint i;
-    if(M->storage & NL_MATRIX_STORE_ROWS) {
-        for(i = 0; i<M->m; i++) {
-            nlRowColumnSort(&(M->row[i]));                
-        }
-    } 
+    for(i = 0; i<M->m; i++) {
+        nlRowColumnSort(&(M->row[i]));                
+    }
 }
 
 void nlSparseMatrixMAddRow(
@@ -1330,7 +1309,6 @@ void nlSparseMatrixScaleRow(
     NLRowColumn* Ri = &(M->row[i]);
     NLCoeff* c = NULL;
 
-    nl_assert(M->storage & NL_MATRIX_STORE_ROWS);
     nl_debug_assert(i < M->m);
     
     for(jj=0; jj<Ri->size; ++jj) {
@@ -1390,46 +1368,24 @@ static void nlSparseMatrix_mult_rows(
     }
 }
 
-static void nlSparseMatrix_mult_cols(
-        NLSparseMatrix* A,
-        const NLdouble* x,
-        NLdouble* y
-) {
-    NLuint n = A->n;
-    NLuint j,ii; 
-    NLCoeff* c = NULL;
-    NL_CLEAR_ARRAY(NLdouble, y, A->m);
-    for(j=0; j<n; j++) {
-        NLRowColumn* Cj = &(A->column[j]);
-        for(ii=0; ii<Cj->size; ii++) {
-            c = &(Cj->coeff[ii]);
-            y[c->index] += c->value * x[j];
-        }
-    }
-}
-
 void nlSparseMatrixMult(
     NLSparseMatrix* A, const NLdouble* x, NLdouble* y
 ) {
     nl_assert(A->type == NL_MATRIX_SPARSE_DYNAMIC);
-    if(A->storage & NL_MATRIX_STORE_ROWS) {
-        nlSparseMatrix_mult_rows(A, x, y);
-    } else {
-        nlSparseMatrix_mult_cols(A, x, y);
-    }
+    nlSparseMatrix_mult_rows(A, x, y);
     nlHostBlas()->flops += (NLulong)(2*nlSparseMatrixNNZ(A));
 }
 
 NLMatrix nlSparseMatrixNew(
-    NLuint m, NLuint n, NLenum storage
+    NLuint m, NLuint n
 ) {
     NLSparseMatrix* result = NL_NEW(NLSparseMatrix);
-    nlSparseMatrixConstruct(result, m, n, storage);
+    nlSparseMatrixConstruct(result, m, n);
     return (NLMatrix)result;
 }
 
 void nlSparseMatrixConstruct(
-    NLSparseMatrix* M, NLuint m, NLuint n, NLenum storage
+    NLSparseMatrix* M, NLuint m, NLuint n
 ) {
     NLuint i;
     M->m = m;
@@ -1437,17 +1393,12 @@ void nlSparseMatrixConstruct(
     M->type = NL_MATRIX_SPARSE_DYNAMIC;
     M->destroy_func = (NLDestroyMatrixFunc)nlSparseMatrixDestroy;
     M->mult_func = (NLMultMatrixVectorFunc)nlSparseMatrixMult;
-    M->storage = storage;
-    if(storage & NL_MATRIX_STORE_ROWS) {
-        M->row = NL_NEW_ARRAY(NLRowColumn, m);
+    M->row = NL_NEW_ARRAY(NLRowColumn, m);
 	M->row_capacity = m;
-        for(i=0; i<n; i++) {
-            nlRowColumnConstruct(&(M->row[i]));
-        }
-    } else {
-        M->row = NULL;
-	M->row_capacity = 0;
+    for(i=0; i<n; i++) {
+        nlRowColumnConstruct(&(M->row[i]));
     }
+	M->row_capacity = 0;
     M->column = NULL;
 	M->column_capacity = 0;
     M->diag_size = MIN(m,n);
@@ -1475,7 +1426,6 @@ static void adjust_diag(NLSparseMatrix* M) {
 
 void nlSparseMatrixAddRow( NLSparseMatrix* M) {
     ++M->m;
-    if(M->storage & NL_MATRIX_STORE_ROWS) {
 	if(M->m > M->row_capacity) {
 	    M->row_capacity *= 2;
 	    if(M->row_capacity == 0) {
@@ -1486,7 +1436,6 @@ void nlSparseMatrixAddRow( NLSparseMatrix* M) {
 	    );
 	}
 	nlRowColumnConstruct(&(M->row[M->m-1]));
-    }
     adjust_diag(M);
 }
 
@@ -1506,7 +1455,6 @@ NLMatrix nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M) {
     NLuint slice_size = nnz / nslices;
     NLCRSMatrix* CRS = NL_NEW(NLCRSMatrix);
 
-    nl_assert(M->storage & NL_MATRIX_STORE_ROWS);
     nlCRSMatrixConstruct(CRS, M->m, M->n, nnz, nslices);
     nlSparseMatrixSort(M);
     /* Convert matrix to CRS format */
@@ -3978,8 +3926,6 @@ static void nlEndSystem() {
 static void nlInitializeM() {
     NLuint i;
     NLuint n = 0;
-    NLenum storage = NL_MATRIX_STORE_ROWS;
-
 
     for(i=0; i<nlCurrentContext->nb_variables; i++) {
         if(!nlCurrentContext->variable_is_locked[i]) {
@@ -4011,7 +3957,7 @@ static void nlInitializeM() {
 
     nlCurrentContext->M = (NLMatrix)(NL_NEW(NLSparseMatrix));
     nlSparseMatrixConstruct(
-	     (NLSparseMatrix*)(nlCurrentContext->M), n, n, storage
+	     (NLSparseMatrix*)(nlCurrentContext->M), n, n
     );
 
     nlCurrentContext->x = NL_NEW_ARRAY(
@@ -4343,7 +4289,7 @@ void nlMatrixMode(NLenum matrix) {
 		nlCurrentContext->B = (NLMatrix)(NL_NEW(NLSparseMatrix));
 		nlSparseMatrixConstruct(
 		    (NLSparseMatrix*)(nlCurrentContext->B),
-		    n, n, NL_MATRIX_STORE_ROWS
+		    n, n
 		);
 	    }
 	} break ;
