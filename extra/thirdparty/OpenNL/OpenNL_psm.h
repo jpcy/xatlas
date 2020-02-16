@@ -292,8 +292,6 @@ typedef void* NLContext;
 
     NLAPI void NLAPIENTRY nlMultiRightHandSide(NLuint k, NLdouble value);
     
-    NLAPI void NLAPIENTRY nlRowScaling(NLdouble value);
-    
 
     NLAPI NLboolean NLAPIENTRY nlSolve(void);
 

@@ -620,8 +620,6 @@ typedef struct {
 
     NLdouble*        right_hand_side;
 
-    NLdouble         row_scaling;
-
     NLenum           solver;
 
     NLenum           preconditioner;
@@ -1500,7 +1498,6 @@ NLContext nlNewContext() {
     result->max_iterations      = 100;
     result->threshold           = 1e-6;
     result->omega               = 1.5;
-    result->row_scaling         = 1.0;
     result->inner_iterations    = 5;
     result->solver_func         = nlDefaultSolver;
     result->progress_func       = NULL;
@@ -3825,23 +3822,6 @@ static void nlBeginRow() {
     nlRowColumnZero(&nlCurrentContext->al);
 }
 
-static void nlScaleRow(NLdouble s) {
-    NLRowColumn*    af = &nlCurrentContext->af;
-    NLRowColumn*    al = &nlCurrentContext->al;
-    NLuint nf            = af->size;
-    NLuint nl            = al->size;
-    NLuint i,k;
-    for(i=0; i<nf; i++) {
-        af->coeff[i].value *= s;
-    }
-    for(i=0; i<nl; i++) {
-        al->coeff[i].value *= s;
-    }
-    for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	nlCurrentContext->right_hand_side[k] *= s;
-    }
-}
-
 static void nlEndRow() {
     NLRowColumn*    af = &nlCurrentContext->af;
     NLRowColumn*    al = &nlCurrentContext->al;
@@ -3856,9 +3836,6 @@ static void nlEndRow() {
     NLuint k;
     nlTransition(NL_STATE_ROW, NL_STATE_MATRIX);
 
-    if(nlCurrentContext->row_scaling != 1.0) {
-        nlScaleRow(nlCurrentContext->row_scaling);
-    }
     /*
      * least_squares : we want to solve
      * A'A x = A'b
@@ -3886,7 +3863,6 @@ static void nlEndRow() {
     for(k=0; k<nlCurrentContext->nb_systems; ++k) {
 	nlCurrentContext->right_hand_side[k] = 0.0;
     }
-    nlCurrentContext->row_scaling = 1.0;
 }
 
 void nlCoefficient(NLuint index, NLdouble value) {
@@ -3957,11 +3933,6 @@ void nlRightHandSide(NLdouble value) {
 void nlMultiRightHandSide(NLuint k, NLdouble value) {
     nl_debug_range_assert(k, 0, nlCurrentContext->nb_systems - 1);
     nlCurrentContext->right_hand_side[k] = value;
-}
-
-void nlRowScaling(NLdouble value) {
-    nlCheckState(NL_STATE_MATRIX);
-    nlCurrentContext->row_scaling = value;
 }
 
 void nlBegin(NLenum prim) {
