@@ -763,8 +763,6 @@ NLAPI NLuint NLAPIENTRY nlSolveSystemIterative(
 
 NLMatrix nlNewJacobiPreconditioner(NLMatrix M);
 
-NLMatrix nlNewSSORPreconditioner(NLMatrix M, double omega);
-
 #endif
 
 /******* extracted from nl_os.c *******/
@@ -2004,17 +2002,6 @@ void nlTransition(NLenum from_state, NLenum to_state) {
 static void nlSetupPreconditioner() {
     /* Check compatibility between solver and preconditioner */
     if(
-        nlCurrentContext->solver == NL_BICGSTAB && 
-        nlCurrentContext->preconditioner == NL_PRECOND_SSOR
-    ) {
-        nlWarning(
-            "nlSolve", 
-            "cannot use SSOR preconditioner with non-symmetric matrix, "
-	    "switching to Jacobi"
-        );
-        nlCurrentContext->preconditioner = NL_PRECOND_JACOBI;        
-    }
-    if(
         nlCurrentContext->solver == NL_GMRES && 
         nlCurrentContext->preconditioner != NL_PRECOND_NONE
     ) {
@@ -2031,21 +2018,14 @@ static void nlSetupPreconditioner() {
     case NL_PRECOND_JACOBI:
 	nlCurrentContext->P = nlNewJacobiPreconditioner(nlCurrentContext->M);
         break;
-    case NL_PRECOND_SSOR:
-	nlCurrentContext->P = nlNewSSORPreconditioner(
-	    nlCurrentContext->M,nlCurrentContext->omega
-	);	
-        break;
     case NL_PRECOND_USER:
         break;
     default:
         nl_assert_not_reached;
     }
 
-    if(nlCurrentContext->preconditioner != NL_PRECOND_SSOR) {
-        if(getenv("NL_LOW_MEM") == NULL) {
-            nlMatrixCompress(&nlCurrentContext->M);
-        }
+    if(getenv("NL_LOW_MEM") == NULL) {
+        nlMatrixCompress(&nlCurrentContext->M);
     }
 }
 
@@ -4138,129 +4118,6 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in) {
     return (NLMatrix)result;
 }
 
-
-
-
-typedef struct {
-    NLuint m;
-
-    NLuint n;
-
-    NLenum type;
-
-    NLDestroyMatrixFunc destroy_func;
-
-    NLMultMatrixVectorFunc mult_func;
-
-    NLSparseMatrix* M;
-
-    double omega;
-    
-    NLdouble* work;
-    
-} NLSSORPreconditioner;
-
-
-static void nlSSORPreconditionerDestroy(NLSSORPreconditioner* M) {
-    NL_DELETE_ARRAY(M->work);
-}
-
-
-
-static void nlSparseMatrixMultLowerInverse(
-    NLSparseMatrix* A, const NLdouble* x, NLdouble* y, double omega
-) {
-    NLuint n       = A->n;
-    NLdouble* diag = A->diag;
-    NLuint i;
-    NLuint ij;
-    NLCoeff* c = NULL;
-    NLdouble S;
-
-    nl_assert(A->storage & NL_MATRIX_STORE_SYMMETRIC);
-    nl_assert(A->storage & NL_MATRIX_STORE_ROWS);
-
-    for(i=0; i<n; i++) {
-        NLRowColumn*  Ri = &(A->row[i]);       
-        S = 0;
-        for(ij=0; ij < Ri->size; ij++) {
-            c = &(Ri->coeff[ij]);
-            nl_parano_assert(c->index <= i); 
-            if(c->index != i) {
-                S += c->value * y[c->index]; 
-            }
-        }
-        nlHostBlas()->flops += (NLulong)(2*Ri->size);                    
-        y[i] = (x[i] - S) * omega / diag[i];
-    }
-    nlHostBlas()->flops += (NLulong)(n*3);                
-}
-static void nlSparseMatrixMultUpperInverse(
-    NLSparseMatrix* A, const NLdouble* x, NLdouble* y, NLdouble omega
-) {
-    NLuint n       = A->n;
-    NLdouble* diag = A->diag;
-    NLint i;
-    NLuint ij;
-    NLCoeff* c = NULL;
-    NLdouble S;
-
-    nl_assert(A->storage & NL_MATRIX_STORE_SYMMETRIC);
-    nl_assert(A->storage & NL_MATRIX_STORE_COLUMNS);
-
-    for(i=(NLint)(n-1); i>=0; i--) {
-        NLRowColumn*  Ci = &(A->column[i]);       
-        S = 0;
-        for(ij=0; ij < Ci->size; ij++) {
-            c = &(Ci->coeff[ij]);
-            nl_parano_assert(c->index >= i); 
-            if((NLint)(c->index) != i) {
-                S += c->value * y[c->index]; 
-            }
-        }
-        nlHostBlas()->flops += (NLulong)(2*Ci->size);                    
-        y[i] = (x[i] - S) * omega / diag[i];
-    }
-    nlHostBlas()->flops += (NLulong)(n*3);                
-}
-
-
-static void nlSSORPreconditionerMult(
-    NLSSORPreconditioner* P, const double* x, double* y
-) {
-    NLdouble* diag = P->M->diag;
-    NLuint i;
-    nlSparseMatrixMultLowerInverse(
-        P->M, x, P->work, P->omega
-    );
-    for(i=0; i<P->n; i++) {
-        P->work[i] *= (diag[i] / P->omega);
-    }
-    nlHostBlas()->flops += (NLulong)(P->n);
-    nlSparseMatrixMultUpperInverse(
-        P->M, P->work, y, P->omega
-    );
-    nlHostBlas()->Dscal(nlHostBlas(),(NLint)P->n, 2.0 - P->omega, y, 1);
-}
-
-NLMatrix nlNewSSORPreconditioner(NLMatrix M_in, double omega) {
-    NLSparseMatrix* M = NULL;
-    NLSSORPreconditioner* result = NULL;
-    nl_assert(M_in->type == NL_MATRIX_SPARSE_DYNAMIC);
-    nl_assert(M_in->m == M_in->n);
-    M = (NLSparseMatrix*)M_in;
-    result = NL_NEW(NLSSORPreconditioner);
-    result->m = M->m;
-    result->n = M->n;
-    result->type = NL_MATRIX_OTHER;
-    result->destroy_func = (NLDestroyMatrixFunc)nlSSORPreconditionerDestroy;
-    result->mult_func = (NLMultMatrixVectorFunc)nlSSORPreconditionerMult;
-    result->M = M;
-    result->work = NL_NEW_ARRAY(NLdouble, result->n);
-    result->omega = omega;
-    return (NLMatrix)result;
-}
-
 /******* extracted from nl_api.c *******/
 
 static NLSparseMatrix* nlGetCurrentSparseMatrix() {
@@ -4690,27 +4547,9 @@ static void nlInitializeM() {
         }
     }
 
-    
-    /* SSOR preconditioner requires rows and columns */
-    if(nlCurrentContext->preconditioner == NL_PRECOND_SSOR) {
-        storage = (storage | NL_MATRIX_STORE_COLUMNS);
-    }
-
     /* a least squares problem results in a symmetric matrix */
     if(nlCurrentContext->least_squares) {
         nlCurrentContext->symmetric = NL_TRUE;
-    }
-
-    if(
-	nlCurrentContext->symmetric &&
-        nlCurrentContext->preconditioner == NL_PRECOND_SSOR 
-    ) {
-	/* 
-	 * For now, only used with SSOR preconditioner, because
-	 * for other modes it is either unsupported (SUPERLU) or
-	 * causes performance loss (non-parallel sparse SpMV)
-	 */
-        storage = (storage | NL_MATRIX_STORE_SYMMETRIC);
     }
 
     nlCurrentContext->M = (NLMatrix)(NL_NEW(NLSparseMatrix));

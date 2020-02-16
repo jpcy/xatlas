@@ -212,8 +212,6 @@ typedef void* NLContext;
 
 #define NL_PRECOND_JACOBI     0x300
 
-#define NL_PRECOND_SSOR       0x301
-
 #define NL_PRECOND_USER       0x303
 
 
