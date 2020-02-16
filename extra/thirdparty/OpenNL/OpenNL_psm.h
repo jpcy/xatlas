@@ -389,9 +389,6 @@ extern "C" {
 #endif
 
     
-#define NL_SUPERLU_EXT           0x210
-#define NL_PERM_SUPERLU_EXT      0x211
-#define NL_SYMMETRIC_SUPERLU_EXT 0x212
 #define NL_SOLVER_USER           0x213
 #define NL_CHOLMOD_EXT           0x214
 #define NL_ARPACK_EXT            0x215

@@ -361,7 +361,6 @@ typedef void(*NLMultMatrixVectorFunc)(NLMatrix M, const double* x, double* y);
 
 #define NL_MATRIX_SPARSE_DYNAMIC 0x1001
 #define NL_MATRIX_CRS            0x1002
-#define NL_MATRIX_SUPERLU_EXT    0x1003    
 #define NL_MATRIX_CHOLMOD_EXT    0x1004    
 #define NL_MATRIX_FUNCTION       0x1005
 #define NL_MATRIX_OTHER          0x1006
@@ -766,23 +765,6 @@ NLAPI NLuint NLAPIENTRY nlSolveSystemIterative(
 NLMatrix nlNewJacobiPreconditioner(NLMatrix M);
 
 NLMatrix nlNewSSORPreconditioner(NLMatrix M, double omega);
-
-#endif
-
-/******* extracted from nl_superlu.h *******/
-
-#ifndef OPENNL_SUPERLU_H
-#define OPENNL_SUPERLU_H
-
-
-
-NLAPI NLMatrix NLAPIENTRY nlMatrixFactorize_SUPERLU(
-    NLMatrix M, NLenum solver
-);
-
-NLboolean nlInitExtension_SUPERLU(void);
-
-NLboolean nlExtensionIsInitialized_SUPERLU(void);
 
 #endif
 
@@ -1894,11 +1876,6 @@ NLuint nlMatrixNNZ(NLMatrix M) {
 NLMatrix nlMatrixFactorize(NLMatrix M, NLenum solver) {
     NLMatrix result = NULL;
     switch(solver) {
-	case NL_SUPERLU_EXT:
-	case NL_PERM_SUPERLU_EXT:      
-	case NL_SYMMETRIC_SUPERLU_EXT:
-	    result = nlMatrixFactorize_SUPERLU(M,solver);
-	    break;
 	case NL_CHOLMOD_EXT:
 	    result = nlMatrixFactorize_CHOLMOD(M,solver);	    
 	    break;
@@ -2125,35 +2102,10 @@ static void nlSetupPreconditioner() {
         nlCurrentContext->preconditioner = NL_PRECOND_NONE;        
     }
     if(
-        nlCurrentContext->solver == NL_SUPERLU_EXT && 
-        nlCurrentContext->preconditioner != NL_PRECOND_NONE
-    ) {
-        nlWarning("nlSolve", "Preconditioner not implemented yet for SUPERLU");
-        nlCurrentContext->preconditioner = NL_PRECOND_NONE;        
-    }
-    if(
         nlCurrentContext->solver == NL_CHOLMOD_EXT && 
         nlCurrentContext->preconditioner != NL_PRECOND_NONE
     ) {
         nlWarning("nlSolve", "Preconditioner not implemented yet for CHOLMOD");
-        nlCurrentContext->preconditioner = NL_PRECOND_NONE;        
-    }
-    if(
-        nlCurrentContext->solver == NL_PERM_SUPERLU_EXT && 
-        nlCurrentContext->preconditioner != NL_PRECOND_NONE
-    ) {
-        nlWarning(
-	    "nlSolve", "Preconditioner not implemented yet for PERMSUPERLU"
-	);
-        nlCurrentContext->preconditioner = NL_PRECOND_NONE;        
-    }
-    if(
-        nlCurrentContext->solver == NL_SYMMETRIC_SUPERLU_EXT && 
-        nlCurrentContext->preconditioner != NL_PRECOND_NONE
-    ) {
-        nlWarning(
-	    "nlSolve", "Preconditioner not implemented yet for PERMSUPERLU"
-	);
         nlCurrentContext->preconditioner = NL_PRECOND_NONE;        
     }
 
@@ -2281,9 +2233,6 @@ NLboolean nlDefaultSolver() {
 	    result = nlSolveIterative();
 	} break;
 
-	case NL_SUPERLU_EXT: 
-	case NL_PERM_SUPERLU_EXT: 
-	case NL_SYMMETRIC_SUPERLU_EXT: 
 	case NL_CHOLMOD_EXT: {
 	    result = nlSolveDirect();
 	} break;
@@ -2319,17 +2268,6 @@ int NL_FORTRAN_WRAP(xerbla)(char *srname, int *info) {
 } 
 #ifndef NL_USE_BLAS
 #define NL_USE_BLAS
-#endif
-#endif
-
-#ifdef NL_USE_SUPERLU
-#ifndef NL_USE_BLAS
-#define NL_USE_BLAS
-/* 
- * The BLAS included in SuperLU does not have DTPSV,
- * we use the DTPSV embedded in OpenNL.
- */
-#define NEEDS_DTPSV
 #endif
 #endif
 
@@ -4446,585 +4384,7 @@ NLMatrix nlNewSSORPreconditioner(NLMatrix M_in, double omega) {
     return (NLMatrix)result;
 }
 
-
-
-/******* extracted from nl_superlu.c *******/
-
-
-
-#ifdef NL_OS_UNIX
-#  ifdef NL_OS_APPLE
-#      define SUPERLU_LIB_NAME "libsuperlu_5.dylib"
-#  else
-#      define SUPERLU_LIB_NAME "libsuperlu.so"
-#  endif
-#else
-#  define SUPERLU_LIB_NAME "libsuperlu.xxx"
-#endif
-
-
-
-
-
-
-
-
-
-typedef enum {
-    SLU_NC,    /* column-wise, no supernode */
-    SLU_NCP,   /* column-wise, column-permuted, no supernode 
-                  (The consecutive columns of nonzeros, after permutation,
-                   may not be stored  contiguously.) */
-    SLU_NR,    /* row-wize, no supernode */
-    SLU_SC,    /* column-wise, supernode */
-    SLU_SCP,   /* supernode, column-wise, permuted */    
-    SLU_SR,    /* row-wise, supernode */
-    SLU_DN,     /* Fortran style column-wise storage for dense matrix */
-    SLU_NR_loc  /* distributed compressed row format  */ 
-} Stype_t;
-
-typedef enum {
-    SLU_S,     /* single */
-    SLU_D,     /* double */
-    SLU_C,     /* single complex */
-    SLU_Z      /* double complex */
-} Dtype_t;
-
-
-typedef enum {
-    SLU_GE,    /* general */
-    SLU_TRLU,  /* lower triangular, unit diagonal */
-    SLU_TRUU,  /* upper triangular, unit diagonal */
-    SLU_TRL,   /* lower triangular */
-    SLU_TRU,   /* upper triangular */
-    SLU_SYL,   /* symmetric, store lower half */
-    SLU_SYU,   /* symmetric, store upper half */
-    SLU_HEL,   /* Hermitian, store lower half */
-    SLU_HEU    /* Hermitian, store upper half */
-} Mtype_t;
-
-typedef int int_t;
-
-typedef struct {
-    int_t  nnz;	    /* number of nonzeros in the matrix */
-    void *nzval;    /* pointer to array of nonzero values, packed by raw */
-    int_t  *colind; /* pointer to array of columns indices of the nonzeros */
-    int_t  *rowptr; /* pointer to array of beginning of rows in nzval[] 
-		       and colind[]  */
-                    /* Note:
-		       Zero-based indexing is used;
-		       rowptr[] has nrow+1 entries, the last one pointing
-		       beyond the last row, so that rowptr[nrow] = nnz. */
-} NRformat;
-
-typedef struct {
-        Stype_t Stype; /* Storage type: interprets the storage structure 
-                          pointed to by *Store. */
-        Dtype_t Dtype; /* Data type. */
-        Mtype_t Mtype; /* Matrix type: describes the mathematical property of 
-                          the matrix. */
-        int_t  nrow;   /* number of rows */
-        int_t  ncol;   /* number of columns */
-        void *Store;   /* pointer to the actual storage of the matrix */
-} SuperMatrix;
-
-/* Stype == SLU_DN */
-typedef struct {
-    int_t lda;    /* leading dimension */
-    void *nzval;  /* array of size lda*ncol to represent a dense matrix */
-} DNformat;
-
-
-typedef enum {NO, YES}                                          yes_no_t;
-typedef enum {DOFACT, SamePattern, SamePattern_SameRowPerm, FACTORED} fact_t;
-typedef enum {NOROWPERM, LargeDiag, MY_PERMR}                   rowperm_t;
-typedef enum {NATURAL, MMD_ATA, MMD_AT_PLUS_A, COLAMD,
-              METIS_AT_PLUS_A, PARMETIS, ZOLTAN, MY_PERMC}      colperm_t;
-typedef enum {NOTRANS, TRANS, CONJ}                             trans_t;
-typedef enum {NOEQUIL, ROW, COL, BOTH}                          DiagScale_t;
-typedef enum {NOREFINE, SLU_SINGLE=1, SLU_DOUBLE, SLU_EXTRA}    IterRefine_t;
-typedef enum {LUSUP, UCOL, LSUB, USUB, LLVL, ULVL}              MemType;
-typedef enum {HEAD, TAIL}                                       stack_end_t;
-typedef enum {SYSTEM, USER}                                     LU_space_t;
-typedef enum {ONE_NORM, TWO_NORM, INF_NORM}                     norm_t;
-typedef enum {SILU, SMILU_1, SMILU_2, SMILU_3}                  milu_t;
-
-typedef struct {
-    fact_t        Fact;
-    yes_no_t      Equil;
-    colperm_t     ColPerm;
-    trans_t       Trans;
-    IterRefine_t  IterRefine;
-    double        DiagPivotThresh;
-    yes_no_t      SymmetricMode;
-    yes_no_t      PivotGrowth;
-    yes_no_t      ConditionNumber;
-    rowperm_t     RowPerm;
-    int           ILU_DropRule;
-    double        ILU_DropTol;    /* threshold for dropping */
-    double        ILU_FillFactor; /* gamma in the secondary dropping */
-    norm_t        ILU_Norm;       /* infinity-norm, 1-norm, or 2-norm */
-    double        ILU_FillTol;    /* threshold for zero pivot perturbation */
-    milu_t        ILU_MILU;
-    double        ILU_MILU_Dim;   /* Dimension of PDE (if available) */
-    yes_no_t      ParSymbFact;
-    yes_no_t      ReplaceTinyPivot; /* used in SuperLU_DIST */
-    yes_no_t      SolveInitialized;
-    yes_no_t      RefineInitialized;
-    yes_no_t      PrintStat;
-    int           nnzL, nnzU;      /* used to store nnzs for now       */
-    int           num_lookaheads;  /* num of levels in look-ahead      */
-    yes_no_t      lookahead_etree; /* use etree computed from the
-                                      serial symbolic factorization */
-    yes_no_t      SymPattern;      /* symmetric factorization          */
-} superlu_options_t;
-
-typedef void* superlu_options_ptr;
-
-typedef float    flops_t;
-typedef unsigned char Logical;
-
-typedef struct {
-    int     *panel_histo;    /* histogram of panel size distribution */
-    double  *utime;          /* running time at various phases */
-    flops_t *ops;            /* operation count at various phases */
-    int     TinyPivots;      /* number of tiny pivots */
-    int     RefineSteps;     /* number of iterative refinement steps */
-    int     expansions;      /* number of memory expansions (SuperLU4) */
-} SuperLUStat_t;
-
-/*! \brief Headers for 4 types of dynamatically managed memory */
-typedef struct e_node {
-    int size;      /* length of the memory that has been used */
-    void *mem;     /* pointer to the new malloc'd store */
-} ExpHeader;
-
-typedef struct {
-    int  size;
-    int  used;
-    int  top1;  /* grow upward, relative to &array[0] */
-    int  top2;  /* grow downward */
-    void *array;
-} LU_stack_t;
-
-typedef struct {
-    int     *xsup;    /* supernode and column mapping */
-    int     *supno;   
-    int     *lsub;    /* compressed L subscripts */
-    int	    *xlsub;
-    void    *lusup;   /* L supernodes */
-    int     *xlusup;
-    void    *ucol;    /* U columns */
-    int     *usub;
-    int	    *xusub;
-    int     nzlmax;   /* current max size of lsub */
-    int     nzumax;   /*    "    "    "      ucol */
-    int     nzlumax;  /*    "    "    "     lusup */
-    int     n;        /* number of columns in the matrix */
-    LU_space_t MemModel; /* 0 - system malloc'd; 1 - user provided */
-    int     num_expansions;
-    ExpHeader *expanders; /* Array of pointers to 4 types of memory */
-    LU_stack_t stack;     /* use user supplied memory */
-} GlobalLU_t;
-
-
-
-
-
-
-
-
-
-
-
-
-
-typedef void (*FUNPTR_set_default_options)(superlu_options_ptr options);
-typedef void (*FUNPTR_ilu_set_default_options)(superlu_options_ptr options);
-typedef void (*FUNPTR_StatInit)(SuperLUStat_t *);
-typedef void (*FUNPTR_StatFree)(SuperLUStat_t *);
-
-typedef void (*FUNPTR_dCreate_CompCol_Matrix)(
-    SuperMatrix *, int, int, int, const double *,
-    const int *, const int *, Stype_t, Dtype_t, Mtype_t);
-
-typedef void (*FUNPTR_dCreate_Dense_Matrix)(
-    SuperMatrix *, int, int, const double *, int,
-    Stype_t, Dtype_t, Mtype_t);
-
-typedef void (*FUNPTR_Destroy_SuperNode_Matrix)(SuperMatrix *);
-typedef void (*FUNPTR_Destroy_CompCol_Matrix)(SuperMatrix *);
-typedef void (*FUNPTR_Destroy_CompCol_Permuted)(SuperMatrix *);
-typedef void (*FUNPTR_Destroy_SuperMatrix_Store)(SuperMatrix *);
-
-typedef void (*FUNPTR_dgssv)(
-    superlu_options_ptr, SuperMatrix *, int *, int *, SuperMatrix *,
-    SuperMatrix *, SuperMatrix *, SuperLUStat_t *, int *
-);
-
-typedef void (*FUNPTR_dgstrs)(
-    trans_t, SuperMatrix *, SuperMatrix *, int *, int *,
-    SuperMatrix *, SuperLUStat_t*, int *    
-);
-
-typedef void (*FUNPTR_get_perm_c)(int, SuperMatrix *, int *);
-typedef void (*FUNPTR_sp_preorder)(
-   superlu_options_t *, SuperMatrix*, int*, int*, SuperMatrix*
-);
-typedef int (*FUNPTR_sp_ienv)(int);
-typedef int (*FUNPTR_input_error)(const char *, int *);
-
-typedef void (*FUNPTR_dgstrf) (superlu_options_t *options, SuperMatrix *A,
-        int relax, int panel_size, int *etree, void *work, int lwork,
-        int *perm_c, int *perm_r, SuperMatrix *L, SuperMatrix *U,
-    	GlobalLU_t *Glu, /* persistent to facilitate multiple factorizations */
-        SuperLUStat_t *stat, int *info
-);
-
-
-typedef struct {
-    FUNPTR_set_default_options set_default_options;
-    FUNPTR_ilu_set_default_options ilu_set_default_options;    
-    FUNPTR_StatInit StatInit;
-    FUNPTR_StatFree StatFree;
-    FUNPTR_dCreate_CompCol_Matrix dCreate_CompCol_Matrix;
-    FUNPTR_dCreate_Dense_Matrix dCreate_Dense_Matrix;
-    FUNPTR_Destroy_SuperNode_Matrix Destroy_SuperNode_Matrix;
-    FUNPTR_Destroy_CompCol_Matrix Destroy_CompCol_Matrix;
-    FUNPTR_Destroy_CompCol_Permuted Destroy_CompCol_Permuted;    
-    FUNPTR_Destroy_SuperMatrix_Store Destroy_SuperMatrix_Store;
-    FUNPTR_dgssv dgssv;
-    FUNPTR_dgstrs dgstrs;
-    FUNPTR_get_perm_c get_perm_c;
-    FUNPTR_sp_preorder sp_preorder;
-    FUNPTR_sp_ienv sp_ienv;
-    FUNPTR_dgstrf dgstrf;
-    FUNPTR_input_error input_error;
-    
-    NLdll DLL_handle;
-} SuperLUContext;
-
-static SuperLUContext* SuperLU() {
-    static SuperLUContext context;
-    static NLboolean init = NL_FALSE;
-    if(!init) {
-        init = NL_TRUE;
-        memset(&context, 0, sizeof(context));
-    }
-    return &context;
-}
-
-NLboolean nlExtensionIsInitialized_SUPERLU() {
-    return
-        SuperLU()->DLL_handle != NULL &&
-        SuperLU()->set_default_options != NULL &&
-        SuperLU()->ilu_set_default_options != NULL &&   
-        SuperLU()->StatInit != NULL &&
-        SuperLU()->StatFree != NULL &&
-        SuperLU()->dCreate_CompCol_Matrix != NULL &&
-        SuperLU()->dCreate_Dense_Matrix != NULL &&
-        SuperLU()->Destroy_SuperNode_Matrix != NULL &&
-        SuperLU()->Destroy_CompCol_Matrix != NULL &&
-        SuperLU()->Destroy_CompCol_Permuted != NULL &&	
-        SuperLU()->Destroy_SuperMatrix_Store != NULL &&
-        SuperLU()->dgssv != NULL &&
-        SuperLU()->dgstrs != NULL &&
-	SuperLU()->get_perm_c != NULL &&
-	SuperLU()->sp_preorder != NULL &&
-	SuperLU()->sp_ienv != NULL &&
-	SuperLU()->dgstrf != NULL &&
-	SuperLU()->input_error != NULL;
-}
-
-static void nlTerminateExtension_SUPERLU(void) {
-    if(SuperLU()->DLL_handle != NULL) {
-        nlCloseDLL(SuperLU()->DLL_handle);
-        SuperLU()->DLL_handle = NULL;
-    }
-}
-
-
-#define find_superlu_func(name)                                   \
-    if(                                                           \
-        (                                                         \
-            SuperLU()->name =                                     \
-            (FUNPTR_##name)nlFindFunction(SuperLU()->DLL_handle,#name) \
-        ) == NULL                                                 \
-    ) {                                                           \
-        nlError("nlInitExtension_SUPERLU","function not found");  \
-        nlError("nlInitExtension_SUPERLU",#name);                 \
-        return NL_FALSE;                                          \
-    }
-
-
-NLboolean nlInitExtension_SUPERLU(void) {
-    NLenum flags = NL_LINK_NOW | NL_LINK_USE_FALLBACK;
-    if(nlCurrentContext == NULL || !nlCurrentContext->verbose) {
-	flags |= NL_LINK_QUIET;
-    }
-    
-    if(SuperLU()->DLL_handle != NULL) {
-        return nlExtensionIsInitialized_SUPERLU();
-    }
-
-    SuperLU()->DLL_handle = nlOpenDLL(SUPERLU_LIB_NAME, flags);
-    if(SuperLU()->DLL_handle == NULL) {
-        return NL_FALSE;
-    }
-    
-    find_superlu_func(set_default_options);
-    find_superlu_func(ilu_set_default_options);    
-    find_superlu_func(StatInit);
-    find_superlu_func(StatFree);
-    find_superlu_func(dCreate_CompCol_Matrix);
-    find_superlu_func(dCreate_Dense_Matrix);
-    find_superlu_func(Destroy_SuperNode_Matrix);
-    find_superlu_func(Destroy_CompCol_Matrix);
-    find_superlu_func(Destroy_CompCol_Permuted);        
-    find_superlu_func(Destroy_SuperMatrix_Store);
-    find_superlu_func(dgssv);
-    find_superlu_func(dgstrs);
-    find_superlu_func(get_perm_c);    
-    find_superlu_func(sp_preorder);
-    find_superlu_func(sp_ienv);
-    find_superlu_func(dgstrf);
-    find_superlu_func(input_error);
-
-    atexit(nlTerminateExtension_SUPERLU);
-    return NL_TRUE;
-}
-
-
-
-typedef struct {
-    NLuint m;
-
-    NLuint n;
-
-    NLenum type;
-
-    NLDestroyMatrixFunc destroy_func;
-
-    NLMultMatrixVectorFunc mult_func;
-
-    SuperMatrix L;
-
-    SuperMatrix U;
-
-    int* perm_r;
-
-    int* perm_c;
-
-    trans_t trans;
-    
-} NLSuperLUFactorizedMatrix;
-
-
-static void nlSuperLUFactorizedMatrixDestroy(NLSuperLUFactorizedMatrix* M) {
-    SuperLU()->Destroy_SuperNode_Matrix(&M->L);
-    SuperLU()->Destroy_CompCol_Matrix(&M->U);    
-    NL_DELETE_ARRAY(M->perm_r);
-    NL_DELETE_ARRAY(M->perm_c);
-}
-
-static void nlSuperLUFactorizedMatrixMult(
-    NLSuperLUFactorizedMatrix* M, const double* x, double* y
-) {
-    SuperMatrix B;
-    SuperLUStat_t stat;
-    int info = 0;
-    NLuint i;
-
-    /* Create vector */
-    SuperLU()->dCreate_Dense_Matrix(
-        &B, (int)(M->n), 1, y, (int)(M->n), 
-        SLU_DN, /* Fortran-type column-wise storage */
-        SLU_D,  /* doubles */
-        SLU_GE  /* general */
-    );
-
-    /* copy rhs onto y (superLU matrix-vector product expects it here */
-    for(i = 0; i < M->n; i++){
-        y[i] = x[i];
-    }
-
-    /* Call SuperLU triangular solve */
-    SuperLU()->StatInit(&stat) ;
-
-    SuperLU()->dgstrs(
-       M->trans, &M->L, &M->U, M->perm_c, M->perm_r, &B, &stat, &info
-    );
-
-    SuperLU()->StatFree(&stat) ;
-    
-    /*  Only the "store" structure needs to be 
-     *  deallocated (the array has been allocated
-     * by client code).
-     */
-    SuperLU()->Destroy_SuperMatrix_Store(&B) ;
-}
-
-/*
- * Copied from SUPERLU/dgssv.c, removed call to linear solve.
- */
-static void dgssv_factorize_only(
-      superlu_options_t *options, SuperMatrix *A, int *perm_c, int *perm_r,
-      SuperMatrix *L, SuperMatrix *U,
-      SuperLUStat_t *stat, int *info, trans_t *trans
-) {
-    SuperMatrix *AA = NULL;
-        /* A in SLU_NC format used by the factorization routine.*/
-    SuperMatrix AC; /* Matrix postmultiplied by Pc */
-    int      lwork = 0, *etree, i;
-    GlobalLU_t Glu; /* Not needed on return. */
-    
-    /* Set default values for some parameters */
-    int      panel_size;     /* panel size */
-    int      relax;          /* no of columns in a relaxed snodes */
-    int      permc_spec;
-
-    nl_assert(A->Stype == SLU_NR || A->Stype == SLU_NC);
-    
-    *trans = NOTRANS;
-
-    if ( options->Fact != DOFACT ) *info = -1;
-    else if ( A->nrow != A->ncol || A->nrow < 0 ||
-	 (A->Stype != SLU_NC && A->Stype != SLU_NR) ||
-	 A->Dtype != SLU_D || A->Mtype != SLU_GE )
-	*info = -2;
-    if ( *info != 0 ) {
-	i = -(*info);
-	SuperLU()->input_error("SUPERLU/OpenNL dgssv_factorize_only", &i);
-	return;
-    }
-
-    /* Convert A to SLU_NC format when necessary. */
-    if ( A->Stype == SLU_NR ) {
-	NRformat *Astore = (NRformat*)A->Store;
-	AA = NL_NEW(SuperMatrix);
-	SuperLU()->dCreate_CompCol_Matrix(
-	    AA, A->ncol, A->nrow, Astore->nnz, 
-	    (double*)Astore->nzval, Astore->colind, Astore->rowptr,
-	    SLU_NC, A->Dtype, A->Mtype
-	);
-	*trans = TRANS;
-    } else {
-        if ( A->Stype == SLU_NC ) AA = A;
-    }
-
-    nl_assert(AA != NULL);
-    
-    /*
-     * Get column permutation vector perm_c[], according to permc_spec:
-     *   permc_spec = NATURAL:  natural ordering 
-     *   permc_spec = MMD_AT_PLUS_A: minimum degree on structure of A'+A
-     *   permc_spec = MMD_ATA:  minimum degree on structure of A'*A
-     *   permc_spec = COLAMD:   approximate minimum degree column ordering
-     *   permc_spec = MY_PERMC: the ordering already supplied in perm_c[]
-     */
-    permc_spec = options->ColPerm;
-    if ( permc_spec != MY_PERMC && options->Fact == DOFACT )
-	SuperLU()->get_perm_c(permc_spec, AA, perm_c);
-    
-    etree = NL_NEW_ARRAY(int,A->ncol);
-    SuperLU()->sp_preorder(options, AA, perm_c, etree, &AC);
-    panel_size = SuperLU()->sp_ienv(1);
-    relax = SuperLU()->sp_ienv(2);
-    SuperLU()->dgstrf(options, &AC, relax, panel_size, etree,
-            NULL, lwork, perm_c, perm_r, L, U, &Glu, stat, info);
-
-    NL_DELETE_ARRAY(etree);
-    SuperLU()->Destroy_CompCol_Permuted(&AC);
-    if ( A->Stype == SLU_NR ) {
-	SuperLU()->Destroy_SuperMatrix_Store(AA);
-	NL_DELETE(AA);
-    }
-}
-
-
-NLMatrix nlMatrixFactorize_SUPERLU(
-    NLMatrix M, NLenum solver
-) {
-    NLSuperLUFactorizedMatrix* LU = NULL;
-    NLCRSMatrix* CRS = NULL;
-    SuperMatrix superM;
-    NLuint n = M->n;
-    superlu_options_t options;
-    SuperLUStat_t     stat;
-    NLint info = 0;       /* status code  */
-    
-    nl_assert(M->m == M->n);
-
-    if(M->type == NL_MATRIX_CRS) {
-        CRS = (NLCRSMatrix*)M;
-    } else if(M->type == NL_MATRIX_SPARSE_DYNAMIC) {
-        CRS = (NLCRSMatrix*)nlCRSMatrixNewFromSparseMatrix((NLSparseMatrix*)M);
-    }
-
-    nl_assert(!(CRS->symmetric_storage));
-    
-    LU = NL_NEW(NLSuperLUFactorizedMatrix);
-    LU->m = M->m;
-    LU->n = M->n;
-    LU->type = NL_MATRIX_OTHER;
-    LU->destroy_func = (NLDestroyMatrixFunc)(nlSuperLUFactorizedMatrixDestroy);
-    LU->mult_func = (NLMultMatrixVectorFunc)(nlSuperLUFactorizedMatrixMult);
-    LU->perm_c = NL_NEW_ARRAY(int, n);
-    LU->perm_r = NL_NEW_ARRAY(int, n);    
-
-    SuperLU()->dCreate_CompCol_Matrix(
-        &superM, (int)n, (int)n, (int)nlCRSMatrixNNZ(CRS),
-        CRS->val, (int*)CRS->colind, (int*)CRS->rowptr, 
-        SLU_NR,              /* Row_wise, no supernode */
-        SLU_D,               /* doubles                */ 
-        CRS->symmetric_storage ? SLU_SYL : SLU_GE
-    );
-
-    SuperLU()->set_default_options(&options);
-    switch(solver) {
-    case NL_SUPERLU_EXT: {
-        options.ColPerm = NATURAL;
-    } break;
-    case NL_PERM_SUPERLU_EXT: {
-        options.ColPerm = COLAMD;
-    } break;
-    case NL_SYMMETRIC_SUPERLU_EXT: {
-        options.ColPerm = MMD_AT_PLUS_A;
-        options.SymmetricMode = YES;
-    } break;
-    default: 
-        nl_assert_not_reached;
-    }
-    
-    SuperLU()->StatInit(&stat);
-
-    dgssv_factorize_only(
-	  &options, &superM, LU->perm_c, LU->perm_r,
-	  &LU->L, &LU->U, &stat, &info, &LU->trans
-    );
-
-    SuperLU()->StatFree(&stat);
-    
-    /*
-     * Only the "store" structure needs to be deallocated 
-     * (the arrays have been allocated by us, they are in CRS).
-     */
-    SuperLU()->Destroy_SuperMatrix_Store(&superM);
-    
-    if((NLMatrix)CRS != M) {
-        nlDeleteMatrix((NLMatrix)CRS);
-    }
-
-    if(info != 0) {
-	NL_DELETE(LU);
-	LU = NULL;
-    }
-    return (NLMatrix)LU;
-}
-
 /******* extracted from nl_cholmod.c *******/
-
-
 
 #ifdef NL_OS_UNIX
 #  ifdef NL_OS_APPLE
@@ -5565,92 +4925,6 @@ NLboolean nlInitExtension_ARPACK(void) {
     return NL_TRUE;
 }
 
-
-
-static NLMatrix create_OP(NLboolean symmetric) {
-    NLuint n = nlCurrentContext->M->n;
-    NLuint i;
-    NLMatrix result = NULL;
-    
-	
-    if(nlCurrentContext->eigen_shift != 0.0) {
-	/*
-	 * A = M
-	 */
-	NLSparseMatrix* A = NL_NEW(NLSparseMatrix);
-	nlSparseMatrixConstruct(A, n, n, NL_MATRIX_STORE_ROWS);
-	nlSparseMatrixAddMatrix(A, 1.0, nlCurrentContext->M);
-	if(nlCurrentContext->B == NULL) {
-	    /*
-	     * A = A - shift * Id
-	     */
-	    for(i=0; i<n; ++i) {
-		nlSparseMatrixAdd(A, i, i, -nlCurrentContext->eigen_shift);
-	    }
-	} else {
-	    /*
-	     * A = A - shift * B
-	     */
-	    nlSparseMatrixAddMatrix(
-		A, -nlCurrentContext->eigen_shift, nlCurrentContext->B
-	    );
-	}
-
-	/* 
-	 * OP = A^{-1} 
-	 */
-	if(nlCurrentContext->verbose) {
-	    nl_printf("Factorizing matrix...\n");
-	}
-	result = nlMatrixFactorize(
-	    (NLMatrix)A,
-	    symmetric ? NL_SYMMETRIC_SUPERLU_EXT : NL_PERM_SUPERLU_EXT
-	);
-	if(nlCurrentContext->verbose) {
-	    if(result == NULL) {
-		nl_printf("Could not factorize matrix\n");
-	    } else {
-		nl_printf("Matrix factorized\n");
-	    }
-	}
-	nlDeleteMatrix((NLMatrix)A);
-    } else {
-	/* 
-	 * OP = M^{-1} 
-	 */
-	if(nlCurrentContext->verbose) {
-	    nl_printf("Factorizing matrix...\n");
-	}
-	result = nlMatrixFactorize(
-	    nlCurrentContext->M,
-	    symmetric ? NL_SYMMETRIC_SUPERLU_EXT : NL_PERM_SUPERLU_EXT
-	);
-	if(nlCurrentContext->verbose) {
-	    if(result == NULL) {
-		nl_printf("Could not factorize matrix\n");		
-	    } else {
-		nl_printf("Matrix factorized\n");
-	    }
-	}
-    }
-
-    if(result == NULL) {
-	return NULL;
-    }
-    
-    if(nlCurrentContext->B != NULL) {
-	/* 
-	 * OP = OP * B
-	 */	
-	result = nlMatrixNewFromProduct(
-	    result, NL_TRUE, /* mem. ownership transferred */
-	    nlCurrentContext->B, NL_FALSE  /* mem. ownership kept by context */
-	);
-    }
-
-    return result;
-}
-
 static int eigencompare(const void* pi, const void* pj) {
     NLuint i = *(const NLuint*)pi;
     NLuint j = *(const NLuint*)pj;
@@ -5668,7 +4942,7 @@ void nlEigenSolve_ARPACK(void) {
     int n = (int)nlCurrentContext->M->n; /* Dimension of the matrix */
     int nev = /* Number of eigenvectors requested */
 	(int)nlCurrentContext->nb_systems;
-    NLMatrix OP = create_OP(symmetric);
+    NLMatrix OP;// = create_OP(symmetric);
     int ncv = (int)(nev * 2.5); /* Length of Arnoldi factorization */
                  /* Rule of thumb in ARPACK documentation: ncv > 2 * nev */
     int* iparam = NULL;
@@ -7162,9 +6436,7 @@ static NLSparseMatrix* nlGetCurrentSparseMatrix() {
 
 
 NLboolean nlInitExtension(const char* extension) {
-    if(!strcmp(extension, "SUPERLU")) {
-        return nlInitExtension_SUPERLU();
-    } else if(!strcmp(extension, "CHOLMOD")) {
+    if(!strcmp(extension, "CHOLMOD")) {
         return nlInitExtension_CHOLMOD();
     } else if(!strcmp(extension, "ARPACK")) {
 	/* 
@@ -7172,7 +6444,7 @@ NLboolean nlInitExtension(const char* extension) {
 	 * (factorizes the matrix for the shift-invert spectral
 	 *  transform).
 	 */
-	return nlInitExtension_SUPERLU() && nlInitExtension_ARPACK();
+	return nlInitExtension_ARPACK();
     } else if(!strcmp(extension, "MKL")) {
 	return nlInitExtension_MKL();
     } else if(!strcmp(extension, "CUDA")) {
@@ -7182,9 +6454,7 @@ NLboolean nlInitExtension(const char* extension) {
 }
 
 NLboolean nlExtensionIsInitialized(const char* extension) {
-    if(!strcmp(extension, "SUPERLU")) {
-        return nlExtensionIsInitialized_SUPERLU();
-    } else if(!strcmp(extension, "CHOLMOD")) {
+    if(!strcmp(extension, "CHOLMOD")) {
         return nlExtensionIsInitialized_CHOLMOD();
     } else if(!strcmp(extension, "ARPACK")) {
 	/* 
@@ -7192,7 +6462,7 @@ NLboolean nlExtensionIsInitialized(const char* extension) {
 	 * (factorizes the matrix for the shift-invert spectral
 	 *  transform).
 	 */
-	return nlExtensionIsInitialized_SUPERLU() && nlExtensionIsInitialized_ARPACK();
+	return nlExtensionIsInitialized_ARPACK();
     } else if(!strcmp(extension, "MKL")) {
 	return nlExtensionIsInitialized_MKL();
     } else if(!strcmp(extension, "CUDA")) {
