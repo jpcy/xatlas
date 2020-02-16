@@ -245,8 +245,6 @@ typedef void* NLContext;
 
 #define NL_STIFFNESS_MATRIX 0x3001
 
-#define NL_MASS_MATRIX 0x3002
-
 NLAPI void NLAPIENTRY nlMatrixMode(NLenum matrix);
     
 #define NL_NB_EIGENS       NL_NB_SYSTEMS

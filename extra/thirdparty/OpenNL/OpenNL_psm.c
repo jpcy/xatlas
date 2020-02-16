@@ -3319,11 +3319,6 @@ static NLSparseMatrix* nlGetCurrentSparseMatrix() {
 	    nl_assert(nlCurrentContext->M->type == NL_MATRIX_SPARSE_DYNAMIC);
 	    result = (NLSparseMatrix*)(nlCurrentContext->M);
 	} break;
-	case NL_MASS_MATRIX: {
-	    nl_assert(nlCurrentContext->B != NULL);
-	    nl_assert(nlCurrentContext->B->type == NL_MATRIX_SPARSE_DYNAMIC);
-	    result = (NLSparseMatrix*)(nlCurrentContext->B);
-	} break;
 	default:
 	    nl_assert_not_reached;
     }
@@ -3736,7 +3731,6 @@ NLboolean nlSolve() {
 
 void nlMatrixMode(NLenum matrix) {
     NLuint n = 0;
-    NLuint i;
     nl_assert(
 	nlCurrentContext->state == NL_STATE_SYSTEM ||
 	nlCurrentContext->state == NL_STATE_MATRIX_CONSTRUCTED
@@ -3747,20 +3741,6 @@ void nlMatrixMode(NLenum matrix) {
     switch(matrix) {
 	case NL_STIFFNESS_MATRIX: {
 	    /* Stiffness matrix is already constructed. */
-	} break ;
-	case NL_MASS_MATRIX: {
-	    if(nlCurrentContext->B == NULL) {
-		for(i=0; i<nlCurrentContext->nb_variables; ++i) {
-		    if(!nlCurrentContext->variable_is_locked[i]) {
-			++n;
-		    }
-		}
-		nlCurrentContext->B = (NLMatrix)(NL_NEW(NLSparseMatrix));
-		nlSparseMatrixConstruct(
-		    (NLSparseMatrix*)(nlCurrentContext->B),
-		    n, n
-		);
-	    }
 	} break ;
 	default:
 	    nl_assert_not_reached;
