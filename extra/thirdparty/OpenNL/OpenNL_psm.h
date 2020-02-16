@@ -241,29 +241,7 @@ typedef void* NLContext;
 
     NLAPI void NLAPIENTRY nlCoefficient(NLuint i, NLdouble value);
 
-
-
-    NLAPI void NLAPIENTRY nlAddIJCoefficient(
-        NLuint i, NLuint j, NLdouble value
-    );
-
-
-    NLAPI void NLAPIENTRY nlAddIRightHandSide(NLuint i, NLdouble value);
-
-    NLAPI void NLAPIENTRY nlMultiAddIRightHandSide(
-	NLuint i, NLuint k, NLdouble value
-    );
-    
-    NLAPI void NLAPIENTRY nlRightHandSide(NLdouble value);
-
-
-    NLAPI void NLAPIENTRY nlMultiRightHandSide(NLuint k, NLdouble value);
-    
-
     NLAPI NLboolean NLAPIENTRY nlSolve(void);
-
-
-    NLAPI void NLAPIENTRY nlUpdateRightHandSide(NLdouble* values);
 
 #define NL_STIFFNESS_MATRIX 0x3001
 

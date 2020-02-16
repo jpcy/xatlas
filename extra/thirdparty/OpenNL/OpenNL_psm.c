@@ -611,8 +611,6 @@ typedef struct {
 
     NLdouble*        b;
 
-    NLdouble*        right_hand_side;
-
     NLenum           solver;
 
     NLenum           preconditioner;
@@ -623,8 +621,6 @@ typedef struct {
 
     NLuint           nb_systems;
 
-    NLboolean        ij_coefficient_called;
-    
     NLuint           current_row;
 
     NLuint           max_iterations;
@@ -1470,7 +1466,6 @@ void nlDeleteContext(NLContext context_in) {
     
     NL_DELETE_ARRAY(context->x);
     NL_DELETE_ARRAY(context->b);
-    NL_DELETE_ARRAY(context->right_hand_side);
 
     NL_DELETE_ARRAY(context->eigen_value);
     
@@ -3603,9 +3598,6 @@ static void nlInitializeM() {
     nlRowColumnConstruct(&nlCurrentContext->af);
     nlRowColumnConstruct(&nlCurrentContext->al);
 
-    nlCurrentContext->right_hand_side = NL_NEW_ARRAY(
-	double, nlCurrentContext->nb_systems
-    );
     nlCurrentContext->current_row = 0;
 }
 
@@ -3648,7 +3640,7 @@ static void nlEndRow() {
         }
     }
 	for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	    S = -nlCurrentContext->right_hand_side[k];
+	    S = 0.0;
 	    for(jj=0; jj<nl; ++jj) {
 		j = al->coeff[jj].index;
 		S += al->coeff[jj].value *
@@ -3660,7 +3652,6 @@ static void nlEndRow() {
 	}
     nlCurrentContext->current_row++;
     for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	nlCurrentContext->right_hand_side[k] = 0.0;
     }
 }
 
@@ -3683,55 +3674,6 @@ void nlCoefficient(NLuint index, NLdouble value) {
 	    nlCurrentContext->variable_index[index], value
 	);
     }
-}
-
-void nlAddIJCoefficient(NLuint i, NLuint j, NLdouble value) {
-    NLSparseMatrix* M  = nlGetCurrentSparseMatrix();    
-    nlCheckState(NL_STATE_MATRIX);
-    nl_debug_range_assert(i, 0, nlCurrentContext->nb_variables - 1);
-    nl_debug_range_assert(j, 0, nlCurrentContext->nb_variables - 1);
-#ifdef NL_DEBUG
-    for(NLuint i=0; i<nlCurrentContext->nb_variables; ++i) {
-        nl_debug_assert(!nlCurrentContext->variable_is_locked[i]);
-    }
-#endif    
-    nlSparseMatrixAdd(M, i, j, value);
-    nlCurrentContext->ij_coefficient_called = NL_TRUE;
-}
-
-void nlAddIRightHandSide(NLuint i, NLdouble value) {
-    nlCheckState(NL_STATE_MATRIX);
-    nl_debug_range_assert(i, 0, nlCurrentContext->nb_variables - 1);
-#ifdef NL_DEBUG
-    for(NLuint i=0; i<nlCurrentContext->nb_variables; ++i) {
-        nl_debug_assert(!nlCurrentContext->variable_is_locked[i]);
-    }
-#endif
-    nlCurrentContext->b[i] += value;
-    nlCurrentContext->ij_coefficient_called = NL_TRUE;
-}
-
-void nlMultiAddIRightHandSide(NLuint i, NLuint k, NLdouble value) {
-    NLuint n = nlCurrentContext->n;
-    nlCheckState(NL_STATE_MATRIX);
-    nl_debug_range_assert(i, 0, nlCurrentContext->nb_variables - 1);
-    nl_debug_range_assert(k, 0, nlCurrentContext->nb_systems - 1);
-#ifdef NL_DEBUG
-    for(NLuint i=0; i<nlCurrentContext->nb_variables; ++i) {
-        nl_debug_assert(!nlCurrentContext->variable_is_locked[i]);
-    }
-#endif
-    nlCurrentContext->b[i + k*n] += value;
-    nlCurrentContext->ij_coefficient_called = NL_TRUE;
-}
-
-void nlRightHandSide(NLdouble value) {
-    nlCurrentContext->right_hand_side[0] = value;
-}
-
-void nlMultiRightHandSide(NLuint k, NLdouble value) {
-    nl_debug_range_assert(k, 0, nlCurrentContext->nb_systems - 1);
-    nlCurrentContext->right_hand_side[k] = value;
 }
 
 void nlBegin(NLenum prim) {
@@ -3790,19 +3732,6 @@ NLboolean nlSolve() {
     return result;
 }
 
-void nlUpdateRightHandSide(NLdouble* values) {
-    /*
-     * If we are in the solved state, get back to the
-     * constructed state.
-     */
-    nl_assert(nlCurrentContext->nb_systems == 1);
-    if(nlCurrentContext->state == NL_STATE_SOLVED) {
-        nlTransition(NL_STATE_SOLVED, NL_STATE_SYSTEM_CONSTRUCTED);
-    }
-    nlCheckState(NL_STATE_SYSTEM_CONSTRUCTED);
-    memcpy(nlCurrentContext->x, values, nlCurrentContext->n * sizeof(double));
-}
-
 /* Eigen solver */
 
 void nlMatrixMode(NLenum matrix) {
@@ -3815,7 +3744,6 @@ void nlMatrixMode(NLenum matrix) {
     nlCurrentContext->state = NL_STATE_SYSTEM;
     nlCurrentContext->matrix_mode = matrix;
     nlCurrentContext->current_row = 0;
-    nlCurrentContext->ij_coefficient_called = NL_FALSE;
     switch(matrix) {
 	case NL_STIFFNESS_MATRIX: {
 	    /* Stiffness matrix is already constructed. */
