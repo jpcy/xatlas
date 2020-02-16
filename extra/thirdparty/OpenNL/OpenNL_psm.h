@@ -225,21 +225,9 @@ typedef void* NLContext;
 
     NLAPI void NLAPIENTRY nlSetVariable(NLuint i, NLdouble value);
 
-
-    NLAPI void NLAPIENTRY nlMultiSetVariable(
-	NLuint i, NLuint k, NLdouble value
-    );
-    
     NLAPI NLdouble NLAPIENTRY nlGetVariable(NLuint i);
 
-    NLAPI NLdouble NLAPIENTRY nlMultiGetVariable(NLuint i, NLuint k);
-    
     NLAPI void NLAPIENTRY nlLockVariable(NLuint index);
-
-    NLAPI void NLAPIENTRY nlUnlockVariable(NLuint index);
-
-    NLAPI NLboolean NLAPIENTRY nlVariableIsLocked(NLuint index);
-
 
 #define NL_SYSTEM  0x0
 

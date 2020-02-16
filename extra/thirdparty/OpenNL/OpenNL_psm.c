@@ -3470,45 +3470,17 @@ void nlSetVariable(NLuint index, NLdouble value) {
     NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[0],index) = value;
 }
 
-void nlMultiSetVariable(NLuint index, NLuint system, NLdouble value) {
-    nlCheckState(NL_STATE_SYSTEM);
-    nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables-1);
-    nl_debug_range_assert(system, 0, nlCurrentContext->nb_systems-1);    
-    NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[system],index) = value;
-}
-
 NLdouble nlGetVariable(NLuint index) {
     nl_assert(nlCurrentContext->state != NL_STATE_INITIAL);
     nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables - 1);
     return NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[0],index);
 }
 
-NLdouble nlMultiGetVariable(NLuint index, NLuint system) {
-    nl_assert(nlCurrentContext->state != NL_STATE_INITIAL);
-    nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables-1);
-    nl_debug_range_assert(system, 0, nlCurrentContext->nb_systems-1);
-    return NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[system],index);    
-}
-
-
 void nlLockVariable(NLuint index) {
     nlCheckState(NL_STATE_SYSTEM);
     nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables - 1);
     nlCurrentContext->variable_is_locked[index] = NL_TRUE;
 }
-
-void nlUnlockVariable(NLuint index) {
-    nlCheckState(NL_STATE_SYSTEM);
-    nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables - 1);
-    nlCurrentContext->variable_is_locked[index] = NL_FALSE;
-}
-
-NLboolean nlVariableIsLocked(NLuint index) {
-    nl_assert(nlCurrentContext->state != NL_STATE_INITIAL);
-    nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables - 1);
-    return nlCurrentContext->variable_is_locked[index];
-}
-
 
 /* System construction */
 
