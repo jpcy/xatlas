@@ -90,6 +90,8 @@ Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.con
 
 ## Used by
 
+[ArmorPaint](https://armorpaint.org/index.html)
+
 [Bakery - GPU Lightmapper](https://assetstore.unity.com/packages/tools/level-design/bakery-gpu-lightmapper-122218)
 
 [Godot Engine](https://github.com/godotengine/godot)
