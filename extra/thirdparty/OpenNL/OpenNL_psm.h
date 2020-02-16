@@ -254,8 +254,6 @@ typedef void* NLContext;
     NLAPI NLboolean nlIsEnabled(NLenum pname);
 
 
-#define NL_FUNC_SOLVER         0x600
-
 #define NL_FUNC_MATRIX         0x601
 
 #define NL_FUNC_PRECONDITIONER 0x602
@@ -378,22 +376,3 @@ NLAPI void NLAPIENTRY nlMatrixMode(NLenum matrix);
 
 
 #endif
-
-/******* extracted from nl_ext.h *******/
-
-#ifndef OPENNL_EXT_H
-#define OPENNL_EXT_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-    
-#define NL_SOLVER_USER           0x213
-
-#ifdef __cplusplus
-}
-#endif
-    
-#endif
-

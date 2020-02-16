@@ -767,21 +767,6 @@ NLMatrix nlNewSSORPreconditioner(NLMatrix M, double omega);
 
 #endif
 
-/******* extracted from nl_mkl.h *******/
-
-#ifndef OPENNL_MKL_H
-#define OPENNL_MKL_H
-
-
-
-NLboolean nlInitExtension_MKL(void);
-
-NLboolean nlExtensionIsInitialized_MKL(void);
-
-extern NLMultMatrixVectorFunc NLMultMatrixVector_MKL;
-
-#endif
-
 /******* extracted from nl_os.c *******/
 
 
@@ -1225,11 +1210,7 @@ void nlCRSMatrixConstruct(
     M->n = n;
     M->type = NL_MATRIX_CRS;
     M->destroy_func = (NLDestroyMatrixFunc)nlCRSMatrixDestroy;
-    if(NLMultMatrixVector_MKL != NULL) {
-	M->mult_func = (NLMultMatrixVectorFunc)NLMultMatrixVector_MKL;
-    } else {
 	M->mult_func = (NLMultMatrixVectorFunc)nlCRSMatrixMult;
-    }
     M->nslices = nslices;
     M->val = NL_NEW_ARRAY(double, nnz);
     M->rowptr = NL_NEW_ARRAY(NLuint, m+1);
@@ -4280,161 +4261,7 @@ NLMatrix nlNewSSORPreconditioner(NLMatrix M_in, double omega) {
     return (NLMatrix)result;
 }
 
-/******* extracted from nl_mkl.c *******/
-
-typedef unsigned int MKL_INT;
-
-typedef void (*FUNPTR_mkl_cspblas_dcsrgemv)(
-    const char *transa, const MKL_INT *m, const double *a,
-    const MKL_INT *ia, const MKL_INT *ja, const double *x, double *y
-);
-
-typedef void (*FUNPTR_mkl_cspblas_dcsrsymv)(
-    const char *transa, const MKL_INT *m, const double *a,
-    const MKL_INT *ia, const MKL_INT *ja, const double *x, double *y
- );
-
-typedef struct {
-    NLdll DLL_mkl_intel_lp64;
-    NLdll DLL_mkl_intel_thread;
-    NLdll DLL_mkl_core;
-    NLdll DLL_iomp5;
-
-    FUNPTR_mkl_cspblas_dcsrgemv mkl_cspblas_dcsrgemv;
-    FUNPTR_mkl_cspblas_dcsrsymv mkl_cspblas_dcsrsymv;   
-} MKLContext;
-
-static MKLContext* MKL() {
-    static MKLContext context;
-    static NLboolean init = NL_FALSE;
-    if(!init) {
-        init = NL_TRUE;
-        memset(&context, 0, sizeof(context));
-    }
-    return &context;
-}
-
-NLboolean nlExtensionIsInitialized_MKL() {
-    if(
-	MKL()->DLL_iomp5 == NULL ||
-	MKL()->DLL_mkl_core == NULL ||
-	MKL()->DLL_mkl_intel_thread == NULL ||
-	MKL()->DLL_mkl_intel_lp64 == NULL ||
-	MKL()->mkl_cspblas_dcsrgemv == NULL ||
-	MKL()->mkl_cspblas_dcsrsymv == NULL 	
-    ) {
-        return NL_FALSE;
-    }
-    return NL_TRUE;
-}
-
-#define find_mkl_func(name)                                  \
-    if(                                                      \
-        (                                                    \
-            MKL()->name =                                    \
-            (FUNPTR_##name)nlFindFunction(                   \
-		   MKL()->DLL_mkl_intel_lp64,#name           \
-	    )					             \
-        ) == NULL                                            \
-    ) {                                                      \
-        nlError("nlInitExtension_MKL","function not found"); \
-        return NL_FALSE;                                     \
-    }
-
-static void nlTerminateExtension_MKL(void) {
-    if(!nlExtensionIsInitialized_MKL()) {
-	return;
-    }
-    nlCloseDLL(MKL()->DLL_mkl_intel_lp64);
-    nlCloseDLL(MKL()->DLL_mkl_intel_thread);
-    nlCloseDLL(MKL()->DLL_mkl_core);
-    nlCloseDLL(MKL()->DLL_iomp5);
-}
-
-NLMultMatrixVectorFunc NLMultMatrixVector_MKL = NULL;
-
-static void NLMultMatrixVector_MKL_impl(NLMatrix M_in, const double* x, double* y) {
-    NLCRSMatrix* M = (NLCRSMatrix*)(M_in);
-    nl_debug_assert(M_in->type == NL_MATRIX_CRS);
-    if(M->symmetric_storage) {
-	MKL()->mkl_cspblas_dcsrsymv(
-	    "N", /* No transpose */
-	    &M->m,
-	    M->val,
-	    M->rowptr,
-	    M->colind,
-	    x,
-	    y
-	);
-    } else {
-	MKL()->mkl_cspblas_dcsrgemv(
-	    "N", /* No transpose */
-	    &M->m,
-	    M->val,
-	    M->rowptr,
-	    M->colind,
-	    x,
-	    y
-	);
-    }
-}
-
-
-#define INTEL_PREFIX "/opt/intel/"
-#define LIB_DIR "lib/intel64/"
-#define MKL_PREFIX  INTEL_PREFIX "mkl/" LIB_DIR
-
-NLboolean nlInitExtension_MKL(void) {
-    NLenum flags = NL_LINK_LAZY | NL_LINK_GLOBAL;
-    if(nlCurrentContext == NULL || !nlCurrentContext->verbose) {
-	flags |= NL_LINK_QUIET;
-    }
-    
-    if(MKL()->DLL_mkl_intel_lp64 != NULL) {
-        return nlExtensionIsInitialized_MKL();
-    }
-    
-    MKL()->DLL_iomp5 = nlOpenDLL(
-	INTEL_PREFIX LIB_DIR "libiomp5.so",
-	flags
-    );    
-    MKL()->DLL_mkl_core = nlOpenDLL(
-	MKL_PREFIX "libmkl_core.so",
-	flags
-    );    
-    MKL()->DLL_mkl_intel_thread = nlOpenDLL(
-	MKL_PREFIX "libmkl_intel_thread.so",
-	flags
-    );    
-    MKL()->DLL_mkl_intel_lp64 = nlOpenDLL(
-	MKL_PREFIX "libmkl_intel_lp64.so",
-	flags
-    );
-    
-    if(
-	MKL()->DLL_iomp5 == NULL ||
-	MKL()->DLL_mkl_core == NULL ||
-	MKL()->DLL_mkl_intel_thread == NULL ||
-	MKL()->DLL_mkl_intel_lp64 == NULL
-    ) {
-        return NL_FALSE;
-    }
-
-    find_mkl_func(mkl_cspblas_dcsrgemv);
-    find_mkl_func(mkl_cspblas_dcsrsymv);
-
-    if(nlExtensionIsInitialized_MKL()) {
-	NLMultMatrixVector_MKL = NLMultMatrixVector_MKL_impl;
-    }
-    
-    atexit(nlTerminateExtension_MKL);
-    return NL_TRUE;
-}
-
 /******* extracted from nl_api.c *******/
-
-
-
 
 static NLSparseMatrix* nlGetCurrentSparseMatrix() {
     NLSparseMatrix* result = NULL;
@@ -4459,16 +4286,10 @@ static NLSparseMatrix* nlGetCurrentSparseMatrix() {
 
 
 NLboolean nlInitExtension(const char* extension) {
-    if(!strcmp(extension, "MKL")) {
-	return nlInitExtension_MKL();
-    }
     return NL_FALSE;
 }
 
 NLboolean nlExtensionIsInitialized(const char* extension) {
-    if(!strcmp(extension, "MKL")) {
-	return nlExtensionIsInitialized_MKL();
-    }
     return NL_FALSE;
 }
 
@@ -4704,10 +4525,6 @@ NLboolean nlIsEnabled(NLenum pname) {
 
 void  nlSetFunction(NLenum pname, NLfunc param) {
     switch(pname) {
-    case NL_FUNC_SOLVER:
-        nlCurrentContext->solver_func = (NLSolverFunc)(param);
-        nlCurrentContext->solver = NL_SOLVER_USER;	
-        break;
     case NL_FUNC_MATRIX:
 	nlDeleteMatrix(nlCurrentContext->M);
 	nlCurrentContext->M = nlMatrixNewFromFunction(
@@ -4734,9 +4551,6 @@ void  nlSetFunction(NLenum pname, NLfunc param) {
 
 void nlGetFunction(NLenum pname, NLfunc* param) {
     switch(pname) {
-    case NL_FUNC_SOLVER:
-        *param = (NLfunc)(nlCurrentContext->solver_func);
-        break;
     case NL_FUNC_MATRIX:
         *param = (NLfunc)(nlMatrixGetFunction(nlCurrentContext->M));
         break;
