@@ -649,8 +649,6 @@ typedef struct {
     
     NLdouble         omega;
 
-    NLboolean        normalize_rows;
-    
     NLuint           used_iterations;
 
     NLdouble         error;
@@ -3547,10 +3545,6 @@ void nlGetIntegerv(NLenum pname, NLint* params) {
 
 void nlEnable(NLenum pname) {
     switch(pname) {
-	case NL_NORMALIZE_ROWS: {
-	    nl_assert(nlCurrentContext->state != NL_STATE_ROW);
-	    nlCurrentContext->normalize_rows = NL_TRUE;
-	} break;
 	case NL_VERBOSE: {
 	    nlCurrentContext->verbose = NL_TRUE;
 	} break;
@@ -3566,10 +3560,6 @@ void nlEnable(NLenum pname) {
 
 void nlDisable(NLenum pname) {
     switch(pname) {
-	case NL_NORMALIZE_ROWS: {
-	    nl_assert(nlCurrentContext->state != NL_STATE_ROW);
-	    nlCurrentContext->normalize_rows = NL_FALSE;
-	} break;
 	case NL_VERBOSE: {
 	    nlCurrentContext->verbose = NL_FALSE;
 	} break;
@@ -3586,9 +3576,6 @@ void nlDisable(NLenum pname) {
 NLboolean nlIsEnabled(NLenum pname) {
     NLboolean result = NL_FALSE;
     switch(pname) {
-	case NL_NORMALIZE_ROWS: {
-	    result = nlCurrentContext->normalize_rows;
-	} break;
 	case NL_VERBOSE: {
 	    result = nlCurrentContext->verbose;
 	} break;
@@ -3855,23 +3842,6 @@ static void nlScaleRow(NLdouble s) {
     }
 }
 
-static void nlNormalizeRow(NLdouble weight) {
-    NLRowColumn*    af = &nlCurrentContext->af;
-    NLRowColumn*    al = &nlCurrentContext->al;
-    NLuint nf            = af->size;
-    NLuint nl            = al->size;
-    NLuint i;
-    NLdouble norm = 0.0;
-    for(i=0; i<nf; i++) {
-        norm += af->coeff[i].value * af->coeff[i].value;
-    }
-    for(i=0; i<nl; i++) {
-        norm += al->coeff[i].value * al->coeff[i].value;
-    }
-    norm = sqrt(norm);
-    nlScaleRow(weight / norm);
-}
-
 static void nlEndRow() {
     NLRowColumn*    af = &nlCurrentContext->af;
     NLRowColumn*    al = &nlCurrentContext->al;
@@ -3886,9 +3856,7 @@ static void nlEndRow() {
     NLuint k;
     nlTransition(NL_STATE_ROW, NL_STATE_MATRIX);
 
-    if(nlCurrentContext->normalize_rows) {
-        nlNormalizeRow(nlCurrentContext->row_scaling);
-    } else if(nlCurrentContext->row_scaling != 1.0) {
+    if(nlCurrentContext->row_scaling != 1.0) {
         nlScaleRow(nlCurrentContext->row_scaling);
     }
     /*

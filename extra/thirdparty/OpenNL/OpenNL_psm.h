@@ -205,9 +205,6 @@ typedef void* NLContext;
 
 #define NL_PRECOND_USER       0x303
 
-
-#define NL_NORMALIZE_ROWS  0x400
-
 #define NL_VERBOSE         0x401
 
 
