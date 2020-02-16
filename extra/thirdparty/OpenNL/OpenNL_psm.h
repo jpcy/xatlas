@@ -230,13 +230,6 @@ typedef void* NLContext;
 
     NLAPI NLContext NLAPIENTRY nlGetCurrent(void);
 
-    NLAPI NLboolean NLAPIENTRY nlInitExtension(const char* extension);
-
-    NLAPI NLboolean NLAPIENTRY nlExtensionIsInitialized(const char* extension);
-
-    NLAPI void NLAPIENTRY nlInitialize(int argc, char** argv);
-    
-
     NLAPI void NLAPIENTRY nlSolverParameterd(NLenum pname, NLdouble param);
 
     NLAPI void NLAPIENTRY nlSolverParameteri(NLenum pname, NLint param);
