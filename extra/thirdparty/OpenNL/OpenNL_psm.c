@@ -516,15 +516,6 @@ NLAPI void NLAPIENTRY nlMatrixCompress(NLMatrix* M);
 
 NLAPI NLuint NLAPIENTRY nlMatrixNNZ(NLMatrix M);
 
-    typedef void(*NLMatrixFunc)(const double* x, double* y);
-
-NLAPI NLMatrix NLAPIENTRY nlMatrixNewFromProduct(
-    NLMatrix M, NLboolean product_owns_M,
-    NLMatrix N, NLboolean product_owns_N
-);
-
-
-    
 #ifdef __cplusplus
 }
 #endif
@@ -1241,68 +1232,6 @@ NLuint nlMatrixNNZ(NLMatrix M) {
     }
     return M->m * M->n;
 }
-
-typedef struct {
-    NLuint m;
-
-    NLuint n;
-
-    NLenum type;
-
-    NLDestroyMatrixFunc destroy_func;
-
-    NLMultMatrixVectorFunc mult_func;
-
-    NLMatrixFunc matrix_func;
-
-    NLMatrix M;
-
-    NLboolean owns_M;
-    
-    NLMatrix N;
-
-    NLboolean owns_N;
-    
-    NLdouble* work;
-} NLMatrixProduct;
-
-
-static void nlMatrixProductDestroy(NLMatrixProduct* P) {
-    NL_DELETE_ARRAY(P->work);
-    if(P->owns_M) {
-	nlDeleteMatrix(P->M); P->M = NULL;
-    }
-    if(P->owns_N) {
-	nlDeleteMatrix(P->N); P->N = NULL;
-    }
-}
-
-static void nlMatrixProductMult(
-    NLMatrixProduct* P, const NLdouble* x, NLdouble* y
-) {
-    nlMultMatrixVector(P->N, x, P->work);
-    nlMultMatrixVector(P->M, P->work, y);
-}
-
-NLMatrix nlMatrixNewFromProduct(
-    NLMatrix M, NLboolean owns_M, NLMatrix N, NLboolean owns_N
-) {
-    NLMatrixProduct* result = NL_NEW(NLMatrixProduct);
-    nl_assert(M->n == N->m);
-    result->m = M->m;
-    result->n = N->n;
-    result->type = NL_MATRIX_OTHER;
-    result->work = NL_NEW_ARRAY(NLdouble,N->m);
-    result->destroy_func = (NLDestroyMatrixFunc)nlMatrixProductDestroy;
-    result->mult_func = (NLMultMatrixVectorFunc)nlMatrixProductMult;
-    result->M = M;
-    result->owns_M = owns_M;
-    result->N = N;
-    result->owns_N = owns_N;
-    return (NLMatrix)result;
-}
-
-
 
 /******* extracted from nl_context.c *******/
 
