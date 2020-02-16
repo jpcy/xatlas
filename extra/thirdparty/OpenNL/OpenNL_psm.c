@@ -230,10 +230,6 @@ typedef void (*FUNPTR_memcpy)(
     size_t size
 );
 
-typedef void (*FUNPTR_dcopy)(
-    NLBlas_t blas, int n, const double *x, int incx, double *y, int incy
-);
-
 typedef void (*FUNPTR_dscal)(
     NLBlas_t blas, int n, double a, double *x, int incx
 );
@@ -255,7 +251,6 @@ struct NLBlas {
     FUNPTR_free Free;
     FUNPTR_memcpy Memcpy;
 
-    FUNPTR_dcopy Dcopy;
     FUNPTR_dscal Dscal;
     FUNPTR_ddot  Ddot;
     FUNPTR_dnrm2 Dnrm2;
@@ -1358,7 +1353,6 @@ int NL_FORTRAN_WRAP(xerbla)(char *srname, int *info) {
  * ddot
  * dscal
  * dnrm2
- * dcopy
    */
 
 
@@ -1836,95 +1830,6 @@ static doublereal NL_FORTRAN_WRAP(dnrm2)(integer *n, doublereal *x, integer *inc
 } /* dnrm2_ */
 #undef X
 
-/* Subroutine */ static int NL_FORTRAN_WRAP(dcopy)(integer *n, doublereal *dx, integer *incx, 
-        doublereal *dy, integer *incy)
-{
-
-    /* System generated locals */
-    integer i__1;
-
-    /* Local variables */
-    static integer i, m, ix, iy, mp1;
-
-
-/*     copies a vector, x, to a vector, y.   
-       uses unrolled loops for increments equal to one.   
-       jack dongarra, linpack, 3/11/78.   
-       modified 12/3/93, array(1) declarations changed to array(*)   
-
-
-    
-   Parameter adjustments   
-       Function Body */
-#define DY(I) dy[(I)-1]
-#define DX(I) dx[(I)-1]
-
-
-    if (*n <= 0) {
-        return 0;
-    }
-    if (*incx == 1 && *incy == 1) {
-        goto L20;
-    }
-
-/*        code for unequal increments or equal increments   
-            not equal to 1 */
-
-    ix = 1;
-    iy = 1;
-    if (*incx < 0) {
-        ix = (-(*n) + 1) * *incx + 1;
-    }
-    if (*incy < 0) {
-        iy = (-(*n) + 1) * *incy + 1;
-    }
-    i__1 = *n;
-    for (i = 1; i <= *n; ++i) {
-        DY(iy) = DX(ix);
-        ix += *incx;
-        iy += *incy;
-/* L10: */
-    }
-    return 0;
-
-/*        code for both increments equal to 1   
-
-
-          clean-up loop */
-
-L20:
-    m = *n % 7;
-    if (m == 0) {
-        goto L40;
-    }
-    i__1 = m;
-    for (i = 1; i <= m; ++i) {
-        DY(i) = DX(i);
-/* L30: */
-    }
-    if (*n < 7) {
-        return 0;
-    }
-L40:
-    mp1 = m + 1;
-    i__1 = *n;
-    for (i = mp1; i <= *n; i += 7) {
-        DY(i) = DX(i);
-        DY(i + 1) = DX(i + 1);
-        DY(i + 2) = DX(i + 2);
-        DY(i + 3) = DX(i + 3);
-        DY(i + 4) = DX(i + 4);
-        DY(i + 5) = DX(i + 5);
-        DY(i + 6) = DX(i + 6);
-/* L50: */
-    }
-    nl_arg_used(i__1);
-    return 0;
-} /* dcopy_ */
-
-#undef DX
-#undef DY
-
 /* End of BLAS routines */
 
 
@@ -1992,13 +1897,6 @@ static void host_blas_memcpy(
     memcpy(to,from,size);
 }
 
-static void host_blas_dcopy(
-    NLBlas_t blas, int n, const double *x, int incx, double *y, int incy    
-) {
-    nl_arg_used(blas);
-    NL_FORTRAN_WRAP(dcopy)(&n,(double*)x,&incx,y,&incy);    
-}
-
 static double host_blas_ddot(
     NLBlas_t blas, int n, const double *x, int incx, const double *y, int incy    
 ) {
@@ -2036,7 +1934,6 @@ NLBlas_t nlHostBlas() {
 	blas.Malloc = host_blas_malloc;
 	blas.Free = host_blas_free;
 	blas.Memcpy = host_blas_memcpy;
-	blas.Dcopy = host_blas_dcopy;
 	blas.Ddot = host_blas_ddot;
 	blas.Dnrm2 = host_blas_dnrm2;
 	blas.Daxpy = host_blas_daxpy;
@@ -2093,7 +1990,7 @@ static NLuint nlSolveSystem_PRE_CG(
     nlMultMatrixVector(M,x,r);
     blas->Daxpy(blas,N,-1.,b,1,r,1);
     nlMultMatrixVector(P,r,d);
-    blas->Dcopy(blas,N,d,1,h,1);
+	blas->Memcpy(blas, h, NL_HOST_MEMORY, d, NL_HOST_MEMORY, N * sizeof(NLdouble));
     rh=blas->Ddot(blas,N,r,1,h,1);
     curr_err = blas->Ddot(blas,N,r,1,r,1);
 
