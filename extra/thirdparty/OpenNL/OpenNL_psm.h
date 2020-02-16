@@ -247,32 +247,6 @@ typedef void* NLContext;
 
 NLAPI void NLAPIENTRY nlMatrixMode(NLenum matrix);
     
-#define NL_NB_EIGENS       NL_NB_SYSTEMS
-
-#define NL_EIGEN_MAX_ITERATIONS NL_MAX_ITERATIONS
-    
-#define NL_EIGEN_THRESHOLD NL_THRESHOLD
-
-#define NL_EIGEN_SOLVER 0x2000
-    
-#define NL_EIGEN_SHIFT 0x2001
-
-#define NL_EIGEN_SHIFT_INVERT 0x2002
-    
-    NLAPI void NLAPIENTRY nlEigenSolverParameterd(
-	NLenum pname, NLdouble val
-    );
-
-    NLAPI void NLAPIENTRY nlEigenSolverParameteri(
-	NLenum pname, NLint val
-    );
-
-    NLAPI void NLAPIENTRY nlEigenSolve(void);
-
-
-    NLAPI double NLAPIENTRY nlGetEigenValue(NLuint i);
-
-
     typedef int (*NLprintfFunc)(const char* format, ...);
 
     typedef int (*NLfprintfFunc)(FILE* out, const char* format, ...);

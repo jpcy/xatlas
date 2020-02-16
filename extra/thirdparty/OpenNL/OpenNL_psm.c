@@ -650,17 +650,7 @@ typedef struct {
     NLProgressFunc   progress_func;
 
     NLulong          flops;
-
-    NLenum           eigen_solver;
-
-    NLdouble         eigen_shift;
-
-    NLboolean        eigen_shift_invert;
-
-    NLdouble*        eigen_value;
-
-    NLdouble*        temp_eigen_value;
-    
+   
 } NLContextStruct;
 
 extern NLContextStruct* nlCurrentContext;
@@ -1467,8 +1457,6 @@ void nlDeleteContext(NLContext context_in) {
     NL_DELETE_ARRAY(context->x);
     NL_DELETE_ARRAY(context->b);
 
-    NL_DELETE_ARRAY(context->eigen_value);
-    
 #ifdef NL_PARANOID
     NL_CLEAR(NLContextStruct, context);
 #endif
@@ -3745,60 +3733,4 @@ void nlMatrixMode(NLenum matrix) {
 	default:
 	    nl_assert_not_reached;
     }
-}
-
-
-void nlEigenSolverParameterd(
-    NLenum pname, NLdouble val
-) {
-    switch(pname) {
-	case NL_EIGEN_SHIFT: {
-	    nlCurrentContext->eigen_shift =  val;
-	} break;
-	case NL_EIGEN_THRESHOLD: {
-	    nlSolverParameterd(pname, val);
-	} break;
-	default:
-	    nl_assert_not_reached;
-    }
-}
-
-void nlEigenSolverParameteri(
-    NLenum pname, NLint val
-) {
-    switch(pname) {
-	case NL_EIGEN_SOLVER: {
-	    nlCurrentContext->eigen_solver = (NLenum)val;
-	} break;
-	case NL_NB_VARIABLES:	    
-	case NL_NB_EIGENS:
-	case NL_EIGEN_MAX_ITERATIONS: {
-	    nlSolverParameteri(pname, val);
-	} break;
-	default:
-	    nl_assert_not_reached;
-    }
-}
-
-void nlEigenSolve() {
-    if(nlCurrentContext->eigen_value == NULL) {
-	nlCurrentContext->eigen_value = NL_NEW_ARRAY(
-	    NLdouble,nlCurrentContext->nb_systems
-	);
-    }
-    
-    nlMatrixCompress(&nlCurrentContext->M);
-    if(nlCurrentContext->B != NULL) {
-	nlMatrixCompress(&nlCurrentContext->B);
-    }
-    
-    switch(nlCurrentContext->eigen_solver) {
-	default:
-	    nl_assert_not_reached;
-    }
-}
-
-double nlGetEigenValue(NLuint i) {
-    nl_debug_assert(i < nlCurrentContext->nb_variables);
-    return nlCurrentContext->eigen_value[i];
 }
