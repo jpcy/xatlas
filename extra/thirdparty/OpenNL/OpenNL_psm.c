@@ -586,9 +586,6 @@ typedef struct {
     
     NLuint           n;
 
-
-    NLenum           matrix_mode;
-
     NLMatrix         M;
 
     NLMatrix         P;
@@ -1350,7 +1347,6 @@ NLContext nlNewContext() {
     result->solver_func         = nlDefaultSolver;
     result->progress_func       = NULL;
     result->nb_systems          = 1;
-    result->matrix_mode         = NL_STIFFNESS_MATRIX;
     nlMakeCurrent(result);
     return result;
 }
@@ -1423,10 +1419,7 @@ static void nlSetupPreconditioner() {
     default:
         nl_assert_not_reached;
     }
-
-    if(getenv("NL_LOW_MEM") == NULL) {
-        nlMatrixCompress(&nlCurrentContext->M);
-    }
+    nlMatrixCompress(&nlCurrentContext->M);
 }
 
 static NLboolean nlSolveDirect() {
@@ -3225,16 +3218,9 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in) {
 
 static NLSparseMatrix* nlGetCurrentSparseMatrix() {
     NLSparseMatrix* result = NULL;
-    switch(nlCurrentContext->matrix_mode) {
-	case NL_STIFFNESS_MATRIX: {
-	    nl_assert(nlCurrentContext->M != NULL);	    
-	    nl_assert(nlCurrentContext->M->type == NL_MATRIX_SPARSE_DYNAMIC);
-	    result = (NLSparseMatrix*)(nlCurrentContext->M);
-	} break;
-	default:
-	    nl_assert_not_reached;
-    }
-    return result;
+	nl_assert(nlCurrentContext->M != NULL);	    
+	nl_assert(nlCurrentContext->M->type == NL_MATRIX_SPARSE_DYNAMIC);
+	return (NLSparseMatrix*)(nlCurrentContext->M);
 }
 
 /* Get/Set parameters */
@@ -3591,7 +3577,6 @@ void nlBegin(NLenum prim) {
     case NL_MATRIX: {
 	nlTransition(NL_STATE_SYSTEM, NL_STATE_MATRIX);
 	if(
-	    nlCurrentContext->matrix_mode == NL_STIFFNESS_MATRIX &&
 	    nlCurrentContext->M == NULL
 	) {
 	    nlInitializeM();
@@ -3637,24 +3622,4 @@ NLboolean nlSolve() {
     nlCurrentContext->elapsed_time = nlCurrentTime() - nlCurrentContext->start_time;
     nlTransition(NL_STATE_SYSTEM_CONSTRUCTED, NL_STATE_SOLVED);
     return result;
-}
-
-/* Eigen solver */
-
-void nlMatrixMode(NLenum matrix) {
-    NLuint n = 0;
-    nl_assert(
-	nlCurrentContext->state == NL_STATE_SYSTEM ||
-	nlCurrentContext->state == NL_STATE_MATRIX_CONSTRUCTED
-    );
-    nlCurrentContext->state = NL_STATE_SYSTEM;
-    nlCurrentContext->matrix_mode = matrix;
-    nlCurrentContext->current_row = 0;
-    switch(matrix) {
-	case NL_STIFFNESS_MATRIX: {
-	    /* Stiffness matrix is already constructed. */
-	} break ;
-	default:
-	    nl_assert_not_reached;
-    }
 }

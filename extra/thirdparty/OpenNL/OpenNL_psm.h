@@ -243,10 +243,6 @@ typedef void* NLContext;
 
     NLAPI NLboolean NLAPIENTRY nlSolve(void);
 
-#define NL_STIFFNESS_MATRIX 0x3001
-
-NLAPI void NLAPIENTRY nlMatrixMode(NLenum matrix);
-    
     typedef int (*NLprintfFunc)(const char* format, ...);
 
     typedef int (*NLfprintfFunc)(FILE* out, const char* format, ...);
