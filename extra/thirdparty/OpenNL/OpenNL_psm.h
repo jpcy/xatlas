@@ -171,8 +171,6 @@ typedef void* NLContext;
 
 #define NL_NB_VARIABLES     0x101
 
-#define NL_LEAST_SQUARES    0x102
-
 #define NL_MAX_ITERATIONS   0x103
 
 #define NL_THRESHOLD        0x104

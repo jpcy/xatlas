@@ -656,8 +656,6 @@ typedef struct {
     
     NLuint           current_row;
 
-    NLboolean        least_squares;
-
     NLuint           max_iterations;
 
 
@@ -3597,9 +3595,6 @@ void nlSolverParameteri(NLenum pname, NLint param) {
 	nl_assert(param > 0);
 	nlCurrentContext->nb_systems = (NLuint)param;
     } break;
-    case NL_LEAST_SQUARES: {
-        nlCurrentContext->least_squares = (NLboolean)param;
-    } break;
     case NL_MAX_ITERATIONS: {
         nl_assert(param > 0);
         nlCurrentContext->max_iterations = (NLuint)param;
@@ -3622,9 +3617,6 @@ void nlSolverParameteri(NLenum pname, NLint param) {
 
 void nlGetBooleanv(NLenum pname, NLboolean* params) {
     switch(pname) {
-    case NL_LEAST_SQUARES: {
-        *params = nlCurrentContext->least_squares;
-    } break;
     default: {
         nlError("nlGetBooleanv","Invalid parameter");
         nl_assert_not_reached;
@@ -3671,9 +3663,6 @@ void nlGetIntegerv(NLenum pname, NLint* params) {
     } break;
     case NL_NB_SYSTEMS: {
 	*params = (NLint)(nlCurrentContext->nb_systems);
-    } break;
-    case NL_LEAST_SQUARES: {
-        *params = (NLint)(nlCurrentContext->least_squares);
     } break;
     case NL_MAX_ITERATIONS: {
         *params = (NLint)(nlCurrentContext->max_iterations);
@@ -3980,18 +3969,8 @@ static void nlInitializeM() {
 
 static void nlEndMatrix() {
     nlTransition(NL_STATE_MATRIX, NL_STATE_MATRIX_CONSTRUCTED);    
-
     nlRowColumnClear(&nlCurrentContext->af);
     nlRowColumnClear(&nlCurrentContext->al);
-    
-    if(!nlCurrentContext->least_squares) {
-        nl_assert(
-            nlCurrentContext->ij_coefficient_called || (
-                nlCurrentContext->current_row == 
-                nlCurrentContext->n
-            )
-        );
-    }
 }
 
 static void nlBeginRow() {
@@ -4054,19 +4033,17 @@ static void nlEndRow() {
         nlScaleRow(nlCurrentContext->row_scaling);
     }
     /*
-     * if least_squares : we want to solve
+     * least_squares : we want to solve
      * A'A x = A'b
      */
-
-    if(nlCurrentContext->least_squares) {
-        for(i=0; i<nf; i++) {
-            for(j=0; j<nf; j++) {
-                nlSparseMatrixAdd(
-                    M, af->coeff[i].index, af->coeff[j].index,
-                    af->coeff[i].value * af->coeff[j].value
-                );
-            }
+    for(i=0; i<nf; i++) {
+        for(j=0; j<nf; j++) {
+            nlSparseMatrixAdd(
+                M, af->coeff[i].index, af->coeff[j].index,
+                af->coeff[i].value * af->coeff[j].value
+            );
         }
+    }
 	for(k=0; k<nlCurrentContext->nb_systems; ++k) {
 	    S = -nlCurrentContext->right_hand_side[k];
 	    for(jj=0; jj<nl; ++jj) {
@@ -4078,21 +4055,6 @@ static void nlEndRow() {
 		b[ k*n+af->coeff[jj].index ] -= af->coeff[jj].value * S;
 	    }
 	}
-    } else {
-        for(jj=0; jj<nf; ++jj) {
-            nlSparseMatrixAdd(
-                M, current_row, af->coeff[jj].index, af->coeff[jj].value
-            );
-        }
-	for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	    b[k*n+current_row] = nlCurrentContext->right_hand_side[k];
-	    for(jj=0; jj<nl; ++jj) {
-		j = al->coeff[jj].index;
-		b[k*n+current_row] -= al->coeff[jj].value *
-		    NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[k],j);
-	    }
-	}
-    }
     nlCurrentContext->current_row++;
     for(k=0; k<nlCurrentContext->nb_systems; ++k) {
 	nlCurrentContext->right_hand_side[k] = 0.0;
