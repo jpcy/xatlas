@@ -390,7 +390,6 @@ extern "C" {
 
     
 #define NL_SOLVER_USER           0x213
-#define NL_CHOLMOD_EXT           0x214
 
 #define NL_CUDA_PRECOND_ILU_EXT    0x220
     
