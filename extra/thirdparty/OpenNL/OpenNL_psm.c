@@ -2922,56 +2922,6 @@ NLBlas_t nlHostBlas() {
  *     versions of matrix x vector product (CPU/GPU, sparse/dense ...)
  */
 
-
-
-static NLuint nlSolveSystem_CG(
-    NLBlas_t blas,
-    NLMatrix M, NLdouble* b, NLdouble* x,
-    double eps, NLuint max_iter
-) {
-    NLint N = (NLint)M->m;
-
-    NLdouble *g = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble *r = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N); 
-    NLdouble *p = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLuint its=0;
-    NLdouble t, tau, sig, rho, gam;
-    NLdouble b_square=blas->Ddot(blas,N,b,1,b,1);
-    NLdouble err=eps*eps*b_square;
-    NLdouble curr_err;
-
-    nlMultMatrixVector(M,x,g);
-    blas->Daxpy(blas,N,-1.,b,1,g,1);
-    blas->Dscal(blas,N,-1.,g,1);
-    blas->Dcopy(blas,N,g,1,r,1);
-    curr_err = blas->Ddot(blas,N,g,1,g,1);
-    while ( curr_err >err && its < max_iter) {
-	if(nlCurrentContext != NULL) {
-	    if(nlCurrentContext->progress_func != NULL) {
-		nlCurrentContext->progress_func(its, max_iter, curr_err, err);
-	    }
-	}
-	nlMultMatrixVector(M,r,p);
-        rho=blas->Ddot(blas,N,p,1,p,1);
-        sig=blas->Ddot(blas,N,r,1,p,1);
-        tau=blas->Ddot(blas,N,g,1,r,1);
-        t=tau/sig;
-        blas->Daxpy(blas,N,t,r,1,x,1);
-        blas->Daxpy(blas,N,-t,p,1,g,1);
-        gam=(t*t*rho-tau)/tau;
-        blas->Dscal(blas,N,gam,r,1);
-        blas->Daxpy(blas,N,1.,g,1,r,1);
-        ++its;
-        curr_err = blas->Ddot(blas,N,g,1,g,1);
-    }
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, g);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, r);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, p);
-    blas->sq_bnorm = b_square;
-    blas->sq_rnorm = curr_err;
-    return its;
-}
-
 static NLuint nlSolveSystem_PRE_CG(
     NLBlas_t blas,
     NLMatrix M, NLMatrix P, NLdouble* b, NLdouble* x,
@@ -3052,11 +3002,7 @@ NLuint nlSolveSystemIterative(
 	);	
     }
 
-	if(P == NULL) {
-	result = nlSolveSystem_CG(blas,M,b,x,eps,max_iter);
-	} else {
 	result = nlSolveSystem_PRE_CG(blas,M,P,b,x,eps,max_iter);
-	}
 
     /* Get residual norm and rhs norm from BLAS context */
     if(nlCurrentContext != NULL) {
