@@ -295,15 +295,6 @@ typedef void* NLContext;
 
     NLAPI void NLAPIENTRY nlUpdateRightHandSide(NLdouble* values);
 
-
-#define NL_VARIABLES_BUFFER 0x1000
-
-    NLAPI void NLAPIENTRY nlBindBuffer(
-	NLenum buffer, NLuint k, void* addr, NLuint stride
-    );
-
-    
-
 #define NL_STIFFNESS_MATRIX 0x3001
 
 #define NL_MASS_MATRIX 0x3002

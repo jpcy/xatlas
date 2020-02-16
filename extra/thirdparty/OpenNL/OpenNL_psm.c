@@ -589,8 +589,6 @@ typedef struct {
 typedef struct {
     NLenum           state;
 
-    NLboolean        user_variable_buffers;
-    
     NLBufferBinding* variable_buffer;
     
     NLdouble*        variable_value;
@@ -3525,9 +3523,6 @@ void nlGetIntegerv(NLenum pname, NLint* params) {
 
 void nlEnable(NLenum pname) {
     switch(pname) {
-	case NL_VARIABLES_BUFFER: {
-	    nlCurrentContext->user_variable_buffers = NL_TRUE;
-	} break;
     default: {
         nlError("nlEnable","Invalid parameter");        
         nl_assert_not_reached;
@@ -3537,9 +3532,6 @@ void nlEnable(NLenum pname) {
 
 void nlDisable(NLenum pname) {
     switch(pname) {
-	case NL_VARIABLES_BUFFER: {
-	    nlCurrentContext->user_variable_buffers = NL_FALSE;
-	} break;
 	default: {
 	    nlError("nlDisable","Invalid parameter");                
 	    nl_assert_not_reached;
@@ -3550,9 +3542,6 @@ void nlDisable(NLenum pname) {
 NLboolean nlIsEnabled(NLenum pname) {
     NLboolean result = NL_FALSE;
     switch(pname) {
-	case NL_VARIABLES_BUFFER: {
-	    result = nlCurrentContext->user_variable_buffers;
-	} break;
 	default: {
 	    nlError("nlIsEnables","Invalid parameter");
 	    nl_assert_not_reached;
@@ -3702,9 +3691,6 @@ static void nlBeginSystem() {
 	NLBufferBinding, nlCurrentContext->nb_systems
     );
     
-    if(nlCurrentContext->user_variable_buffers) {
-	nlCurrentContext->variable_value = NULL;
-    } else {
 	nlCurrentContext->variable_value = NL_NEW_ARRAY(
 	    NLdouble,
 	    nlCurrentContext->nb_variables * nlCurrentContext->nb_systems
@@ -3715,7 +3701,6 @@ static void nlBeginSystem() {
 		k * nlCurrentContext->nb_variables;
 	    nlCurrentContext->variable_buffer[k].stride = sizeof(NLdouble);
 	}
-    }
     
     nlCurrentContext->variable_is_locked = NL_NEW_ARRAY(
 	NLboolean, nlCurrentContext->nb_variables
@@ -3977,24 +3962,6 @@ void nlUpdateRightHandSide(NLdouble* values) {
     nlCheckState(NL_STATE_SYSTEM_CONSTRUCTED);
     memcpy(nlCurrentContext->x, values, nlCurrentContext->n * sizeof(double));
 }
-
-
-/* Buffers management */
-
-void nlBindBuffer(
-    NLenum buffer, NLuint k, void* addr, NLuint stride
-) {
-    nlCheckState(NL_STATE_SYSTEM);    
-    nl_assert(nlIsEnabled(buffer));
-    nl_assert(buffer == NL_VARIABLES_BUFFER);
-    nl_assert(k<nlCurrentContext->nb_systems);
-    if(stride == 0) {
-	stride = sizeof(NLdouble);
-    }
-    nlCurrentContext->variable_buffer[k].base_address = addr;
-    nlCurrentContext->variable_buffer[k].stride = stride;
-}
-
 
 /* Eigen solver */
 
