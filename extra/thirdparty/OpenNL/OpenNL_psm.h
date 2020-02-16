@@ -186,9 +186,6 @@ typedef void* NLContext;
 
 #define NL_GFLOPS           0x10c
 
-#define NL_NNZ              0x10d    
-
-
 #define NL_NB_SYSTEMS       0x10e
 
 #define NL_PRECOND_NONE       0x000

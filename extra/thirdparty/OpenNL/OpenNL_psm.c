@@ -514,8 +514,6 @@ NLAPI NLMatrix NLAPIENTRY nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M);
 
 NLAPI void NLAPIENTRY nlMatrixCompress(NLMatrix* M);
 
-NLAPI NLuint NLAPIENTRY nlMatrixNNZ(NLMatrix M);
-
 #ifdef __cplusplus
 }
 #endif
@@ -1222,15 +1220,6 @@ void nlMatrixCompress(NLMatrix* M) {
     CRS = nlCRSMatrixNewFromSparseMatrix((NLSparseMatrix*)*M);
     nlDeleteMatrix(*M);
     *M = CRS;
-}
-
-NLuint nlMatrixNNZ(NLMatrix M) {
-    if(M->type == NL_MATRIX_SPARSE_DYNAMIC) {
-	return nlSparseMatrixNNZ((NLSparseMatrix*)M);
-    } else if(M->type == NL_MATRIX_CRS) {
-	return nlCRSMatrixNNZ((NLCRSMatrix*)M);	
-    }
-    return M->m * M->n;
 }
 
 /******* extracted from nl_context.c *******/
@@ -3120,9 +3109,6 @@ void nlGetIntegerv(NLenum pname, NLint* params) {
     } break;
     case NL_PRECONDITIONER: {
         *params = (NLint)(nlCurrentContext->preconditioner);        
-    } break;
-    case NL_NNZ: {
-        *params = (NLint)(nlMatrixNNZ(nlCurrentContext->M));
     } break;
     default: {
         nlError("nlGetIntegerv","Invalid parameter");
