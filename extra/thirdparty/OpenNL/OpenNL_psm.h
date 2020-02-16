@@ -179,8 +179,6 @@ typedef void* NLContext;
 
 #define NL_OMEGA            0x105
 
-#define NL_SYMMETRIC        0x106
-
 #define NL_USED_ITERATIONS  0x107
 
 #define NL_ERROR            0x108
