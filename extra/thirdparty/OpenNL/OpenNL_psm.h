@@ -223,13 +223,6 @@ typedef void* NLContext;
 
     NLAPI void NLAPIENTRY nlGetIntegerv(NLenum pname, NLint* params);
 
-    NLAPI void NLAPIENTRY nlEnable(NLenum pname);
-
-    NLAPI void NLAPIENTRY nlDisable(NLenum pname);
-
-    NLAPI NLboolean nlIsEnabled(NLenum pname);
-
-
 #define NL_FUNC_MATRIX         0x601
 
 #define NL_FUNC_PRECONDITIONER 0x602

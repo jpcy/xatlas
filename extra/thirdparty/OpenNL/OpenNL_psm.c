@@ -3518,39 +3518,6 @@ void nlGetIntegerv(NLenum pname, NLint* params) {
     }
 }
 
-
-/* Enable / Disable */
-
-void nlEnable(NLenum pname) {
-    switch(pname) {
-    default: {
-        nlError("nlEnable","Invalid parameter");        
-        nl_assert_not_reached;
-    }
-    }
-}
-
-void nlDisable(NLenum pname) {
-    switch(pname) {
-	default: {
-	    nlError("nlDisable","Invalid parameter");                
-	    nl_assert_not_reached;
-	}
-    }
-}
-
-NLboolean nlIsEnabled(NLenum pname) {
-    NLboolean result = NL_FALSE;
-    switch(pname) {
-	default: {
-	    nlError("nlIsEnables","Invalid parameter");
-	    nl_assert_not_reached;
-	}
-    }
-    return result;
-}
-
-
 /* NL functions */
 
 void  nlSetFunction(NLenum pname, NLfunc param) {
