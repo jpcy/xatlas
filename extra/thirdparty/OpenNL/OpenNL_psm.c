@@ -427,14 +427,6 @@ NLAPI void NLAPIENTRY nlCRSMatrixConstruct(
     NLCRSMatrix* M, NLuint m, NLuint n, NLuint nnz, NLuint nslices
 );
 
-NLAPI NLboolean NLAPIENTRY nlCRSMatrixLoad(
-    NLCRSMatrix* M, const char* filename
-);
-
-NLAPI NLboolean NLAPIENTRY nlCRSMatrixSave(
-    NLCRSMatrix* M, const char* filename
-);
-
 NLAPI NLuint NLAPIENTRY nlCRSMatrixNNZ(NLCRSMatrix* M);
     
 
@@ -885,74 +877,6 @@ static void nlCRSMatrixDestroy(NLCRSMatrix* M) {
     M->m = 0;
     M->n = 0;
     M->nslices = 0;
-}
-
-
-NLboolean nlCRSMatrixSave(NLCRSMatrix* M, const char* filename) {
-    NLuint nnz = M->rowptr[M->m];
-    FILE* f = fopen(filename, "rb");
-    if(f == NULL) {
-        nlError("nlCRSMatrixSave", "Could not open file");
-        return NL_FALSE;
-    }
-
-    fwrite(&M->m, sizeof(NLuint), 1, f);
-    fwrite(&M->n, sizeof(NLuint), 1, f);
-    fwrite(&nnz, sizeof(NLuint), 1, f);
-
-    fwrite(M->rowptr, sizeof(NLuint), M->m+1, f);
-    fwrite(M->colind, sizeof(NLuint), nnz, f);
-    fwrite(M->val, sizeof(double), nnz, f);
-    
-    return NL_TRUE;
-}
-
-NLboolean nlCRSMatrixLoad(NLCRSMatrix* M, const char* filename) {
-    NLuint nnz = 0;
-    FILE* f = fopen(filename, "rb");
-    NLboolean truncated = NL_FALSE;
-    
-    if(f == NULL) {
-        nlError("nlCRSMatrixLoad", "Could not open file");
-        return NL_FALSE;
-    }
-    
-    truncated = truncated || (
-        fread(&M->m, sizeof(NLuint), 1, f) != 1 ||
-        fread(&M->n, sizeof(NLuint), 1, f) != 1 ||
-        fread(&nnz, sizeof(NLuint), 1, f) != 1
-    );
-
-    if(truncated) {
-        M->rowptr = NULL;
-        M->colind = NULL;
-        M->val = NULL;
-    } else {
-        M->rowptr = NL_NEW_ARRAY(NLuint, M->m+1);
-        M->colind = NL_NEW_ARRAY(NLuint, nnz);
-        M->val = NL_NEW_ARRAY(double, nnz);
-        truncated = truncated || (
-            fread(M->rowptr, sizeof(NLuint), M->m+1, f) != M->m+1 ||
-            fread(M->colind, sizeof(NLuint), nnz, f) != nnz ||
-            fread(M->val, sizeof(double), nnz, f) != nnz
-        );
-    }
-
-    if(truncated) {
-        nlError("nlCRSMatrixSave", "File appears to be truncated");
-        NL_DELETE_ARRAY(M->rowptr);
-        NL_DELETE_ARRAY(M->colind);
-        NL_DELETE_ARRAY(M->val);
-        return NL_FALSE;
-    } else {
-        M->nslices = 1;    
-        M->sliceptr = NL_NEW_ARRAY(NLuint, M->nslices+1);
-        M->sliceptr[0] = 0;
-        M->sliceptr[1] = M->m;
-    }
-
-    fclose(f);
-    return NL_TRUE;
 }
 
 NLuint nlCRSMatrixNNZ(NLCRSMatrix* M) {
