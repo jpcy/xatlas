@@ -153,26 +153,6 @@ void nlWarning(const char* function, const char* message) ;
 
 NLdouble nlCurrentTime(void);
 
-typedef void* NLdll;
-
-
-#define NL_LINK_NOW    1
-
-#define NL_LINK_LAZY   2
-
-#define NL_LINK_GLOBAL 4
-
-#define NL_LINK_QUIET  8
-
-#define NL_LINK_USE_FALLBACK 16
-
-NLdll nlOpenDLL(const char* filename, NLenum flags);
-
-void nlCloseDLL(NLdll handle);
-
-NLfunc nlFindFunction(NLdll handle, const char* funcname);
-
-
 /* classic macros */
 
 #ifndef MIN
@@ -752,11 +732,6 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M);
 #include <sys/times.h> 
 #endif
 
-#if defined(GEO_DYNAMIC_LIBS) && defined(NL_OS_UNIX)
-#include <dlfcn.h>
-#endif
-
-
 /* Assertions */
 
 
@@ -806,122 +781,6 @@ double nlCurrentTime() {
     return (NLdouble)user_clock / 100.0 ;
 }
 #endif
-
-
-/* DLLs/shared objects/dylibs */
-
-#if defined(GEO_DYNAMIC_LIBS) 
-
-#  if defined(NL_OS_UNIX)
-
-NLdll nlOpenDLL(const char* name, NLenum flags_in) {
-    void* result = NULL;
-    int flags = 0;
-    if((flags_in & NL_LINK_NOW) != 0) {
-	flags |= RTLD_NOW;
-    }
-    if((flags_in & NL_LINK_LAZY) != 0) {
-	flags |= RTLD_LAZY;
-    }
-    if((flags_in & NL_LINK_GLOBAL) != 0) {
-	flags |= RTLD_GLOBAL;
-    }
-    if((flags_in & NL_LINK_QUIET) == 0) {
-	nl_fprintf(stdout,"Trying to load %s\n", name);
-    }
-    result = dlopen(name, flags);
-    if(result == NULL) {
-	if((flags_in & NL_LINK_QUIET) == 0) {	
-	    nl_fprintf(stderr,"Did not find %s,\n", name);
-	    nl_fprintf(stderr,"Retrying with libgeogram_num_3rdparty.so\n");
-	}
-	if((flags_in & NL_LINK_USE_FALLBACK) != 0) {
-	    result=dlopen("libgeogram_num_3rdparty.so", flags);
-	    if(result == NULL) {
-		if((flags_in & NL_LINK_QUIET) == 0) {		    
-		    nlError("nlOpenDLL/dlopen",dlerror());
-		}
-	    }
-        }
-    }
-    if((flags_in & NL_LINK_QUIET) == 0 && result != NULL) {
-	nl_fprintf(stdout,"Loaded %s\n", name);
-    }
-    
-    return result;
-}
-
-void nlCloseDLL(void* handle) {
-    dlclose(handle);
-}
-
-NLfunc nlFindFunction(void* handle, const char* name) {
-    /*
-     * It is not legal in modern C to cast a void*
-     *  pointer into a function pointer, thus requiring this
-     *  (quite dirty) function that uses a union.    
-     */
-    union {
-        void* ptr;
-        NLfunc fptr;
-    } u;
-    u.ptr = dlsym(handle, name);
-    return u.fptr;
-}
-
-#  elif defined(NL_OS_WINDOWS)
-
-NLdll nlOpenDLL(const char* name, NLenum flags) {
-    /* Note: NL_LINK_LAZY and NL_LINK_GLOBAL are ignored. */
-    void* result = LoadLibrary(name);
-    if(result == NULL && ((flags & NL_LINK_USE_FALLBACK) != 0)) {
-	if((flags & NL_LINK_QUIET) == 0) {
-	    nl_fprintf(stderr,"Did not find %s,\n", name);
-	    nl_fprintf(stderr,"Retrying with geogram_num_3rdparty\n");
-	}
-        result=LoadLibrary("geogram_num_3rdparty.dll");
-    }
-    return result;
-}
-
-void nlCloseDLL(void* handle) {
-    FreeLibrary((HMODULE)handle);
-}
-
-NLfunc nlFindFunction(void* handle, const char* name) {
-    return (NLfunc)GetProcAddress((HMODULE)handle, name);
-}
-
-#  endif
-
-#else
-
-NLdll nlOpenDLL(const char* name, NLenum flags) {
-    nl_arg_used(name);
-    nl_arg_used(flags);
-#ifdef NL_OS_UNIX
-    nlError("nlOpenDLL","Was not compiled with dynamic linking enabled");
-    nlError("nlOpenDLL","(see VORPALINE_BUILD_DYNAMIC in CMakeLists.txt)");        
-#else    
-    nlError("nlOpenDLL","Not implemented");
-#endif    
-    return NULL;
-}
-
-void nlCloseDLL(void* handle) {
-    nl_arg_used(handle);
-    nlError("nlCloseDLL","Not implemented");        
-}
-
-NLfunc nlFindFunction(void* handle, const char* name) {
-    nl_arg_used(handle);
-    nl_arg_used(name);
-    nlError("nlFindFunction","Not implemented");            
-    return NULL;
-}
-
-#endif
-
 
 /* Error-reporting functions */
 
