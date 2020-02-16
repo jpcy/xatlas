@@ -341,7 +341,6 @@ typedef void(*NLMultMatrixVectorFunc)(NLMatrix M, const double* x, double* y);
 
 #define NL_MATRIX_SPARSE_DYNAMIC 0x1001
 #define NL_MATRIX_CRS            0x1002
-#define NL_MATRIX_FUNCTION       0x1005
 #define NL_MATRIX_OTHER          0x1006
     
 struct NLMatrixStruct {
@@ -534,10 +533,6 @@ NLAPI NLMatrix NLAPIENTRY nlMatrixFactorize(NLMatrix M, NLenum solver);
 NLAPI NLMatrix NLAPIENTRY nlMatrixNewFromFunction(
     NLuint m, NLuint n, NLMatrixFunc func
 );	     
-
-NLAPI NLMatrixFunc NLAPIENTRY nlMatrixGetFunction(NLMatrix M);
-
-
 
 NLAPI NLMatrix NLAPIENTRY nlMatrixNewFromProduct(
     NLMatrix M, NLboolean product_owns_M,
@@ -1367,59 +1362,6 @@ NLMatrix nlMatrixFactorize(NLMatrix M, NLenum solver) {
     return result;
 }
 
-
-
-typedef struct {
-    NLuint m;
-
-    NLuint n;
-
-    NLenum type;
-
-    NLDestroyMatrixFunc destroy_func;
-
-    NLMultMatrixVectorFunc mult_func;
-
-    NLMatrixFunc matrix_func;
-} NLFunctionMatrix;
-
-static void nlFunctionMatrixDestroy(NLFunctionMatrix* M) {
-    (void)M; /* to avoid 'unused parameter' warning */
-    /* 
-     * Nothing special to do, 
-     * there is no dynamic allocated mem.
-     */
-}
-
-static void nlFunctionMatrixMult(
-    NLFunctionMatrix* M, const NLdouble* x, NLdouble* y
-) {
-    M->matrix_func(x,y);
-}
-
-NLMatrix nlMatrixNewFromFunction(NLuint m, NLuint n, NLMatrixFunc func) {
-    NLFunctionMatrix* result = NL_NEW(NLFunctionMatrix);
-    result->m = m;
-    result->n = n;
-    result->type = NL_MATRIX_FUNCTION;
-    result->destroy_func = (NLDestroyMatrixFunc)nlFunctionMatrixDestroy;
-    result->mult_func = (NLMultMatrixVectorFunc)nlFunctionMatrixMult;
-    result->matrix_func = func;
-    return (NLMatrix)result;
-}
-
-NLMatrixFunc nlMatrixGetFunction(NLMatrix M) {
-    if(M == NULL) {
-	return NULL;
-    }
-    if(M->type != NL_MATRIX_FUNCTION) {
-	return NULL;
-    }
-    return ((NLFunctionMatrix*)M)->matrix_func;
-}
-
-
-
 typedef struct {
     NLuint m;
 
@@ -1570,8 +1512,6 @@ static void nlSetupPreconditioner() {
         break;
     case NL_PRECOND_JACOBI:
 	nlCurrentContext->P = nlNewJacobiPreconditioner(nlCurrentContext->M);
-        break;
-    case NL_PRECOND_USER:
         break;
     default:
         nl_assert_not_reached;
@@ -3450,15 +3390,6 @@ void nlSolverParameteri(NLenum pname, NLint param) {
     }
 }
 
-void nlGetBooleanv(NLenum pname, NLboolean* params) {
-    switch(pname) {
-    default: {
-        nlError("nlGetBooleanv","Invalid parameter");
-        nl_assert_not_reached;
-    } 
-    }
-}
-
 void nlGetDoublev(NLenum pname, NLdouble* params) {
     switch(pname) {
     case NL_THRESHOLD: {
@@ -3522,21 +3453,6 @@ void nlGetIntegerv(NLenum pname, NLint* params) {
 
 void  nlSetFunction(NLenum pname, NLfunc param) {
     switch(pname) {
-    case NL_FUNC_MATRIX:
-	nlDeleteMatrix(nlCurrentContext->M);
-	nlCurrentContext->M = nlMatrixNewFromFunction(
-	    nlCurrentContext->n, nlCurrentContext->n,
-	    (NLMatrixFunc)param
-	);
-        break;
-    case NL_FUNC_PRECONDITIONER:
-	nlDeleteMatrix(nlCurrentContext->P);
-	nlCurrentContext->P = nlMatrixNewFromFunction(
-	    nlCurrentContext->n, nlCurrentContext->n,
-	    (NLMatrixFunc)param
-	);
-        nlCurrentContext->preconditioner = NL_PRECOND_USER;
-        break;
     case NL_FUNC_PROGRESS:
         nlCurrentContext->progress_func = (NLProgressFunc)(param);
         break;
@@ -3545,21 +3461,6 @@ void  nlSetFunction(NLenum pname, NLfunc param) {
         nl_assert_not_reached;
     }
 }
-
-void nlGetFunction(NLenum pname, NLfunc* param) {
-    switch(pname) {
-    case NL_FUNC_MATRIX:
-        *param = (NLfunc)(nlMatrixGetFunction(nlCurrentContext->M));
-        break;
-    case NL_FUNC_PRECONDITIONER:
-        *param = (NLfunc)(nlMatrixGetFunction(nlCurrentContext->P));
-        break;
-    default:
-        nlError("nlGetFunction","Invalid parameter");                
-        nl_assert_not_reached;
-    }
-}
-
 
 /* Get/Set Lock/Unlock variables */
 

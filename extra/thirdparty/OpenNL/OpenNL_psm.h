@@ -203,8 +203,6 @@ typedef void* NLContext;
 
 #define NL_PRECOND_JACOBI     0x300
 
-#define NL_PRECOND_USER       0x303
-
     NLAPI NLContext NLAPIENTRY nlNewContext(void);
 
     NLAPI void NLAPIENTRY nlDeleteContext(NLContext context);
@@ -217,22 +215,13 @@ typedef void* NLContext;
 
     NLAPI void NLAPIENTRY nlSolverParameteri(NLenum pname, NLint param);
 
-    NLAPI void NLAPIENTRY nlGetBooleanv(NLenum pname, NLboolean* params);
-
     NLAPI void NLAPIENTRY nlGetDoublev(NLenum pname, NLdouble* params);
 
     NLAPI void NLAPIENTRY nlGetIntegerv(NLenum pname, NLint* params);
 
-#define NL_FUNC_MATRIX         0x601
-
-#define NL_FUNC_PRECONDITIONER 0x602
-
 #define NL_FUNC_PROGRESS       0x603
 
     NLAPI void NLAPIENTRY nlSetFunction(NLenum pname, NLfunc param);
-
-    NLAPI void NLAPIENTRY nlGetFunction(NLenum pname, NLfunc* param);
-
 
     NLAPI void NLAPIENTRY nlSetVariable(NLuint i, NLdouble value);
 
