@@ -203,8 +203,6 @@ typedef void* NLContext;
 
 #define NL_CG                    0x200
 
-#define NL_BICGSTAB              0x201
-
 #define NL_PRECOND_NONE       0x000
 
 #define NL_PRECOND_JACOBI     0x300

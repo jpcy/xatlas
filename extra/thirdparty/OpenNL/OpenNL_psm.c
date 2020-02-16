@@ -2080,7 +2080,6 @@ NLboolean nlDefaultSolver() {
     nlSetupPreconditioner();
     switch(nlCurrentContext->solver) {
 	case NL_CG:
-	case NL_BICGSTAB:
     {
 	    result = nlSolveIterative();
 	} break;
@@ -3694,169 +3693,6 @@ static NLuint nlSolveSystem_PRE_CG(
     return its;
 }
 
-static NLuint nlSolveSystem_BICGSTAB(
-    NLBlas_t blas,
-    NLMatrix M, NLdouble* b, NLdouble* x,
-    double eps, NLuint max_iter
-) {
-    NLint     N   = (NLint)M->n;
-    NLdouble *rT  = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N); 
-    NLdouble *d   = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N); 
-    NLdouble *h   = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N); 
-    NLdouble *u   = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N); 
-    NLdouble *Ad  = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N); 
-    NLdouble *t   = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N); 
-    NLdouble *s   = h;
-    NLdouble rTh, rTAd, rTr, alpha, beta, omega, st, tt;
-    NLuint its=0;
-    NLdouble b_square = blas->Ddot(blas,N,b,1,b,1);
-    NLdouble err=eps*eps*b_square;
-    NLdouble *r = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    nlMultMatrixVector(M,x,r);
-    blas->Daxpy(blas,N,-1.,b,1,r,1);
-    blas->Dcopy(blas,N,r,1,d,1);
-    blas->Dcopy(blas,N,d,1,h,1);
-    blas->Dcopy(blas,N,h,1,rT,1);
-    nl_assert( blas->Ddot(blas,N,rT,1,rT,1)>1e-40 );
-    rTh=blas->Ddot(blas,N,rT,1,h,1);
-    rTr=blas->Ddot(blas,N,r,1,r,1);
-
-    while ( rTr>err && its < max_iter) {
-	if(nlCurrentContext != NULL) {
-	    if(nlCurrentContext->progress_func != NULL) {
-		nlCurrentContext->progress_func(its, max_iter, rTr, err);
-	    }
-	    if( (nlCurrentContext->verbose) && !(its % 100)) {
-		nl_printf ( "%d : %.10e -- %.10e\n", its, rTr, err );
-	    }
-	}
-	nlMultMatrixVector(M,d,Ad);
-        rTAd=blas->Ddot(blas,N,rT,1,Ad,1);
-        nl_assert( fabs(rTAd)>1e-40 );
-        alpha=rTh/rTAd;
-        blas->Daxpy(blas,N,-alpha,Ad,1,r,1);
-        blas->Dcopy(blas,N,h,1,s,1);
-        blas->Daxpy(blas,N,-alpha,Ad,1,s,1);
-	nlMultMatrixVector(M,s,t);
-        blas->Daxpy(blas,N,1.,t,1,u,1);
-        blas->Dscal(blas,N,alpha,u,1);
-        st=blas->Ddot(blas,N,s,1,t,1);
-        tt=blas->Ddot(blas,N,t,1,t,1);
-        if ( fabs(st)<1e-40 || fabs(tt)<1e-40 ) {
-            omega = 0.;
-        } else {
-            omega = st/tt;
-        }
-        blas->Daxpy(blas,N,-omega,t,1,r,1);
-        blas->Daxpy(blas,N,-alpha,d,1,x,1);
-        blas->Daxpy(blas,N,-omega,s,1,x,1);
-        blas->Dcopy(blas,N,s,1,h,1);
-        blas->Daxpy(blas,N,-omega,t,1,h,1);
-        beta=(alpha/omega)/rTh;
-	rTh=blas->Ddot(blas,N,rT,1,h,1);
-	beta*=rTh;
-        blas->Dscal(blas,N,beta,d,1);
-        blas->Daxpy(blas,N,1.,h,1,d,1);
-        blas->Daxpy(blas,N,-beta*omega,Ad,1,d,1);
-        rTr=blas->Ddot(blas,N,r,1,r,1);
-        ++its;
-    }
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, r);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, rT);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, d);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, h);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, u);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, Ad);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, t);
-    blas->sq_bnorm = b_square;
-    blas->sq_rnorm = rTr;
-    return its;
-}
-
-static NLuint nlSolveSystem_PRE_BICGSTAB(
-    NLBlas_t blas,
-    NLMatrix M, NLMatrix P, NLdouble* b, NLdouble* x,
-    double eps, NLuint max_iter
-) {
-    NLint     N   = (NLint)M->n;
-    NLdouble *rT  = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble *d   = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble *h   = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble *u   = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble *Sd  = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble *t   = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble *aux = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble *s   = h;
-    NLdouble rTh, rTSd, rTr, alpha, beta, omega, st, tt;
-    NLuint its=0;
-    NLdouble b_square = blas->Ddot(blas,N,b,1,b,1);
-    NLdouble err  = eps*eps*b_square;
-    NLdouble *r   = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-
-    nlMultMatrixVector(M,x,r);
-    blas->Daxpy(blas,N,-1.,b,1,r,1);
-    nlMultMatrixVector(P,r,d);
-    blas->Dcopy(blas,N,d,1,h,1);
-    blas->Dcopy(blas,N,h,1,rT,1);
-    nl_assert( blas->Ddot(blas,N,rT,1,rT,1)>1e-40 );
-    rTh=blas->Ddot(blas,N,rT,1,h,1);
-    rTr=blas->Ddot(blas,N,r,1,r,1);
-
-    while ( rTr>err && its < max_iter) {
-	if(nlCurrentContext != NULL) {	
-	    if(nlCurrentContext->progress_func != NULL) {
-		nlCurrentContext->progress_func(its, max_iter, rTr, err);
-	    }
-	    if( (nlCurrentContext->verbose) && !(its % 100)) {
-		nl_printf ( "%d : %.10e -- %.10e\n", its, rTr, err );
-	    }
-	}
-	nlMultMatrixVector(M,d,aux);
-	nlMultMatrixVector(P,aux,Sd);
-        rTSd=blas->Ddot(blas,N,rT,1,Sd,1);
-        nl_assert( fabs(rTSd)>1e-40 );
-        alpha=rTh/rTSd;
-        blas->Daxpy(blas,N,-alpha,aux,1,r,1);
-        blas->Dcopy(blas,N,h,1,s,1);
-        blas->Daxpy(blas,N,-alpha,Sd,1,s,1);
-	nlMultMatrixVector(M,s,aux);
-	nlMultMatrixVector(P,aux,t);
-        blas->Daxpy(blas,N,1.,t,1,u,1);
-        blas->Dscal(blas,N,alpha,u,1);
-        st=blas->Ddot(blas,N,s,1,t,1);
-        tt=blas->Ddot(blas,N,t,1,t,1);
-        if ( fabs(st)<1e-40 || fabs(tt)<1e-40 ) {
-            omega = 0.;
-        } else {
-            omega = st/tt;
-        }
-        blas->Daxpy(blas,N,-omega,aux,1,r,1);
-        blas->Daxpy(blas,N,-alpha,d,1,x,1);
-        blas->Daxpy(blas,N,-omega,s,1,x,1);
-        blas->Dcopy(blas,N,s,1,h,1);
-        blas->Daxpy(blas,N,-omega,t,1,h,1);
-        beta=(alpha/omega)/rTh;
-	rTh=blas->Ddot(blas,N,rT,1,h,1);
-	beta*=rTh;
-        blas->Dscal(blas,N,beta,d,1);
-        blas->Daxpy(blas,N,1.,h,1,d,1);
-        blas->Daxpy(blas,N,-beta*omega,Sd,1,d,1);
-        rTr=blas->Ddot(blas,N,r,1,r,1);
-        ++its;
-    }
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, r);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, rT);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, d);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, h);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, u);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, Sd);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, t);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, aux);
-    blas->sq_bnorm = b_square;
-    blas->sq_rnorm = rTr;
-    return its;
-}
-
 /* Main driver routine */
 
 NLuint nlSolveSystemIterative(
@@ -3894,13 +3730,6 @@ NLuint nlSolveSystemIterative(
 		result = nlSolveSystem_CG(blas,M,b,x,eps,max_iter);
 	    } else {
 		result = nlSolveSystem_PRE_CG(blas,M,P,b,x,eps,max_iter);
-	    }
-	    break;
-	case NL_BICGSTAB:
-	    if(P == NULL) {
-		result = nlSolveSystem_BICGSTAB(blas,M,b,x,eps,max_iter);
-	    } else {
-		result = nlSolveSystem_PRE_BICGSTAB(blas,M,P,b,x,eps,max_iter);
 	    }
 	    break;
 	default:
@@ -4410,13 +4239,9 @@ static void nlInitializeM() {
      * then we setup reasonable parameters for him.
      */
     if(nlCurrentContext->solver == NL_SOLVER_DEFAULT) {
-        if(nlCurrentContext->least_squares || nlCurrentContext->symmetric) {
-            nlCurrentContext->solver = NL_CG;
-            if(!nlCurrentContext->preconditioner_defined) {
-                nlCurrentContext->preconditioner = NL_PRECOND_JACOBI;
-            }
-        } else {
-            nlCurrentContext->solver = NL_BICGSTAB;
+        nlCurrentContext->solver = NL_CG;
+        if(!nlCurrentContext->preconditioner_defined) {
+            nlCurrentContext->preconditioner = NL_PRECOND_JACOBI;
         }
         if(!nlCurrentContext->max_iterations_defined) {
             nlCurrentContext->max_iterations = n*5;
