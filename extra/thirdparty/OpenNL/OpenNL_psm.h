@@ -58,49 +58,6 @@
  *   http://alice.loria.fr/software/geogram/doc/html/nl_8h.html
  */
 
-
-
-/******* extracted from nl_linkage.h *******/
-
-#ifndef OPENL_LINKAGE_H
-#define OPENL_LINKAGE_H
-
-
-#ifdef GEO_DYNAMIC_LIBS
-#define NL_SHARED_LIBS
-#ifdef geogram_EXPORTS
-#define NL_EXPORTS
-#endif
-#endif
-
-#ifdef WIN32
-    #ifdef NL_SHARED_LIBS
-        #ifdef NL_EXPORTS
-            #define NLAPIENTRY __declspec( dllexport )
-        #else
-            #define NLAPIENTRY __declspec( dllimport )
-        #endif
-    #else
-        #define NLAPIENTRY
-    #endif
-#else
-    #ifdef NL_SHARED_LIBS
-        #define NLAPIENTRY __attribute__ ((visibility("default")))
-    #else
-        #define NLAPIENTRY
-    #endif
-#endif
-
-#ifdef __GNUC__
-#define NL_DEPRECATED(func) func __attribute__ ((deprecated))
-#elif defined(_MSC_VER)
-#define NL_DEPRECATED(func) __declspec(deprecated) func
-#else
-#define NL_DEPRECATED(func) func
-#endif
-
-#endif
-
 /******* extracted from nl.h *******/
 
 #ifndef OPENNL_H
@@ -111,25 +68,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#define NL_VERSION_4_0 1
-
-#define NLAPI
-
-/* 
- * Deactivate warnings about documentation
- * We do that, because CLANG's doxygen parser does not know
- * some doxygen commands that we use (retval, copydoc) and
- * generates many warnings for them...
- */
-
-#if defined(__clang__)
-#pragma clang diagnostic ignored "-Wunknown-pragmas"
-#pragma clang diagnostic ignored "-Wdocumentation"        
-#pragma clang diagnostic ignored "-Wdocumentation-unknown-command"
-#endif
-    
-    
 
 typedef unsigned int    NLenum;
 
@@ -188,31 +126,31 @@ typedef void* NLContext;
 
 #define NL_PRECOND_JACOBI     0x300
 
-    NLAPI NLContext NLAPIENTRY nlNewContext(void);
+    NLContext nlNewContext(void);
 
-    NLAPI void NLAPIENTRY nlDeleteContext(NLContext context);
+    void nlDeleteContext(NLContext context);
 
-    NLAPI void NLAPIENTRY nlMakeCurrent(NLContext context);
+    void nlMakeCurrent(NLContext context);
 
-    NLAPI NLContext NLAPIENTRY nlGetCurrent(void);
+    NLContext nlGetCurrent(void);
 
-    NLAPI void NLAPIENTRY nlSolverParameterd(NLenum pname, NLdouble param);
+    void nlSolverParameterd(NLenum pname, NLdouble param);
 
-    NLAPI void NLAPIENTRY nlSolverParameteri(NLenum pname, NLint param);
+    void nlSolverParameteri(NLenum pname, NLint param);
 
-    NLAPI void NLAPIENTRY nlGetDoublev(NLenum pname, NLdouble* params);
+    void nlGetDoublev(NLenum pname, NLdouble* params);
 
-    NLAPI void NLAPIENTRY nlGetIntegerv(NLenum pname, NLint* params);
+    void nlGetIntegerv(NLenum pname, NLint* params);
 
 #define NL_FUNC_PROGRESS       0x603
 
-    NLAPI void NLAPIENTRY nlSetFunction(NLenum pname, NLfunc param);
+    void nlSetFunction(NLenum pname, NLfunc param);
 
-    NLAPI void NLAPIENTRY nlSetVariable(NLuint i, NLdouble value);
+    void nlSetVariable(NLuint i, NLdouble value);
 
-    NLAPI NLdouble NLAPIENTRY nlGetVariable(NLuint i);
+    NLdouble nlGetVariable(NLuint i);
 
-    NLAPI void NLAPIENTRY nlLockVariable(NLuint index);
+    void nlLockVariable(NLuint index);
 
 #define NL_SYSTEM  0x0
 
@@ -220,19 +158,19 @@ typedef void* NLContext;
 
 #define NL_ROW     0x2
 
-    NLAPI void NLAPIENTRY nlBegin(NLenum primitive);
+    void nlBegin(NLenum primitive);
 
-    NLAPI void NLAPIENTRY nlEnd(NLenum primitive);
+    void nlEnd(NLenum primitive);
 
-    NLAPI void NLAPIENTRY nlCoefficient(NLuint i, NLdouble value);
+    void nlCoefficient(NLuint i, NLdouble value);
 
-    NLAPI NLboolean NLAPIENTRY nlSolve(void);
+    NLboolean nlSolve(void);
 
     typedef int (*NLprintfFunc)(const char* format, ...);
 
     typedef int (*NLfprintfFunc)(FILE* out, const char* format, ...);
     
-    NLAPI void NLAPIENTRY nlPrintfFuncs(NLprintfFunc f1, NLfprintfFunc f2);
+    void nlPrintfFuncs(NLprintfFunc f1, NLfprintfFunc f2);
     
     
 

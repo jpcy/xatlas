@@ -184,9 +184,9 @@ struct NLMatrixStruct {
     NLMultMatrixVectorFunc mult_func;
 };
 
-NLAPI void NLAPIENTRY nlDeleteMatrix(NLMatrix M);
+void nlDeleteMatrix(NLMatrix M);
 
-NLAPI void NLAPIENTRY nlMultMatrixVector(
+void nlMultMatrixVector(
     NLMatrix M, const double* x, double* y
 );
     
@@ -207,25 +207,25 @@ typedef struct {
     NLCoeff* coeff;  
 } NLRowColumn;
 
-NLAPI void NLAPIENTRY nlRowColumnConstruct(NLRowColumn* c);
+void nlRowColumnConstruct(NLRowColumn* c);
 
-NLAPI void NLAPIENTRY nlRowColumnDestroy(NLRowColumn* c);
+void nlRowColumnDestroy(NLRowColumn* c);
 
-NLAPI void NLAPIENTRY nlRowColumnGrow(NLRowColumn* c);
+void nlRowColumnGrow(NLRowColumn* c);
 
-NLAPI void NLAPIENTRY nlRowColumnAdd(
+void nlRowColumnAdd(
     NLRowColumn* c, NLuint index, NLdouble value
 );
 
-NLAPI void NLAPIENTRY nlRowColumnAppend(
+void nlRowColumnAppend(
     NLRowColumn* c, NLuint index, NLdouble value
 );
 
-NLAPI void NLAPIENTRY nlRowColumnZero(NLRowColumn* c);
+void nlRowColumnZero(NLRowColumn* c);
 
-NLAPI void NLAPIENTRY nlRowColumnClear(NLRowColumn* c);
+void nlRowColumnClear(NLRowColumn* c);
 
-NLAPI void NLAPIENTRY nlRowColumnSort(NLRowColumn* c);
+void nlRowColumnSort(NLRowColumn* c);
 
 
 /* Compressed Row Storage */
@@ -252,7 +252,7 @@ typedef struct {
     NLuint* sliceptr;
 } NLCRSMatrix;
 
-NLAPI void NLAPIENTRY nlCRSMatrixConstruct(
+void nlCRSMatrixConstruct(
     NLCRSMatrix* M, NLuint m, NLuint n, NLuint nnz, NLuint nslices
 );
 
@@ -287,58 +287,58 @@ typedef struct {
 } NLSparseMatrix;
 
 
-NLAPI NLMatrix NLAPIENTRY nlSparseMatrixNew(
+NLMatrix nlSparseMatrixNew(
     NLuint m, NLuint n
 );
 
-NLAPI void NLAPIENTRY nlSparseMatrixConstruct(
+void nlSparseMatrixConstruct(
     NLSparseMatrix* M, NLuint m, NLuint n
 );
 
-NLAPI void NLAPIENTRY nlSparseMatrixDestroy(NLSparseMatrix* M);
+void nlSparseMatrixDestroy(NLSparseMatrix* M);
 
-NLAPI void NLAPIENTRY nlSparseMatrixMult(
+void nlSparseMatrixMult(
     NLSparseMatrix* A, const NLdouble* x, NLdouble* y
 );    
     
-NLAPI void NLAPIENTRY nlSparseMatrixAdd(
+void nlSparseMatrixAdd(
     NLSparseMatrix* M, NLuint i, NLuint j, NLdouble value
 );
 
-NLAPI void NLAPIENTRY nlSparseMatrixAddMatrix(
+void nlSparseMatrixAddMatrix(
     NLSparseMatrix* M, double mul, const NLMatrix N
 );	
     
-NLAPI void NLAPIENTRY nlSparseMatrixZero( NLSparseMatrix* M);
+void nlSparseMatrixZero( NLSparseMatrix* M);
 
-NLAPI void NLAPIENTRY nlSparseMatrixClear( NLSparseMatrix* M);
+void nlSparseMatrixClear( NLSparseMatrix* M);
 
-NLAPI NLuint NLAPIENTRY nlSparseMatrixNNZ( NLSparseMatrix* M);
+NLuint nlSparseMatrixNNZ( NLSparseMatrix* M);
 
-NLAPI void NLAPIENTRY nlSparseMatrixSort( NLSparseMatrix* M);
+void nlSparseMatrixSort( NLSparseMatrix* M);
 
-NLAPI void NLAPIENTRY nlSparseMatrixAddRow( NLSparseMatrix* M);
+void nlSparseMatrixAddRow( NLSparseMatrix* M);
 
-NLAPI void NLAPIENTRY nlSparseMatrixAddColumn( NLSparseMatrix* M);
+void nlSparseMatrixAddColumn( NLSparseMatrix* M);
 
-NLAPI void NLAPIENTRY nlSparseMatrixMAddRow(
+void nlSparseMatrixMAddRow(
     NLSparseMatrix* M, NLuint i1, double s, NLuint i2
 );
 
-NLAPI void NLAPIENTRY nlSparseMatrixScaleRow(
+void nlSparseMatrixScaleRow(
     NLSparseMatrix* M, NLuint i, double s
 );
 
-NLAPI void NLAPIENTRY nlSparseMatrixZeroRow(
+void nlSparseMatrixZeroRow(
     NLSparseMatrix* M, NLuint i
 );
 
     
 
 
-NLAPI NLMatrix NLAPIENTRY nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M);    
+NLMatrix nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M);    
 
-NLAPI void NLAPIENTRY nlMatrixCompress(NLMatrix* M);
+void nlMatrixCompress(NLMatrix* M);
 
 #ifdef __cplusplus
 }
@@ -451,7 +451,7 @@ void nlTransition(NLenum from_state, NLenum to_state);
 
 
 
-NLAPI NLuint NLAPIENTRY nlSolveSystemIterative(
+NLuint nlSolveSystemIterative(
     NLMatrix M, NLMatrix P, NLdouble* b, NLdouble* x,
     double eps, NLuint max_iter, NLuint inner_iter
 );
