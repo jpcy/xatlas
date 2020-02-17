@@ -75,8 +75,8 @@
 #define NL_NEW(T)                (T*)(calloc(1, sizeof(T))) 
 #define NL_NEW_ARRAY(T,NB)       (T*)(calloc((size_t)(NB),sizeof(T)))
 #define NL_RENEW_ARRAY(T,x,NB)   (T*)(realloc(x,(size_t)(NB)*sizeof(T))) 
-#define NL_DELETE(x)             free(x); x = NULL 
-#define NL_DELETE_ARRAY(x)       free(x); x = NULL
+#define NL_DELETE(x)             free(x); x = nullptr 
+#define NL_DELETE_ARRAY(x)       free(x); x = nullptr
 #define NL_CLEAR_ARRAY(T,x,NB)   memset(x, 0, (size_t)(NB)*sizeof(T)) 
 
 #define NL_NEW_VECTOR(dim) \
@@ -194,7 +194,7 @@ struct NLContext
 
 void nlDeleteMatrix(NLMatrix M)
 {
-	if (M == NULL)
+	if (!M)
 		return;
 	M->destroy_func(M);
 	NL_DELETE(M);
@@ -209,7 +209,7 @@ void nlRowColumnConstruct(NLRowColumn* c)
 {
 	c->size = 0;
 	c->capacity = 0;
-	c->coeff = NULL;
+	c->coeff = nullptr;
 }
 
 void nlRowColumnDestroy(NLRowColumn* c)
@@ -408,7 +408,7 @@ void nlSparseMatrixSort(NLSparseMatrix* M)
 void nlSparseMatrixMAddRow(NLSparseMatrix* M, uint32_t i1, double s, uint32_t i2)
 {
 	NLRowColumn* Ri2 = &(M->row[i2]);
-	NLCoeff* c = NULL;
+	NLCoeff* c = nullptr;
 	assert(i1 < M->m);
 	assert(i2 < M->m);
 	for (uint32_t jj = 0; jj < Ri2->size; ++jj) {
@@ -420,7 +420,7 @@ void nlSparseMatrixMAddRow(NLSparseMatrix* M, uint32_t i1, double s, uint32_t i2
 void nlSparseMatrixScaleRow(NLSparseMatrix* M, uint32_t i, double s)
 {
 	NLRowColumn* Ri = &(M->row[i]);
-	NLCoeff* c = NULL;
+	NLCoeff* c = nullptr;
 	assert(i < M->m);
 	for (uint32_t jj = 0; jj < Ri->size; ++jj) {
 		c = &(Ri->coeff[jj]);
@@ -450,8 +450,8 @@ static void nlSparseMatrix_mult_rows(NLSparseMatrix* A,	const double* x, double*
 	 * indices.
 	 */
 	int m = (int)(A->m);
-	NLCoeff* c = NULL;
-	NLRowColumn* Ri = NULL;
+	NLCoeff* c = nullptr;
+	NLRowColumn* Ri = nullptr;
 	for (int i = 0; i < m; i++) {
 		Ri = &(A->row[i]);
 		y[i] = 0;
@@ -480,7 +480,7 @@ void nlSparseMatrixConstruct(NLSparseMatrix* M, uint32_t m, uint32_t n)
 	for (uint32_t i = 0; i < n; i++)
 		nlRowColumnConstruct(&(M->row[i]));
 	M->row_capacity = 0;
-	M->column = NULL;
+	M->column = nullptr;
 	M->column_capacity = 0;
 	M->diag_size = MIN(m, n);
 	M->diag_capacity = M->diag_size;
@@ -553,7 +553,7 @@ NLMatrix nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M)
 	}
 	CRS->rowptr[M->m] = k;
 	/* Create "slices" to be used by parallel sparse matrix vector product */
-	if (CRS->sliceptr != NULL) {
+	if (CRS->sliceptr) {
 		cur_bound = slice_size;
 		cur_NNZ = 0;
 		cur_row = 0;
@@ -573,7 +573,7 @@ NLMatrix nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M)
 
 void nlMatrixCompress(NLMatrix* M)
 {
-	NLMatrix CRS = NULL;
+	NLMatrix CRS = nullptr;
 	if ((*M)->type != NL_MATRIX_SPARSE_DYNAMIC)
 		return;
 	CRS = nlCRSMatrixNewFromSparseMatrix((NLSparseMatrix*)*M);
@@ -588,7 +588,7 @@ NLContext *nlNewContext()
 	result->threshold = 1e-6;
 	result->omega = 1.5;
 	result->inner_iterations = 5;
-	result->progress_func = NULL;
+	result->progress_func = nullptr;
 	result->nb_systems = 1;
 	return result;
 }
@@ -596,11 +596,11 @@ NLContext *nlNewContext()
 void nlDeleteContext(NLContext *context)
 {
 	nlDeleteMatrix(context->M);
-	context->M = NULL;
+	context->M = nullptr;
 	nlDeleteMatrix(context->P);
-	context->P = NULL;
+	context->P = nullptr;
 	nlDeleteMatrix(context->B);
-	context->B = NULL;
+	context->B = nullptr;
 	nlRowColumnDestroy(&context->af);
 	nlRowColumnDestroy(&context->al);
 	NL_DELETE_ARRAY(context->variable_value);
@@ -669,7 +669,7 @@ static uint32_t nlSolveSystem_PRE_CG(NLContext *context, NLMatrix M, NLMatrix P,
 	rh = ddot(N, r, h);
 	curr_err = ddot(N, r, r);
 	while (curr_err > err && its < max_iter) {
-		if (context->progress_func != NULL)
+		if (context->progress_func)
 			context->progress_func(its, max_iter, curr_err, err);
 		nlMultMatrixVector(M, d, Ad);
 		alpha = rh / ddot(N, d, Ad);
@@ -752,8 +752,8 @@ static void nlJacobiPreconditionerMult(NLJacobiPreconditioner* M, const double* 
 
 NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in)
 {
-	NLSparseMatrix* M = NULL;
-	NLJacobiPreconditioner* result = NULL;
+	NLSparseMatrix* M = nullptr;
+	NLJacobiPreconditioner* result = nullptr;
 	assert(M_in->type == NL_MATRIX_SPARSE_DYNAMIC);
 	assert(M_in->m == M_in->n);
 	M = (NLSparseMatrix*)M_in;
@@ -808,7 +808,7 @@ void nlLockVariable(NLContext *context, uint32_t index)
 static void nlVariablesToVector(NLContext *context)
 {
 	uint32_t n = context->n;
-	assert(context->x != NULL);
+	assert(context->x);
 	for (uint32_t k = 0; k < context->nb_systems; ++k) {
 		for (uint32_t i = 0; i < context->nb_variables; ++i) {
 			if (!context->variable_is_locked[i]) {
@@ -824,7 +824,7 @@ static void nlVariablesToVector(NLContext *context)
 static void nlVectorToVariables(NLContext *context)
 {
 	uint32_t n = context->n;
-	assert(context->x != NULL);
+	assert(context->x);
 	for (uint32_t k = 0; k < context->nb_systems; ++k) {
 		for (uint32_t i = 0; i < context->nb_variables; ++i) {
 			if (!context->variable_is_locked[i]) {
@@ -870,7 +870,7 @@ void nlBegin(NLContext *context, uint32_t prim)
 		context->variable_is_locked = NL_NEW_ARRAY(bool, context->nb_variables);
 		context->variable_index = NL_NEW_ARRAY(uint32_t, context->nb_variables);
 	} else if (prim == NL_MATRIX) {
-		if (context->M != NULL)
+		if (context->M)
 			return;
 		uint32_t n = 0;
 		for (uint32_t i = 0; i < context->nb_variables; i++) {
