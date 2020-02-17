@@ -192,64 +192,11 @@ extern NLfprintfFunc nl_fprintf;
 
 #endif
 
-/******* extracted from nl_blas.h *******/
-
-
-
-#ifndef OPENNL_BLAS_H
-#define OPENNL_BLAS_H
-
-struct NLBlas;
-
-typedef struct NLBlas* NLBlas_t;
-
-typedef enum {
-    NoTranspose=0, Transpose=1, ConjugateTranspose=2
-} MatrixTranspose ;
-
-typedef enum {
-    UnitTriangular=0, NotUnitTriangular=1
-} MatrixUnitTriangular ;
-
-typedef enum {
-    NL_HOST_MEMORY, NL_DEVICE_MEMORY
-} NLmemoryType;
-
-struct NLBlas {
-    NLboolean has_unified_memory;
-    double start_time;
-    NLulong flops;
-    NLulong used_ram[2];
-    NLulong max_used_ram[2];
-    
-    /* 
-     * Used for stats of the linear solver
-     * (a bit ugly, should not be here, but
-     * more convenient for now...)
-     */
-    double sq_rnorm; 
-    double sq_bnorm;
-};
-
-NLboolean nlBlasHasUnifiedMemory(NLBlas_t blas);
-
-void nlBlasResetStats(NLBlas_t blas);
-
-double nlBlasGFlops(NLBlas_t blas);
-
-NLulong nlBlasUsedRam(NLBlas_t blas, NLmemoryType type);
-
-NLulong nlBlasMaxUsedRam(NLBlas_t blas, NLmemoryType type);
-
-NLBlas_t nlHostBlas(void);
-
 #define NL_NEW_VECTOR(dim) \
     (double*)malloc((size_t)(dim)*sizeof(double))
 
 #define NL_DELETE_VECTOR(ptr) \
     free(ptr)
-
-#endif
 
 /******* extracted from nl_matrix.h *******/
 
@@ -566,7 +513,6 @@ void nlTransition(NLenum from_state, NLenum to_state);
 
 
 NLAPI NLuint NLAPIENTRY nlSolveSystemIterative(
-    NLBlas_t blas,
     NLMatrix M, NLMatrix P, NLdouble* b, NLdouble* x,
     double eps, NLuint max_iter, NLuint inner_iter
 );
@@ -810,7 +756,6 @@ static void nlCRSMatrixMult(
 		M,x,y,M->sliceptr[slice],M->sliceptr[slice+1]
 	    );
 	}
-    nlHostBlas()->flops += (NLulong)(2*nlCRSMatrixNNZ(M));
 }
 
 void nlCRSMatrixConstruct(
@@ -1028,7 +973,6 @@ void nlSparseMatrixMult(
 ) {
     nl_assert(A->type == NL_MATRIX_SPARSE_DYNAMIC);
     nlSparseMatrix_mult_rows(A, x, y);
-    nlHostBlas()->flops += (NLulong)(2*nlSparseMatrixNNZ(A));
 }
 
 NLMatrix nlSparseMatrixNew(
@@ -1249,16 +1193,13 @@ static NLboolean nlSolveIterative() {
     NLdouble* x = nlCurrentContext->x;
     NLuint n = nlCurrentContext->n;
     NLuint k;
-    NLBlas_t blas = nlHostBlas();
     NLMatrix M = nlCurrentContext->M;
     NLMatrix P = nlCurrentContext->P;
     
     nlCurrentContext->start_time = nlCurrentTime();     
-    nlBlasResetStats(blas);
     
     for(k=0; k<nlCurrentContext->nb_systems; ++k) {
 	nlSolveSystemIterative(
-	    blas,
 	    M,
 	    P,
 	    b,
@@ -1270,58 +1211,7 @@ static NLboolean nlSolveIterative() {
 	b += n;
 	x += n;
     }
-
-    nlCurrentContext->flops += blas->flops;
     return NL_TRUE;
-}
-
-/******* extracted from nl_blas.c *******/
-
-
-/*
- Many warnings about const double* converted to
- double* when calling BLAS functions that do not
- have the const qualifier in their prototypes.
-*/
-#ifdef __clang__
-#pragma GCC diagnostic ignored "-Wcast-qual"
-#pragma GCC diagnostic ignored "-Wcomma"
-#endif
-
-#ifndef NL_FORTRAN_WRAP
-#define NL_FORTRAN_WRAP(x) x##_
-#endif
-
-/* Abstract BLAS interface                                              */
-
-
-void nlBlasResetStats(NLBlas_t blas) {
-    blas->start_time = nlCurrentTime();
-    blas->flops = 0;
-    blas->used_ram[0] = 0;
-    blas->used_ram[1] = 0;
-    blas->max_used_ram[0] = 0;
-    blas->max_used_ram[1] = 0;
-    blas->sq_rnorm = 0.0;
-    blas->sq_bnorm = 0.0;
-}
-
-double nlBlasGFlops(NLBlas_t blas) {
-    double now = nlCurrentTime();
-    double elapsed_time = now - blas->start_time;
-    return (NLdouble)(blas->flops) / (elapsed_time * 1e9);
-}
-
-NLulong nlBlasUsedRam(NLBlas_t blas, NLmemoryType type) {
-    return blas->used_ram[type];
-}
-
-NLulong nlBlasMaxUsedRam(NLBlas_t blas, NLmemoryType type) {
-    return blas->max_used_ram[type];
-}
-
-NLboolean nlBlasHasUnifiedMemory(NLBlas_t blas) {
-    return blas->has_unified_memory;
 }
 
 static double ddot(int n, const double *x, const double *y)
@@ -1341,19 +1231,6 @@ static void dscal(int n, double a, double *x) {
 	for (int i = 0; i < n; i++)
 		x[i] *= a;
 }
-
-NLBlas_t nlHostBlas() {
-    static NLboolean initialized = NL_FALSE;
-    static struct NLBlas blas;
-    if(!initialized) {
-	memset(&blas, 0, sizeof(blas));
-	blas.has_unified_memory = NL_TRUE;
-	nlBlasResetStats(&blas);
-	initialized = NL_TRUE;
-    }
-    return &blas;
-}
-
 
 /******* extracted from nl_iterative_solvers.c *******/
 
@@ -1375,16 +1252,13 @@ NLBlas_t nlHostBlas() {
  *  This version is completely abstract, the same code can be used for 
  * CPU/GPU, dense matrix / sparse matrix etc...
  *  Abstraction is realized through:
- *   - Abstract blas interface (NLBlas_t), that can implement BLAS 
- *     operations on the CPU or on the GPU.
- *   - Abstract matrix interface (NLMatrix), that can implement different
+  *   - Abstract matrix interface (NLMatrix), that can implement different
  *     versions of matrix x vector product (CPU/GPU, sparse/dense ...)
  */
 
 static NLuint nlSolveSystem_PRE_CG(
-    NLBlas_t blas,
     NLMatrix M, NLMatrix P, NLdouble* b, NLdouble* x,
-    double eps, NLuint max_iter
+    double eps, NLuint max_iter, double *sq_bnorm, double *sq_rnorm
 ) {
     NLint     N        = (NLint)M->n;
     NLdouble* r = NL_NEW_VECTOR(N);
@@ -1426,15 +1300,14 @@ static NLuint nlSolveSystem_PRE_CG(
     NL_DELETE_VECTOR(r);
     NL_DELETE_VECTOR(d);
     NL_DELETE_VECTOR(h);
-    blas->sq_bnorm = b_square;
-    blas->sq_rnorm = curr_err;
+    *sq_bnorm = b_square;
+    *sq_rnorm = curr_err;
     return its;
 }
 
 /* Main driver routine */
 
 NLuint nlSolveSystemIterative(
-    NLBlas_t blas,
     NLMatrix M, NLMatrix P, NLdouble* b_in, NLdouble* x_in,
     double eps, NLuint max_iter, NLuint inner_iter
 ) {
@@ -1446,19 +1319,13 @@ NLuint nlSolveSystemIterative(
     double* x = x_in;
     nl_assert(M->m == M->n);
 
-    if(!nlBlasHasUnifiedMemory(blas)) {
-		b = NL_NEW_VECTOR((int)M->n);
-		memcpy(b, b_in, N * sizeof(double));
-		x = NL_NEW_VECTOR((int)M->n);
-		memcpy(x, x_in, N * sizeof(double));
-    }
-
-	result = nlSolveSystem_PRE_CG(blas,M,P,b,x,eps,max_iter);
+	double sq_bnorm, sq_rnorm;
+	result = nlSolveSystem_PRE_CG(M,P,b,x,eps,max_iter, &sq_bnorm, &sq_rnorm);
 
     /* Get residual norm and rhs norm from BLAS context */
     if(nlCurrentContext != NULL) {
-	bnorm = sqrt(blas->sq_bnorm);
-	rnorm = sqrt(blas->sq_rnorm);
+	bnorm = sqrt(sq_bnorm);
+	rnorm = sqrt(sq_rnorm);
 	if(bnorm == 0.0) {
 	    nlCurrentContext->error = rnorm;
 	} else {
@@ -1466,13 +1333,6 @@ NLuint nlSolveSystemIterative(
 	}
     }
     nlCurrentContext->used_iterations = result;
-
-    if(!nlBlasHasUnifiedMemory(blas)) {
-		memcpy(x_in, x, N * sizeof(double));
-		NL_DELETE_VECTOR(x);
-		NL_DELETE_VECTOR(b);
-    }
-    
     return result;
 }
 
@@ -1510,7 +1370,6 @@ static void nlJacobiPreconditionerMult(
     for(i=0; i<M->n; ++i) {
 	y[i] = x[i] * M->diag_inv[i];
     }
-    nlHostBlas()->flops += (NLulong)(M->n);    
 }
 
 NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in) {
