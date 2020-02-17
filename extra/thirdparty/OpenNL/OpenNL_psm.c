@@ -56,53 +56,16 @@
  *   http://alice.loria.fr/software/geogram/doc/html/nl_8h.html
  */
 
-
-
-/******* extracted from nl_private.h *******/
-
-#ifndef OPENNL_PRIVATE_H
-#define OPENNL_PRIVATE_H
-
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 
-
-#if defined(__APPLE__) && defined(__MACH__)
-#define NL_OS_APPLE
-#endif
-
-#if defined(__linux__) || defined(__ANDROID__) || defined(NL_OS_APPLE)
-#define NL_OS_UNIX
-#endif
-
-
-#if defined(WIN32) || defined(_WIN64)
-#define NL_OS_WINDOWS
-#endif
-
 #define nl_arg_used(x) (void)x
 
-
-#if defined(__clang__) || defined(__GNUC__)
-#define NL_NORETURN __attribute__((noreturn))
-#else
-#define NL_NORETURN 
-#endif
-
-#if defined(_MSC_VER)
-#define NL_NORETURN_DECL __declspec(noreturn) 
-#else
-#define NL_NORETURN_DECL 
-#endif
-
 void nlError(const char* function, const char* message) ;
-
 void nlWarning(const char* function, const char* message) ;
-
-/* classic macros */
 
 #ifndef MIN
 #define MIN(x,y) (((x) < (y)) ? (x) : (y)) 
@@ -112,34 +75,16 @@ void nlWarning(const char* function, const char* message) ;
 #define MAX(x,y) (((x) > (y)) ? (x) : (y)) 
 #endif
 
-
-
 #define NL_NEW(T)                (T*)(calloc(1, sizeof(T))) 
-
 #define NL_NEW_ARRAY(T,NB)       (T*)(calloc((size_t)(NB),sizeof(T)))
-
 #define NL_RENEW_ARRAY(T,x,NB)   (T*)(realloc(x,(size_t)(NB)*sizeof(T))) 
-
 #define NL_DELETE(x)             free(x); x = NULL 
-
 #define NL_DELETE_ARRAY(x)       free(x); x = NULL
-
-#define NL_CLEAR(T, x)           memset(x, 0, sizeof(T)) 
-
 #define NL_CLEAR_ARRAY(T,x,NB)   memset(x, 0, (size_t)(NB)*sizeof(T)) 
-
-
-#define NL_UINT_MAX 0xffffffff
-
-#define NL_USHORT_MAX 0xffff
-
 
 extern NLprintfFunc nl_printf;
 
 extern NLfprintfFunc nl_fprintf;
-
-
-#endif
 
 #define NL_NEW_VECTOR(dim) \
     (double*)malloc((size_t)(dim)*sizeof(double))
@@ -673,9 +618,6 @@ void nlSparseMatrixDestroy(NLSparseMatrix* M) {
     assert(M->type == NL_MATRIX_SPARSE_DYNAMIC);
     nlSparseMatrixDestroyRowColumns(M);
     NL_DELETE_ARRAY(M->diag);
-#ifdef NL_PARANOID
-    NL_CLEAR(NLSparseMatrix,M);
-#endif
 }
 
 void nlSparseMatrixAdd(NLSparseMatrix* M, NLuint i, NLuint j, NLdouble value) {
@@ -1028,9 +970,6 @@ void nlDeleteContext(NLContext context_in) {
     NL_DELETE_ARRAY(context->x);
     NL_DELETE_ARRAY(context->b);
 
-#ifdef NL_PARANOID
-    NL_CLEAR(NLContextStruct, context);
-#endif
     NL_DELETE(context);
 }
 
