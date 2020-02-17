@@ -64,9 +64,6 @@
 
 #define nl_arg_used(x) (void)x
 
-void nlError(const char* function, const char* message) ;
-void nlWarning(const char* function, const char* message) ;
-
 #ifndef MIN
 #define MIN(x,y) (((x) < (y)) ? (x) : (y)) 
 #endif
@@ -81,10 +78,6 @@ void nlWarning(const char* function, const char* message) ;
 #define NL_DELETE(x)             free(x); x = NULL 
 #define NL_DELETE_ARRAY(x)       free(x); x = NULL
 #define NL_CLEAR_ARRAY(T,x,NB)   memset(x, 0, (size_t)(NB)*sizeof(T)) 
-
-extern NLprintfFunc nl_printf;
-
-extern NLfprintfFunc nl_fprintf;
 
 #define NL_NEW_VECTOR(dim) \
     (double*)malloc((size_t)(dim)*sizeof(double))
@@ -294,23 +287,6 @@ void nlTransition(NLenum from_state, NLenum to_state);
 #include <sys/times.h> 
 #endif
 
-/* Error-reporting functions */
-
-NLprintfFunc nl_printf = printf;
-NLfprintfFunc nl_fprintf = fprintf;
-
-void nlError(const char* function, const char* message) {
-    nl_fprintf(stderr, "OpenNL error in %s(): %s\n", function, message) ; 
-}
-
-void nlWarning(const char* function, const char* message) {
-    nl_fprintf(stderr, "OpenNL warning in %s(): %s\n", function, message) ; 
-}
-
-void nlPrintfFuncs(NLprintfFunc f1, NLfprintfFunc f2) {
-    nl_printf = f1;
-    nl_fprintf = f2;
-}
 
 void nlDeleteMatrix(NLMatrix M) {
     if(M == NULL) {
@@ -1071,7 +1047,6 @@ void nlSolverParameterd(NLenum pname, NLdouble param) {
         nlCurrentContext->omega = (NLdouble)param;
     } break;
     default: {
-        nlError("nlSolverParameterd","Invalid parameter");
         assert(0);
     }
     }
@@ -1102,7 +1077,6 @@ void nlSolverParameteri(NLenum pname, NLint param) {
         nlCurrentContext->preconditioner_defined = NL_TRUE;
     } break;
     default: {
-        nlError("nlSolverParameteri","Invalid parameter");
         assert(0);
     }
     }
@@ -1120,7 +1094,6 @@ void nlGetDoublev(NLenum pname, NLdouble* params) {
         *params = nlCurrentContext->error;
     } break;
     default: {
-        nlError("nlGetDoublev","Invalid parameter");
         assert(0);
     } 
     }
@@ -1144,7 +1117,6 @@ void nlGetIntegerv(NLenum pname, NLint* params) {
         *params = (NLint)(nlCurrentContext->preconditioner);        
     } break;
     default: {
-        nlError("nlGetIntegerv","Invalid parameter");
         assert(0);
     } 
     }
@@ -1158,7 +1130,6 @@ void  nlSetFunction(NLenum pname, NLfunc param) {
         nlCurrentContext->progress_func = (NLProgressFunc)(param);
         break;
     default:
-        nlError("nlSetFunction","Invalid parameter");        
         assert(0);
     }
 }

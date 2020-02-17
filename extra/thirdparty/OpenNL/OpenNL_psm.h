@@ -166,14 +166,6 @@ typedef void* NLContext;
 
     NLboolean nlSolve(void);
 
-    typedef int (*NLprintfFunc)(const char* format, ...);
-
-    typedef int (*NLfprintfFunc)(FILE* out, const char* format, ...);
-    
-    void nlPrintfFuncs(NLprintfFunc f1, NLfprintfFunc f2);
-    
-    
-
 #ifdef __cplusplus
 }
 #endif
