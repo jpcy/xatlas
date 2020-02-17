@@ -4661,15 +4661,15 @@ static void nlSparseMatrixDestroyRowColumns(NLSparseMatrix* M)
 
 static void nlSparseMatrixDestroy(NLSparseMatrix* M)
 {
-	assert(M->type == NL_MATRIX_SPARSE_DYNAMIC);
+	XA_DEBUG_ASSERT(M->type == NL_MATRIX_SPARSE_DYNAMIC);
 	nlSparseMatrixDestroyRowColumns(M);
 	NL_DELETE_ARRAY(M->diag);
 }
 
 static void nlSparseMatrixAdd(NLSparseMatrix* M, uint32_t i, uint32_t j, double value)
 {
-	assert(i >= 0 && i <= M->m - 1);
-	assert(j >= 0 && j <= M->n - 1);
+	XA_DEBUG_ASSERT(i >= 0 && i <= M->m - 1);
+	XA_DEBUG_ASSERT(j >= 0 && j <= M->n - 1);
 	if (i == j)
 		M->diag[i] += value;
 	nlRowColumnAdd(&(M->row[i]), j, value);
@@ -4715,7 +4715,7 @@ static void nlSparseMatrix_mult_rows(NLSparseMatrix* A,	const double* x, double*
 
 static void nlSparseMatrixMult(NLSparseMatrix* A, const double* x, double* y)
 {
-	assert(A->type == NL_MATRIX_SPARSE_DYNAMIC);
+	XA_DEBUG_ASSERT(A->type == NL_MATRIX_SPARSE_DYNAMIC);
 	nlSparseMatrix_mult_rows(A, x, y);
 }
 
@@ -4908,7 +4908,7 @@ static uint32_t nlSolveSystemIterative(NLContext *context, NLMatrix M, NLMatrix 
 	double bnorm = 0.0;
 	double* b = b_in;
 	double* x = x_in;
-	assert(M->m == M->n);
+	XA_DEBUG_ASSERT(M->m == M->n);
 	double sq_bnorm, sq_rnorm;
 	result = nlSolveSystem_PRE_CG(M, P, b, x, eps, max_iter, &sq_bnorm, &sq_rnorm);
 	/* Get residual norm and rhs norm */
@@ -4962,8 +4962,8 @@ static NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in)
 {
 	NLSparseMatrix* M = nullptr;
 	NLJacobiPreconditioner* result = nullptr;
-	assert(M_in->type == NL_MATRIX_SPARSE_DYNAMIC);
-	assert(M_in->m == M_in->n);
+	XA_DEBUG_ASSERT(M_in->type == NL_MATRIX_SPARSE_DYNAMIC);
+	XA_DEBUG_ASSERT(M_in->m == M_in->n);
 	M = (NLSparseMatrix*)M_in;
 	result = NL_NEW(NLJacobiPreconditioner);
 	NL_CLEAR(result, NLJacobiPreconditioner);
@@ -4985,10 +4985,10 @@ static NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in)
 static void nlSolverParameteri(NLContext *context, uint32_t pname, int param)
 {
 	if (pname == NL_NB_VARIABLES) {
-		assert(param > 0);
+		XA_DEBUG_ASSERT(param > 0);
 		context->nb_variables = (uint32_t)param;
 	} else if (pname == NL_MAX_ITERATIONS) {
-		assert(param > 0);
+		XA_DEBUG_ASSERT(param > 0);
 		context->max_iterations = (uint32_t)param;
 		context->max_iterations_defined = true;
 	}
@@ -4996,31 +4996,31 @@ static void nlSolverParameteri(NLContext *context, uint32_t pname, int param)
 
 static void nlSetVariable(NLContext *context, uint32_t index, double value)
 {
-	assert(index >= 0 && index <= context->nb_variables - 1);
+	XA_DEBUG_ASSERT(index >= 0 && index <= context->nb_variables - 1);
 	NL_BUFFER_ITEM(context->variable_buffer[0], index) = value;
 }
 
 static double nlGetVariable(NLContext *context, uint32_t index)
 {
-	assert(index >= 0 && index <= context->nb_variables - 1);
+	XA_DEBUG_ASSERT(index >= 0 && index <= context->nb_variables - 1);
 	return NL_BUFFER_ITEM(context->variable_buffer[0], index);
 }
 
 static void nlLockVariable(NLContext *context, uint32_t index)
 {
-	assert(index >= 0 && index <= context->nb_variables - 1);
+	XA_DEBUG_ASSERT(index >= 0 && index <= context->nb_variables - 1);
 	context->variable_is_locked[index] = true;
 }
 
 static void nlVariablesToVector(NLContext *context)
 {
 	uint32_t n = context->n;
-	assert(context->x);
+	XA_DEBUG_ASSERT(context->x);
 	for (uint32_t k = 0; k < context->nb_systems; ++k) {
 		for (uint32_t i = 0; i < context->nb_variables; ++i) {
 			if (!context->variable_is_locked[i]) {
 				uint32_t index = context->variable_index[i];
-				assert(index < context->n);
+				XA_DEBUG_ASSERT(index < context->n);
 				double value = NL_BUFFER_ITEM(context->variable_buffer[k], i);
 				context->x[index + k * n] = value;
 			}
@@ -5031,12 +5031,12 @@ static void nlVariablesToVector(NLContext *context)
 static void nlVectorToVariables(NLContext *context)
 {
 	uint32_t n = context->n;
-	assert(context->x);
+	XA_DEBUG_ASSERT(context->x);
 	for (uint32_t k = 0; k < context->nb_systems; ++k) {
 		for (uint32_t i = 0; i < context->nb_variables; ++i) {
 			if (!context->variable_is_locked[i]) {
 				uint32_t index = context->variable_index[i];
-				assert(index < context->n);
+				XA_DEBUG_ASSERT(index < context->n);
 				double value = context->x[index + k * n];
 				NL_BUFFER_ITEM(context->variable_buffer[k], i) = value;
 			}
@@ -5046,7 +5046,7 @@ static void nlVectorToVariables(NLContext *context)
 
 static void nlCoefficient(NLContext *context, uint32_t index, double value)
 {
-	assert(index >= 0 && index <= context->nb_variables - 1);
+	XA_DEBUG_ASSERT(index >= 0 && index <= context->nb_variables - 1);
 	if (context->variable_is_locked[index]) {
 		/*
 		 * Note: in al, indices are NLvariable indices,
@@ -5069,7 +5069,7 @@ static void nlCoefficient(NLContext *context, uint32_t index, double value)
 static void nlBegin(NLContext *context, uint32_t prim)
 {
 	if (prim == NL_SYSTEM) {
-		assert(context->nb_variables > 0);
+		XA_DEBUG_ASSERT(context->nb_variables > 0);
 		context->variable_buffer = NL_NEW_ARRAY(NLBufferBinding, context->nb_systems);
 		NL_CLEAR_ARRAY(NLBufferBinding, context->variable_buffer, context->nb_systems);
 		context->variable_value = NL_NEW_ARRAY(double, context->nb_variables * context->nb_systems);
@@ -6642,7 +6642,7 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 		double b = z1.y - z0.y;
 		double c = z2.x - z0.x;
 		double d = z2.y - z0.y;
-		assert(b == 0.0);
+		XA_DEBUG_ASSERT(b == 0.0);
 		// Note  : 2*id + 0 --> u
 		//         2*id + 1 --> v
 		uint32_t u0_id = 2 * v0;
