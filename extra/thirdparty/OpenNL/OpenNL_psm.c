@@ -63,6 +63,7 @@
 #ifndef OPENNL_PRIVATE_H
 #define OPENNL_PRIVATE_H
 
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -96,55 +97,6 @@
 #else
 #define NL_NORETURN_DECL 
 #endif
-
-NL_NORETURN_DECL void nl_assertion_failed(
-    const char* cond, const char* file, int line
-) NL_NORETURN;
-
-NL_NORETURN_DECL void nl_range_assertion_failed(
-    double x, double min_val, double max_val, const char* file, int line
-) NL_NORETURN;
-
-NL_NORETURN_DECL void nl_should_not_have_reached(
-    const char* file, int line
-) NL_NORETURN;
-
-#define nl_assert(x) {                                          \
-    if(!(x)) {                                                  \
-        nl_assertion_failed(#x,__FILE__, __LINE__) ;            \
-    }                                                           \
-} 
-
-#define nl_range_assert(x,min_val,max_val) {                    \
-    if(((x) < (min_val)) || ((x) > (max_val))) {                \
-        nl_range_assertion_failed(x, min_val, max_val,          \
-            __FILE__, __LINE__                                  \
-        ) ;                                                     \
-    }                                                           \
-}
-
-#define nl_assert_not_reached {                                 \
-    nl_should_not_have_reached(__FILE__, __LINE__) ;            \
-}
-
-#ifdef NL_DEBUG
-    #define nl_debug_assert(x) nl_assert(x)
-    #define nl_debug_range_assert(x,min_val,max_val)            \
-                               nl_range_assert(x,min_val,max_val)
-#else
-    #define nl_debug_assert(x) 
-    #define nl_debug_range_assert(x,min_val,max_val) 
-#endif
-
-#ifdef NL_PARANOID
-    #define nl_parano_assert(x) nl_assert(x)
-    #define nl_parano_range_assert(x,min_val,max_val)           \
-                               nl_range_assert(x,min_val,max_val)
-#else
-    #define nl_parano_assert(x) 
-    #define nl_parano_range_assert(x,min_val,max_val) 
-#endif
-
 
 void nlError(const char* function, const char* message) ;
 
@@ -531,39 +483,6 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M);
 #include <sys/times.h> 
 #endif
 
-/* Assertions */
-
-
-void nl_assertion_failed(const char* cond, const char* file, int line) {
-    nl_fprintf(
-        stderr, 
-        "OpenNL assertion failed: %s, file:%s, line:%d\n",
-        cond,file,line
-    ) ;
-    abort() ;
-}
-
-void nl_range_assertion_failed(
-    double x, double min_val, double max_val, const char* file, int line
-) {
-    nl_fprintf(
-        stderr, 
-        "OpenNL range assertion failed: "
-	"%f in [ %f ... %f ], file:%s, line:%d\n",
-        x, min_val, max_val, file,line
-    ) ;
-    abort() ;
-}
-
-void nl_should_not_have_reached(const char* file, int line) {
-    nl_fprintf(
-        stderr, 
-        "OpenNL should not have reached this point: file:%s, line:%d\n",
-        file,line
-    ) ;
-    abort() ;
-}
-
 /* Error-reporting functions */
 
 NLprintfFunc nl_printf = printf;
@@ -751,7 +670,7 @@ static void nlSparseMatrixDestroyRowColumns(NLSparseMatrix* M) {
 }
 
 void nlSparseMatrixDestroy(NLSparseMatrix* M) {
-    nl_assert(M->type == NL_MATRIX_SPARSE_DYNAMIC);
+    assert(M->type == NL_MATRIX_SPARSE_DYNAMIC);
     nlSparseMatrixDestroyRowColumns(M);
     NL_DELETE_ARRAY(M->diag);
 #ifdef NL_PARANOID
@@ -760,8 +679,8 @@ void nlSparseMatrixDestroy(NLSparseMatrix* M) {
 }
 
 void nlSparseMatrixAdd(NLSparseMatrix* M, NLuint i, NLuint j, NLdouble value) {
-    nl_parano_range_assert(i, 0, M->m - 1);
-    nl_parano_range_assert(j, 0, M->n - 1);
+    assert(i >= 0 && i <= M->m - 1);
+    assert(j >= 0 && j <= M->n - 1);
     if(i == j) {
         M->diag[i] += value;
     }
@@ -772,8 +691,8 @@ static void nlSparseMatrixAddSparseMatrix(
     NLSparseMatrix* M, double mul, const NLSparseMatrix* N    
 ) {
     NLuint i,jj;
-    nl_assert(M->m == N->m);
-    nl_assert(M->n == N->n);
+    assert(M->m == N->m);
+    assert(M->n == N->n);
 	for(i=0; i<N->m; ++i) {
 	    for(jj=0; jj<N->row[i].size; ++jj) {
 		nlSparseMatrixAdd(
@@ -789,8 +708,8 @@ static void nlSparseMatrixAddCRSMatrix(
     NLSparseMatrix* M, double mul, const NLCRSMatrix* N    
 ) {
     NLuint i,jj;
-    nl_assert(M->m == N->m);
-    nl_assert(M->n == N->n);
+    assert(M->m == N->m);
+    assert(M->n == N->n);
     for(i=0; i<M->m; ++i) {
 	for(jj=N->rowptr[i]; jj<N->rowptr[i+1]; ++jj) {
 	    nlSparseMatrixAdd(
@@ -806,14 +725,14 @@ static void nlSparseMatrixAddCRSMatrix(
 void nlSparseMatrixAddMatrix(
     NLSparseMatrix* M, double mul, const NLMatrix N
 ) {
-    nl_assert(M->m == N->m);
-    nl_assert(M->n == N->n);
+    assert(M->m == N->m);
+    assert(M->n == N->n);
     if(N->type == NL_MATRIX_SPARSE_DYNAMIC) {
 	nlSparseMatrixAddSparseMatrix(M, mul, (const NLSparseMatrix*)N);
     } else if(N->type == NL_MATRIX_CRS) {
 	nlSparseMatrixAddCRSMatrix(M, mul, (const NLCRSMatrix*)N);	
     } else {
-	nl_assert_not_reached;
+	assert(0);
     }
 }
     
@@ -859,8 +778,8 @@ void nlSparseMatrixMAddRow(
     NLRowColumn* Ri2 = &(M->row[i2]);
     NLCoeff* c = NULL;
 
-    nl_debug_assert(i1 < M->m);
-    nl_debug_assert(i2 < M->m);
+    assert(i1 < M->m);
+    assert(i2 < M->m);
     
     for(jj=0; jj<Ri2->size; ++jj) {
 	c = &(Ri2->coeff[jj]);
@@ -875,7 +794,7 @@ void nlSparseMatrixScaleRow(
     NLRowColumn* Ri = &(M->row[i]);
     NLCoeff* c = NULL;
 
-    nl_debug_assert(i < M->m);
+    assert(i < M->m);
     
     for(jj=0; jj<Ri->size; ++jj) {
 	c = &(Ri->coeff[jj]);
@@ -891,7 +810,7 @@ void nlSparseMatrixZeroRow(
 ) {
     NLRowColumn* Ri = &(M->row[i]);
 
-    nl_debug_assert(i < M->m);
+    assert(i < M->m);
     
     Ri->size = 0;
     if(i < M->diag_size) {
@@ -937,7 +856,7 @@ static void nlSparseMatrix_mult_rows(
 void nlSparseMatrixMult(
     NLSparseMatrix* A, const NLdouble* x, NLdouble* y
 ) {
-    nl_assert(A->type == NL_MATRIX_SPARSE_DYNAMIC);
+    assert(A->type == NL_MATRIX_SPARSE_DYNAMIC);
     nlSparseMatrix_mult_rows(A, x, y);
 }
 
@@ -1127,7 +1046,7 @@ NLContext nlGetCurrent() {
 /* Finite state automaton   */
 
 void nlCheckState(NLenum state) {
-    nl_assert(nlCurrentContext->state == state);
+    assert(nlCurrentContext->state == state);
 }
 
 void nlTransition(NLenum from_state, NLenum to_state) {
@@ -1149,7 +1068,7 @@ static void nlSetupPreconditioner() {
 	nlCurrentContext->P = nlNewJacobiPreconditioner(nlCurrentContext->M);
         break;
     default:
-        nl_assert_not_reached;
+        assert(0);
     }
     nlMatrixCompress(&nlCurrentContext->M);
 }
@@ -1281,7 +1200,7 @@ NLuint nlSolveSystemIterative(
     NLdouble bnorm=0.0; 
     double* b = b_in;
     double* x = x_in;
-    nl_assert(M->m == M->n);
+    assert(M->m == M->n);
 
 	double sq_bnorm, sq_rnorm;
 	result = nlSolveSystem_PRE_CG(M,P,b,x,eps,max_iter, &sq_bnorm, &sq_rnorm);
@@ -1340,8 +1259,8 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in) {
     NLSparseMatrix* M = NULL;
     NLJacobiPreconditioner* result = NULL;
     NLuint i;
-    nl_assert(M_in->type == NL_MATRIX_SPARSE_DYNAMIC);
-    nl_assert(M_in->m == M_in->n);
+    assert(M_in->type == NL_MATRIX_SPARSE_DYNAMIC);
+    assert(M_in->m == M_in->n);
     M = (NLSparseMatrix*)M_in;
     result = NL_NEW(NLJacobiPreconditioner);
     result->m = M->m;
@@ -1360,8 +1279,8 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in) {
 
 static NLSparseMatrix* nlGetCurrentSparseMatrix() {
     NLSparseMatrix* result = NULL;
-	nl_assert(nlCurrentContext->M != NULL);	    
-	nl_assert(nlCurrentContext->M->type == NL_MATRIX_SPARSE_DYNAMIC);
+	assert(nlCurrentContext->M != NULL);	    
+	assert(nlCurrentContext->M->type == NL_MATRIX_SPARSE_DYNAMIC);
 	return (NLSparseMatrix*)(nlCurrentContext->M);
 }
 
@@ -1371,17 +1290,16 @@ void nlSolverParameterd(NLenum pname, NLdouble param) {
     nlCheckState(NL_STATE_INITIAL);
     switch(pname) {
     case NL_THRESHOLD: {
-        nl_assert(param >= 0);
+        assert(param >= 0);
         nlCurrentContext->threshold = (NLdouble)param;
         nlCurrentContext->threshold_defined = NL_TRUE;
     } break;
     case NL_OMEGA: {
-        nl_range_assert(param,1.0,2.0);
         nlCurrentContext->omega = (NLdouble)param;
     } break;
     default: {
         nlError("nlSolverParameterd","Invalid parameter");
-        nl_assert_not_reached;
+        assert(0);
     }
     }
 }
@@ -1390,20 +1308,20 @@ void nlSolverParameteri(NLenum pname, NLint param) {
     nlCheckState(NL_STATE_INITIAL);
     switch(pname) {
     case NL_NB_VARIABLES: {
-        nl_assert(param > 0);
+        assert(param > 0);
         nlCurrentContext->nb_variables = (NLuint)param;
     } break;
     case NL_NB_SYSTEMS: {
-	nl_assert(param > 0);
+	assert(param > 0);
 	nlCurrentContext->nb_systems = (NLuint)param;
     } break;
     case NL_MAX_ITERATIONS: {
-        nl_assert(param > 0);
+        assert(param > 0);
         nlCurrentContext->max_iterations = (NLuint)param;
         nlCurrentContext->max_iterations_defined = NL_TRUE;
     } break;
     case NL_INNER_ITERATIONS: {
-        nl_assert(param > 0);
+        assert(param > 0);
         nlCurrentContext->inner_iterations = (NLuint)param;
     } break;
     case NL_PRECONDITIONER: {
@@ -1412,7 +1330,7 @@ void nlSolverParameteri(NLenum pname, NLint param) {
     } break;
     default: {
         nlError("nlSolverParameteri","Invalid parameter");
-        nl_assert_not_reached;
+        assert(0);
     }
     }
 }
@@ -1430,7 +1348,7 @@ void nlGetDoublev(NLenum pname, NLdouble* params) {
     } break;
     default: {
         nlError("nlGetDoublev","Invalid parameter");
-        nl_assert_not_reached;
+        assert(0);
     } 
     }
 }
@@ -1454,7 +1372,7 @@ void nlGetIntegerv(NLenum pname, NLint* params) {
     } break;
     default: {
         nlError("nlGetIntegerv","Invalid parameter");
-        nl_assert_not_reached;
+        assert(0);
     } 
     }
 }
@@ -1468,7 +1386,7 @@ void  nlSetFunction(NLenum pname, NLfunc param) {
         break;
     default:
         nlError("nlSetFunction","Invalid parameter");        
-        nl_assert_not_reached;
+        assert(0);
     }
 }
 
@@ -1476,19 +1394,19 @@ void  nlSetFunction(NLenum pname, NLfunc param) {
 
 void nlSetVariable(NLuint index, NLdouble value) {
     nlCheckState(NL_STATE_SYSTEM);
-    nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables - 1);
+    assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
     NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[0],index) = value;
 }
 
 NLdouble nlGetVariable(NLuint index) {
-    nl_assert(nlCurrentContext->state != NL_STATE_INITIAL);
-    nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables - 1);
+    assert(nlCurrentContext->state != NL_STATE_INITIAL);
+    assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
     return NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[0],index);
 }
 
 void nlLockVariable(NLuint index) {
     nlCheckState(NL_STATE_SYSTEM);
-    nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables - 1);
+    assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
     nlCurrentContext->variable_is_locked[index] = NL_TRUE;
 }
 
@@ -1499,12 +1417,12 @@ static void nlVariablesToVector() {
     NLuint k,i,index;
     NLdouble value;
     
-    nl_assert(nlCurrentContext->x != NULL);
+    assert(nlCurrentContext->x != NULL);
     for(k=0; k<nlCurrentContext->nb_systems; ++k) {
 	for(i=0; i<nlCurrentContext->nb_variables; ++i) {
 	    if(!nlCurrentContext->variable_is_locked[i]) {
 		index = nlCurrentContext->variable_index[i];
-		nl_assert(index < nlCurrentContext->n);		
+		assert(index < nlCurrentContext->n);		
 		value = NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[k],i);
 		nlCurrentContext->x[index+k*n] = value;
 	    }
@@ -1517,12 +1435,12 @@ static void nlVectorToVariables() {
     NLuint k,i,index;
     NLdouble value;
 
-    nl_assert(nlCurrentContext->x != NULL);
+    assert(nlCurrentContext->x != NULL);
     for(k=0; k<nlCurrentContext->nb_systems; ++k) {
 	for(i=0; i<nlCurrentContext->nb_variables; ++i) {
 	    if(!nlCurrentContext->variable_is_locked[i]) {
 		index = nlCurrentContext->variable_index[i];
-		nl_assert(index < nlCurrentContext->n);
+		assert(index < nlCurrentContext->n);
 		value = nlCurrentContext->x[index+k*n];
 		NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[k],i) = value;
 	    }
@@ -1535,7 +1453,7 @@ static void nlBeginSystem() {
     NLuint k;
     
     nlTransition(NL_STATE_INITIAL, NL_STATE_SYSTEM);
-    nl_assert(nlCurrentContext->nb_variables > 0);
+    assert(nlCurrentContext->nb_variables > 0);
 
     nlCurrentContext->variable_buffer = NL_NEW_ARRAY(
 	NLBufferBinding, nlCurrentContext->nb_systems
@@ -1664,7 +1582,7 @@ static void nlEndRow() {
 
 void nlCoefficient(NLuint index, NLdouble value) {
     nlCheckState(NL_STATE_ROW);
-    nl_debug_range_assert(index, 0, nlCurrentContext->nb_variables - 1);
+    assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
     if(nlCurrentContext->variable_is_locked[index]) {
 	/* 
 	 * Note: in al, indices are NLvariable indices, 
@@ -1700,7 +1618,7 @@ void nlBegin(NLenum prim) {
         nlBeginRow();
     } break;
     default: {
-        nl_assert_not_reached;
+        assert(0);
     }
     }
 }
@@ -1717,7 +1635,7 @@ void nlEnd(NLenum prim) {
         nlEndRow();
     } break;
     default: {
-        nl_assert_not_reached;
+        assert(0);
     }
     }
 }
