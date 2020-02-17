@@ -219,14 +219,8 @@ typedef void (*FUNPTR_dscal)(
     NLBlas_t blas, int n, double a, double *x, int incx
 );
 
-typedef void (*FUNPTR_daxpy)(
-    NLBlas_t blas, int n,
-    double a, const double *x, int incx, double *y, int incy
-);
-
 struct NLBlas {
     FUNPTR_dscal Dscal;
-    FUNPTR_daxpy Daxpy;
 
     NLboolean has_unified_memory;
     double start_time;
@@ -1344,10 +1338,7 @@ static double ddot(int n, const double *x, const double *y)
 	return sum;
 }
 
-static void host_blas_daxpy(
-    NLBlas_t blas, int n, double a, const double *x, int incx, double *y, int incy
-) {
-    blas->flops += (NLulong)(2*n);
+static void daxpy(int n, double a, const double *x, double *y) {
 	for (int i = 0; i < n; i++)
 		y[i] = a * x[i] + y[i];
 }
@@ -1366,7 +1357,6 @@ NLBlas_t nlHostBlas() {
     if(!initialized) {
 	memset(&blas, 0, sizeof(blas));
 	blas.has_unified_memory = NL_TRUE;
-	blas.Daxpy = host_blas_daxpy;
 	blas.Dscal = host_blas_dscal;
 	nlBlasResetStats(&blas);
 	initialized = NL_TRUE;
@@ -1418,7 +1408,7 @@ static NLuint nlSolveSystem_PRE_CG(
     NLdouble curr_err;
 
     nlMultMatrixVector(M,x,r);
-    blas->Daxpy(blas,N,-1.,b,1,r,1);
+    daxpy(N,-1.,b,r);
     nlMultMatrixVector(P,r,d);
 	memcpy(h, d, N * sizeof(NLdouble));
     rh=ddot(N,r,h);
@@ -1432,14 +1422,14 @@ static NLuint nlSolveSystem_PRE_CG(
 	}
 	nlMultMatrixVector(M,d,Ad);
         alpha=rh/ddot(N,d,Ad);
-        blas->Daxpy(blas,N,-alpha,d,1,x,1);
-        blas->Daxpy(blas,N,-alpha,Ad,1,r,1);
+        daxpy(N,-alpha,d,x);
+        daxpy(N,-alpha,Ad,r);
 	nlMultMatrixVector(P,r,h);
         beta=1./rh;
 	rh=ddot(N,r,h);
 	beta*=rh;
         blas->Dscal(blas,N,beta,d,1);
-        blas->Daxpy(blas,N,1.,h,1,d,1);
+        daxpy(N,1.,h,d);
         ++its;
         curr_err = ddot(N,r,r);
     }
