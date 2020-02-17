@@ -223,13 +223,6 @@ typedef void (*FUNPTR_free)(
     NLBlas_t blas, NLmemoryType type, size_t size, void* ptr
 );
 
-typedef void (*FUNPTR_memcpy)(
-    NLBlas_t blas,
-    void* to, NLmemoryType to_type,
-    void* from, NLmemoryType from_type,
-    size_t size
-);
-
 typedef void (*FUNPTR_dscal)(
     NLBlas_t blas, int n, double a, double *x, int incx
 );
@@ -247,7 +240,6 @@ typedef void (*FUNPTR_daxpy)(
 struct NLBlas {
     FUNPTR_malloc Malloc;
     FUNPTR_free Free;
-    FUNPTR_memcpy Memcpy;
 
     FUNPTR_dscal Dscal;
     FUNPTR_ddot  Ddot;
@@ -1382,18 +1374,6 @@ static void host_blas_free(
     free(ptr);
 }
 
-static void host_blas_memcpy(
-    NLBlas_t blas,
-    void* to, NLmemoryType to_type,
-    void* from, NLmemoryType from_type,
-    size_t size
-) {
-    nl_arg_used(blas);
-    nl_arg_used(to_type);
-    nl_arg_used(from_type);
-    memcpy(to,from,size);
-}
-
 static double host_blas_ddot(
     NLBlas_t blas, int n, const double *x, int incx, const double *y, int incy    
 ) {
@@ -1428,7 +1408,6 @@ NLBlas_t nlHostBlas() {
 	blas.has_unified_memory = NL_TRUE;
 	blas.Malloc = host_blas_malloc;
 	blas.Free = host_blas_free;
-	blas.Memcpy = host_blas_memcpy;
 	blas.Ddot = host_blas_ddot;
 	blas.Daxpy = host_blas_daxpy;
 	blas.Dscal = host_blas_dscal;
@@ -1484,7 +1463,7 @@ static NLuint nlSolveSystem_PRE_CG(
     nlMultMatrixVector(M,x,r);
     blas->Daxpy(blas,N,-1.,b,1,r,1);
     nlMultMatrixVector(P,r,d);
-	blas->Memcpy(blas, h, NL_HOST_MEMORY, d, NL_HOST_MEMORY, N * sizeof(NLdouble));
+	memcpy(h, d, N * sizeof(NLdouble));
     rh=blas->Ddot(blas,N,r,1,h,1);
     curr_err = blas->Ddot(blas,N,r,1,r,1);
 
@@ -1531,18 +1510,10 @@ NLuint nlSolveSystemIterative(
     nl_assert(M->m == M->n);
 
     if(!nlBlasHasUnifiedMemory(blas)) {
-	b = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n);
-	blas->Memcpy(
-	    blas,
-	    b, NL_DEVICE_MEMORY,
-	    b_in, NL_HOST_MEMORY, (size_t)N*sizeof(double)
-	);
-	x = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n);
-	blas->Memcpy(
-	    blas,
-	    x, NL_DEVICE_MEMORY,
-	    x_in, NL_HOST_MEMORY, (size_t)N*sizeof(double)
-	);	
+		b = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n);
+		memcpy(b, b_in, N * sizeof(double));
+		x = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n);
+		memcpy(x, x_in, N * sizeof(double));
     }
 
 	result = nlSolveSystem_PRE_CG(blas,M,P,b,x,eps,max_iter);
@@ -1560,12 +1531,9 @@ NLuint nlSolveSystemIterative(
     nlCurrentContext->used_iterations = result;
 
     if(!nlBlasHasUnifiedMemory(blas)) {
-	blas->Memcpy(
-	    blas,
-	    x_in, NL_HOST_MEMORY, x, NL_DEVICE_MEMORY, (size_t)N*sizeof(double)
-	);	
-	NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n, x);
-	NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n, b);
+		memcpy(x_in, x, N * sizeof(double));
+		NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n, x);
+		NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n, b);
     }
     
     return result;
