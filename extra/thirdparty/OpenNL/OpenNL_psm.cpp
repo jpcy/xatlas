@@ -1058,124 +1058,6 @@ static void nlVectorToVariables() {
     }
 }
 
-
-static void nlBeginSystem() {
-    NLuint k;
-    
-    assert(nlCurrentContext->nb_variables > 0);
-
-    nlCurrentContext->variable_buffer = NL_NEW_ARRAY(
-	NLBufferBinding, nlCurrentContext->nb_systems
-    );
-    
-	nlCurrentContext->variable_value = NL_NEW_ARRAY(
-	    NLdouble,
-	    nlCurrentContext->nb_variables * nlCurrentContext->nb_systems
-	);
-	for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	    nlCurrentContext->variable_buffer[k].base_address =
-		nlCurrentContext->variable_value +
-		k * nlCurrentContext->nb_variables;
-	    nlCurrentContext->variable_buffer[k].stride = sizeof(NLdouble);
-	}
-    
-    nlCurrentContext->variable_is_locked = NL_NEW_ARRAY(
-	NLboolean, nlCurrentContext->nb_variables
-    );
-    nlCurrentContext->variable_index = NL_NEW_ARRAY(
-	NLuint, nlCurrentContext->nb_variables
-    );
-}
-
-static void nlInitializeM() {
-    NLuint i;
-    NLuint n = 0;
-
-    for(i=0; i<nlCurrentContext->nb_variables; i++) {
-        if(!nlCurrentContext->variable_is_locked[i]) {
-            nlCurrentContext->variable_index[i] = n;
-            n++;
-        } else {
-            nlCurrentContext->variable_index[i] = (NLuint)~0;
-        }
-    }
-
-    nlCurrentContext->n = n;
-    if(!nlCurrentContext->max_iterations_defined) {
-        nlCurrentContext->max_iterations = n*5;
-    }
-
-    nlCurrentContext->M = (NLMatrix)(NL_NEW(NLSparseMatrix));
-    nlSparseMatrixConstruct(
-	     (NLSparseMatrix*)(nlCurrentContext->M), n, n
-    );
-
-    nlCurrentContext->x = NL_NEW_ARRAY(
-	NLdouble, n*nlCurrentContext->nb_systems
-    );
-    nlCurrentContext->b = NL_NEW_ARRAY(
-	NLdouble, n*nlCurrentContext->nb_systems
-    );
-
-    nlVariablesToVector();
-
-    nlRowColumnConstruct(&nlCurrentContext->af);
-    nlRowColumnConstruct(&nlCurrentContext->al);
-
-    nlCurrentContext->current_row = 0;
-}
-
-static void nlEndMatrix() {
-    nlRowColumnClear(&nlCurrentContext->af);
-    nlRowColumnClear(&nlCurrentContext->al);
-}
-
-static void nlBeginRow() {
-    nlRowColumnZero(&nlCurrentContext->af);
-    nlRowColumnZero(&nlCurrentContext->al);
-}
-
-static void nlEndRow() {
-    NLRowColumn*    af = &nlCurrentContext->af;
-    NLRowColumn*    al = &nlCurrentContext->al;
-    NLSparseMatrix* M  = nlGetCurrentSparseMatrix();
-    NLdouble* b        = nlCurrentContext->b;
-    NLuint nf          = af->size;
-    NLuint nl          = al->size;
-    NLuint n           = nlCurrentContext->n;
-    NLuint current_row = nlCurrentContext->current_row;
-    NLuint i,j,jj;
-    NLdouble S;
-    NLuint k;
-
-    /*
-     * least_squares : we want to solve
-     * A'A x = A'b
-     */
-    for(i=0; i<nf; i++) {
-        for(j=0; j<nf; j++) {
-            nlSparseMatrixAdd(
-                M, af->coeff[i].index, af->coeff[j].index,
-                af->coeff[i].value * af->coeff[j].value
-            );
-        }
-    }
-	for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	    S = 0.0;
-	    for(jj=0; jj<nl; ++jj) {
-		j = al->coeff[jj].index;
-		S += al->coeff[jj].value *
-		    NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[k],j);
-	    }
-	    for(jj=0; jj<nf; jj++) {
-		b[ k*n+af->coeff[jj].index ] -= af->coeff[jj].value * S;
-	    }
-	}
-    nlCurrentContext->current_row++;
-    for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-    }
-}
-
 void nlCoefficient(NLContext *context, NLuint index, NLdouble value) {
     assert(index >= 0 && index <= context->nb_variables - 1);
     if(context->variable_is_locked[index]) {
@@ -1197,44 +1079,119 @@ void nlCoefficient(NLContext *context, NLuint index, NLdouble value) {
 }
 
 void nlBegin(NLContext *context, NLenum prim) {
-    switch(prim) {
-    case NL_SYSTEM: {
-        nlBeginSystem();
-    } break;
-    case NL_MATRIX: {
-	if(
-	    context->M == NULL
-	) {
-	    nlInitializeM();
-	}
-    } break;
-    case NL_ROW: {
-        nlBeginRow();
-    } break;
-    default: {
-        assert(0);
-    }
+	if (prim == NL_SYSTEM) {
+        NLuint k;
+    
+		assert(context->nb_variables > 0);
+
+		context->variable_buffer = NL_NEW_ARRAY(
+		NLBufferBinding, context->nb_systems
+		);
+    
+		context->variable_value = NL_NEW_ARRAY(
+			NLdouble,
+			context->nb_variables * context->nb_systems
+		);
+		for(k=0; k<context->nb_systems; ++k) {
+			context->variable_buffer[k].base_address =
+			context->variable_value +
+			k * context->nb_variables;
+			context->variable_buffer[k].stride = sizeof(NLdouble);
+		}
+    
+		context->variable_is_locked = NL_NEW_ARRAY(
+		NLboolean, context->nb_variables
+		);
+		context->variable_index = NL_NEW_ARRAY(
+		NLuint, context->nb_variables
+		);
+	} else if (prim == NL_MATRIX) {
+		if (context->M != NULL)
+			return;
+		NLuint i;
+		NLuint n = 0;
+
+		for(i=0; i<context->nb_variables; i++) {
+			if(!context->variable_is_locked[i]) {
+				context->variable_index[i] = n;
+				n++;
+			} else {
+				context->variable_index[i] = (NLuint)~0;
+			}
+		}
+
+		context->n = n;
+		if(!context->max_iterations_defined) {
+			context->max_iterations = n*5;
+		}
+
+		context->M = (NLMatrix)(NL_NEW(NLSparseMatrix));
+		nlSparseMatrixConstruct(
+			 (NLSparseMatrix*)(context->M), n, n
+		);
+
+		context->x = NL_NEW_ARRAY(
+		NLdouble, n*context->nb_systems
+		);
+		context->b = NL_NEW_ARRAY(
+		NLdouble, n*context->nb_systems
+		);
+
+		nlVariablesToVector();
+
+		nlRowColumnConstruct(&context->af);
+		nlRowColumnConstruct(&context->al);
+
+		context->current_row = 0;
+    } else if (prim == NL_ROW) {
+        nlRowColumnZero(&context->af);
+		nlRowColumnZero(&context->al);
     }
 }
 
 void nlEnd(NLContext *context, NLenum prim) {
-    switch(prim) {
-    case NL_SYSTEM: {
-    } break;
-    case NL_MATRIX: {
-        nlEndMatrix();
-    } break;
-    case NL_ROW: {
-        nlEndRow();
-    } break;
-    default: {
-        assert(0);
-    }
+    if (prim == NL_MATRIX) {
+        nlRowColumnClear(&context->af);
+		nlRowColumnClear(&context->al);
+    } else if (prim == NL_ROW) {
+        NLRowColumn*    af = &context->af;
+		NLRowColumn*    al = &context->al;
+		NLSparseMatrix* M  = nlGetCurrentSparseMatrix();
+		NLdouble* b        = context->b;
+		NLuint nf          = af->size;
+		NLuint nl          = al->size;
+		NLuint n           = context->n;
+		NLuint current_row = context->current_row;
+		NLuint i,j,jj;
+		NLdouble S;
+		NLuint k;
+
+		/*
+		 * least_squares : we want to solve
+		 * A'A x = A'b
+		 */
+		for(i=0; i<nf; i++) {
+			for(j=0; j<nf; j++) {
+				nlSparseMatrixAdd(
+					M, af->coeff[i].index, af->coeff[j].index,
+					af->coeff[i].value * af->coeff[j].value
+				);
+			}
+		}
+		for(k=0; k<context->nb_systems; ++k) {
+			S = 0.0;
+			for(jj=0; jj<nl; ++jj) {
+			j = al->coeff[jj].index;
+			S += al->coeff[jj].value *
+				NL_BUFFER_ITEM(context->variable_buffer[k],j);
+			}
+			for(jj=0; jj<nf; jj++) {
+			b[ k*n+af->coeff[jj].index ] -= af->coeff[jj].value * S;
+			}
+		}
+		context->current_row++;
     }
 }
-
-
-/* nlSolve() driver routine */
 
 NLboolean nlSolve(NLContext *context) {
     NLboolean result;
