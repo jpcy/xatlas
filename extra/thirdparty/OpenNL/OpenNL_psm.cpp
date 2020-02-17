@@ -168,7 +168,7 @@ struct NLContext
 {
 	NLBufferBinding* variable_buffer;
 	NLdouble*        variable_value;
-	NLboolean*       variable_is_locked;
+	bool*       variable_is_locked;
 	NLuint*          variable_index;
 	NLuint           n;
 	NLMatrix         M;
@@ -182,7 +182,7 @@ struct NLContext
 	NLuint           nb_systems;
 	NLuint           current_row;
 	NLuint           max_iterations;
-	NLboolean        max_iterations_defined;
+	bool        max_iterations_defined;
 	NLuint           inner_iterations;
 	NLdouble         threshold;
 	NLdouble         omega;
@@ -714,7 +714,7 @@ NLuint nlSolveSystemIterative(NLContext *context, NLMatrix M, NLMatrix P, NLdoub
 	return result;
 }
 
-static NLboolean nlSolveIterative(NLContext *context)
+static bool nlSolveIterative(NLContext *context)
 {
 	NLdouble* b = context->b;
 	NLdouble* x = context->x;
@@ -726,7 +726,7 @@ static NLboolean nlSolveIterative(NLContext *context)
 		b += n;
 		x += n;
 	}
-	return NL_TRUE;
+	return true;
 }
 
 struct NLJacobiPreconditioner
@@ -777,7 +777,7 @@ void nlSolverParameteri(NLContext *context, NLenum pname, NLint param)
 	} else if (pname == NL_MAX_ITERATIONS) {
 		assert(param > 0);
 		context->max_iterations = (NLuint)param;
-		context->max_iterations_defined = NL_TRUE;
+		context->max_iterations_defined = true;
 	}
 }
 
@@ -802,7 +802,7 @@ NLdouble nlGetVariable(NLContext *context, NLuint index)
 void nlLockVariable(NLContext *context, NLuint index)
 {
 	assert(index >= 0 && index <= context->nb_variables - 1);
-	context->variable_is_locked[index] = NL_TRUE;
+	context->variable_is_locked[index] = true;
 }
 
 static void nlVariablesToVector(NLContext *context)
@@ -867,7 +867,7 @@ void nlBegin(NLContext *context, NLenum prim)
 				k * context->nb_variables;
 			context->variable_buffer[k].stride = sizeof(NLdouble);
 		}
-		context->variable_is_locked = NL_NEW_ARRAY(NLboolean, context->nb_variables);
+		context->variable_is_locked = NL_NEW_ARRAY(bool, context->nb_variables);
 		context->variable_index = NL_NEW_ARRAY(NLuint, context->nb_variables);
 	} else if (prim == NL_MATRIX) {
 		if (context->M != NULL)
@@ -934,13 +934,12 @@ void nlEnd(NLContext *context, NLenum prim)
 	}
 }
 
-NLboolean nlSolve(NLContext *context)
+bool nlSolve(NLContext *context)
 {
-	NLboolean result;
 	nlDeleteMatrix(context->P);
 	context->P = nlNewJacobiPreconditioner(context->M);
 	nlMatrixCompress(&context->M);
-	result = nlSolveIterative(context);
+	bool result = nlSolveIterative(context);
 	nlVectorToVariables(context);
 	return result;
 }

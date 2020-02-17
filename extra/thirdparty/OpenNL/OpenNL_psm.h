@@ -67,8 +67,6 @@
 
 typedef unsigned int    NLenum;
 
-typedef unsigned char   NLboolean;
-
 typedef unsigned int    NLbitfield;
 
 typedef void            NLvoid;
@@ -96,9 +94,6 @@ typedef double          NLdouble;
 typedef void(*NLfunc)(void);
 
 struct NLContext; 
-
-#define NL_FALSE   0x0
-#define NL_TRUE    0x1
 
 #define NL_NB_VARIABLES     0x101
 
@@ -132,6 +127,6 @@ struct NLContext;
 
     void nlCoefficient(NLContext *context, NLuint i, NLdouble value);
 
-    NLboolean nlSolve(NLContext *context);
+    bool nlSolve(NLContext *context);
 
 #endif
