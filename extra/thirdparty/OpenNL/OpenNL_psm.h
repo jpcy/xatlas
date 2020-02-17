@@ -108,17 +108,17 @@ struct NLContext;
 
     void nlDeleteContext(NLContext *context);
 
-    void nlSolverParameteri(NLenum pname, NLint param);
+    void nlSolverParameteri(NLContext *context, NLenum pname, NLint param);
 
 #define NL_FUNC_PROGRESS       0x603
 
-    void nlSetFunction(NLenum pname, NLfunc param);
+    void nlSetFunction(NLContext *context, NLenum pname, NLfunc param);
 
-    void nlSetVariable(NLuint i, NLdouble value);
+    void nlSetVariable(NLContext *context, NLuint i, NLdouble value);
 
-    NLdouble nlGetVariable(NLuint i);
+    NLdouble nlGetVariable(NLContext *context, NLuint i);
 
-    void nlLockVariable(NLuint index);
+    void nlLockVariable(NLContext *context, NLuint index);
 
 #define NL_SYSTEM  0x0
 
@@ -126,12 +126,12 @@ struct NLContext;
 
 #define NL_ROW     0x2
 
-    void nlBegin(NLenum primitive);
+    void nlBegin(NLContext *context, NLenum primitive);
 
-    void nlEnd(NLenum primitive);
+    void nlEnd(NLContext *context, NLenum primitive);
 
-    void nlCoefficient(NLuint i, NLdouble value);
+    void nlCoefficient(NLContext *context, NLuint i, NLdouble value);
 
-    NLboolean nlSolve(void);
+    NLboolean nlSolve(NLContext *context);
 
 #endif

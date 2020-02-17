@@ -974,16 +974,16 @@ static NLSparseMatrix* nlGetCurrentSparseMatrix() {
 
 /* Get/Set parameters */
 
-void nlSolverParameteri(NLenum pname, NLint param) {
+void nlSolverParameteri(NLContext *context, NLenum pname, NLint param) {
     switch(pname) {
     case NL_NB_VARIABLES: {
         assert(param > 0);
-        nlCurrentContext->nb_variables = (NLuint)param;
+        context->nb_variables = (NLuint)param;
     } break;
     case NL_MAX_ITERATIONS: {
         assert(param > 0);
-        nlCurrentContext->max_iterations = (NLuint)param;
-        nlCurrentContext->max_iterations_defined = NL_TRUE;
+        context->max_iterations = (NLuint)param;
+        context->max_iterations_defined = NL_TRUE;
     } break;
     default: {
         assert(0);
@@ -993,10 +993,10 @@ void nlSolverParameteri(NLenum pname, NLint param) {
 
 /* NL functions */
 
-void  nlSetFunction(NLenum pname, NLfunc param) {
+void  nlSetFunction(NLContext *context, NLenum pname, NLfunc param) {
     switch(pname) {
     case NL_FUNC_PROGRESS:
-        nlCurrentContext->progress_func = (NLProgressFunc)(param);
+        context->progress_func = (NLProgressFunc)(param);
         break;
     default:
         assert(0);
@@ -1005,19 +1005,19 @@ void  nlSetFunction(NLenum pname, NLfunc param) {
 
 /* Get/Set Lock/Unlock variables */
 
-void nlSetVariable(NLuint index, NLdouble value) {
-    assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
-    NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[0],index) = value;
+void nlSetVariable(NLContext *context, NLuint index, NLdouble value) {
+    assert(index >= 0 && index <= context->nb_variables - 1);
+    NL_BUFFER_ITEM(context->variable_buffer[0],index) = value;
 }
 
-NLdouble nlGetVariable(NLuint index) {
-    assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
-    return NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[0],index);
+NLdouble nlGetVariable(NLContext *context, NLuint index) {
+    assert(index >= 0 && index <= context->nb_variables - 1);
+    return NL_BUFFER_ITEM(context->variable_buffer[0],index);
 }
 
-void nlLockVariable(NLuint index) {
-    assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
-    nlCurrentContext->variable_is_locked[index] = NL_TRUE;
+void nlLockVariable(NLContext *context, NLuint index) {
+    assert(index >= 0 && index <= context->nb_variables - 1);
+    context->variable_is_locked[index] = NL_TRUE;
 }
 
 /* System construction */
@@ -1176,34 +1176,34 @@ static void nlEndRow() {
     }
 }
 
-void nlCoefficient(NLuint index, NLdouble value) {
-    assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
-    if(nlCurrentContext->variable_is_locked[index]) {
+void nlCoefficient(NLContext *context, NLuint index, NLdouble value) {
+    assert(index >= 0 && index <= context->nb_variables - 1);
+    if(context->variable_is_locked[index]) {
 	/* 
 	 * Note: in al, indices are NLvariable indices, 
 	 * within [0..nb_variables-1]
 	 */
-        nlRowColumnAppend(&(nlCurrentContext->al), index, value);
+        nlRowColumnAppend(&(context->al), index, value);
     } else {
 	/*
 	 * Note: in af, indices are system indices, 
 	 * within [0..n-1]
 	 */
         nlRowColumnAppend(
-	    &(nlCurrentContext->af),
-	    nlCurrentContext->variable_index[index], value
+	    &(context->af),
+	    context->variable_index[index], value
 	);
     }
 }
 
-void nlBegin(NLenum prim) {
+void nlBegin(NLContext *context, NLenum prim) {
     switch(prim) {
     case NL_SYSTEM: {
         nlBeginSystem();
     } break;
     case NL_MATRIX: {
 	if(
-	    nlCurrentContext->M == NULL
+	    context->M == NULL
 	) {
 	    nlInitializeM();
 	}
@@ -1217,7 +1217,7 @@ void nlBegin(NLenum prim) {
     }
 }
 
-void nlEnd(NLenum prim) {
+void nlEnd(NLContext *context, NLenum prim) {
     switch(prim) {
     case NL_SYSTEM: {
     } break;
@@ -1236,7 +1236,7 @@ void nlEnd(NLenum prim) {
 
 /* nlSolve() driver routine */
 
-NLboolean nlSolve() {
+NLboolean nlSolve(NLContext *context) {
     NLboolean result;
 	nlSetupPreconditioner();
 	result = nlSolveIterative();

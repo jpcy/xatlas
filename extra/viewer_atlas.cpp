@@ -531,19 +531,19 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 			} 
 		}
 		NLuint nb_vertices = NLuint(vertexCount);
-		nlSolverParameteri(NL_NB_VARIABLES, NLint(2*nb_vertices));
-		nlSolverParameteri(NL_MAX_ITERATIONS, NLint(5*nb_vertices));
-		nlBegin(NL_SYSTEM);
+		nlSolverParameteri(context, NL_NB_VARIABLES, NLint(2*nb_vertices));
+		nlSolverParameteri(context, NL_MAX_ITERATIONS, NLint(5*nb_vertices));
+		nlBegin(context, NL_SYSTEM);
 		// Copies u,v coordinates from the mesh to OpenNL solver.
 		for (uint32_t i = 0; i < vertexCount; i++) {
-			nlSetVariable(2 * i    , texcoords[i * 2 + 0]);
-			nlSetVariable(2 * i + 1, texcoords[i * 2 + 1]);
+			nlSetVariable(context, 2 * i    , texcoords[i * 2 + 0]);
+			nlSetVariable(context, 2 * i + 1, texcoords[i * 2 + 1]);
 			if (i == vxmin || i == vxmax) {
-				nlLockVariable(2 * i    );
-				nlLockVariable(2 * i + 1);
+				nlLockVariable(context, 2 * i    );
+				nlLockVariable(context, 2 * i + 1);
 			} 
 		}
-		nlBegin(NL_MATRIX);
+		nlBegin(context, NL_MATRIX);
 		// Creates the LSCM equations in OpenNL.
 		const uint32_t faceCount = indexCount / 3;
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -574,30 +574,30 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 			// Note : b = 0
 
 			// Real part
-			nlBegin(NL_ROW);
-			nlCoefficient(u0_id, -a+c) ;
-			nlCoefficient(v0_id,  b-d) ;
-			nlCoefficient(u1_id,   -c) ;
-			nlCoefficient(v1_id,    d) ;
-			nlCoefficient(u2_id,    a);
-			nlEnd(NL_ROW);
+			nlBegin(context, NL_ROW);
+			nlCoefficient(context, u0_id, -a+c) ;
+			nlCoefficient(context, v0_id,  b-d) ;
+			nlCoefficient(context, u1_id,   -c) ;
+			nlCoefficient(context, v1_id,    d) ;
+			nlCoefficient(context, u2_id,    a);
+			nlEnd(context, NL_ROW);
 
 			// Imaginary part
-			nlBegin(NL_ROW);
-			nlCoefficient(u0_id, -b+d);
-			nlCoefficient(v0_id, -a+c);
-			nlCoefficient(u1_id,   -d);
-			nlCoefficient(v1_id,   -c);
-			nlCoefficient(v2_id,    a);
-			nlEnd(NL_ROW);
+			nlBegin(context, NL_ROW);
+			nlCoefficient(context, u0_id, -b+d);
+			nlCoefficient(context, v0_id, -a+c);
+			nlCoefficient(context, u1_id,   -d);
+			nlCoefficient(context, v1_id,   -c);
+			nlCoefficient(context, v2_id,    a);
+			nlEnd(context, NL_ROW);
 		}
-		nlEnd(NL_MATRIX);
-		nlEnd(NL_SYSTEM);
-		nlSolve();
+		nlEnd(context, NL_MATRIX);
+		nlEnd(context, NL_SYSTEM);
+		nlSolve(context);
 		// Copies u,v coordinates from OpenNL solver to the mesh.
 		for (uint32_t i = 0; i < vertexCount; i++) {
-			double u = nlGetVariable(2 * i    );
-			double v = nlGetVariable(2 * i + 1);
+			double u = nlGetVariable(context, 2 * i    );
+			double v = nlGetVariable(context, 2 * i + 1);
 			texcoords[i * 2 + 0] = (float)u;
 			texcoords[i * 2 + 1] = (float)v;
 		}
