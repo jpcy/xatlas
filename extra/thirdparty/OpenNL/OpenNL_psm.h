@@ -63,33 +63,7 @@
 #ifndef OPENNL_H
 #define OPENNL_H
 
-#include <stdio.h>
-
-typedef unsigned int    NLenum;
-
-typedef unsigned int    NLbitfield;
-
-typedef void            NLvoid;
-
-typedef signed char     NLbyte;
-
-typedef short           NLshort;
-
-typedef int             NLint; 
-
-typedef unsigned char   NLubyte;
-
-typedef unsigned short  NLushort;
-
-typedef unsigned int    NLuint;  
-
-typedef unsigned long   NLulong; 
-
-typedef int             NLsizei;
-
-typedef float           NLfloat;
-
-typedef double          NLdouble;
+#include <stdint.h>
 
 typedef void(*NLfunc)(void);
 
@@ -103,17 +77,17 @@ struct NLContext;
 
     void nlDeleteContext(NLContext *context);
 
-    void nlSolverParameteri(NLContext *context, NLenum pname, NLint param);
+    void nlSolverParameteri(NLContext *context, uint32_t pname, int param);
 
 #define NL_FUNC_PROGRESS       0x603
 
-    void nlSetFunction(NLContext *context, NLenum pname, NLfunc param);
+    void nlSetFunction(NLContext *context, uint32_t pname, NLfunc param);
 
-    void nlSetVariable(NLContext *context, NLuint i, NLdouble value);
+    void nlSetVariable(NLContext *context, uint32_t i, double value);
 
-    NLdouble nlGetVariable(NLContext *context, NLuint i);
+    double nlGetVariable(NLContext *context, uint32_t i);
 
-    void nlLockVariable(NLContext *context, NLuint index);
+    void nlLockVariable(NLContext *context, uint32_t index);
 
 #define NL_SYSTEM  0x0
 
@@ -121,11 +95,11 @@ struct NLContext;
 
 #define NL_ROW     0x2
 
-    void nlBegin(NLContext *context, NLenum primitive);
+    void nlBegin(NLContext *context, uint32_t primitive);
 
-    void nlEnd(NLContext *context, NLenum primitive);
+    void nlEnd(NLContext *context, uint32_t primitive);
 
-    void nlCoefficient(NLContext *context, NLuint i, NLdouble value);
+    void nlCoefficient(NLContext *context, uint32_t i, double value);
 
     bool nlSolve(NLContext *context);
 

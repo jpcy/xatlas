@@ -96,9 +96,9 @@ typedef void(*NLMultMatrixVectorFunc)(NLMatrix M, const double* x, double* y);
 
 struct NLMatrixStruct
 {
-	NLuint m;
-	NLuint n;
-	NLenum type;
+	uint32_t m;
+	uint32_t n;
+	uint32_t type;
 	NLDestroyMatrixFunc destroy_func;
 	NLMultMatrixVectorFunc mult_func;
 };
@@ -107,14 +107,14 @@ struct NLMatrixStruct
 
 struct NLCoeff
 {
-	NLuint index;
-	NLdouble value;
+	uint32_t index;
+	double value;
 };
 
 struct NLRowColumn
 {
-	NLuint size;
-	NLuint capacity;
+	uint32_t size;
+	uint32_t capacity;
 	NLCoeff* coeff;
 };
 
@@ -122,44 +122,44 @@ struct NLRowColumn
 
 struct NLCRSMatrix
 {
-	NLuint m;
-	NLuint n;
-	NLenum type;
+	uint32_t m;
+	uint32_t n;
+	uint32_t type;
 	NLDestroyMatrixFunc destroy_func;
 	NLMultMatrixVectorFunc mult_func;
-	NLdouble* val;
-	NLuint* rowptr;
-	NLuint* colind;
-	NLuint nslices;
-	NLuint* sliceptr;
+	double* val;
+	uint32_t* rowptr;
+	uint32_t* colind;
+	uint32_t nslices;
+	uint32_t* sliceptr;
 };
 
 /* SparseMatrix data structure */
 
 struct NLSparseMatrix
 {
-	NLuint m;
-	NLuint n;
-	NLenum type;
+	uint32_t m;
+	uint32_t n;
+	uint32_t type;
 	NLDestroyMatrixFunc destroy_func;
 	NLMultMatrixVectorFunc mult_func;
-	NLuint diag_size;
-	NLuint diag_capacity;
+	uint32_t diag_size;
+	uint32_t diag_capacity;
 	NLRowColumn* row;
 	NLRowColumn* column;
-	NLdouble*    diag;
-	NLuint row_capacity;
-	NLuint column_capacity;
+	double*    diag;
+	uint32_t row_capacity;
+	uint32_t column_capacity;
 };
 
 /* NLContext data structure */
 
-typedef void(*NLProgressFunc)(NLuint cur_iter, NLuint max_iter, double cur_err, double max_err);
+typedef void(*NLProgressFunc)(uint32_t cur_iter, uint32_t max_iter, double cur_err, double max_err);
 
 struct NLBufferBinding
 {
 	void* base_address;
-	NLuint stride;
+	uint32_t stride;
 };
 
 #define NL_BUFFER_ITEM(B,i) *(double*)((void*)((char*)((B).base_address)+((i)*(B).stride)))
@@ -167,27 +167,27 @@ struct NLBufferBinding
 struct NLContext
 {
 	NLBufferBinding* variable_buffer;
-	NLdouble*        variable_value;
+	double*        variable_value;
 	bool*       variable_is_locked;
-	NLuint*          variable_index;
-	NLuint           n;
+	uint32_t*          variable_index;
+	uint32_t           n;
 	NLMatrix         M;
 	NLMatrix         P;
 	NLMatrix         B;
 	NLRowColumn      af;
 	NLRowColumn      al;
-	NLdouble*        x;
-	NLdouble*        b;
-	NLuint           nb_variables;
-	NLuint           nb_systems;
-	NLuint           current_row;
-	NLuint           max_iterations;
+	double*        x;
+	double*        b;
+	uint32_t           nb_variables;
+	uint32_t           nb_systems;
+	uint32_t           current_row;
+	uint32_t           max_iterations;
 	bool        max_iterations_defined;
-	NLuint           inner_iterations;
-	NLdouble         threshold;
-	NLdouble         omega;
-	NLuint           used_iterations;
-	NLdouble         error;
+	uint32_t           inner_iterations;
+	double         threshold;
+	double         omega;
+	uint32_t           used_iterations;
+	double         error;
 	NLProgressFunc   progress_func;
 
 };
@@ -230,9 +230,9 @@ void nlRowColumnGrow(NLRowColumn* c)
 	}
 }
 
-void nlRowColumnAdd(NLRowColumn* c, NLuint index, NLdouble value)
+void nlRowColumnAdd(NLRowColumn* c, uint32_t index, double value)
 {
-	for (NLuint i = 0; i < c->size; i++) {
+	for (uint32_t i = 0; i < c->size; i++) {
 		if (c->coeff[i].index == index) {
 			c->coeff[i].value += value;
 			return;
@@ -246,7 +246,7 @@ void nlRowColumnAdd(NLRowColumn* c, NLuint index, NLdouble value)
 }
 
 /* Does not check whether the index already exists */
-void nlRowColumnAppend(NLRowColumn* c, NLuint index, NLdouble value)
+void nlRowColumnAppend(NLRowColumn* c, uint32_t index, double value)
 {
 	if (c->size == c->capacity)
 		nlRowColumnGrow(c);
@@ -290,11 +290,11 @@ static void nlCRSMatrixDestroy(NLCRSMatrix* M)
 	M->nslices = 0;
 }
 
-static void nlCRSMatrixMultSlice(NLCRSMatrix* M, const double* x, double* y, NLuint Ibegin, NLuint Iend)
+static void nlCRSMatrixMultSlice(NLCRSMatrix* M, const double* x, double* y, uint32_t Ibegin, uint32_t Iend)
 {
-	for (NLuint i = Ibegin; i < Iend; ++i) {
+	for (uint32_t i = Ibegin; i < Iend; ++i) {
 		double sum = 0.0;
-		for (NLuint j = M->rowptr[i]; j < M->rowptr[i + 1]; ++j)
+		for (uint32_t j = M->rowptr[i]; j < M->rowptr[i + 1]; ++j)
 			sum += M->val[j] * x[M->colind[j]];
 		y[i] = sum;
 	}
@@ -307,7 +307,7 @@ static void nlCRSMatrixMult(NLCRSMatrix* M, const double* x, double* y)
 		nlCRSMatrixMultSlice(M, x, y, M->sliceptr[slice], M->sliceptr[slice + 1]);
 }
 
-void nlCRSMatrixConstruct(NLCRSMatrix* M, NLuint m, NLuint n, NLuint nnz, NLuint nslices)
+void nlCRSMatrixConstruct(NLCRSMatrix* M, uint32_t m, uint32_t n, uint32_t nnz, uint32_t nslices)
 {
 	M->m = m;
 	M->n = n;
@@ -316,16 +316,16 @@ void nlCRSMatrixConstruct(NLCRSMatrix* M, NLuint m, NLuint n, NLuint nnz, NLuint
 	M->mult_func = (NLMultMatrixVectorFunc)nlCRSMatrixMult;
 	M->nslices = nslices;
 	M->val = NL_NEW_ARRAY(double, nnz);
-	M->rowptr = NL_NEW_ARRAY(NLuint, m + 1);
-	M->colind = NL_NEW_ARRAY(NLuint, nnz);
-	M->sliceptr = NL_NEW_ARRAY(NLuint, nslices + 1);
+	M->rowptr = NL_NEW_ARRAY(uint32_t, m + 1);
+	M->colind = NL_NEW_ARRAY(uint32_t, nnz);
+	M->sliceptr = NL_NEW_ARRAY(uint32_t, nslices + 1);
 }
 
 /* SparseMatrix data structure */
 
 static void nlSparseMatrixDestroyRowColumns(NLSparseMatrix* M)
 {
-	for (NLuint i = 0; i < M->m; i++)
+	for (uint32_t i = 0; i < M->m; i++)
 		nlRowColumnDestroy(&(M->row[i]));
 	NL_DELETE_ARRAY(M->row);
 }
@@ -337,7 +337,7 @@ void nlSparseMatrixDestroy(NLSparseMatrix* M)
 	NL_DELETE_ARRAY(M->diag);
 }
 
-void nlSparseMatrixAdd(NLSparseMatrix* M, NLuint i, NLuint j, NLdouble value)
+void nlSparseMatrixAdd(NLSparseMatrix* M, uint32_t i, uint32_t j, double value)
 {
 	assert(i >= 0 && i <= M->m - 1);
 	assert(j >= 0 && j <= M->n - 1);
@@ -350,8 +350,8 @@ static void nlSparseMatrixAddSparseMatrix(NLSparseMatrix* M, double mul, const N
 {
 	assert(M->m == N->m);
 	assert(M->n == N->n);
-	for (NLuint i = 0; i < N->m; ++i) {
-		for (NLuint jj = 0; jj < N->row[i].size; ++jj) 
+	for (uint32_t i = 0; i < N->m; ++i) {
+		for (uint32_t jj = 0; jj < N->row[i].size; ++jj) 
 			nlSparseMatrixAdd(M, i, N->row[i].coeff[jj].index, mul*N->row[i].coeff[jj].value);
 	}
 }
@@ -360,8 +360,8 @@ static void nlSparseMatrixAddCRSMatrix(NLSparseMatrix* M, double mul, const NLCR
 {
 	assert(M->m == N->m);
 	assert(M->n == N->n);
-	for (NLuint i = 0; i < M->m; ++i) {
-		for (NLuint jj = N->rowptr[i]; jj < N->rowptr[i + 1]; ++jj)
+	for (uint32_t i = 0; i < M->m; ++i) {
+		for (uint32_t jj = N->rowptr[i]; jj < N->rowptr[i + 1]; ++jj)
 			nlSparseMatrixAdd(M, i, N->colind[jj], mul*N->val[jj]);
 	}
 }
@@ -378,51 +378,51 @@ void nlSparseMatrixAddMatrix(NLSparseMatrix* M, double mul, const NLMatrix N)
 
 void nlSparseMatrixZero(NLSparseMatrix* M)
 {
-	for (NLuint i = 0; i < M->m; i++)
+	for (uint32_t i = 0; i < M->m; i++)
 		nlRowColumnZero(&(M->row[i]));
-	NL_CLEAR_ARRAY(NLdouble, M->diag, M->diag_size);
+	NL_CLEAR_ARRAY(double, M->diag, M->diag_size);
 }
 
 void nlSparseMatrixClear(NLSparseMatrix* M)
 {
-	for (NLuint i = 0; i < M->m; i++)
+	for (uint32_t i = 0; i < M->m; i++)
 		nlRowColumnClear(&(M->row[i]));
-	NL_CLEAR_ARRAY(NLdouble, M->diag, M->diag_size);
+	NL_CLEAR_ARRAY(double, M->diag, M->diag_size);
 }
 
 /* Returns the number of non-zero coefficients */
-NLuint nlSparseMatrixNNZ(NLSparseMatrix* M)
+uint32_t nlSparseMatrixNNZ(NLSparseMatrix* M)
 {
-	NLuint nnz = 0;
-	for (NLuint i = 0; i < M->m; i++)
+	uint32_t nnz = 0;
+	for (uint32_t i = 0; i < M->m; i++)
 		nnz += M->row[i].size;
 	return nnz;
 }
 
 void nlSparseMatrixSort(NLSparseMatrix* M)
 {
-	for (NLuint i = 0; i < M->m; i++)
+	for (uint32_t i = 0; i < M->m; i++)
 		nlRowColumnSort(&(M->row[i]));
 }
 
-void nlSparseMatrixMAddRow(NLSparseMatrix* M, NLuint i1, double s, NLuint i2)
+void nlSparseMatrixMAddRow(NLSparseMatrix* M, uint32_t i1, double s, uint32_t i2)
 {
 	NLRowColumn* Ri2 = &(M->row[i2]);
 	NLCoeff* c = NULL;
 	assert(i1 < M->m);
 	assert(i2 < M->m);
-	for (NLuint jj = 0; jj < Ri2->size; ++jj) {
+	for (uint32_t jj = 0; jj < Ri2->size; ++jj) {
 		c = &(Ri2->coeff[jj]);
 		nlSparseMatrixAdd(M, i1, c->index, s*c->value);
 	}
 }
 
-void nlSparseMatrixScaleRow(NLSparseMatrix* M, NLuint i, double s)
+void nlSparseMatrixScaleRow(NLSparseMatrix* M, uint32_t i, double s)
 {
 	NLRowColumn* Ri = &(M->row[i]);
 	NLCoeff* c = NULL;
 	assert(i < M->m);
-	for (NLuint jj = 0; jj < Ri->size; ++jj) {
+	for (uint32_t jj = 0; jj < Ri->size; ++jj) {
 		c = &(Ri->coeff[jj]);
 		c->value *= s;
 	}
@@ -430,7 +430,7 @@ void nlSparseMatrixScaleRow(NLSparseMatrix* M, NLuint i, double s)
 		M->diag[i] *= s;
 }
 
-void nlSparseMatrixZeroRow(NLSparseMatrix* M, NLuint i)
+void nlSparseMatrixZeroRow(NLSparseMatrix* M, uint32_t i)
 {
 	NLRowColumn* Ri = &(M->row[i]);
 	assert(i < M->m);
@@ -441,7 +441,7 @@ void nlSparseMatrixZeroRow(NLSparseMatrix* M, NLuint i)
 
 /* SparseMatrix x Vector routines, internal helper routines */
 
-static void nlSparseMatrix_mult_rows(NLSparseMatrix* A,	const NLdouble* x, NLdouble* y)
+static void nlSparseMatrix_mult_rows(NLSparseMatrix* A,	const double* x, double* y)
 {
 	/*
 	 * Note: OpenMP does not like unsigned ints
@@ -462,13 +462,13 @@ static void nlSparseMatrix_mult_rows(NLSparseMatrix* A,	const NLdouble* x, NLdou
 	}
 }
 
-void nlSparseMatrixMult(NLSparseMatrix* A, const NLdouble* x, NLdouble* y)
+void nlSparseMatrixMult(NLSparseMatrix* A, const double* x, double* y)
 {
 	assert(A->type == NL_MATRIX_SPARSE_DYNAMIC);
 	nlSparseMatrix_mult_rows(A, x, y);
 }
 
-void nlSparseMatrixConstruct(NLSparseMatrix* M, NLuint m, NLuint n)
+void nlSparseMatrixConstruct(NLSparseMatrix* M, uint32_t m, uint32_t n)
 {
 	M->m = m;
 	M->n = n;
@@ -477,17 +477,17 @@ void nlSparseMatrixConstruct(NLSparseMatrix* M, NLuint m, NLuint n)
 	M->mult_func = (NLMultMatrixVectorFunc)nlSparseMatrixMult;
 	M->row = NL_NEW_ARRAY(NLRowColumn, m);
 	M->row_capacity = m;
-	for (NLuint i = 0; i < n; i++)
+	for (uint32_t i = 0; i < n; i++)
 		nlRowColumnConstruct(&(M->row[i]));
 	M->row_capacity = 0;
 	M->column = NULL;
 	M->column_capacity = 0;
 	M->diag_size = MIN(m, n);
 	M->diag_capacity = M->diag_size;
-	M->diag = NL_NEW_ARRAY(NLdouble, M->diag_size);
+	M->diag = NL_NEW_ARRAY(double, M->diag_size);
 }
 
-NLMatrix nlSparseMatrixNew(NLuint m, NLuint n)
+NLMatrix nlSparseMatrixNew(uint32_t m, uint32_t n)
 {
 	NLSparseMatrix* result = NL_NEW(NLSparseMatrix);
 	nlSparseMatrixConstruct(result, m, n);
@@ -496,14 +496,14 @@ NLMatrix nlSparseMatrixNew(NLuint m, NLuint n)
 
 static void adjust_diag(NLSparseMatrix* M)
 {
-	NLuint new_diag_size = MIN(M->m, M->n);
+	uint32_t new_diag_size = MIN(M->m, M->n);
 	if (new_diag_size > M->diag_size) {
 		if (new_diag_size > M->diag_capacity) {
 			M->diag_capacity *= 2;
 			if (M->diag_capacity == 0)
 				M->diag_capacity = 16;
 			M->diag = NL_RENEW_ARRAY(double, M->diag, M->diag_capacity);
-			for (NLuint i = M->diag_size; i < new_diag_size; ++i)
+			for (uint32_t i = M->diag_size; i < new_diag_size; ++i)
 				M->diag[i] = 0.0;
 		}
 		M->diag_size = new_diag_size;
@@ -531,20 +531,20 @@ void nlSparseMatrixAddColumn(NLSparseMatrix* M)
 
 NLMatrix nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M)
 {
-	NLuint nnz = nlSparseMatrixNNZ(M);
-	NLuint nslices = 8; /* TODO: get number of cores */
-	NLuint slice, cur_bound, cur_NNZ, cur_row;
-	NLuint k;
-	NLuint slice_size = nnz / nslices;
+	uint32_t nnz = nlSparseMatrixNNZ(M);
+	uint32_t nslices = 8; /* TODO: get number of cores */
+	uint32_t slice, cur_bound, cur_NNZ, cur_row;
+	uint32_t k;
+	uint32_t slice_size = nnz / nslices;
 	NLCRSMatrix* CRS = NL_NEW(NLCRSMatrix);
 	nlCRSMatrixConstruct(CRS, M->m, M->n, nnz, nslices);
 	nlSparseMatrixSort(M);
 	/* Convert matrix to CRS format */
 	k = 0;
-	for (NLuint i = 0; i < M->m; ++i) {
+	for (uint32_t i = 0; i < M->m; ++i) {
 		NLRowColumn* Ri = &(M->row[i]);
 		CRS->rowptr[i] = k;
-		for (NLuint ij = 0; ij < Ri->size; ij++) {
+		for (uint32_t ij = 0; ij < Ri->size; ij++) {
 			NLCoeff* c = &(Ri->coeff[ij]);
 			CRS->val[k] = c->value;
 			CRS->colind[k] = c->index;
@@ -650,22 +650,22 @@ static void dscal(int n, double a, double *x)
  *     versions of matrix x vector product (CPU/GPU, sparse/dense ...)
  */
 
-static NLuint nlSolveSystem_PRE_CG(NLContext *context, NLMatrix M, NLMatrix P, NLdouble* b, NLdouble* x, double eps, NLuint max_iter, double *sq_bnorm, double *sq_rnorm)
+static uint32_t nlSolveSystem_PRE_CG(NLContext *context, NLMatrix M, NLMatrix P, double* b, double* x, double eps, uint32_t max_iter, double *sq_bnorm, double *sq_rnorm)
 {
-	NLint     N = (NLint)M->n;
-	NLdouble* r = NL_NEW_VECTOR(N);
-	NLdouble* d = NL_NEW_VECTOR(N);
-	NLdouble* h = NL_NEW_VECTOR(N);
-	NLdouble *Ad = h;
-	NLuint its = 0;
-	NLdouble rh, alpha, beta;
-	NLdouble b_square = ddot(N, b, b);
-	NLdouble err = eps * eps*b_square;
-	NLdouble curr_err;
+	int     N = (int)M->n;
+	double* r = NL_NEW_VECTOR(N);
+	double* d = NL_NEW_VECTOR(N);
+	double* h = NL_NEW_VECTOR(N);
+	double *Ad = h;
+	uint32_t its = 0;
+	double rh, alpha, beta;
+	double b_square = ddot(N, b, b);
+	double err = eps * eps*b_square;
+	double curr_err;
 	nlMultMatrixVector(M, x, r);
 	daxpy(N, -1., b, r);
 	nlMultMatrixVector(P, r, d);
-	memcpy(h, d, N * sizeof(NLdouble));
+	memcpy(h, d, N * sizeof(double));
 	rh = ddot(N, r, h);
 	curr_err = ddot(N, r, r);
 	while (curr_err > err && its < max_iter) {
@@ -692,12 +692,12 @@ static NLuint nlSolveSystem_PRE_CG(NLContext *context, NLMatrix M, NLMatrix P, N
 	return its;
 }
 
-NLuint nlSolveSystemIterative(NLContext *context, NLMatrix M, NLMatrix P, NLdouble* b_in, NLdouble* x_in, double eps, NLuint max_iter, NLuint inner_iter)
+uint32_t nlSolveSystemIterative(NLContext *context, NLMatrix M, NLMatrix P, double* b_in, double* x_in, double eps, uint32_t max_iter, uint32_t inner_iter)
 {
-	NLuint N = M->n;
-	NLuint result = 0;
-	NLdouble rnorm = 0.0;
-	NLdouble bnorm = 0.0;
+	uint32_t N = M->n;
+	uint32_t result = 0;
+	double rnorm = 0.0;
+	double bnorm = 0.0;
 	double* b = b_in;
 	double* x = x_in;
 	assert(M->m == M->n);
@@ -716,12 +716,12 @@ NLuint nlSolveSystemIterative(NLContext *context, NLMatrix M, NLMatrix P, NLdoub
 
 static bool nlSolveIterative(NLContext *context)
 {
-	NLdouble* b = context->b;
-	NLdouble* x = context->x;
-	NLuint n = context->n;
+	double* b = context->b;
+	double* x = context->x;
+	uint32_t n = context->n;
 	NLMatrix M = context->M;
 	NLMatrix P = context->P;
-	for (NLuint k = 0; k < context->nb_systems; ++k) {
+	for (uint32_t k = 0; k < context->nb_systems; ++k) {
 		nlSolveSystemIterative(context, M, P, b, x, context->threshold, context->max_iterations, context->inner_iterations);
 		b += n;
 		x += n;
@@ -731,12 +731,12 @@ static bool nlSolveIterative(NLContext *context)
 
 struct NLJacobiPreconditioner
 {
-	NLuint m;
-	NLuint n;
-	NLenum type;
+	uint32_t m;
+	uint32_t n;
+	uint32_t type;
 	NLDestroyMatrixFunc destroy_func;
 	NLMultMatrixVectorFunc mult_func;
-	NLdouble* diag_inv;
+	double* diag_inv;
 };
 
 static void nlJacobiPreconditionerDestroy(NLJacobiPreconditioner* M)
@@ -746,7 +746,7 @@ static void nlJacobiPreconditionerDestroy(NLJacobiPreconditioner* M)
 
 static void nlJacobiPreconditionerMult(NLJacobiPreconditioner* M, const double* x, double* y)
 {
-	for (NLuint i = 0; i < M->n; ++i)
+	for (uint32_t i = 0; i < M->n; ++i)
 		y[i] = x[i] * M->diag_inv[i];
 }
 
@@ -764,42 +764,42 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in)
 	result->destroy_func = (NLDestroyMatrixFunc)nlJacobiPreconditionerDestroy;
 	result->mult_func = (NLMultMatrixVectorFunc)nlJacobiPreconditionerMult;
 	result->diag_inv = NL_NEW_ARRAY(double, M->n);
-	for (NLuint i = 0; i < M->n; ++i)
+	for (uint32_t i = 0; i < M->n; ++i)
 		result->diag_inv[i] = (M->diag[i] == 0.0) ? 1.0 : 1.0 / M->diag[i];
 	return (NLMatrix)result;
 }
 
-void nlSolverParameteri(NLContext *context, NLenum pname, NLint param)
+void nlSolverParameteri(NLContext *context, uint32_t pname, int param)
 {
 	if (pname == NL_NB_VARIABLES) {
 		assert(param > 0);
-		context->nb_variables = (NLuint)param;
+		context->nb_variables = (uint32_t)param;
 	} else if (pname == NL_MAX_ITERATIONS) {
 		assert(param > 0);
-		context->max_iterations = (NLuint)param;
+		context->max_iterations = (uint32_t)param;
 		context->max_iterations_defined = true;
 	}
 }
 
-void nlSetFunction(NLContext *context, NLenum pname, NLfunc param)
+void nlSetFunction(NLContext *context, uint32_t pname, NLfunc param)
 {
 	if (pname == NL_FUNC_PROGRESS)
 		context->progress_func = (NLProgressFunc)param;
 }
 
-void nlSetVariable(NLContext *context, NLuint index, NLdouble value)
+void nlSetVariable(NLContext *context, uint32_t index, double value)
 {
 	assert(index >= 0 && index <= context->nb_variables - 1);
 	NL_BUFFER_ITEM(context->variable_buffer[0], index) = value;
 }
 
-NLdouble nlGetVariable(NLContext *context, NLuint index)
+double nlGetVariable(NLContext *context, uint32_t index)
 {
 	assert(index >= 0 && index <= context->nb_variables - 1);
 	return NL_BUFFER_ITEM(context->variable_buffer[0], index);
 }
 
-void nlLockVariable(NLContext *context, NLuint index)
+void nlLockVariable(NLContext *context, uint32_t index)
 {
 	assert(index >= 0 && index <= context->nb_variables - 1);
 	context->variable_is_locked[index] = true;
@@ -807,14 +807,14 @@ void nlLockVariable(NLContext *context, NLuint index)
 
 static void nlVariablesToVector(NLContext *context)
 {
-	NLuint n = context->n;
+	uint32_t n = context->n;
 	assert(context->x != NULL);
-	for (NLuint k = 0; k < context->nb_systems; ++k) {
-		for (NLuint i = 0; i < context->nb_variables; ++i) {
+	for (uint32_t k = 0; k < context->nb_systems; ++k) {
+		for (uint32_t i = 0; i < context->nb_variables; ++i) {
 			if (!context->variable_is_locked[i]) {
-				NLuint index = context->variable_index[i];
+				uint32_t index = context->variable_index[i];
 				assert(index < context->n);
-				NLdouble value = NL_BUFFER_ITEM(context->variable_buffer[k], i);
+				double value = NL_BUFFER_ITEM(context->variable_buffer[k], i);
 				context->x[index + k * n] = value;
 			}
 		}
@@ -823,21 +823,21 @@ static void nlVariablesToVector(NLContext *context)
 
 static void nlVectorToVariables(NLContext *context)
 {
-	NLuint n = context->n;
+	uint32_t n = context->n;
 	assert(context->x != NULL);
-	for (NLuint k = 0; k < context->nb_systems; ++k) {
-		for (NLuint i = 0; i < context->nb_variables; ++i) {
+	for (uint32_t k = 0; k < context->nb_systems; ++k) {
+		for (uint32_t i = 0; i < context->nb_variables; ++i) {
 			if (!context->variable_is_locked[i]) {
-				NLuint index = context->variable_index[i];
+				uint32_t index = context->variable_index[i];
 				assert(index < context->n);
-				NLdouble value = context->x[index + k * n];
+				double value = context->x[index + k * n];
 				NL_BUFFER_ITEM(context->variable_buffer[k], i) = value;
 			}
 		}
 	}
 }
 
-void nlCoefficient(NLContext *context, NLuint index, NLdouble value)
+void nlCoefficient(NLContext *context, uint32_t index, double value)
 {
 	assert(index >= 0 && index <= context->nb_variables - 1);
 	if (context->variable_is_locked[index]) {
@@ -855,38 +855,38 @@ void nlCoefficient(NLContext *context, NLuint index, NLdouble value)
 	}
 }
 
-void nlBegin(NLContext *context, NLenum prim)
+void nlBegin(NLContext *context, uint32_t prim)
 {
 	if (prim == NL_SYSTEM) {
 		assert(context->nb_variables > 0);
 		context->variable_buffer = NL_NEW_ARRAY(NLBufferBinding, context->nb_systems);
-		context->variable_value = NL_NEW_ARRAY(NLdouble, context->nb_variables * context->nb_systems);
-		for (NLuint k = 0; k < context->nb_systems; ++k) {
+		context->variable_value = NL_NEW_ARRAY(double, context->nb_variables * context->nb_systems);
+		for (uint32_t k = 0; k < context->nb_systems; ++k) {
 			context->variable_buffer[k].base_address =
 				context->variable_value +
 				k * context->nb_variables;
-			context->variable_buffer[k].stride = sizeof(NLdouble);
+			context->variable_buffer[k].stride = sizeof(double);
 		}
 		context->variable_is_locked = NL_NEW_ARRAY(bool, context->nb_variables);
-		context->variable_index = NL_NEW_ARRAY(NLuint, context->nb_variables);
+		context->variable_index = NL_NEW_ARRAY(uint32_t, context->nb_variables);
 	} else if (prim == NL_MATRIX) {
 		if (context->M != NULL)
 			return;
-		NLuint n = 0;
-		for (NLuint i = 0; i < context->nb_variables; i++) {
+		uint32_t n = 0;
+		for (uint32_t i = 0; i < context->nb_variables; i++) {
 			if (!context->variable_is_locked[i]) {
 				context->variable_index[i] = n;
 				n++;
 			} else
-				context->variable_index[i] = (NLuint)~0;
+				context->variable_index[i] = (uint32_t)~0;
 		}
 		context->n = n;
 		if (!context->max_iterations_defined)
 			context->max_iterations = n * 5;
 		context->M = (NLMatrix)(NL_NEW(NLSparseMatrix));
 		nlSparseMatrixConstruct((NLSparseMatrix*)(context->M), n, n);
-		context->x = NL_NEW_ARRAY(NLdouble, n*context->nb_systems);
-		context->b = NL_NEW_ARRAY(NLdouble, n*context->nb_systems);
+		context->x = NL_NEW_ARRAY(double, n*context->nb_systems);
+		context->b = NL_NEW_ARRAY(double, n*context->nb_systems);
 		nlVariablesToVector(context);
 		nlRowColumnConstruct(&context->af);
 		nlRowColumnConstruct(&context->al);
@@ -897,7 +897,7 @@ void nlBegin(NLContext *context, NLenum prim)
 	}
 }
 
-void nlEnd(NLContext *context, NLenum prim)
+void nlEnd(NLContext *context, uint32_t prim)
 {
 	if (prim == NL_MATRIX) {
 		nlRowColumnClear(&context->af);
@@ -906,28 +906,28 @@ void nlEnd(NLContext *context, NLenum prim)
 		NLRowColumn*    af = &context->af;
 		NLRowColumn*    al = &context->al;
 		NLSparseMatrix* M = (NLSparseMatrix*)context->M;
-		NLdouble* b = context->b;
-		NLuint nf = af->size;
-		NLuint nl = al->size;
-		NLuint n = context->n;
-		NLuint current_row = context->current_row;
-		NLdouble S;
+		double* b = context->b;
+		uint32_t nf = af->size;
+		uint32_t nl = al->size;
+		uint32_t n = context->n;
+		uint32_t current_row = context->current_row;
+		double S;
 		/*
 		 * least_squares : we want to solve
 		 * A'A x = A'b
 		 */
-		for (NLuint i = 0; i < nf; i++) {
-			for (NLuint j = 0; j < nf; j++) {
+		for (uint32_t i = 0; i < nf; i++) {
+			for (uint32_t j = 0; j < nf; j++) {
 				nlSparseMatrixAdd(M, af->coeff[i].index, af->coeff[j].index, af->coeff[i].value * af->coeff[j].value);
 			}
 		}
-		for (NLuint k = 0; k < context->nb_systems; ++k) {
+		for (uint32_t k = 0; k < context->nb_systems; ++k) {
 			S = 0.0;
-			for (NLuint jj = 0; jj < nl; ++jj) {
-				NLuint j = al->coeff[jj].index;
+			for (uint32_t jj = 0; jj < nl; ++jj) {
+				uint32_t j = al->coeff[jj].index;
 				S += al->coeff[jj].value * NL_BUFFER_ITEM(context->variable_buffer[k], j);
 			}
-			for (NLuint jj = 0; jj < nf; jj++)
+			for (uint32_t jj = 0; jj < nf; jj++)
 				b[k*n + af->coeff[jj].index] -= af->coeff[jj].value * S;
 		}
 		context->current_row++;

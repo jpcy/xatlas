@@ -528,9 +528,8 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 				umax = u;
 			} 
 		}
-		NLuint nb_vertices = NLuint(vertexCount);
-		nlSolverParameteri(context, NL_NB_VARIABLES, NLint(2*nb_vertices));
-		nlSolverParameteri(context, NL_MAX_ITERATIONS, NLint(5*nb_vertices));
+		nlSolverParameteri(context, NL_NB_VARIABLES, int(2*vertexCount));
+		nlSolverParameteri(context, NL_MAX_ITERATIONS, int(5*vertexCount));
 		nlBegin(context, NL_SYSTEM);
 		// Copies u,v coordinates from the mesh to OpenNL solver.
 		for (uint32_t i = 0; i < vertexCount; i++) {
@@ -562,12 +561,12 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 
 			// Note  : 2*id + 0 --> u
 			//         2*id + 1 --> v
-			NLuint u0_id = 2*v0    ;
-			NLuint v0_id = 2*v0 + 1;
-			NLuint u1_id = 2*v1    ;
-			NLuint v1_id = 2*v1 + 1;
-			NLuint u2_id = 2*v2    ;
-			NLuint v2_id = 2*v2 + 1;
+			uint32_t u0_id = 2*v0    ;
+			uint32_t v0_id = 2*v0 + 1;
+			uint32_t u1_id = 2*v1    ;
+			uint32_t v1_id = 2*v1 + 1;
+			uint32_t u2_id = 2*v2    ;
+			uint32_t v2_id = 2*v2 + 1;
 
 			// Note : b = 0
 
