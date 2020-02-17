@@ -104,10 +104,6 @@ struct NLContext;
 
 #define NL_MAX_ITERATIONS   0x103
 
-#define NL_PRECOND_NONE       0x000
-
-#define NL_PRECOND_JACOBI     0x300
-
     NLContext *nlNewContext(void);
 
     void nlDeleteContext(NLContext *context);

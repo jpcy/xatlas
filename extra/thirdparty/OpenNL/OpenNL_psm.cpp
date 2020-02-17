@@ -221,10 +221,6 @@ struct NLContext
 
     NLdouble*        b;
 
-    NLenum           preconditioner;
-
-    NLboolean        preconditioner_defined;
-    
     NLuint           nb_variables;
 
     NLuint           nb_systems;
@@ -963,17 +959,7 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in) {
 
 static void nlSetupPreconditioner() {
     nlDeleteMatrix(nlCurrentContext->P);
-    nlCurrentContext->P = NULL;
-    
-    switch(nlCurrentContext->preconditioner) {
-    case NL_PRECOND_NONE:
-        break;
-    case NL_PRECOND_JACOBI:
 	nlCurrentContext->P = nlNewJacobiPreconditioner(nlCurrentContext->M);
-        break;
-    default:
-        assert(0);
-    }
     nlMatrixCompress(&nlCurrentContext->M);
 }
 
@@ -1115,9 +1101,6 @@ static void nlInitializeM() {
     }
 
     nlCurrentContext->n = n;
-    if(!nlCurrentContext->preconditioner_defined) {
-        nlCurrentContext->preconditioner = NL_PRECOND_JACOBI;
-    }
     if(!nlCurrentContext->max_iterations_defined) {
         nlCurrentContext->max_iterations = n*5;
     }
