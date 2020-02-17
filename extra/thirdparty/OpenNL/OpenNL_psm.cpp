@@ -246,8 +246,6 @@ struct NLContext
    
 };
 
-extern NLContext* nlCurrentContext;
-
 /******* extracted from nl_os.c *******/
 
 
@@ -720,9 +718,6 @@ void nlMatrixCompress(NLMatrix* M) {
 
 /******* extracted from nl_context.c *******/
 
-
-NLContext* nlCurrentContext = NULL;
-
 NLContext *nlNewContext() {
     NLContext* result     = NL_NEW(NLContext);
     result->max_iterations      = 100;
@@ -731,15 +726,10 @@ NLContext *nlNewContext() {
     result->inner_iterations    = 5;
     result->progress_func       = NULL;
     result->nb_systems          = 1;
-	nlCurrentContext = result;
     return result;
 }
 
 void nlDeleteContext(NLContext *context) {
-    if(nlCurrentContext == context) {
-        nlCurrentContext = NULL;
-    }
-
     nlDeleteMatrix(context->M);
     context->M = NULL;
 
@@ -799,7 +789,7 @@ static void dscal(int n, double a, double *x) {
  *     versions of matrix x vector product (CPU/GPU, sparse/dense ...)
  */
 
-static NLuint nlSolveSystem_PRE_CG(
+static NLuint nlSolveSystem_PRE_CG(NLContext *context, 
     NLMatrix M, NLMatrix P, NLdouble* b, NLdouble* x,
     double eps, NLuint max_iter, double *sq_bnorm, double *sq_rnorm
 ) {
@@ -822,10 +812,8 @@ static NLuint nlSolveSystem_PRE_CG(
     curr_err = ddot(N,r,r);
 
     while ( curr_err >err && its < max_iter) {
-	if(nlCurrentContext != NULL) {
-	    if(nlCurrentContext->progress_func != NULL) {
-		nlCurrentContext->progress_func(its, max_iter, curr_err, err);
-	    }
+	if(context->progress_func != NULL) {
+	context->progress_func(its, max_iter, curr_err, err);
 	}
 	nlMultMatrixVector(M,d,Ad);
         alpha=rh/ddot(N,d,Ad);
@@ -850,7 +838,7 @@ static NLuint nlSolveSystem_PRE_CG(
 
 /* Main driver routine */
 
-NLuint nlSolveSystemIterative(
+NLuint nlSolveSystemIterative(NLContext *context, 
     NLMatrix M, NLMatrix P, NLdouble* b_in, NLdouble* x_in,
     double eps, NLuint max_iter, NLuint inner_iter
 ) {
@@ -863,50 +851,43 @@ NLuint nlSolveSystemIterative(
     assert(M->m == M->n);
 
 	double sq_bnorm, sq_rnorm;
-	result = nlSolveSystem_PRE_CG(M,P,b,x,eps,max_iter, &sq_bnorm, &sq_rnorm);
+	result = nlSolveSystem_PRE_CG(context, M,P,b,x,eps,max_iter, &sq_bnorm, &sq_rnorm);
 
-    /* Get residual norm and rhs norm from BLAS context */
-    if(nlCurrentContext != NULL) {
+    /* Get residual norm and rhs norm */
 	bnorm = sqrt(sq_bnorm);
 	rnorm = sqrt(sq_rnorm);
 	if(bnorm == 0.0) {
-	    nlCurrentContext->error = rnorm;
+	    context->error = rnorm;
 	} else {
-	    nlCurrentContext->error = rnorm/bnorm;
+	    context->error = rnorm/bnorm;
 	}
-    }
-    nlCurrentContext->used_iterations = result;
+    context->used_iterations = result;
     return result;
 }
 
-static NLboolean nlSolveIterative() {
-    NLdouble* b = nlCurrentContext->b;
-    NLdouble* x = nlCurrentContext->x;
-    NLuint n = nlCurrentContext->n;
+static NLboolean nlSolveIterative(NLContext *context) {
+    NLdouble* b = context->b;
+    NLdouble* x = context->x;
+    NLuint n = context->n;
     NLuint k;
-    NLMatrix M = nlCurrentContext->M;
-    NLMatrix P = nlCurrentContext->P;
+    NLMatrix M = context->M;
+    NLMatrix P = context->P;
     
-    for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	nlSolveSystemIterative(
+    for(k=0; k<context->nb_systems; ++k) {
+	nlSolveSystemIterative(context, 
 	    M,
 	    P,
 	    b,
 	    x,
-	    nlCurrentContext->threshold,
-	    nlCurrentContext->max_iterations,
-	    nlCurrentContext->inner_iterations
+	    context->threshold,
+	    context->max_iterations,
+	    context->inner_iterations
 	);
 	b += n;
 	x += n;
     }
     return NL_TRUE;
 }
-
-/******* extracted from nl_preconditioners.c *******/
-
-
-
 
 typedef struct {
     NLuint m;
@@ -957,23 +938,6 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in) {
     return (NLMatrix)result;
 }
 
-static void nlSetupPreconditioner() {
-    nlDeleteMatrix(nlCurrentContext->P);
-	nlCurrentContext->P = nlNewJacobiPreconditioner(nlCurrentContext->M);
-    nlMatrixCompress(&nlCurrentContext->M);
-}
-
-/******* extracted from nl_api.c *******/
-
-static NLSparseMatrix* nlGetCurrentSparseMatrix() {
-    NLSparseMatrix* result = NULL;
-	assert(nlCurrentContext->M != NULL);	    
-	assert(nlCurrentContext->M->type == NL_MATRIX_SPARSE_DYNAMIC);
-	return (NLSparseMatrix*)(nlCurrentContext->M);
-}
-
-/* Get/Set parameters */
-
 void nlSolverParameteri(NLContext *context, NLenum pname, NLint param) {
     switch(pname) {
     case NL_NB_VARIABLES: {
@@ -991,8 +955,6 @@ void nlSolverParameteri(NLContext *context, NLenum pname, NLint param) {
     }
 }
 
-/* NL functions */
-
 void  nlSetFunction(NLContext *context, NLenum pname, NLfunc param) {
     switch(pname) {
     case NL_FUNC_PROGRESS:
@@ -1002,8 +964,6 @@ void  nlSetFunction(NLContext *context, NLenum pname, NLfunc param) {
         assert(0);
     }
 }
-
-/* Get/Set Lock/Unlock variables */
 
 void nlSetVariable(NLContext *context, NLuint index, NLdouble value) {
     assert(index >= 0 && index <= context->nb_variables - 1);
@@ -1020,39 +980,37 @@ void nlLockVariable(NLContext *context, NLuint index) {
     context->variable_is_locked[index] = NL_TRUE;
 }
 
-/* System construction */
-
-static void nlVariablesToVector() {
-    NLuint n=nlCurrentContext->n;
+static void nlVariablesToVector(NLContext *context) {
+    NLuint n=context->n;
     NLuint k,i,index;
     NLdouble value;
     
-    assert(nlCurrentContext->x != NULL);
-    for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	for(i=0; i<nlCurrentContext->nb_variables; ++i) {
-	    if(!nlCurrentContext->variable_is_locked[i]) {
-		index = nlCurrentContext->variable_index[i];
-		assert(index < nlCurrentContext->n);		
-		value = NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[k],i);
-		nlCurrentContext->x[index+k*n] = value;
+    assert(context->x != NULL);
+    for(k=0; k<context->nb_systems; ++k) {
+	for(i=0; i<context->nb_variables; ++i) {
+	    if(!context->variable_is_locked[i]) {
+		index = context->variable_index[i];
+		assert(index < context->n);		
+		value = NL_BUFFER_ITEM(context->variable_buffer[k],i);
+		context->x[index+k*n] = value;
 	    }
 	}
     }
 }
 
-static void nlVectorToVariables() {
-    NLuint n=nlCurrentContext->n;
+static void nlVectorToVariables(NLContext *context) {
+    NLuint n=context->n;
     NLuint k,i,index;
     NLdouble value;
 
-    assert(nlCurrentContext->x != NULL);
-    for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	for(i=0; i<nlCurrentContext->nb_variables; ++i) {
-	    if(!nlCurrentContext->variable_is_locked[i]) {
-		index = nlCurrentContext->variable_index[i];
-		assert(index < nlCurrentContext->n);
-		value = nlCurrentContext->x[index+k*n];
-		NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[k],i) = value;
+    assert(context->x != NULL);
+    for(k=0; k<context->nb_systems; ++k) {
+	for(i=0; i<context->nb_variables; ++i) {
+	    if(!context->variable_is_locked[i]) {
+		index = context->variable_index[i];
+		assert(index < context->n);
+		value = context->x[index+k*n];
+		NL_BUFFER_ITEM(context->variable_buffer[k],i) = value;
 	    }
 	}
     }
@@ -1137,7 +1095,7 @@ void nlBegin(NLContext *context, NLenum prim) {
 		NLdouble, n*context->nb_systems
 		);
 
-		nlVariablesToVector();
+		nlVariablesToVector(context);
 
 		nlRowColumnConstruct(&context->af);
 		nlRowColumnConstruct(&context->al);
@@ -1156,7 +1114,7 @@ void nlEnd(NLContext *context, NLenum prim) {
     } else if (prim == NL_ROW) {
         NLRowColumn*    af = &context->af;
 		NLRowColumn*    al = &context->al;
-		NLSparseMatrix* M  = nlGetCurrentSparseMatrix();
+		NLSparseMatrix* M  = (NLSparseMatrix*)context->M;
 		NLdouble* b        = context->b;
 		NLuint nf          = af->size;
 		NLuint nl          = al->size;
@@ -1195,8 +1153,10 @@ void nlEnd(NLContext *context, NLenum prim) {
 
 NLboolean nlSolve(NLContext *context) {
     NLboolean result;
-	nlSetupPreconditioner();
-	result = nlSolveIterative();
-    nlVectorToVariables();
+	nlDeleteMatrix(context->P);
+	context->P = nlNewJacobiPreconditioner(context->M);
+    nlMatrixCompress(&context->M);
+	result = nlSolveIterative(context);
+    nlVectorToVariables(context);
     return result;
 }
