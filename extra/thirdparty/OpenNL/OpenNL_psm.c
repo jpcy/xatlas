@@ -215,13 +215,7 @@ typedef enum {
     NL_HOST_MEMORY, NL_DEVICE_MEMORY
 } NLmemoryType;
 
-typedef void (*FUNPTR_dscal)(
-    NLBlas_t blas, int n, double a, double *x, int incx
-);
-
 struct NLBlas {
-    FUNPTR_dscal Dscal;
-
     NLboolean has_unified_memory;
     double start_time;
     NLulong flops;
@@ -1343,10 +1337,7 @@ static void daxpy(int n, double a, const double *x, double *y) {
 		y[i] = a * x[i] + y[i];
 }
 
-static void host_blas_dscal(
-    NLBlas_t blas, int n, double a, double *x, int incx
-) {
-    blas->flops += (NLulong)n;
+static void dscal(int n, double a, double *x) {
 	for (int i = 0; i < n; i++)
 		x[i] *= a;
 }
@@ -1357,7 +1348,6 @@ NLBlas_t nlHostBlas() {
     if(!initialized) {
 	memset(&blas, 0, sizeof(blas));
 	blas.has_unified_memory = NL_TRUE;
-	blas.Dscal = host_blas_dscal;
 	nlBlasResetStats(&blas);
 	initialized = NL_TRUE;
     }
@@ -1428,7 +1418,7 @@ static NLuint nlSolveSystem_PRE_CG(
         beta=1./rh;
 	rh=ddot(N,r,h);
 	beta*=rh;
-        blas->Dscal(blas,N,beta,d,1);
+        dscal(N,beta,d);
         daxpy(N,1.,h,d);
         ++its;
         curr_err = ddot(N,r,r);
