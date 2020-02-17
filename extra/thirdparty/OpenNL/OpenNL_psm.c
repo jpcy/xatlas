@@ -92,18 +92,6 @@ extern NLfprintfFunc nl_fprintf;
 #define NL_DELETE_VECTOR(ptr) \
     free(ptr)
 
-/******* extracted from nl_matrix.h *******/
-
-
-#ifndef OPENNL_MATRIX_H
-#define OPENNL_MATRIX_H
-
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
 /* Abstract matrix interface */
 
 struct NLMatrixStruct;
@@ -129,13 +117,6 @@ struct NLMatrixStruct {
     NLMultMatrixVectorFunc mult_func;
 };
 
-void nlDeleteMatrix(NLMatrix M);
-
-void nlMultMatrixVector(
-    NLMatrix M, const double* x, double* y
-);
-    
-
 /* Dynamic arrays for sparse row/columns */
 
 typedef struct  {
@@ -151,27 +132,6 @@ typedef struct {
 
     NLCoeff* coeff;  
 } NLRowColumn;
-
-void nlRowColumnConstruct(NLRowColumn* c);
-
-void nlRowColumnDestroy(NLRowColumn* c);
-
-void nlRowColumnGrow(NLRowColumn* c);
-
-void nlRowColumnAdd(
-    NLRowColumn* c, NLuint index, NLdouble value
-);
-
-void nlRowColumnAppend(
-    NLRowColumn* c, NLuint index, NLdouble value
-);
-
-void nlRowColumnZero(NLRowColumn* c);
-
-void nlRowColumnClear(NLRowColumn* c);
-
-void nlRowColumnSort(NLRowColumn* c);
-
 
 /* Compressed Row Storage */
 
@@ -196,10 +156,6 @@ typedef struct {
 
     NLuint* sliceptr;
 } NLCRSMatrix;
-
-void nlCRSMatrixConstruct(
-    NLCRSMatrix* M, NLuint m, NLuint n, NLuint nnz, NLuint nslices
-);
 
 /* SparseMatrix data structure */
 
@@ -230,66 +186,6 @@ typedef struct {
     NLuint column_capacity;
     
 } NLSparseMatrix;
-
-
-NLMatrix nlSparseMatrixNew(
-    NLuint m, NLuint n
-);
-
-void nlSparseMatrixConstruct(
-    NLSparseMatrix* M, NLuint m, NLuint n
-);
-
-void nlSparseMatrixDestroy(NLSparseMatrix* M);
-
-void nlSparseMatrixMult(
-    NLSparseMatrix* A, const NLdouble* x, NLdouble* y
-);    
-    
-void nlSparseMatrixAdd(
-    NLSparseMatrix* M, NLuint i, NLuint j, NLdouble value
-);
-
-void nlSparseMatrixAddMatrix(
-    NLSparseMatrix* M, double mul, const NLMatrix N
-);	
-    
-void nlSparseMatrixZero( NLSparseMatrix* M);
-
-void nlSparseMatrixClear( NLSparseMatrix* M);
-
-NLuint nlSparseMatrixNNZ( NLSparseMatrix* M);
-
-void nlSparseMatrixSort( NLSparseMatrix* M);
-
-void nlSparseMatrixAddRow( NLSparseMatrix* M);
-
-void nlSparseMatrixAddColumn( NLSparseMatrix* M);
-
-void nlSparseMatrixMAddRow(
-    NLSparseMatrix* M, NLuint i1, double s, NLuint i2
-);
-
-void nlSparseMatrixScaleRow(
-    NLSparseMatrix* M, NLuint i, double s
-);
-
-void nlSparseMatrixZeroRow(
-    NLSparseMatrix* M, NLuint i
-);
-
-    
-
-
-NLMatrix nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M);    
-
-void nlMatrixCompress(NLMatrix* M);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif
 
 /******* extracted from nl_context.h *******/
 
@@ -446,25 +342,6 @@ void nlPrintfFuncs(NLprintfFunc f1, NLfprintfFunc f2) {
     nl_fprintf = f2;
 }
 
-
-
-
-
-/******* extracted from nl_matrix.c *******/
-
-
-/*
- Some warnings about const cast in callback for
- qsort() function.
- */
-
-#ifdef __clang__
-#pragma GCC diagnostic ignored "-Wcast-qual"
-#endif
-
-
-
-
 void nlDeleteMatrix(NLMatrix M) {
     if(M == NULL) {
         return;
@@ -478,8 +355,6 @@ void nlMultMatrixVector(
 ) {
     M->mult_func(M,x,y);
 }
-
-
 
 void nlRowColumnConstruct(NLRowColumn* c) {
     c->size     = 0;
@@ -802,14 +677,6 @@ void nlSparseMatrixMult(
     nlSparseMatrix_mult_rows(A, x, y);
 }
 
-NLMatrix nlSparseMatrixNew(
-    NLuint m, NLuint n
-) {
-    NLSparseMatrix* result = NL_NEW(NLSparseMatrix);
-    nlSparseMatrixConstruct(result, m, n);
-    return (NLMatrix)result;
-}
-
 void nlSparseMatrixConstruct(
     NLSparseMatrix* M, NLuint m, NLuint n
 ) {
@@ -830,6 +697,14 @@ void nlSparseMatrixConstruct(
     M->diag_size = MIN(m,n);
     M->diag_capacity = M->diag_size;
     M->diag = NL_NEW_ARRAY(NLdouble, M->diag_size);
+}
+
+NLMatrix nlSparseMatrixNew(
+    NLuint m, NLuint n
+) {
+    NLSparseMatrix* result = NL_NEW(NLSparseMatrix);
+    nlSparseMatrixConstruct(result, m, n);
+    return (NLMatrix)result;
 }
 
 static void adjust_diag(NLSparseMatrix* M) {
