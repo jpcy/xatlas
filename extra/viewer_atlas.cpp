@@ -516,7 +516,7 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 		*   - 5) Solve the equation with OpenNL
 		*   - 6) Copy OpenNL solution to the u,v coordinates
 		*/
-		NLContext context = nlNewContext();
+		NLContext *context = nlNewContext();
 		uint32_t vxmin = UINT32_MAX, vxmax = UINT32_MAX;
 		double umin = 1e30, umax = -1e30;
 		for (uint32_t i = 0; i < vertexCount; i++) {

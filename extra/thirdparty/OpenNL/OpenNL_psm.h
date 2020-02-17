@@ -95,7 +95,7 @@ typedef double          NLdouble;
 
 typedef void(*NLfunc)(void);
 
-typedef void* NLContext; 
+struct NLContext; 
 
 #define NL_FALSE   0x0
 #define NL_TRUE    0x1
@@ -122,9 +122,9 @@ typedef void* NLContext;
 
 #define NL_PRECOND_JACOBI     0x300
 
-    NLContext nlNewContext(void);
+    NLContext *nlNewContext(void);
 
-    void nlDeleteContext(NLContext context);
+    void nlDeleteContext(NLContext *context);
 
     void nlSolverParameterd(NLenum pname, NLdouble param);
 

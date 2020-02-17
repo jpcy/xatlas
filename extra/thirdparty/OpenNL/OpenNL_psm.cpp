@@ -195,7 +195,8 @@ typedef struct {
     *(double*)((void*)((char*)((B).base_address)+((i)*(B).stride)))
 
 
-typedef struct {
+struct NLContext
+{
     NLBufferBinding* variable_buffer;
     
     NLdouble*        variable_value;
@@ -249,9 +250,9 @@ typedef struct {
 
     NLProgressFunc   progress_func;
    
-} NLContextStruct;
+};
 
-extern NLContextStruct* nlCurrentContext;
+extern NLContext* nlCurrentContext;
 
 /******* extracted from nl_os.c *******/
 
@@ -726,10 +727,10 @@ void nlMatrixCompress(NLMatrix* M) {
 /******* extracted from nl_context.c *******/
 
 
-NLContextStruct* nlCurrentContext = NULL;
+NLContext* nlCurrentContext = NULL;
 
-NLContext nlNewContext() {
-    NLContextStruct* result     = NL_NEW(NLContextStruct);
+NLContext *nlNewContext() {
+    NLContext* result     = NL_NEW(NLContext);
     result->max_iterations      = 100;
     result->threshold           = 1e-6;
     result->omega               = 1.5;
@@ -740,8 +741,7 @@ NLContext nlNewContext() {
     return result;
 }
 
-void nlDeleteContext(NLContext context_in) {
-    NLContextStruct* context = (NLContextStruct*)(context_in);
+void nlDeleteContext(NLContext *context) {
     if(nlCurrentContext == context) {
         nlCurrentContext = NULL;
     }
