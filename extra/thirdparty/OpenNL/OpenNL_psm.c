@@ -180,27 +180,11 @@ typedef struct {
     
 } NLSparseMatrix;
 
-/******* extracted from nl_context.h *******/
-
-#ifndef OPENNL_CONTEXT_H
-#define OPENNL_CONTEXT_H
-
-
-
-
 /* NLContext data structure */
 
 typedef void(*NLProgressFunc)(
     NLuint cur_iter, NLuint max_iter, double cur_err, double max_err
 );
-
-#define NL_STATE_INITIAL                0
-#define NL_STATE_SYSTEM                 1
-#define NL_STATE_MATRIX                 2
-#define NL_STATE_ROW                    3
-#define NL_STATE_MATRIX_CONSTRUCTED     4
-#define NL_STATE_SYSTEM_CONSTRUCTED     5
-#define NL_STATE_SOLVED                 6
 
 typedef struct {
     void* base_address;
@@ -212,8 +196,6 @@ typedef struct {
 
 
 typedef struct {
-    NLenum           state;
-
     NLBufferBinding* variable_buffer;
     
     NLdouble*        variable_value;
@@ -270,12 +252,6 @@ typedef struct {
 } NLContextStruct;
 
 extern NLContextStruct* nlCurrentContext;
-
-void nlCheckState(NLenum state);
-
-void nlTransition(NLenum from_state, NLenum to_state);
-
-#endif
 
 /******* extracted from nl_os.c *******/
 
@@ -754,7 +730,6 @@ NLContextStruct* nlCurrentContext = NULL;
 
 NLContext nlNewContext() {
     NLContextStruct* result     = NL_NEW(NLContextStruct);
-    result->state               = NL_STATE_INITIAL;
     result->max_iterations      = 100;
     result->threshold           = 1e-6;
     result->omega               = 1.5;
@@ -800,18 +775,6 @@ void nlMakeCurrent(NLContext context) {
 
 NLContext nlGetCurrent() {
     return nlCurrentContext;
-}
-
-
-/* Finite state automaton   */
-
-void nlCheckState(NLenum state) {
-    assert(nlCurrentContext->state == state);
-}
-
-void nlTransition(NLenum from_state, NLenum to_state) {
-    nlCheckState(from_state);
-    nlCurrentContext->state = to_state;
 }
 
 static double ddot(int n, const double *x, const double *y)
@@ -1036,7 +999,6 @@ static NLSparseMatrix* nlGetCurrentSparseMatrix() {
 /* Get/Set parameters */
 
 void nlSolverParameterd(NLenum pname, NLdouble param) {
-    nlCheckState(NL_STATE_INITIAL);
     switch(pname) {
     case NL_THRESHOLD: {
         assert(param >= 0);
@@ -1053,7 +1015,6 @@ void nlSolverParameterd(NLenum pname, NLdouble param) {
 }
 
 void nlSolverParameteri(NLenum pname, NLint param) {
-    nlCheckState(NL_STATE_INITIAL);
     switch(pname) {
     case NL_NB_VARIABLES: {
         assert(param > 0);
@@ -1137,19 +1098,16 @@ void  nlSetFunction(NLenum pname, NLfunc param) {
 /* Get/Set Lock/Unlock variables */
 
 void nlSetVariable(NLuint index, NLdouble value) {
-    nlCheckState(NL_STATE_SYSTEM);
     assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
     NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[0],index) = value;
 }
 
 NLdouble nlGetVariable(NLuint index) {
-    assert(nlCurrentContext->state != NL_STATE_INITIAL);
     assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
     return NL_BUFFER_ITEM(nlCurrentContext->variable_buffer[0],index);
 }
 
 void nlLockVariable(NLuint index) {
-    nlCheckState(NL_STATE_SYSTEM);
     assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
     nlCurrentContext->variable_is_locked[index] = NL_TRUE;
 }
@@ -1196,7 +1154,6 @@ static void nlVectorToVariables() {
 static void nlBeginSystem() {
     NLuint k;
     
-    nlTransition(NL_STATE_INITIAL, NL_STATE_SYSTEM);
     assert(nlCurrentContext->nb_variables > 0);
 
     nlCurrentContext->variable_buffer = NL_NEW_ARRAY(
@@ -1220,10 +1177,6 @@ static void nlBeginSystem() {
     nlCurrentContext->variable_index = NL_NEW_ARRAY(
 	NLuint, nlCurrentContext->nb_variables
     );
-}
-
-static void nlEndSystem() {
-    nlTransition(NL_STATE_MATRIX_CONSTRUCTED, NL_STATE_SYSTEM_CONSTRUCTED);    
 }
 
 static void nlInitializeM() {
@@ -1271,13 +1224,11 @@ static void nlInitializeM() {
 }
 
 static void nlEndMatrix() {
-    nlTransition(NL_STATE_MATRIX, NL_STATE_MATRIX_CONSTRUCTED);    
     nlRowColumnClear(&nlCurrentContext->af);
     nlRowColumnClear(&nlCurrentContext->al);
 }
 
 static void nlBeginRow() {
-    nlTransition(NL_STATE_MATRIX, NL_STATE_ROW);
     nlRowColumnZero(&nlCurrentContext->af);
     nlRowColumnZero(&nlCurrentContext->al);
 }
@@ -1294,7 +1245,6 @@ static void nlEndRow() {
     NLuint i,j,jj;
     NLdouble S;
     NLuint k;
-    nlTransition(NL_STATE_ROW, NL_STATE_MATRIX);
 
     /*
      * least_squares : we want to solve
@@ -1325,7 +1275,6 @@ static void nlEndRow() {
 }
 
 void nlCoefficient(NLuint index, NLdouble value) {
-    nlCheckState(NL_STATE_ROW);
     assert(index >= 0 && index <= nlCurrentContext->nb_variables - 1);
     if(nlCurrentContext->variable_is_locked[index]) {
 	/* 
@@ -1351,7 +1300,6 @@ void nlBegin(NLenum prim) {
         nlBeginSystem();
     } break;
     case NL_MATRIX: {
-	nlTransition(NL_STATE_SYSTEM, NL_STATE_MATRIX);
 	if(
 	    nlCurrentContext->M == NULL
 	) {
@@ -1370,7 +1318,6 @@ void nlBegin(NLenum prim) {
 void nlEnd(NLenum prim) {
     switch(prim) {
     case NL_SYSTEM: {
-        nlEndSystem();
     } break;
     case NL_MATRIX: {
         nlEndMatrix();
@@ -1389,10 +1336,8 @@ void nlEnd(NLenum prim) {
 
 NLboolean nlSolve() {
     NLboolean result;
-    nlCheckState(NL_STATE_SYSTEM_CONSTRUCTED);
 	nlSetupPreconditioner();
 	result = nlSolveIterative();
     nlVectorToVariables();
-    nlTransition(NL_STATE_SYSTEM_CONSTRUCTED, NL_STATE_SOLVED);
     return result;
 }
