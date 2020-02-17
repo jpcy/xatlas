@@ -219,11 +219,6 @@ typedef void (*FUNPTR_dscal)(
     NLBlas_t blas, int n, double a, double *x, int incx
 );
 
-
-typedef double (*FUNPTR_ddot)(
-    NLBlas_t blas, int n, const double *x, int incx, const double *y, int incy
-);
-
 typedef void (*FUNPTR_daxpy)(
     NLBlas_t blas, int n,
     double a, const double *x, int incx, double *y, int incy
@@ -231,7 +226,6 @@ typedef void (*FUNPTR_daxpy)(
 
 struct NLBlas {
     FUNPTR_dscal Dscal;
-    FUNPTR_ddot  Ddot;
     FUNPTR_daxpy Daxpy;
 
     NLboolean has_unified_memory;
@@ -1342,10 +1336,8 @@ NLboolean nlBlasHasUnifiedMemory(NLBlas_t blas) {
     return blas->has_unified_memory;
 }
 
-static double host_blas_ddot(
-    NLBlas_t blas, int n, const double *x, int incx, const double *y, int incy    
-) {
-    blas->flops += (NLulong)(2*n);
+static double ddot(int n, const double *x, const double *y)
+{
 	double sum = 0.0;
 	for (int i = 0; i < n; i++)
 		sum += x[i] * y[i];
@@ -1374,7 +1366,6 @@ NLBlas_t nlHostBlas() {
     if(!initialized) {
 	memset(&blas, 0, sizeof(blas));
 	blas.has_unified_memory = NL_TRUE;
-	blas.Ddot = host_blas_ddot;
 	blas.Daxpy = host_blas_daxpy;
 	blas.Dscal = host_blas_dscal;
 	nlBlasResetStats(&blas);
@@ -1422,7 +1413,7 @@ static NLuint nlSolveSystem_PRE_CG(
     NLdouble *Ad = h;
     NLuint its=0;
     NLdouble rh, alpha, beta;
-    NLdouble b_square = blas->Ddot(blas,N,b,1,b,1);
+    NLdouble b_square = ddot(N,b,b);
     NLdouble err=eps*eps*b_square;
     NLdouble curr_err;
 
@@ -1430,8 +1421,8 @@ static NLuint nlSolveSystem_PRE_CG(
     blas->Daxpy(blas,N,-1.,b,1,r,1);
     nlMultMatrixVector(P,r,d);
 	memcpy(h, d, N * sizeof(NLdouble));
-    rh=blas->Ddot(blas,N,r,1,h,1);
-    curr_err = blas->Ddot(blas,N,r,1,r,1);
+    rh=ddot(N,r,h);
+    curr_err = ddot(N,r,r);
 
     while ( curr_err >err && its < max_iter) {
 	if(nlCurrentContext != NULL) {
@@ -1440,17 +1431,17 @@ static NLuint nlSolveSystem_PRE_CG(
 	    }
 	}
 	nlMultMatrixVector(M,d,Ad);
-        alpha=rh/blas->Ddot(blas,N,d,1,Ad,1);
+        alpha=rh/ddot(N,d,Ad);
         blas->Daxpy(blas,N,-alpha,d,1,x,1);
         blas->Daxpy(blas,N,-alpha,Ad,1,r,1);
 	nlMultMatrixVector(P,r,h);
         beta=1./rh;
-	rh=blas->Ddot(blas,N,r,1,h,1);
+	rh=ddot(N,r,h);
 	beta*=rh;
         blas->Dscal(blas,N,beta,d,1);
         blas->Daxpy(blas,N,1.,h,1,d,1);
         ++its;
-        curr_err = blas->Ddot(blas,N,r,1,r,1);
+        curr_err = ddot(N,r,r);
     }
     NL_DELETE_VECTOR(r);
     NL_DELETE_VECTOR(d);
