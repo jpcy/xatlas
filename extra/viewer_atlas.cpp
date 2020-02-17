@@ -232,7 +232,6 @@ struct
 	AtlasStatus status;
 	AtlasOptions options;
 	std::vector<float> chartColors;
-	std::mutex paramMutex; // Used by OpenNL
 	bgfx::FrameBufferHandle chartsFrameBuffer = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle chartsTexture = BGFX_INVALID_HANDLE;
 	std::vector<uint8_t> chartsTextureData;
@@ -503,7 +502,6 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 #endif
 #if USE_OPENNL
 	if (s_atlas.options.paramMethod == ParamMethod::OpenNL_LSCM) {
-		std::mutex_lock lock(s_atlas.paramMutex); // Current context should really be TLS internally...
 		/**
 		* \brief Computes the least squares conformal map and stores it in
 		*  the texture coordinates of the mesh.
