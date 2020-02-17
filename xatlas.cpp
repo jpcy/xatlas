@@ -90,8 +90,8 @@ Copyright (c) 2012 Brandon Pelfrey
 #endif
 
 #define XA_ALLOC(tag, type) (type *)internal::Realloc(nullptr, sizeof(type), tag, __FILE__, __LINE__)
-#define XA_ALLOC_ARRAY(tag, type, num) (type *)internal::Realloc(nullptr, sizeof(type) * num, tag, __FILE__, __LINE__)
-#define XA_REALLOC(tag, ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * num, tag, __FILE__, __LINE__)
+#define XA_ALLOC_ARRAY(tag, type, num) (type *)internal::Realloc(nullptr, sizeof(type) * (num), tag, __FILE__, __LINE__)
+#define XA_REALLOC(tag, ptr, type, num) (type *)internal::Realloc(ptr, sizeof(type) * (num), tag, __FILE__, __LINE__)
 #define XA_REALLOC_SIZE(tag, ptr, size) (uint8_t *)internal::Realloc(ptr, size, tag, __FILE__, __LINE__)
 #define XA_FREE(ptr) internal::Realloc(ptr, 0, internal::MemTag::Default, __FILE__, __LINE__)
 #define XA_NEW(tag, type) new (XA_ALLOC(tag, type)) type()
@@ -248,7 +248,6 @@ struct MemTag
 		Default,
 		BitImage,
 		BVH,
-		FullVector,
 		Matrix,
 		Mesh,
 		MeshBoundaries,
@@ -258,6 +257,7 @@ struct MemTag
 		MeshNormals,
 		MeshPositions,
 		MeshTexcoords,
+		OpenNL,
 		SegmentAtlasChartCandidates,
 		SegmentAtlasChartFaces,
 		SegmentAtlasMeshData,
@@ -383,7 +383,6 @@ static void PrintMemoryUsage()
 		"Default",
 		"BitImage",
 		"BVH",
-		"FullVector",
 		"Matrix",
 		"Mesh",
 		"MeshBoundaries",
@@ -393,6 +392,7 @@ static void PrintMemoryUsage()
 		"MeshNormals",
 		"MeshPositions",
 		"MeshTexcoords",
+		"OpenNL",
 		"SegmentAtlasChartCandidates",
 		"SegmentAtlasChartFaces",
 		"SegmentAtlasMeshData",
@@ -1944,28 +1944,6 @@ private:
 	}
 };
 
-/// Fixed size vector class.
-class FullVector
-{
-public:
-	FullVector(uint32_t dim) : m_array(MemTag::FullVector) { m_array.resize(dim); }
-	FullVector(const FullVector &v) : m_array(MemTag::FullVector) { v.m_array.copyTo(m_array); }
-	FullVector &operator=(const FullVector &v) = delete;
-	XA_INLINE uint32_t dimension() const { return m_array.size(); }
-	XA_INLINE const float &operator[](uint32_t index) const { return m_array[index]; }
-	XA_INLINE float &operator[](uint32_t index) { return m_array[index]; }
-
-	void fill(float f)
-	{
-		const uint32_t dim = dimension();
-		for (uint32_t i = 0; i < dim; i++)
-			m_array[i] = f;
-	}
-
-private:
-	Array<float> m_array;
-};
-
 static uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
 {
 	const uint8_t *data = (const uint8_t *) data_in;
@@ -2933,6 +2911,7 @@ public:
 	XA_INLINE uint32_t vertexCount() const { return m_positions.size(); }
 	XA_INLINE uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
 	XA_INLINE const Vector3 &position(uint32_t vertex) const { return m_positions[vertex]; }
+	XA_INLINE const Vector3 *positions() const { return m_positions.data(); }
 	XA_INLINE const Vector3 &normal(uint32_t vertex) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasNormals); return m_normals[vertex]; }
 	XA_INLINE const Vector2 &texcoord(uint32_t vertex) const { return m_texcoords[vertex]; }
 	XA_INLINE Vector2 &texcoord(uint32_t vertex) { return m_texcoords[vertex]; }
@@ -4382,6 +4361,807 @@ struct UvMeshInstance
 	bool rotateCharts;
 };
 
+/*
+ *  Copyright (c) 2004-2010, Bruno Levy
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions are met:
+ *
+ *  * Redistributions of source code must retain the above copyright notice,
+ *  this list of conditions and the following disclaimer.
+ *  * Redistributions in binary form must reproduce the above copyright notice,
+ *  this list of conditions and the following disclaimer in the documentation
+ *  and/or other materials provided with the distribution.
+ *  * Neither the name of the ALICE Project-Team nor the names of its
+ *  contributors may be used to endorse or promote products derived from this
+ *  software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ *  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ *  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ *  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ *  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ *  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ *  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *  POSSIBILITY OF SUCH DAMAGE.
+ *
+ *  If you modify this software, you should include a notice giving the
+ *  name of the person performing the modification, the date of modification,
+ *  and the reason for such modification.
+ *
+ *  Contact: Bruno Levy
+ *
+ *     levy@loria.fr
+ *
+ *     ALICE Project
+ *     LORIA, INRIA Lorraine,
+ *     Campus Scientifique, BP 239
+ *     54506 VANDOEUVRE LES NANCY CEDEX
+ *     FRANCE
+ */
+namespace opennl {
+#define NL_NEW(T)              XA_ALLOC(MemTag::OpenNL, T)
+#define NL_NEW_ARRAY(T,NB)     XA_ALLOC_ARRAY(MemTag::OpenNL, T, NB)
+#define NL_RENEW_ARRAY(T,x,NB) XA_REALLOC(MemTag::OpenNL, x, T, NB)
+#define NL_DELETE(x)           XA_FREE(x); x = nullptr 
+#define NL_DELETE_ARRAY(x)     XA_FREE(x); x = nullptr
+#define NL_CLEAR(x, T)         memset(x, 0, sizeof(T));
+#define NL_CLEAR_ARRAY(T,x,NB) memset(x, 0, (size_t)(NB)*sizeof(T)) 
+#define NL_NEW_VECTOR(dim)     XA_ALLOC_ARRAY(MemTag::OpenNL, double, dim)
+#define NL_DELETE_VECTOR(ptr)  XA_FREE(ptr)
+
+struct NLMatrixStruct;
+typedef NLMatrixStruct * NLMatrix;
+typedef void (*NLDestroyMatrixFunc)(NLMatrix M);
+typedef void (*NLMultMatrixVectorFunc)(NLMatrix M, const double* x, double* y);
+
+#define NL_MATRIX_SPARSE_DYNAMIC 0x1001
+#define NL_MATRIX_CRS            0x1002
+#define NL_MATRIX_OTHER          0x1006
+
+struct NLMatrixStruct
+{
+	uint32_t m;
+	uint32_t n;
+	uint32_t type;
+	NLDestroyMatrixFunc destroy_func;
+	NLMultMatrixVectorFunc mult_func;
+};
+
+/* Dynamic arrays for sparse row/columns */
+
+struct NLCoeff
+{
+	uint32_t index;
+	double value;
+};
+
+struct NLRowColumn
+{
+	uint32_t size;
+	uint32_t capacity;
+	NLCoeff* coeff;
+};
+
+/* Compressed Row Storage */
+
+struct NLCRSMatrix
+{
+	uint32_t m;
+	uint32_t n;
+	uint32_t type;
+	NLDestroyMatrixFunc destroy_func;
+	NLMultMatrixVectorFunc mult_func;
+	double* val;
+	uint32_t* rowptr;
+	uint32_t* colind;
+	uint32_t nslices;
+	uint32_t* sliceptr;
+};
+
+/* SparseMatrix data structure */
+
+struct NLSparseMatrix
+{
+	uint32_t m;
+	uint32_t n;
+	uint32_t type;
+	NLDestroyMatrixFunc destroy_func;
+	NLMultMatrixVectorFunc mult_func;
+	uint32_t diag_size;
+	uint32_t diag_capacity;
+	NLRowColumn* row;
+	NLRowColumn* column;
+	double*    diag;
+	uint32_t row_capacity;
+	uint32_t column_capacity;
+};
+
+/* NLContext data structure */
+
+struct NLBufferBinding
+{
+	void* base_address;
+	uint32_t stride;
+};
+
+#define NL_BUFFER_ITEM(B,i) *(double*)((void*)((char*)((B).base_address)+((i)*(B).stride)))
+
+struct NLContext
+{
+	NLBufferBinding *variable_buffer;
+	double *variable_value;
+	bool *variable_is_locked;
+	uint32_t *variable_index;
+	uint32_t n;
+	NLMatrix M;
+	NLMatrix P;
+	NLMatrix B;
+	NLRowColumn af;
+	NLRowColumn al;
+	double *x;
+	double *b;
+	uint32_t nb_variables;
+	uint32_t nb_systems;
+	uint32_t current_row;
+	uint32_t max_iterations;
+	bool max_iterations_defined;
+	double threshold;
+	double omega;
+	uint32_t used_iterations;
+	double error;
+};
+
+static void nlDeleteMatrix(NLMatrix M)
+{
+	if (!M)
+		return;
+	M->destroy_func(M);
+	NL_DELETE(M);
+}
+
+static void nlMultMatrixVector(NLMatrix M, const double* x, double* y)
+{
+	M->mult_func(M, x, y);
+}
+
+static void nlRowColumnConstruct(NLRowColumn* c)
+{
+	c->size = 0;
+	c->capacity = 0;
+	c->coeff = nullptr;
+}
+
+static void nlRowColumnDestroy(NLRowColumn* c)
+{
+	NL_DELETE_ARRAY(c->coeff);
+	c->size = 0;
+	c->capacity = 0;
+}
+
+static void nlRowColumnGrow(NLRowColumn* c)
+{
+	if (c->capacity != 0) {
+		c->capacity = 2 * c->capacity;
+		c->coeff = NL_RENEW_ARRAY(NLCoeff, c->coeff, c->capacity);
+	} else {
+		c->capacity = 4;
+		c->coeff = NL_NEW_ARRAY(NLCoeff, c->capacity);
+		NL_CLEAR_ARRAY(NLCoeff, c->coeff, c->capacity);
+	}
+}
+
+static void nlRowColumnAdd(NLRowColumn* c, uint32_t index, double value)
+{
+	for (uint32_t i = 0; i < c->size; i++) {
+		if (c->coeff[i].index == index) {
+			c->coeff[i].value += value;
+			return;
+		}
+	}
+	if (c->size == c->capacity)
+		nlRowColumnGrow(c);
+	c->coeff[c->size].index = index;
+	c->coeff[c->size].value = value;
+	c->size++;
+}
+
+/* Does not check whether the index already exists */
+static void nlRowColumnAppend(NLRowColumn* c, uint32_t index, double value)
+{
+	if (c->size == c->capacity)
+		nlRowColumnGrow(c);
+	c->coeff[c->size].index = index;
+	c->coeff[c->size].value = value;
+	c->size++;
+}
+
+static void nlRowColumnZero(NLRowColumn* c)
+{
+	c->size = 0;
+}
+
+static void nlRowColumnClear(NLRowColumn* c)
+{
+	c->size = 0;
+	c->capacity = 0;
+	NL_DELETE_ARRAY(c->coeff);
+}
+
+static int nlCoeffCompare(const void* p1, const void* p2)
+{
+	return (((NLCoeff*)(p2))->index < ((NLCoeff*)(p1))->index);
+}
+
+static void nlRowColumnSort(NLRowColumn* c)
+{
+	qsort(c->coeff, c->size, sizeof(NLCoeff), nlCoeffCompare);
+}
+
+/* CRSMatrix data structure */
+
+static void nlCRSMatrixDestroy(NLCRSMatrix* M)
+{
+	NL_DELETE_ARRAY(M->val);
+	NL_DELETE_ARRAY(M->rowptr);
+	NL_DELETE_ARRAY(M->colind);
+	NL_DELETE_ARRAY(M->sliceptr);
+	M->m = 0;
+	M->n = 0;
+	M->nslices = 0;
+}
+
+static void nlCRSMatrixMultSlice(NLCRSMatrix* M, const double* x, double* y, uint32_t Ibegin, uint32_t Iend)
+{
+	for (uint32_t i = Ibegin; i < Iend; ++i) {
+		double sum = 0.0;
+		for (uint32_t j = M->rowptr[i]; j < M->rowptr[i + 1]; ++j)
+			sum += M->val[j] * x[M->colind[j]];
+		y[i] = sum;
+	}
+}
+
+static void nlCRSMatrixMult(NLCRSMatrix* M, const double* x, double* y)
+{
+	int nslices = (int)(M->nslices);
+	for (int slice = 0; slice < nslices; ++slice)
+		nlCRSMatrixMultSlice(M, x, y, M->sliceptr[slice], M->sliceptr[slice + 1]);
+}
+
+static void nlCRSMatrixConstruct(NLCRSMatrix* M, uint32_t m, uint32_t n, uint32_t nnz, uint32_t nslices)
+{
+	M->m = m;
+	M->n = n;
+	M->type = NL_MATRIX_CRS;
+	M->destroy_func = (NLDestroyMatrixFunc)nlCRSMatrixDestroy;
+	M->mult_func = (NLMultMatrixVectorFunc)nlCRSMatrixMult;
+	M->nslices = nslices;
+	M->val = NL_NEW_ARRAY(double, nnz);
+	NL_CLEAR_ARRAY(double, M->val, nnz);
+	M->rowptr = NL_NEW_ARRAY(uint32_t, m + 1);
+	NL_CLEAR_ARRAY(uint32_t, M->rowptr, m + 1);
+	M->colind = NL_NEW_ARRAY(uint32_t, nnz);
+	NL_CLEAR_ARRAY(uint32_t, M->colind, nnz);
+	M->sliceptr = NL_NEW_ARRAY(uint32_t, nslices + 1);
+	NL_CLEAR_ARRAY(uint32_t, M->sliceptr, nslices + 1);
+}
+
+/* SparseMatrix data structure */
+
+static void nlSparseMatrixDestroyRowColumns(NLSparseMatrix* M)
+{
+	for (uint32_t i = 0; i < M->m; i++)
+		nlRowColumnDestroy(&(M->row[i]));
+	NL_DELETE_ARRAY(M->row);
+}
+
+static void nlSparseMatrixDestroy(NLSparseMatrix* M)
+{
+	assert(M->type == NL_MATRIX_SPARSE_DYNAMIC);
+	nlSparseMatrixDestroyRowColumns(M);
+	NL_DELETE_ARRAY(M->diag);
+}
+
+static void nlSparseMatrixAdd(NLSparseMatrix* M, uint32_t i, uint32_t j, double value)
+{
+	assert(i >= 0 && i <= M->m - 1);
+	assert(j >= 0 && j <= M->n - 1);
+	if (i == j)
+		M->diag[i] += value;
+	nlRowColumnAdd(&(M->row[i]), j, value);
+}
+
+/* Returns the number of non-zero coefficients */
+static uint32_t nlSparseMatrixNNZ(NLSparseMatrix* M)
+{
+	uint32_t nnz = 0;
+	for (uint32_t i = 0; i < M->m; i++)
+		nnz += M->row[i].size;
+	return nnz;
+}
+
+static void nlSparseMatrixSort(NLSparseMatrix* M)
+{
+	for (uint32_t i = 0; i < M->m; i++)
+		nlRowColumnSort(&(M->row[i]));
+}
+
+/* SparseMatrix x Vector routines, internal helper routines */
+
+static void nlSparseMatrix_mult_rows(NLSparseMatrix* A,	const double* x, double* y)
+{
+	/*
+	 * Note: OpenMP does not like unsigned ints
+	 * (causes some floating point exceptions),
+	 * therefore I use here signed ints for all
+	 * indices.
+	 */
+	int m = (int)(A->m);
+	NLCoeff* c = nullptr;
+	NLRowColumn* Ri = nullptr;
+	for (int i = 0; i < m; i++) {
+		Ri = &(A->row[i]);
+		y[i] = 0;
+		for (int ij = 0; ij < (int)(Ri->size); ij++) {
+			c = &(Ri->coeff[ij]);
+			y[i] += c->value * x[c->index];
+		}
+	}
+}
+
+static void nlSparseMatrixMult(NLSparseMatrix* A, const double* x, double* y)
+{
+	assert(A->type == NL_MATRIX_SPARSE_DYNAMIC);
+	nlSparseMatrix_mult_rows(A, x, y);
+}
+
+static void nlSparseMatrixConstruct(NLSparseMatrix* M, uint32_t m, uint32_t n)
+{
+	M->m = m;
+	M->n = n;
+	M->type = NL_MATRIX_SPARSE_DYNAMIC;
+	M->destroy_func = (NLDestroyMatrixFunc)nlSparseMatrixDestroy;
+	M->mult_func = (NLMultMatrixVectorFunc)nlSparseMatrixMult;
+	M->row = NL_NEW_ARRAY(NLRowColumn, m);
+	NL_CLEAR_ARRAY(NLRowColumn, M->row, m);
+	M->row_capacity = m;
+	for (uint32_t i = 0; i < n; i++)
+		nlRowColumnConstruct(&(M->row[i]));
+	M->row_capacity = 0;
+	M->column = nullptr;
+	M->column_capacity = 0;
+	M->diag_size = min(m, n);
+	M->diag_capacity = M->diag_size;
+	M->diag = NL_NEW_ARRAY(double, M->diag_size);
+	NL_CLEAR_ARRAY(double, M->diag, M->diag_size);
+}
+
+static NLMatrix nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M)
+{
+	uint32_t nnz = nlSparseMatrixNNZ(M);
+	uint32_t nslices = 8; /* TODO: get number of cores */
+	uint32_t slice, cur_bound, cur_NNZ, cur_row;
+	uint32_t k;
+	uint32_t slice_size = nnz / nslices;
+	NLCRSMatrix* CRS = NL_NEW(NLCRSMatrix);
+	NL_CLEAR(CRS, NLCRSMatrix);
+	nlCRSMatrixConstruct(CRS, M->m, M->n, nnz, nslices);
+	nlSparseMatrixSort(M);
+	/* Convert matrix to CRS format */
+	k = 0;
+	for (uint32_t i = 0; i < M->m; ++i) {
+		NLRowColumn* Ri = &(M->row[i]);
+		CRS->rowptr[i] = k;
+		for (uint32_t ij = 0; ij < Ri->size; ij++) {
+			NLCoeff* c = &(Ri->coeff[ij]);
+			CRS->val[k] = c->value;
+			CRS->colind[k] = c->index;
+			++k;
+		}
+	}
+	CRS->rowptr[M->m] = k;
+	/* Create "slices" to be used by parallel sparse matrix vector product */
+	if (CRS->sliceptr) {
+		cur_bound = slice_size;
+		cur_NNZ = 0;
+		cur_row = 0;
+		CRS->sliceptr[0] = 0;
+		for (slice = 1; slice < nslices; ++slice) {
+			while (cur_NNZ < cur_bound && cur_row < M->m) {
+				++cur_row;
+				cur_NNZ += CRS->rowptr[cur_row + 1] - CRS->rowptr[cur_row];
+			}
+			CRS->sliceptr[slice] = cur_row;
+			cur_bound += slice_size;
+		}
+		CRS->sliceptr[nslices] = M->m;
+	}
+	return (NLMatrix)CRS;
+}
+
+static void nlMatrixCompress(NLMatrix* M)
+{
+	NLMatrix CRS = nullptr;
+	if ((*M)->type != NL_MATRIX_SPARSE_DYNAMIC)
+		return;
+	CRS = nlCRSMatrixNewFromSparseMatrix((NLSparseMatrix*)*M);
+	nlDeleteMatrix(*M);
+	*M = CRS;
+}
+
+static NLContext *nlNewContext()
+{
+	NLContext* result = NL_NEW(NLContext);
+	NL_CLEAR(result, NLContext);
+	result->max_iterations = 100;
+	result->threshold = 1e-6;
+	result->omega = 1.5;
+	result->nb_systems = 1;
+	return result;
+}
+
+static void nlDeleteContext(NLContext *context)
+{
+	nlDeleteMatrix(context->M);
+	context->M = nullptr;
+	nlDeleteMatrix(context->P);
+	context->P = nullptr;
+	nlDeleteMatrix(context->B);
+	context->B = nullptr;
+	nlRowColumnDestroy(&context->af);
+	nlRowColumnDestroy(&context->al);
+	NL_DELETE_ARRAY(context->variable_value);
+	NL_DELETE_ARRAY(context->variable_buffer);
+	NL_DELETE_ARRAY(context->variable_is_locked);
+	NL_DELETE_ARRAY(context->variable_index);
+	NL_DELETE_ARRAY(context->x);
+	NL_DELETE_ARRAY(context->b);
+	NL_DELETE(context);
+}
+
+static double ddot(int n, const double *x, const double *y)
+{
+	double sum = 0.0;
+	for (int i = 0; i < n; i++)
+		sum += x[i] * y[i];
+	return sum;
+}
+
+static void daxpy(int n, double a, const double *x, double *y)
+{
+	for (int i = 0; i < n; i++)
+		y[i] = a * x[i] + y[i];
+}
+
+static void dscal(int n, double a, double *x)
+{
+	for (int i = 0; i < n; i++)
+		x[i] *= a;
+}
+
+/*
+ * The implementation of the solvers is inspired by
+ * the lsolver library, by Christian Badura, available from:
+ * http://www.mathematik.uni-freiburg.de
+ * /IAM/Research/projectskr/lin_solver/
+ *
+ * About the Conjugate Gradient, details can be found in:
+ *  Ashby, Manteuffel, Saylor
+ *     A taxononmy for conjugate gradient methods
+ *     SIAM J Numer Anal 27, 1542-1568 (1990)
+ *
+ *  This version is completely abstract, the same code can be used for
+ * CPU/GPU, dense matrix / sparse matrix etc...
+ *  Abstraction is realized through:
+  *   - Abstract matrix interface (NLMatrix), that can implement different
+ *     versions of matrix x vector product (CPU/GPU, sparse/dense ...)
+ */
+
+static uint32_t nlSolveSystem_PRE_CG(NLMatrix M, NLMatrix P, double* b, double* x, double eps, uint32_t max_iter, double *sq_bnorm, double *sq_rnorm)
+{
+	int     N = (int)M->n;
+	double* r = NL_NEW_VECTOR(N);
+	double* d = NL_NEW_VECTOR(N);
+	double* h = NL_NEW_VECTOR(N);
+	double *Ad = h;
+	uint32_t its = 0;
+	double rh, alpha, beta;
+	double b_square = ddot(N, b, b);
+	double err = eps * eps*b_square;
+	double curr_err;
+	nlMultMatrixVector(M, x, r);
+	daxpy(N, -1., b, r);
+	nlMultMatrixVector(P, r, d);
+	memcpy(h, d, N * sizeof(double));
+	rh = ddot(N, r, h);
+	curr_err = ddot(N, r, r);
+	while (curr_err > err && its < max_iter) {
+		nlMultMatrixVector(M, d, Ad);
+		alpha = rh / ddot(N, d, Ad);
+		daxpy(N, -alpha, d, x);
+		daxpy(N, -alpha, Ad, r);
+		nlMultMatrixVector(P, r, h);
+		beta = 1. / rh;
+		rh = ddot(N, r, h);
+		beta *= rh;
+		dscal(N, beta, d);
+		daxpy(N, 1., h, d);
+		++its;
+		curr_err = ddot(N, r, r);
+	}
+	NL_DELETE_VECTOR(r);
+	NL_DELETE_VECTOR(d);
+	NL_DELETE_VECTOR(h);
+	*sq_bnorm = b_square;
+	*sq_rnorm = curr_err;
+	return its;
+}
+
+static uint32_t nlSolveSystemIterative(NLContext *context, NLMatrix M, NLMatrix P, double* b_in, double* x_in, double eps, uint32_t max_iter)
+{
+	uint32_t result = 0;
+	double rnorm = 0.0;
+	double bnorm = 0.0;
+	double* b = b_in;
+	double* x = x_in;
+	assert(M->m == M->n);
+	double sq_bnorm, sq_rnorm;
+	result = nlSolveSystem_PRE_CG(M, P, b, x, eps, max_iter, &sq_bnorm, &sq_rnorm);
+	/* Get residual norm and rhs norm */
+	bnorm = sqrt(sq_bnorm);
+	rnorm = sqrt(sq_rnorm);
+	if (bnorm == 0.0)
+		context->error = rnorm;
+	else
+		context->error = rnorm / bnorm;
+	context->used_iterations = result;
+	return result;
+}
+
+static bool nlSolveIterative(NLContext *context)
+{
+	double* b = context->b;
+	double* x = context->x;
+	uint32_t n = context->n;
+	NLMatrix M = context->M;
+	NLMatrix P = context->P;
+	for (uint32_t k = 0; k < context->nb_systems; ++k) {
+		nlSolveSystemIterative(context, M, P, b, x, context->threshold, context->max_iterations);
+		b += n;
+		x += n;
+	}
+	return true;
+}
+
+struct NLJacobiPreconditioner
+{
+	uint32_t m;
+	uint32_t n;
+	uint32_t type;
+	NLDestroyMatrixFunc destroy_func;
+	NLMultMatrixVectorFunc mult_func;
+	double* diag_inv;
+};
+
+static void nlJacobiPreconditionerDestroy(NLJacobiPreconditioner* M)
+{
+	NL_DELETE_ARRAY(M->diag_inv);
+}
+
+static void nlJacobiPreconditionerMult(NLJacobiPreconditioner* M, const double* x, double* y)
+{
+	for (uint32_t i = 0; i < M->n; ++i)
+		y[i] = x[i] * M->diag_inv[i];
+}
+
+static NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in)
+{
+	NLSparseMatrix* M = nullptr;
+	NLJacobiPreconditioner* result = nullptr;
+	assert(M_in->type == NL_MATRIX_SPARSE_DYNAMIC);
+	assert(M_in->m == M_in->n);
+	M = (NLSparseMatrix*)M_in;
+	result = NL_NEW(NLJacobiPreconditioner);
+	NL_CLEAR(result, NLJacobiPreconditioner);
+	result->m = M->m;
+	result->n = M->n;
+	result->type = NL_MATRIX_OTHER;
+	result->destroy_func = (NLDestroyMatrixFunc)nlJacobiPreconditionerDestroy;
+	result->mult_func = (NLMultMatrixVectorFunc)nlJacobiPreconditionerMult;
+	result->diag_inv = NL_NEW_ARRAY(double, M->n);
+	NL_CLEAR_ARRAY(double, result->diag_inv, M->n);
+	for (uint32_t i = 0; i < M->n; ++i)
+		result->diag_inv[i] = (M->diag[i] == 0.0) ? 1.0 : 1.0 / M->diag[i];
+	return (NLMatrix)result;
+}
+
+#define NL_NB_VARIABLES 0x101
+#define NL_MAX_ITERATIONS 0x103
+
+static void nlSolverParameteri(NLContext *context, uint32_t pname, int param)
+{
+	if (pname == NL_NB_VARIABLES) {
+		assert(param > 0);
+		context->nb_variables = (uint32_t)param;
+	} else if (pname == NL_MAX_ITERATIONS) {
+		assert(param > 0);
+		context->max_iterations = (uint32_t)param;
+		context->max_iterations_defined = true;
+	}
+}
+
+static void nlSetVariable(NLContext *context, uint32_t index, double value)
+{
+	assert(index >= 0 && index <= context->nb_variables - 1);
+	NL_BUFFER_ITEM(context->variable_buffer[0], index) = value;
+}
+
+static double nlGetVariable(NLContext *context, uint32_t index)
+{
+	assert(index >= 0 && index <= context->nb_variables - 1);
+	return NL_BUFFER_ITEM(context->variable_buffer[0], index);
+}
+
+static void nlLockVariable(NLContext *context, uint32_t index)
+{
+	assert(index >= 0 && index <= context->nb_variables - 1);
+	context->variable_is_locked[index] = true;
+}
+
+static void nlVariablesToVector(NLContext *context)
+{
+	uint32_t n = context->n;
+	assert(context->x);
+	for (uint32_t k = 0; k < context->nb_systems; ++k) {
+		for (uint32_t i = 0; i < context->nb_variables; ++i) {
+			if (!context->variable_is_locked[i]) {
+				uint32_t index = context->variable_index[i];
+				assert(index < context->n);
+				double value = NL_BUFFER_ITEM(context->variable_buffer[k], i);
+				context->x[index + k * n] = value;
+			}
+		}
+	}
+}
+
+static void nlVectorToVariables(NLContext *context)
+{
+	uint32_t n = context->n;
+	assert(context->x);
+	for (uint32_t k = 0; k < context->nb_systems; ++k) {
+		for (uint32_t i = 0; i < context->nb_variables; ++i) {
+			if (!context->variable_is_locked[i]) {
+				uint32_t index = context->variable_index[i];
+				assert(index < context->n);
+				double value = context->x[index + k * n];
+				NL_BUFFER_ITEM(context->variable_buffer[k], i) = value;
+			}
+		}
+	}
+}
+
+static void nlCoefficient(NLContext *context, uint32_t index, double value)
+{
+	assert(index >= 0 && index <= context->nb_variables - 1);
+	if (context->variable_is_locked[index]) {
+		/*
+		 * Note: in al, indices are NLvariable indices,
+		 * within [0..nb_variables-1]
+		 */
+		nlRowColumnAppend(&(context->al), index, value);
+	} else {
+		/*
+		 * Note: in af, indices are system indices,
+		 * within [0..n-1]
+		 */
+		nlRowColumnAppend(&(context->af), context->variable_index[index], value);
+	}
+}
+
+#define NL_SYSTEM  0x0
+#define NL_MATRIX  0x1
+#define NL_ROW     0x2
+
+static void nlBegin(NLContext *context, uint32_t prim)
+{
+	if (prim == NL_SYSTEM) {
+		assert(context->nb_variables > 0);
+		context->variable_buffer = NL_NEW_ARRAY(NLBufferBinding, context->nb_systems);
+		NL_CLEAR_ARRAY(NLBufferBinding, context->variable_buffer, context->nb_systems);
+		context->variable_value = NL_NEW_ARRAY(double, context->nb_variables * context->nb_systems);
+		NL_CLEAR_ARRAY(double, context->variable_value, context->nb_variables * context->nb_systems);
+		for (uint32_t k = 0; k < context->nb_systems; ++k) {
+			context->variable_buffer[k].base_address =
+				context->variable_value +
+				k * context->nb_variables;
+			context->variable_buffer[k].stride = sizeof(double);
+		}
+		context->variable_is_locked = NL_NEW_ARRAY(bool, context->nb_variables);
+		NL_CLEAR_ARRAY(bool, context->variable_is_locked, context->nb_variables);
+		context->variable_index = NL_NEW_ARRAY(uint32_t, context->nb_variables);
+		NL_CLEAR_ARRAY(uint32_t, context->variable_index, context->nb_variables);
+	} else if (prim == NL_MATRIX) {
+		if (context->M)
+			return;
+		uint32_t n = 0;
+		for (uint32_t i = 0; i < context->nb_variables; i++) {
+			if (!context->variable_is_locked[i]) {
+				context->variable_index[i] = n;
+				n++;
+			} else
+				context->variable_index[i] = (uint32_t)~0;
+		}
+		context->n = n;
+		if (!context->max_iterations_defined)
+			context->max_iterations = n * 5;
+		context->M = (NLMatrix)(NL_NEW(NLSparseMatrix));
+		NL_CLEAR(context->M, NLSparseMatrix);
+		nlSparseMatrixConstruct((NLSparseMatrix*)(context->M), n, n);
+		context->x = NL_NEW_ARRAY(double, n*context->nb_systems);
+		NL_CLEAR_ARRAY(double, context->x, n*context->nb_systems);
+		context->b = NL_NEW_ARRAY(double, n*context->nb_systems);
+		NL_CLEAR_ARRAY(double, context->b, n*context->nb_systems);
+		nlVariablesToVector(context);
+		nlRowColumnConstruct(&context->af);
+		nlRowColumnConstruct(&context->al);
+		context->current_row = 0;
+	} else if (prim == NL_ROW) {
+		nlRowColumnZero(&context->af);
+		nlRowColumnZero(&context->al);
+	}
+}
+
+static void nlEnd(NLContext *context, uint32_t prim)
+{
+	if (prim == NL_MATRIX) {
+		nlRowColumnClear(&context->af);
+		nlRowColumnClear(&context->al);
+	} else if (prim == NL_ROW) {
+		NLRowColumn*    af = &context->af;
+		NLRowColumn*    al = &context->al;
+		NLSparseMatrix* M = (NLSparseMatrix*)context->M;
+		double* b = context->b;
+		uint32_t nf = af->size;
+		uint32_t nl = al->size;
+		uint32_t n = context->n;
+		double S;
+		/*
+		 * least_squares : we want to solve
+		 * A'A x = A'b
+		 */
+		for (uint32_t i = 0; i < nf; i++) {
+			for (uint32_t j = 0; j < nf; j++) {
+				nlSparseMatrixAdd(M, af->coeff[i].index, af->coeff[j].index, af->coeff[i].value * af->coeff[j].value);
+			}
+		}
+		for (uint32_t k = 0; k < context->nb_systems; ++k) {
+			S = 0.0;
+			for (uint32_t jj = 0; jj < nl; ++jj) {
+				uint32_t j = al->coeff[jj].index;
+				S += al->coeff[jj].value * NL_BUFFER_ITEM(context->variable_buffer[k], j);
+			}
+			for (uint32_t jj = 0; jj < nf; jj++)
+				b[k*n + af->coeff[jj].index] -= af->coeff[jj].value * S;
+		}
+		context->current_row++;
+	}
+}
+
+static bool nlSolve(NLContext *context)
+{
+	nlDeleteMatrix(context->P);
+	context->P = nlNewJacobiPreconditioner(context->M);
+	nlMatrixCompress(&context->M);
+	bool result = nlSolveIterative(context);
+	nlVectorToVariables(context);
+	return result;
+}
+} // namespace opennl
+
 namespace raster {
 class ClippedTriangle
 {
@@ -4631,252 +5411,6 @@ static bool drawTriangle(const Vector2 &extents, const Vector2 v[3], SamplingCal
 }
 
 } // namespace raster
-
-// Full and sparse vector and matrix classes. BLAS subset.
-// Pseudo-BLAS interface.
-namespace sparse {
-
-/**
-* Sparse matrix class. The matrix is assumed to be sparse and to have
-* very few non-zero elements, for this reason it's stored in indexed
-* format. To multiply column vectors efficiently, the matrix stores
-* the elements in indexed-column order, there is a list of indexed
-* elements for each row of the matrix. As with the FullVector the
-* dimension of the matrix is constant.
-**/
-class Matrix
-{
-public:
-	// An element of the sparse array.
-	struct Coefficient
-	{
-		uint32_t x;  // column
-		float v; // value
-	};
-
-	Matrix(uint32_t d) : m_width(d), m_array(MemTag::Matrix)
-	{
-		m_array.resize(d);
-		m_array.runCtors();
-#if XA_DEBUG_HEAP
-		for (uint32_t i = 0; i < d; i++)
-			m_array[i].setMemTag(MemTag::Matrix);
-#endif
-	}
-	
-	Matrix(uint32_t w, uint32_t h) : m_width(w), m_array(MemTag::Matrix)
-	{
-		m_array.resize(h);
-		m_array.runCtors();
-#if XA_DEBUG_HEAP
-		for (uint32_t i = 0; i < h; i++)
-			m_array[i].setMemTag(MemTag::Matrix);
-#endif
-	}
-	
-	~Matrix()
-	{
-		m_array.runDtors();
-	}
-
-	Matrix(const Matrix &m) = delete;
-	Matrix &operator=(const Matrix &m) = delete;
-	uint32_t width() const { return m_width; }
-	uint32_t height() const { return m_array.size(); }
-	bool isSquare() const { return width() == height(); }
-
-	// x is column, y is row
-	float getCoefficient(uint32_t x, uint32_t y) const
-	{
-		XA_DEBUG_ASSERT( x < width() );
-		XA_DEBUG_ASSERT( y < height() );
-		const uint32_t count = m_array[y].size();
-		for (uint32_t i = 0; i < count; i++) {
-			if (m_array[y][i].x == x) return m_array[y][i].v;
-		}
-		return 0.0f;
-	}
-
-	void setCoefficient(uint32_t x, uint32_t y, float f)
-	{
-		XA_DEBUG_ASSERT( x < width() );
-		XA_DEBUG_ASSERT( y < height() );
-		const uint32_t count = m_array[y].size();
-		for (uint32_t i = 0; i < count; i++) {
-			if (m_array[y][i].x == x) {
-				m_array[y][i].v = f;
-				return;
-			}
-		}
-		if (f != 0.0f) {
-			Coefficient c = { x, f };
-			m_array[y].push_back( c );
-		}
-	}
-
-	float dotRow(uint32_t y, const FullVector &v) const
-	{
-		XA_DEBUG_ASSERT( y < height() );
-		const uint32_t count = m_array[y].size();
-		float sum = 0;
-		for (uint32_t i = 0; i < count; i++) {
-			sum += m_array[y][i].v * v[m_array[y][i].x];
-		}
-		return sum;
-	}
-
-	void madRow(uint32_t y, float alpha, FullVector &v) const
-	{
-		XA_DEBUG_ASSERT(y < height());
-		const uint32_t count = m_array[y].size();
-		for (uint32_t i = 0; i < count; i++) {
-			v[m_array[y][i].x] += alpha * m_array[y][i].v;
-		}
-	}
-
-	void clearRow(uint32_t y)
-	{
-		XA_DEBUG_ASSERT( y < height() );
-		m_array[y].clear();
-	}
-
-	const Array<Coefficient> &getRow(uint32_t y) const { return m_array[y]; }
-
-private:
-	/// Number of columns.
-	const uint32_t m_width;
-
-	/// Array of matrix elements.
-	Array< Array<Coefficient> > m_array;
-};
-
-// y = a * x + y
-static void saxpy(float a, const FullVector &x, FullVector &y)
-{
-	XA_DEBUG_ASSERT(x.dimension() == y.dimension());
-	const uint32_t dim = x.dimension();
-	for (uint32_t i = 0; i < dim; i++) {
-		y[i] += a * x[i];
-	}
-}
-
-static void copy(const FullVector &x, FullVector &y)
-{
-	XA_DEBUG_ASSERT(x.dimension() == y.dimension());
-	const uint32_t dim = x.dimension();
-	for (uint32_t i = 0; i < dim; i++) {
-		y[i] = x[i];
-	}
-}
-
-static void scal(float a, FullVector &x)
-{
-	const uint32_t dim = x.dimension();
-	for (uint32_t i = 0; i < dim; i++) {
-		x[i] *= a;
-	}
-}
-
-static float dot(const FullVector &x, const FullVector &y)
-{
-	XA_DEBUG_ASSERT(x.dimension() == y.dimension());
-	const uint32_t dim = x.dimension();
-	float sum = 0;
-	for (uint32_t i = 0; i < dim; i++) {
-		sum += x[i] * y[i];
-	}
-	return sum;
-}
-
-// y = M * x
-static void mult(const Matrix &M, const FullVector &x, FullVector &y)
-{
-	uint32_t w = M.width();
-	uint32_t h = M.height();
-	XA_DEBUG_ASSERT( w == x.dimension() );
-	XA_UNUSED(w);
-	XA_DEBUG_ASSERT( h == y.dimension() );
-	for (uint32_t i = 0; i < h; i++)
-		y[i] = M.dotRow(i, x);
-}
-
-// y = alpha*A*x + beta*y
-static void sgemv(float alpha, const Matrix &A, const FullVector &x, float beta, FullVector &y)
-{
-	const uint32_t w = A.width();
-	const uint32_t h = A.height();
-	XA_DEBUG_ASSERT( w == x.dimension() );
-	XA_DEBUG_ASSERT( h == y.dimension() );
-	XA_UNUSED(w);
-	XA_UNUSED(h);
-	for (uint32_t i = 0; i < h; i++)
-		y[i] = alpha * A.dotRow(i, x) + beta * y[i];
-}
-
-// dot y-row of A by x-column of B
-static float dotRowColumn(int y, const Matrix &A, int x, const Matrix &B)
-{
-	const Array<Matrix::Coefficient> &row = A.getRow(y);
-	const uint32_t count = row.size();
-	float sum = 0.0f;
-	for (uint32_t i = 0; i < count; i++) {
-		const Matrix::Coefficient &c = row[i];
-		sum += c.v * B.getCoefficient(x, c.x);
-	}
-	return sum;
-}
-
-static void transpose(const Matrix &A, Matrix &B)
-{
-	XA_DEBUG_ASSERT(A.width() == B.height());
-	XA_DEBUG_ASSERT(B.width() == A.height());
-	const uint32_t w = A.width();
-	for (uint32_t x = 0; x < w; x++) {
-		B.clearRow(x);
-	}
-	const uint32_t h = A.height();
-	for (uint32_t y = 0; y < h; y++) {
-		const Array<Matrix::Coefficient> &row = A.getRow(y);
-		const uint32_t count = row.size();
-		for (uint32_t i = 0; i < count; i++) {
-			const Matrix::Coefficient &c = row[i];
-			XA_DEBUG_ASSERT(c.x < w);
-			B.setCoefficient(y, c.x, c.v);
-		}
-	}
-}
-
-static void sgemm(float alpha, const Matrix &A, const Matrix &B, float beta, Matrix &C)
-{
-	const uint32_t w = C.width();
-	const uint32_t h = C.height();
-#if XA_DEBUG
-	const uint32_t aw = A.width();
-	const uint32_t ah = A.height();
-	const uint32_t bw = B.width();
-	const uint32_t bh = B.height();
-	XA_DEBUG_ASSERT(aw == bh);
-	XA_DEBUG_ASSERT(bw == ah);
-	XA_DEBUG_ASSERT(w == bw);
-	XA_DEBUG_ASSERT(h == ah);
-#endif
-	for (uint32_t y = 0; y < h; y++) {
-		for (uint32_t x = 0; x < w; x++) {
-			float c = beta * C.getCoefficient(x, y);
-			// dot y-row of A by x-column of B.
-			c += alpha * dotRowColumn(y, A, x, B);
-			C.setCoefficient(x, y, c);
-		}
-	}
-}
-
-// C = A * B
-static void mult(const Matrix &A, const Matrix &B, Matrix &C)
-{
-	sgemm(1.0f, A, B, 0.0f, C);
-}
-
-} // namespace sparse
 
 namespace segment {
 
@@ -6003,225 +6537,6 @@ private:
 
 namespace param {
 
-class JacobiPreconditioner
-{
-public:
-	JacobiPreconditioner(const sparse::Matrix &M, bool symmetric) : m_inverseDiagonal(M.width())
-	{
-		XA_ASSERT(M.isSquare());
-		for (uint32_t x = 0; x < M.width(); x++) {
-			float elem = M.getCoefficient(x, x);
-			//XA_DEBUG_ASSERT( elem != 0.0f ); // This can be zero in the presence of zero area triangles.
-			if (symmetric) {
-				m_inverseDiagonal[x] = (elem != 0) ? 1.0f / sqrtf(fabsf(elem)) : 1.0f;
-			} else {
-				m_inverseDiagonal[x] = (elem != 0) ? 1.0f / elem : 1.0f;
-			}
-		}
-	}
-
-	void apply(const FullVector &x, FullVector &y) const
-	{
-		XA_DEBUG_ASSERT(x.dimension() == m_inverseDiagonal.dimension());
-		XA_DEBUG_ASSERT(y.dimension() == m_inverseDiagonal.dimension());
-		// @@ Wrap vector component-wise product into a separate function.
-		const uint32_t D = x.dimension();
-		for (uint32_t i = 0; i < D; i++) {
-			y[i] = m_inverseDiagonal[i] * x[i];
-		}
-	}
-
-private:
-	FullVector m_inverseDiagonal;
-};
-
-// Linear solvers.
-class Solver
-{
-public:
-	// Solve the symmetric system: At·A·x = At·b
-	static bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon = 1e-5f)
-	{
-		XA_DEBUG_ASSERT(A.width() == x.dimension());
-		XA_DEBUG_ASSERT(A.height() == b.dimension());
-		XA_DEBUG_ASSERT(A.height() >= A.width()); // @@ If height == width we could solve it directly...
-		const uint32_t D = A.width();
-		sparse::Matrix At(A.height(), A.width());
-		sparse::transpose(A, At);
-		FullVector Atb(D);
-		sparse::mult(At, b, Atb);
-		sparse::Matrix AtA(D);
-		sparse::mult(At, A, AtA);
-		return SymmetricSolver(AtA, Atb, x, epsilon);
-	}
-
-	// See section 10.4.3 in: Mesh Parameterization: Theory and Practice, Siggraph Course Notes, August 2007
-	static bool LeastSquaresSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, const uint32_t *lockedParameters, uint32_t lockedCount, float epsilon = 1e-5f)
-	{
-		XA_DEBUG_ASSERT(A.width() == x.dimension());
-		XA_DEBUG_ASSERT(A.height() == b.dimension());
-		XA_DEBUG_ASSERT(A.height() >= A.width() - lockedCount);
-		// @@ This is not the most efficient way of building a system with reduced degrees of freedom. It would be faster to do it on the fly.
-		const uint32_t D = A.width() - lockedCount;
-		XA_DEBUG_ASSERT(D > 0);
-		// Compute: b - Al * xl
-		FullVector b_Alxl(b);
-		for (uint32_t y = 0; y < A.height(); y++) {
-			const uint32_t count = A.getRow(y).size();
-			for (uint32_t e = 0; e < count; e++) {
-				uint32_t column = A.getRow(y)[e].x;
-				bool isFree = true;
-				for (uint32_t i = 0; i < lockedCount; i++) {
-					isFree &= (lockedParameters[i] != column);
-				}
-				if (!isFree) {
-					b_Alxl[y] -= x[column] * A.getRow(y)[e].v;
-				}
-			}
-		}
-		// Remove locked columns from A.
-		sparse::Matrix Af(D, A.height());
-		for (uint32_t y = 0; y < A.height(); y++) {
-			const uint32_t count = A.getRow(y).size();
-			for (uint32_t e = 0; e < count; e++) {
-				uint32_t column = A.getRow(y)[e].x;
-				uint32_t ix = column;
-				bool isFree = true;
-				for (uint32_t i = 0; i < lockedCount; i++) {
-					isFree &= (lockedParameters[i] != column);
-					if (column > lockedParameters[i]) ix--; // shift columns
-				}
-				if (isFree) {
-					Af.setCoefficient(ix, y, A.getRow(y)[e].v);
-				}
-			}
-		}
-		// Remove elements from x
-		FullVector xf(D);
-		for (uint32_t i = 0, j = 0; i < A.width(); i++) {
-			bool isFree = true;
-			for (uint32_t l = 0; l < lockedCount; l++) {
-				isFree &= (lockedParameters[l] != i);
-			}
-			if (isFree) {
-				xf[j++] = x[i];
-			}
-		}
-		// Solve reduced system.
-		bool result = LeastSquaresSolver(Af, b_Alxl, xf, epsilon);
-		// Copy results back to x.
-		for (uint32_t i = 0, j = 0; i < A.width(); i++) {
-			bool isFree = true;
-			for (uint32_t l = 0; l < lockedCount; l++) {
-				isFree &= (lockedParameters[l] != i);
-			}
-			if (isFree) {
-				x[i] = xf[j++];
-			}
-		}
-		return result;
-	}
-
-private:
-	/**
-	* Compute the solution of the sparse linear system Ab=x using the Conjugate
-	* Gradient method.
-	*
-	* Solving sparse linear systems:
-	* (1)		A·x = b
-	*
-	* The conjugate gradient algorithm solves (1) only in the case that A is
-	* symmetric and positive definite. It is based on the idea of minimizing the
-	* function
-	*
-	* (2)		f(x) = 1/2·x·A·x - b·x
-	*
-	* This function is minimized when its gradient
-	*
-	* (3)		df = A·x - b
-	*
-	* is zero, which is equivalent to (1). The minimization is carried out by
-	* generating a succession of search directions p.k and improved minimizers x.k.
-	* At each stage a quantity alfa.k is found that minimizes f(x.k + alfa.k·p.k),
-	* and x.k+1 is set equal to the new point x.k + alfa.k·p.k. The p.k and x.k are
-	* built up in such a way that x.k+1 is also the minimizer of f over the whole
-	* vector space of directions already taken, {p.1, p.2, . . . , p.k}. After N
-	* iterations you arrive at the minimizer over the entire vector space, i.e., the
-	* solution to (1).
-	*
-	* For a really good explanation of the method see:
-	*
-	* "An Introduction to the Conjugate Gradient Method Without the Agonizing Pain",
-	* Jonhathan Richard Shewchuk.
-	*
-	**/
-	// Conjugate gradient with preconditioner.
-	static bool ConjugateGradientSolver(const JacobiPreconditioner &preconditioner, const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon)
-	{
-		XA_DEBUG_ASSERT( A.isSquare() );
-		XA_DEBUG_ASSERT( A.width() == b.dimension() );
-		XA_DEBUG_ASSERT( A.width() == x.dimension() );
-		int i = 0;
-		const int D = A.width();
-		const int i_max = 4 * D;   // Convergence should be linear, but in some cases, it's not.
-		FullVector r(D);    // residual
-		FullVector p(D);    // search direction
-		FullVector q(D);    //
-		FullVector s(D);    // preconditioned
-		float delta_0;
-		float delta_old;
-		float delta_new;
-		float alpha;
-		float beta;
-		// r = b - A·x
-		sparse::copy(b, r);
-		sparse::sgemv(-1, A, x, 1, r);
-		// p = M^-1 · r
-		preconditioner.apply(r, p);
-		delta_new = sparse::dot(r, p);
-		delta_0 = delta_new;
-		while (i < i_max && delta_new > epsilon * epsilon * delta_0) {
-			i++;
-			// q = A·p
-			sparse::mult(A, p, q);
-			// alpha = delta_new / p·q
-			const float pdotq = sparse::dot(p, q);
-			if (!isFinite(pdotq) || isNan(pdotq))
-				alpha = 0.0f;
-			else
-				alpha = delta_new / pdotq;
-			// x = alfa·p + x
-			sparse::saxpy(alpha, p, x);
-			if ((i & 31) == 0) { // recompute r after 32 steps
-									// r = b - A·x
-				sparse::copy(b, r);
-				sparse::sgemv(-1, A, x, 1, r);
-			} else {
-				// r = r - alfa·q
-				sparse::saxpy(-alpha, q, r);
-			}
-			// s = M^-1 · r
-			preconditioner.apply(r, s);
-			delta_old = delta_new;
-			delta_new = sparse::dot( r, s );
-			beta = delta_new / delta_old;
-			// p = s + beta·p
-			sparse::scal(beta, p);
-			sparse::saxpy(1, s, p);
-		}
-		return delta_new <= epsilon * epsilon * delta_0;
-	}
-
-	static bool SymmetricSolver(const sparse::Matrix &A, const FullVector &b, FullVector &x, float epsilon = 1e-5f)
-	{
-		XA_DEBUG_ASSERT(A.height() == A.width());
-		XA_DEBUG_ASSERT(A.height() == b.dimension());
-		XA_DEBUG_ASSERT(b.dimension() == x.dimension());
-		JacobiPreconditioner jacobi(A, true);
-		return ConjugateGradientSolver(jacobi, A, b, x, epsilon);
-	}
-};
-
 // Fast sweep in 3 directions
 static bool findApproximateDiameterVertices(Mesh *mesh, uint32_t *a, uint32_t *b)
 {
@@ -6279,134 +6594,95 @@ static bool findApproximateDiameterVertices(Mesh *mesh, uint32_t *a, uint32_t *b
 	return true;
 }
 
-// Conformal relations from Brecht Van Lommel (based on ABF):
-
-static float vec_angle_cos(const Vector3 &v1, const Vector3 &v2, const Vector3 &v3)
+// From OpenNL LSCM example.
+// Computes the coordinates of the vertices of a triangle in a local 2D orthonormal basis of the triangle's plane.
+static void projectTriangle(Vector3 p0, Vector3 p1, Vector3 p2, Vector2 *z0, Vector2 *z1, Vector2 *z2, float epsilon)
 {
-	Vector3 d1 = v1 - v2;
-	Vector3 d2 = v3 - v2;
-	return clamp(dot(d1, d2) / (length(d1) * length(d2)), -1.0f, 1.0f);
-}
-
-static float vec_angle(const Vector3 &v1, const Vector3 &v2, const Vector3 &v3)
-{
-	float dot = vec_angle_cos(v1, v2, v3);
-	return acosf(dot);
-}
-
-static void triangle_angles(const Vector3 &v1, const Vector3 &v2, const Vector3 &v3, float *a1, float *a2, float *a3)
-{
-	*a1 = vec_angle(v3, v1, v2);
-	*a2 = vec_angle(v1, v2, v3);
-	*a3 = kPi - *a2 - *a1;
-}
-
-static void setup_abf_relations(sparse::Matrix &A, int row, int id0, int id1, int id2, const Vector3 &p0, const Vector3 &p1, const Vector3 &p2)
-{
-	// @@ IC: Wouldn't it be more accurate to return cos and compute 1-cos^2?
-	// It does indeed seem to be a little bit more robust.
-	// @@ Need to revisit this more carefully!
-	float a0, a1, a2;
-	triangle_angles(p0, p1, p2, &a0, &a1, &a2);
-	float s0 = sinf(a0);
-	float s1 = sinf(a1);
-	float s2 = sinf(a2);
-	if (s1 > s0 && s1 > s2) {
-		swap(s1, s2);
-		swap(s0, s1);
-		swap(a1, a2);
-		swap(a0, a1);
-		swap(id1, id2);
-		swap(id0, id1);
-	} else if (s0 > s1 && s0 > s2) {
-		swap(s0, s2);
-		swap(s0, s1);
-		swap(a0, a2);
-		swap(a0, a1);
-		swap(id0, id2);
-		swap(id0, id1);
-	}
-	float c0 = cosf(a0);
-	float ratio = (s2 == 0.0f) ? 1.0f : s1 / s2;
-	float cosine = c0 * ratio;
-	float sine = s0 * ratio;
-	// Note  : 2*id + 0 --> u
-	//         2*id + 1 --> v
-	int u0_id = 2 * id0 + 0;
-	int v0_id = 2 * id0 + 1;
-	int u1_id = 2 * id1 + 0;
-	int v1_id = 2 * id1 + 1;
-	int u2_id = 2 * id2 + 0;
-	int v2_id = 2 * id2 + 1;
-	// Real part
-	A.setCoefficient(u0_id, 2 * row + 0, cosine - 1.0f);
-	A.setCoefficient(v0_id, 2 * row + 0, -sine);
-	A.setCoefficient(u1_id, 2 * row + 0, -cosine);
-	A.setCoefficient(v1_id, 2 * row + 0, sine);
-	A.setCoefficient(u2_id, 2 * row + 0, 1);
-	// Imaginary part
-	A.setCoefficient(u0_id, 2 * row + 1, sine);
-	A.setCoefficient(v0_id, 2 * row + 1, cosine - 1.0f);
-	A.setCoefficient(u1_id, 2 * row + 1, -sine);
-	A.setCoefficient(v1_id, 2 * row + 1, -cosine);
-	A.setCoefficient(v2_id, 2 * row + 1, 1);
+	Vector3 X = normalize(p1 - p0, epsilon);
+	Vector3 Z = normalize(cross(X, p2 - p0), epsilon);
+	Vector3 Y = cross(Z, X);
+	Vector3 &O = p0;
+	*z0 = Vector2(0, 0);
+	*z1 = Vector2(length(p1 - O), 0);
+	*z2 = Vector2(dot(p2 - O, X), dot(p2 - O, Y));
 }
 
 static bool computeLeastSquaresConformalMap(Mesh *mesh)
 {
-	// For this to work properly, mesh should not have colocals that have the same
-	// attributes, unless you want the vertices to actually have different texcoords.
-	const uint32_t vertexCount = mesh->vertexCount();
-	const uint32_t D = 2 * vertexCount;
-	const uint32_t N = 2 * mesh->faceCount();
-	// N is the number of equations (one per triangle)
-	// D is the number of variables (one per vertex; there are 2 pinned vertices).
-	if (N < D - 4) {
-		return false;
-	}
-	sparse::Matrix A(D, N);
-	FullVector b(N);
-	FullVector x(D);
-	// Fill b:
-	b.fill(0.0f);
-	// Fill x:
-	uint32_t v0, v1;
-	if (!findApproximateDiameterVertices(mesh, &v0, &v1)) {
+	uint32_t lockedVertex0, lockedVertex1;
+	if (!findApproximateDiameterVertices(mesh, &lockedVertex0, &lockedVertex1)) {
 		// Mesh has no boundaries.
 		return false;
 	}
-	if (mesh->texcoord(v0) == mesh->texcoord(v1)) {
-		// LSCM expects an existing parameterization.
+	const uint32_t vertexCount = mesh->vertexCount();
+	opennl::NLContext *context = opennl::nlNewContext();
+	opennl::nlSolverParameteri(context, NL_NB_VARIABLES, int(2 * vertexCount));
+	opennl::nlSolverParameteri(context, NL_MAX_ITERATIONS, int(5 * vertexCount));
+	opennl::nlBegin(context, NL_SYSTEM);
+	const Vector2 *texcoords = mesh->texcoords();
+	for (uint32_t i = 0; i < vertexCount; i++) {
+		opennl::nlSetVariable(context, 2 * i, texcoords[i].x);
+		opennl::nlSetVariable(context, 2 * i + 1, texcoords[i].y);
+		if (i == lockedVertex0 || i == lockedVertex1) {
+			opennl::nlLockVariable(context, 2 * i);
+			opennl::nlLockVariable(context, 2 * i + 1);
+		} 
+	}
+	opennl::nlBegin(context, NL_MATRIX);
+	const uint32_t faceCount = mesh->faceCount();
+	const Vector3 *positions = mesh->positions();
+	const uint32_t *indices = mesh->indices();
+	for (uint32_t f = 0; f < faceCount; f++) {
+		const uint32_t v0 = indices[f * 3 + 0];
+		const uint32_t v1 = indices[f * 3 + 1];
+		const uint32_t v2 = indices[f * 3 + 2];
+		Vector2 z0, z1, z2;
+		projectTriangle(positions[v0], positions[v1], positions[v2], &z0, &z1, &z2, mesh->epsilon());
+		double a = z1.x - z0.x;
+		double b = z1.y - z0.y;
+		double c = z2.x - z0.x;
+		double d = z2.y - z0.y;
+		assert(b == 0.0);
+		// Note  : 2*id + 0 --> u
+		//         2*id + 1 --> v
+		uint32_t u0_id = 2 * v0;
+		uint32_t v0_id = 2 * v0 + 1;
+		uint32_t u1_id = 2 * v1;
+		uint32_t v1_id = 2 * v1 + 1;
+		uint32_t u2_id = 2 * v2;
+		uint32_t v2_id = 2 * v2 + 1;
+		// Note : b = 0
+		// Real part
+		opennl::nlBegin(context, NL_ROW);
+		opennl::nlCoefficient(context, u0_id, -a+c) ;
+		opennl::nlCoefficient(context, v0_id, b-d) ;
+		opennl::nlCoefficient(context, u1_id, -c) ;
+		opennl::nlCoefficient(context, v1_id, d) ;
+		opennl::nlCoefficient(context, u2_id, a);
+		opennl::nlEnd(context, NL_ROW);
+		// Imaginary part
+		opennl::nlBegin(context, NL_ROW);
+		opennl::nlCoefficient(context, u0_id, -b+d);
+		opennl::nlCoefficient(context, v0_id, -a+c);
+		opennl::nlCoefficient(context, u1_id, -d);
+		opennl::nlCoefficient(context, v1_id, -c);
+		opennl::nlCoefficient(context, v2_id, a);
+		opennl::nlEnd(context, NL_ROW);
+	}
+	opennl::nlEnd(context, NL_MATRIX);
+	opennl::nlEnd(context, NL_SYSTEM);
+	if (!opennl::nlSolve(context)) {
+		opennl::nlDeleteContext(context);
 		return false;
 	}
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		// Initial solution.
-		x[2 * v + 0] = mesh->texcoord(v).x;
-		x[2 * v + 1] = mesh->texcoord(v).y;
+	for (uint32_t i = 0; i < vertexCount; i++) {
+		const double u = opennl::nlGetVariable(context, 2 * i);
+		const double v = opennl::nlGetVariable(context, 2 * i + 1);
+		mesh->texcoord(i) = Vector2((float)u, (float)v);
+		XA_DEBUG_ASSERT(!isNan(mesh->texcoord(i).x));
+		XA_DEBUG_ASSERT(!isNan(mesh->texcoord(i).y));
 	}
-	// Fill A:
-	const uint32_t faceCount = mesh->faceCount();
-	for (uint32_t f = 0, t = 0; f < faceCount; f++) {
-		const uint32_t vertex0 = mesh->vertexAt(f * 3 + 0);
-		const uint32_t vertex1 = mesh->vertexAt(f * 3 + 1);
-		const uint32_t vertex2 = mesh->vertexAt(f * 3 + 2);
-		setup_abf_relations(A, t, vertex0, vertex1, vertex2, mesh->position(vertex0), mesh->position(vertex1), mesh->position(vertex2));
-		t++;
-	}
-	const uint32_t lockedParameters[] = {
-		2 * v0 + 0,
-		2 * v0 + 1,
-		2 * v1 + 0,
-		2 * v1 + 1
-	};
-	// Solve
-	Solver::LeastSquaresSolver(A, b, x, lockedParameters, 4, 0.000001f);
-	// Map x back to texcoords:
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		mesh->texcoord(v) = Vector2(x[2 * v + 0], x[2 * v + 1]);
-		XA_DEBUG_ASSERT(!isNan(mesh->texcoord(v).x));
-		XA_DEBUG_ASSERT(!isNan(mesh->texcoord(v).y));
-	}
+	opennl::nlDeleteContext(context);
 	return true;
 }
 

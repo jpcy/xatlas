@@ -10,7 +10,6 @@ local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
 local MIMALLOC_DIR = path.join(THIRDPARTY_DIR, "mimalloc")
 local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
 local OPENFBX_DIR = path.join(THIRDPARTY_DIR, "OpenFBX")
-local OPENNL_DIR = path.join(THIRDPARTY_DIR, "OpenNL")
 
 project "example"
 	kind "ConsoleApp"
@@ -81,10 +80,9 @@ project "viewer"
 		path.join(IGL_DIR, "include"),
 		path.join(MIMALLOC_DIR, "include"),
 		path.join(OIDN_DIR, "include"),
-		OPENFBX_DIR,
-		OPENNL_DIR
+		OPENFBX_DIR
 	}
-	links { "bgfx", "bimg", "bx", "cgltf", "enkiTS", "glfw", "imgui", "mimalloc", "nativefiledialog", "objzero", "OpenFBX", "OpenNL", "stb_image", "stb_image_resize", "xatlas" }
+	links { "bgfx", "bimg", "bx", "cgltf", "enkiTS", "glfw", "imgui", "mimalloc", "nativefiledialog", "objzero", "OpenFBX", "stb_image", "stb_image_resize", "xatlas" }
 	filter "system:windows"
 		links { "gdi32", "ole32", "psapi", "uuid" }
 	filter "system:linux"
@@ -306,17 +304,6 @@ project "OpenFBX"
 	rtti "Off"
 	sanitizer()
 	files(path.join(OPENFBX_DIR, "*.*"))
-	
-project "OpenNL"
-	kind "StaticLib"
-	language "C"
-	sanitizer()
-	defines { "GEO_STATIC_LIBS" }
-	files(path.join(OPENNL_DIR, "*"))
-	filter "system:windows"
-		defines "WIN32"
-	filter "action:vs*"
-		defines { "_CRT_SECURE_NO_WARNINGS" }
 	
 project "stb_image"
 	kind "StaticLib"
