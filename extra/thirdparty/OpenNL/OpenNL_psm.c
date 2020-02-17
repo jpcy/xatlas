@@ -284,36 +284,6 @@ void nlTransition(NLenum from_state, NLenum to_state);
 
 #endif
 
-/******* extracted from nl_iterative_solvers.h *******/
-
-
-#ifndef OPENNL_ITERATIVE_SOLVERS_H
-#define OPENNL_ITERATIVE_SOLVERS_H
-
-
-
-NLuint nlSolveSystemIterative(
-    NLMatrix M, NLMatrix P, NLdouble* b, NLdouble* x,
-    double eps, NLuint max_iter, NLuint inner_iter
-);
-
-#endif
-
-
-/******* extracted from nl_preconditioners.h *******/
-
-#ifndef OPENNL_PRECONDITIONERS_H
-#define OPENNL_PRECONDITIONERS_H
-
-
-
-
-/* preconditioners */
-
-NLMatrix nlNewJacobiPreconditioner(NLMatrix M);
-
-#endif
-
 /******* extracted from nl_os.c *******/
 
 
@@ -868,49 +838,6 @@ void nlTransition(NLenum from_state, NLenum to_state) {
     nlCurrentContext->state = to_state;
 }
 
-
-/* Preconditioner setup and default solver */
-
-static void nlSetupPreconditioner() {
-    nlDeleteMatrix(nlCurrentContext->P);
-    nlCurrentContext->P = NULL;
-    
-    switch(nlCurrentContext->preconditioner) {
-    case NL_PRECOND_NONE:
-        break;
-    case NL_PRECOND_JACOBI:
-	nlCurrentContext->P = nlNewJacobiPreconditioner(nlCurrentContext->M);
-        break;
-    default:
-        assert(0);
-    }
-    nlMatrixCompress(&nlCurrentContext->M);
-}
-
-static NLboolean nlSolveIterative() {
-    NLdouble* b = nlCurrentContext->b;
-    NLdouble* x = nlCurrentContext->x;
-    NLuint n = nlCurrentContext->n;
-    NLuint k;
-    NLMatrix M = nlCurrentContext->M;
-    NLMatrix P = nlCurrentContext->P;
-    
-    for(k=0; k<nlCurrentContext->nb_systems; ++k) {
-	nlSolveSystemIterative(
-	    M,
-	    P,
-	    b,
-	    x,
-	    nlCurrentContext->threshold,
-	    nlCurrentContext->max_iterations,
-	    nlCurrentContext->inner_iterations
-	);
-	b += n;
-	x += n;
-    }
-    return NL_TRUE;
-}
-
 static double ddot(int n, const double *x, const double *y)
 {
 	double sum = 0.0;
@@ -928,12 +855,6 @@ static void dscal(int n, double a, double *x) {
 	for (int i = 0; i < n; i++)
 		x[i] *= a;
 }
-
-/******* extracted from nl_iterative_solvers.c *******/
-
-
-
-/* Solvers */
 
 /*
  * The implementation of the solvers is inspired by 
@@ -1033,7 +954,29 @@ NLuint nlSolveSystemIterative(
     return result;
 }
 
-
+static NLboolean nlSolveIterative() {
+    NLdouble* b = nlCurrentContext->b;
+    NLdouble* x = nlCurrentContext->x;
+    NLuint n = nlCurrentContext->n;
+    NLuint k;
+    NLMatrix M = nlCurrentContext->M;
+    NLMatrix P = nlCurrentContext->P;
+    
+    for(k=0; k<nlCurrentContext->nb_systems; ++k) {
+	nlSolveSystemIterative(
+	    M,
+	    P,
+	    b,
+	    x,
+	    nlCurrentContext->threshold,
+	    nlCurrentContext->max_iterations,
+	    nlCurrentContext->inner_iterations
+	);
+	b += n;
+	x += n;
+    }
+    return NL_TRUE;
+}
 
 /******* extracted from nl_preconditioners.c *******/
 
@@ -1087,6 +1030,22 @@ NLMatrix nlNewJacobiPreconditioner(NLMatrix M_in) {
 	result->diag_inv[i] = (M->diag[i] == 0.0) ? 1.0 : 1.0/M->diag[i];
     }
     return (NLMatrix)result;
+}
+
+static void nlSetupPreconditioner() {
+    nlDeleteMatrix(nlCurrentContext->P);
+    nlCurrentContext->P = NULL;
+    
+    switch(nlCurrentContext->preconditioner) {
+    case NL_PRECOND_NONE:
+        break;
+    case NL_PRECOND_JACOBI:
+	nlCurrentContext->P = nlNewJacobiPreconditioner(nlCurrentContext->M);
+        break;
+    default:
+        assert(0);
+    }
+    nlMatrixCompress(&nlCurrentContext->M);
 }
 
 /******* extracted from nl_api.c *******/
