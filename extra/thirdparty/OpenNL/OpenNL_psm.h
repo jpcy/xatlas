@@ -65,10 +65,6 @@
 
 #include <stdio.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 typedef unsigned int    NLenum;
 
 typedef unsigned char   NLboolean;
@@ -161,10 +157,5 @@ typedef void* NLContext;
     void nlCoefficient(NLuint i, NLdouble value);
 
     NLboolean nlSolve(void);
-
-#ifdef __cplusplus
-}
-#endif
-
 
 #endif

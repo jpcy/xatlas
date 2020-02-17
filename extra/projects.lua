@@ -309,9 +309,9 @@ project "OpenFBX"
 	
 project "OpenNL"
 	kind "StaticLib"
-	language "C"
+	language "C++"
+	cppdialect "C++14"
 	sanitizer()
-	defines { "GEO_STATIC_LIBS" }
 	files(path.join(OPENNL_DIR, "*"))
 	filter "system:windows"
 		defines "WIN32"
