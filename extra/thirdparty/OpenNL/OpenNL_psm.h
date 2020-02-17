@@ -130,10 +130,6 @@ typedef void* NLContext;
 
     void nlDeleteContext(NLContext context);
 
-    void nlMakeCurrent(NLContext context);
-
-    NLContext nlGetCurrent(void);
-
     void nlSolverParameterd(NLenum pname, NLdouble param);
 
     void nlSolverParameteri(NLenum pname, NLint param);

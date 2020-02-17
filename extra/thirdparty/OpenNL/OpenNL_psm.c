@@ -736,7 +736,7 @@ NLContext nlNewContext() {
     result->inner_iterations    = 5;
     result->progress_func       = NULL;
     result->nb_systems          = 1;
-    nlMakeCurrent(result);
+	nlCurrentContext = result;;
     return result;
 }
 
@@ -767,14 +767,6 @@ void nlDeleteContext(NLContext context_in) {
     NL_DELETE_ARRAY(context->b);
 
     NL_DELETE(context);
-}
-
-void nlMakeCurrent(NLContext context) {
-    nlCurrentContext = (NLContextStruct*)(context);
-}
-
-NLContext nlGetCurrent() {
-    return nlCurrentContext;
 }
 
 static double ddot(int n, const double *x, const double *y)
