@@ -104,20 +104,6 @@ struct NLContext;
 
 #define NL_MAX_ITERATIONS   0x103
 
-#define NL_THRESHOLD        0x104
-
-#define NL_OMEGA            0x105
-
-#define NL_USED_ITERATIONS  0x107
-
-#define NL_ERROR            0x108
-
-#define NL_INNER_ITERATIONS 0x109
-
-#define NL_PRECONDITIONER   0x10b
-
-#define NL_NB_SYSTEMS       0x10e
-
 #define NL_PRECOND_NONE       0x000
 
 #define NL_PRECOND_JACOBI     0x300
@@ -126,13 +112,7 @@ struct NLContext;
 
     void nlDeleteContext(NLContext *context);
 
-    void nlSolverParameterd(NLenum pname, NLdouble param);
-
     void nlSolverParameteri(NLenum pname, NLint param);
-
-    void nlGetDoublev(NLenum pname, NLdouble* params);
-
-    void nlGetIntegerv(NLenum pname, NLint* params);
 
 #define NL_FUNC_PROGRESS       0x603
 

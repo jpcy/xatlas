@@ -533,7 +533,6 @@ static void atlasParameterizationCallback(const float *positions, float *texcoor
 		NLuint nb_vertices = NLuint(vertexCount);
 		nlSolverParameteri(NL_NB_VARIABLES, NLint(2*nb_vertices));
 		nlSolverParameteri(NL_MAX_ITERATIONS, NLint(5*nb_vertices));
-		nlSolverParameterd(NL_THRESHOLD, 1e-6);	  
 		nlBegin(NL_SYSTEM);
 		// Copies u,v coordinates from the mesh to OpenNL solver.
 		for (uint32_t i = 0; i < vertexCount; i++) {

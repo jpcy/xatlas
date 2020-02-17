@@ -239,8 +239,6 @@ struct NLContext
     NLuint           inner_iterations;
 
     NLdouble         threshold;
-
-    NLboolean        threshold_defined;
     
     NLdouble         omega;
 
@@ -737,7 +735,7 @@ NLContext *nlNewContext() {
     result->inner_iterations    = 5;
     result->progress_func       = NULL;
     result->nb_systems          = 1;
-	nlCurrentContext = result;;
+	nlCurrentContext = result;
     return result;
 }
 
@@ -990,88 +988,20 @@ static NLSparseMatrix* nlGetCurrentSparseMatrix() {
 
 /* Get/Set parameters */
 
-void nlSolverParameterd(NLenum pname, NLdouble param) {
-    switch(pname) {
-    case NL_THRESHOLD: {
-        assert(param >= 0);
-        nlCurrentContext->threshold = (NLdouble)param;
-        nlCurrentContext->threshold_defined = NL_TRUE;
-    } break;
-    case NL_OMEGA: {
-        nlCurrentContext->omega = (NLdouble)param;
-    } break;
-    default: {
-        assert(0);
-    }
-    }
-}
-
 void nlSolverParameteri(NLenum pname, NLint param) {
     switch(pname) {
     case NL_NB_VARIABLES: {
         assert(param > 0);
         nlCurrentContext->nb_variables = (NLuint)param;
     } break;
-    case NL_NB_SYSTEMS: {
-	assert(param > 0);
-	nlCurrentContext->nb_systems = (NLuint)param;
-    } break;
     case NL_MAX_ITERATIONS: {
         assert(param > 0);
         nlCurrentContext->max_iterations = (NLuint)param;
         nlCurrentContext->max_iterations_defined = NL_TRUE;
     } break;
-    case NL_INNER_ITERATIONS: {
-        assert(param > 0);
-        nlCurrentContext->inner_iterations = (NLuint)param;
-    } break;
-    case NL_PRECONDITIONER: {
-        nlCurrentContext->preconditioner = (NLuint)param;
-        nlCurrentContext->preconditioner_defined = NL_TRUE;
-    } break;
     default: {
         assert(0);
     }
-    }
-}
-
-void nlGetDoublev(NLenum pname, NLdouble* params) {
-    switch(pname) {
-    case NL_THRESHOLD: {
-        *params = nlCurrentContext->threshold;
-    } break;
-    case NL_OMEGA: {
-        *params = nlCurrentContext->omega;
-    } break;
-    case NL_ERROR: {
-        *params = nlCurrentContext->error;
-    } break;
-    default: {
-        assert(0);
-    } 
-    }
-}
-
-void nlGetIntegerv(NLenum pname, NLint* params) {
-    switch(pname) {
-    case NL_NB_VARIABLES: {
-        *params = (NLint)(nlCurrentContext->nb_variables);
-    } break;
-    case NL_NB_SYSTEMS: {
-	*params = (NLint)(nlCurrentContext->nb_systems);
-    } break;
-    case NL_MAX_ITERATIONS: {
-        *params = (NLint)(nlCurrentContext->max_iterations);
-    } break;
-    case NL_USED_ITERATIONS: {
-        *params = (NLint)(nlCurrentContext->used_iterations);
-    } break;
-    case NL_PRECONDITIONER: {
-        *params = (NLint)(nlCurrentContext->preconditioner);        
-    } break;
-    default: {
-        assert(0);
-    } 
     }
 }
 
@@ -1190,9 +1120,6 @@ static void nlInitializeM() {
     }
     if(!nlCurrentContext->max_iterations_defined) {
         nlCurrentContext->max_iterations = n*5;
-    }
-    if(!nlCurrentContext->threshold_defined) {
-        nlCurrentContext->threshold = 1e-6;
     }
 
     nlCurrentContext->M = (NLMatrix)(NL_NEW(NLSparseMatrix));
