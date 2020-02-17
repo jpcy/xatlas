@@ -86,7 +86,7 @@
     free(ptr)
 
 struct NLMatrixStruct;
-typedef struct NLMatrixStruct* NLMatrix;
+typedef NLMatrixStruct * NLMatrix;
 typedef void(*NLDestroyMatrixFunc)(NLMatrix M);
 typedef void(*NLMultMatrixVectorFunc)(NLMatrix M, const double* x, double* y);
 
@@ -154,7 +154,7 @@ struct NLSparseMatrix
 
 /* NLContext data structure */
 
-typedef void(*NLProgressFunc)(uint32_t cur_iter, uint32_t max_iter, double cur_err, double max_err);
+typedef void (*NLProgressFunc)(uint32_t cur_iter, uint32_t max_iter, double cur_err, double max_err);
 
 struct NLBufferBinding
 {
