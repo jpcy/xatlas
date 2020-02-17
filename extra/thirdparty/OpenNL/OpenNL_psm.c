@@ -150,9 +150,6 @@ void nlError(const char* function, const char* message) ;
 
 void nlWarning(const char* function, const char* message) ;
 
-
-NLdouble nlCurrentTime(void);
-
 /* classic macros */
 
 #ifndef MIN
@@ -306,9 +303,6 @@ typedef struct {
 NLAPI void NLAPIENTRY nlCRSMatrixConstruct(
     NLCRSMatrix* M, NLuint m, NLuint n, NLuint nnz, NLuint nslices
 );
-
-NLAPI NLuint NLAPIENTRY nlCRSMatrixNNZ(NLCRSMatrix* M);
-    
 
 /* SparseMatrix data structure */
 
@@ -485,14 +479,7 @@ typedef struct {
 
     NLdouble         error;
 
-
-    NLdouble         start_time;
-    
-    NLdouble         elapsed_time;
-
     NLProgressFunc   progress_func;
-
-    NLulong          flops;
    
 } NLContextStruct;
 
@@ -576,23 +563,6 @@ void nl_should_not_have_reached(const char* file, int line) {
     ) ;
     abort() ;
 }
-
-
-
-/* Timing */
-
-#ifdef WIN32
-NLdouble nlCurrentTime() {
-    return (NLdouble)GetTickCount() / 1000.0 ;
-}
-#else
-double nlCurrentTime() {
-    clock_t user_clock ;
-    struct tms user_tms ;
-    user_clock = times(&user_tms) ;
-    return (NLdouble)user_clock / 100.0 ;
-}
-#endif
 
 /* Error-reporting functions */
 
@@ -724,10 +694,6 @@ static void nlCRSMatrixDestroy(NLCRSMatrix* M) {
     M->m = 0;
     M->n = 0;
     M->nslices = 0;
-}
-
-NLuint nlCRSMatrixNNZ(NLCRSMatrix* M) {
-    return M->rowptr[M->m];
 }
 
 static void nlCRSMatrixMultSlice(
@@ -1196,8 +1162,6 @@ static NLboolean nlSolveIterative() {
     NLMatrix M = nlCurrentContext->M;
     NLMatrix P = nlCurrentContext->P;
     
-    nlCurrentContext->start_time = nlCurrentTime();     
-    
     for(k=0; k<nlCurrentContext->nb_systems; ++k) {
 	nlSolveSystemIterative(
 	    M,
@@ -1463,17 +1427,6 @@ void nlGetDoublev(NLenum pname, NLdouble* params) {
     } break;
     case NL_ERROR: {
         *params = nlCurrentContext->error;
-    } break;
-    case NL_ELAPSED_TIME: {
-        *params = nlCurrentContext->elapsed_time;        
-    } break;
-    case NL_GFLOPS: {
-        if(nlCurrentContext->elapsed_time == 0) {
-            *params = 0.0;
-        } else {
-            *params = (NLdouble)(nlCurrentContext->flops) /
-                (nlCurrentContext->elapsed_time * 1e9);
-        }
     } break;
     default: {
         nlError("nlGetDoublev","Invalid parameter");
@@ -1775,13 +1728,9 @@ void nlEnd(NLenum prim) {
 NLboolean nlSolve() {
     NLboolean result;
     nlCheckState(NL_STATE_SYSTEM_CONSTRUCTED);
-    nlCurrentContext->start_time = nlCurrentTime();
-    nlCurrentContext->elapsed_time = 0.0;
-    nlCurrentContext->flops = 0;    
 	nlSetupPreconditioner();
 	result = nlSolveIterative();
     nlVectorToVariables();
-    nlCurrentContext->elapsed_time = nlCurrentTime() - nlCurrentContext->start_time;
     nlTransition(NL_STATE_SYSTEM_CONSTRUCTED, NL_STATE_SOLVED);
     return result;
 }

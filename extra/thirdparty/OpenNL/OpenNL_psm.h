@@ -180,11 +180,7 @@ typedef void* NLContext;
 
 #define NL_INNER_ITERATIONS 0x109
 
-#define NL_ELAPSED_TIME     0x10a
-
 #define NL_PRECONDITIONER   0x10b
-
-#define NL_GFLOPS           0x10c
 
 #define NL_NB_SYSTEMS       0x10e
 
