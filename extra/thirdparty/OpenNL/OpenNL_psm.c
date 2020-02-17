@@ -215,14 +215,6 @@ typedef enum {
     NL_HOST_MEMORY, NL_DEVICE_MEMORY
 } NLmemoryType;
 
-typedef void* (*FUNPTR_malloc)(
-    NLBlas_t blas, NLmemoryType type, size_t size
-);
-
-typedef void (*FUNPTR_free)(
-    NLBlas_t blas, NLmemoryType type, size_t size, void* ptr
-);
-
 typedef void (*FUNPTR_dscal)(
     NLBlas_t blas, int n, double a, double *x, int incx
 );
@@ -238,9 +230,6 @@ typedef void (*FUNPTR_daxpy)(
 );
 
 struct NLBlas {
-    FUNPTR_malloc Malloc;
-    FUNPTR_free Free;
-
     FUNPTR_dscal Dscal;
     FUNPTR_ddot  Ddot;
     FUNPTR_daxpy Daxpy;
@@ -272,13 +261,11 @@ NLulong nlBlasMaxUsedRam(NLBlas_t blas, NLmemoryType type);
 
 NLBlas_t nlHostBlas(void);
 
-#define NL_NEW_VECTOR(blas, memtype, dim) \
-    (double*)blas->Malloc(blas,memtype,(size_t)(dim)*sizeof(double))
+#define NL_NEW_VECTOR(dim) \
+    (double*)malloc((size_t)(dim)*sizeof(double))
 
-#define NL_DELETE_VECTOR(blas, memtype, dim, ptr) \
-    blas->Free(blas,memtype,(size_t)(dim)*sizeof(double),ptr)
-
-
+#define NL_DELETE_VECTOR(ptr) \
+    free(ptr)
 
 #endif
 
@@ -1355,25 +1342,6 @@ NLboolean nlBlasHasUnifiedMemory(NLBlas_t blas) {
     return blas->has_unified_memory;
 }
 
-static void* host_blas_malloc(
-    NLBlas_t blas, NLmemoryType type, size_t size
-) {
-    nl_arg_used(type);
-    blas->used_ram[type] += (NLulong)size;
-    blas->max_used_ram[type] = MAX(
-	blas->max_used_ram[type],blas->used_ram[type]
-    );
-    return malloc(size);
-}
-
-static void host_blas_free(
-    NLBlas_t blas, NLmemoryType type, size_t size, void* ptr
-) {
-    nl_arg_used(type);
-    blas->used_ram[type] -= (NLulong)size;
-    free(ptr);
-}
-
 static double host_blas_ddot(
     NLBlas_t blas, int n, const double *x, int incx, const double *y, int incy    
 ) {
@@ -1406,8 +1374,6 @@ NLBlas_t nlHostBlas() {
     if(!initialized) {
 	memset(&blas, 0, sizeof(blas));
 	blas.has_unified_memory = NL_TRUE;
-	blas.Malloc = host_blas_malloc;
-	blas.Free = host_blas_free;
 	blas.Ddot = host_blas_ddot;
 	blas.Daxpy = host_blas_daxpy;
 	blas.Dscal = host_blas_dscal;
@@ -1450,9 +1416,9 @@ static NLuint nlSolveSystem_PRE_CG(
     double eps, NLuint max_iter
 ) {
     NLint     N        = (NLint)M->n;
-    NLdouble* r = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble* d = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
-    NLdouble* h = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, N);
+    NLdouble* r = NL_NEW_VECTOR(N);
+    NLdouble* d = NL_NEW_VECTOR(N);
+    NLdouble* h = NL_NEW_VECTOR(N);
     NLdouble *Ad = h;
     NLuint its=0;
     NLdouble rh, alpha, beta;
@@ -1486,9 +1452,9 @@ static NLuint nlSolveSystem_PRE_CG(
         ++its;
         curr_err = blas->Ddot(blas,N,r,1,r,1);
     }
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, r);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, d);
-    NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, N, h);
+    NL_DELETE_VECTOR(r);
+    NL_DELETE_VECTOR(d);
+    NL_DELETE_VECTOR(h);
     blas->sq_bnorm = b_square;
     blas->sq_rnorm = curr_err;
     return its;
@@ -1510,9 +1476,9 @@ NLuint nlSolveSystemIterative(
     nl_assert(M->m == M->n);
 
     if(!nlBlasHasUnifiedMemory(blas)) {
-		b = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n);
+		b = NL_NEW_VECTOR((int)M->n);
 		memcpy(b, b_in, N * sizeof(double));
-		x = NL_NEW_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n);
+		x = NL_NEW_VECTOR((int)M->n);
 		memcpy(x, x_in, N * sizeof(double));
     }
 
@@ -1532,8 +1498,8 @@ NLuint nlSolveSystemIterative(
 
     if(!nlBlasHasUnifiedMemory(blas)) {
 		memcpy(x_in, x, N * sizeof(double));
-		NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n, x);
-		NL_DELETE_VECTOR(blas, NL_DEVICE_MEMORY, (int)M->n, b);
+		NL_DELETE_VECTOR(x);
+		NL_DELETE_VECTOR(b);
     }
     
     return result;
