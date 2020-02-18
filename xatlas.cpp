@@ -853,6 +853,14 @@ struct Extents2
 {
 	Vector2 min, max;
 
+	Extents2() {}
+	
+	Extents2(Vector2 p1, Vector2 p2)
+	{
+		min = xatlas::internal::min(p1, p2);
+		max = xatlas::internal::max(p1, p2);
+	}
+
 	void reset()
 	{
 		min.x = min.y = FLT_MAX;
@@ -4093,46 +4101,66 @@ public:
 		bool bruteForce = m_edges.size() <= 20;
 		if (!bruteForce && m_cellDataOffsets.isEmpty())
 			bruteForce = !createGrid();
-		if (edges.length == 0)
-			edges = m_edges;
-		const uint32_t gridEdgeCount = m_edges.size();
-		for (uint32_t i = 0; i < edges.length; i++) {
-			const uint32_t edge1 = edges[i];
+		const uint32_t *edges1, *edges2 = nullptr;
+		uint32_t edges1Count, edges2Count = 0;
+		if (edges.length == 0) {
+			edges1 = m_edges.data();
+			edges1Count = m_edges.size();
+		} else {
+			edges1 = edges.data;
+			edges1Count = edges.length;
+		}
+		if (bruteForce) {
+			edges2 = m_edges.data();
+			edges2Count = m_edges.size();
+		}
+		for (uint32_t i = 0; i < edges1Count; i++) {
+			const uint32_t edge1 = edges1[i];
+			const uint32_t edge1Vertex[2] = { vertexAt(meshEdgeIndex0(edge1)), vertexAt(meshEdgeIndex1(edge1)) };
+			const Vector2 &edge1Position1 = m_positions[edge1Vertex[0]];
+			const Vector2 &edge1Position2 = m_positions[edge1Vertex[1]];
+			const Extents2 edge1Extents(edge1Position1, edge1Position2);
+			uint32_t j = 0;
 			if (bruteForce) {
-				for (uint32_t j = 0; j < gridEdgeCount; j++) {
-					const uint32_t edge2 = m_edges[j];
-					bool ignore = false;
-					for (uint32_t k = 0; k < ignoreEdges.length; k++) {
-						if (edge2 == ignoreEdges[k]) {
-							ignore = true;
-							break;
-						}
-					}
-					if (ignore)
-						continue;
-					if (edgesIntersect(edge1, edge2, epsilon))
-						return true;
+				// If checking against self, test each edge pair only once.
+				if (edges.length == 0) {
+					j = i + 1;
+					if (j == edges1Count)
+						break;
 				}
 			} else {
 				computePotentialEdges(edgePosition0(edge1), edgePosition1(edge1));
-				uint32_t prevEdge = UINT32_MAX;
-				for (uint32_t j = 0; j < m_potentialEdges.size(); j++) {
-					const uint32_t edge2 = m_potentialEdges[j];
-					if (edge2 == prevEdge)
-						continue;
-					prevEdge = edge2;
-					bool ignore = false;
-					for (uint32_t k = 0; k < ignoreEdges.length; k++) {
-						if (edge2 == ignoreEdges[k]) {
-							ignore = true;
-							break;
-						}
+				edges2 = m_potentialEdges.data();
+				edges2Count = m_potentialEdges.size();
+			}
+			uint32_t prevEdge = UINT32_MAX; // Handle potential edges duplicates.
+			for (; j < edges2Count; j++) {
+				const uint32_t edge2 = edges2[j];
+				if (edge1 == edge2)
+					continue;
+				if (edge2 == prevEdge)
+					continue;
+				prevEdge = edge2;
+				// Check if edge2 is ignored.
+				bool ignore = false;
+				for (uint32_t k = 0; k < ignoreEdges.length; k++) {
+					if (edge2 == ignoreEdges[k]) {
+						ignore = true;
+						break;
 					}
-					if (ignore)
-						continue;
-					if (edgesIntersect(edge1, edge2, epsilon))
-						return true;
 				}
+				if (ignore)
+					continue;
+				const uint32_t edge2Vertex[2] = { vertexAt(meshEdgeIndex0(edge2)), vertexAt(meshEdgeIndex1(edge2)) };
+				// Ignore connected edges, since they can't intersect (only overlap), and may be detected as false positives.
+				if (edge1Vertex[0] == edge2Vertex[0] || edge1Vertex[0] == edge2Vertex[1] || edge1Vertex[1] == edge2Vertex[0] || edge1Vertex[1] == edge2Vertex[1])
+					continue;
+				const Vector2 &edge2Position1 = m_positions[edge2Vertex[0]];
+				const Vector2 &edge2Position2 = m_positions[edge2Vertex[1]];
+				if (!Extents2::intersect(edge1Extents, Extents2(edge2Position1, edge2Position2)))
+					continue;
+				if (linesIntersect(edge1Position1, edge1Position2, edge2Position1, edge2Position2, epsilon))
+					return true;
 			}
 		}
 		return false;
@@ -4288,18 +4316,6 @@ private:
 				break;
 			m_traversedCellOffsets.push_back(currentCell[0] + currentCell[1] * m_gridWidth);
 		}
-	}
-
-	bool edgesIntersect(uint32_t edge1, uint32_t edge2, float epsilon) const
-	{
-		if (edge1 == edge2)
-			return false;
-		const uint32_t ai[2] = { vertexAt(meshEdgeIndex0(edge1)), vertexAt(meshEdgeIndex1(edge1)) };
-		const uint32_t bi[2] = { vertexAt(meshEdgeIndex0(edge2)), vertexAt(meshEdgeIndex1(edge2)) };
-		// Ignore connected edges, since they can't intersect (only overlap), and may be detected as false positives.
-		if (ai[0] == bi[0] || ai[0] == bi[1] || ai[1] == bi[0] || ai[1] == bi[1])
-			return false;
-		return linesIntersect(m_positions[ai[0]], m_positions[ai[1]], m_positions[bi[0]], m_positions[bi[1]], epsilon);
 	}
 
 	uint32_t cellX(float x) const
