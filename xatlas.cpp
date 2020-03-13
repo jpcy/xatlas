@@ -2114,7 +2114,7 @@ public:
 		y ^= (y << 5);
 		uint64_t t = 698769069ULL * z + c;
 		c = (t >> 32);
-		return (x + y + (z = (uint32_t)t)) % range;
+		return (x + y + (z = (uint32_t)t)) % (range + 1);
 	}
 
 private:
