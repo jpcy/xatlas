@@ -25,6 +25,7 @@ SOFTWARE.
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #endif
+#include <assert.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <time.h>
@@ -41,7 +42,7 @@ SOFTWARE.
 #include "../xatlas.h"
 
 #define MODEL_PATH "../../models/"
-#define ASSERT(_condition) if (!(_condition)) logf("[FAILED] '%s' %s %d\n", #_condition, __FILE__, __LINE__);
+#define ASSERT(_condition) if (!(_condition)) { logf("[FAILED] '%s' %s %d\n", #_condition, __FILE__, __LINE__); assert(_condition); }
 
 static FILE *logFile = nullptr;
 
@@ -79,7 +80,6 @@ bool generateAtlas(const char *filename, AtlasResult *result)
 	}
 	const clock_t start = clock();
 	xatlas::Atlas *atlas = xatlas::Create();
-	uint32_t totalFaces = 0;
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
 		xatlas::MeshDecl meshDecl;
@@ -103,17 +103,23 @@ bool generateAtlas(const char *filename, AtlasResult *result)
 			logf("   [FAILED]: Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
 			return false;
 		}
-		totalFaces += meshDecl.indexCount / 3;
 	}
 	xatlas::Generate(atlas);
 	const clock_t end = clock();
 	logf("   %g ms\n", (end - start) * 1000.0 / (double)CLOCKS_PER_SEC);
-	uint32_t atlasTotalFaces = 0;
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
 		const xatlas::Mesh &mesh = atlas->meshes[i];
-		atlasTotalFaces += mesh.indexCount / 3;
+		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
+		// Index count shouldn't change.
+		ASSERT(mesh.indexCount == objMesh.indices.size());
+		// Vertex count should be equal or greater.
+		ASSERT(mesh.vertexCount >= objMesh.positions.size() / 3);
+		// Index order should be preserved.
+		for (uint32_t j = 0; j < mesh.indexCount; j++) {
+			const xatlas::Vertex &vertex = mesh.vertexArray[mesh.indexArray[j]];
+			ASSERT(vertex.xref == objMesh.indices[j]);
+		}
 	}
-	ASSERT(atlasTotalFaces == totalFaces);
 	if (result)
 		result->chartCount = atlas->chartCount;
 	xatlas::Destroy(atlas);

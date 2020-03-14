@@ -7945,11 +7945,12 @@ struct InvalidMeshGeometry
 			const uint32_t face = m_faces[f];
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = mesh->vertexAt(face * 3 + i);
-				m_indices[f * 3 + i] = m_vertexToSourceVertexMap.size();;
-				if (sourceVertexToVertexMap.get(vertex) == UINT32_MAX) {
-					sourceVertexToVertexMap.add(vertex);
+				uint32_t newVertex = sourceVertexToVertexMap.get(vertex);
+				if (newVertex == UINT32_MAX) {
+					newVertex = sourceVertexToVertexMap.add(vertex);
 					m_vertexToSourceVertexMap.push_back(vertex);
 				}
+				m_indices[f * 3 + i] = newVertex;
 			}
 		}
 	}
@@ -9971,7 +9972,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				internal::ConstArrayView<uint32_t> vertices = mesh.vertices();
 				// Vertices.
 				for (uint32_t v = 0; v < vertices.length; v++) {
-					Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
+					Vertex &vertex = outputMesh.vertexArray[v];
 					vertex.atlasIndex = -1;
 					vertex.chartIndex = -1;
 					vertex.uv[0] = vertex.uv[1] = 0.0f;
@@ -9981,9 +9982,9 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				for (uint32_t f = 0; f < faces.length; f++) {
 					const uint32_t indexOffset = faces[f] * 3;
 					for (uint32_t j = 0; j < 3; j++)
-						outputMesh.indexArray[indexOffset + j] = firstVertex + indices[f * 3 + j];
+						outputMesh.indexArray[indexOffset + j] = indices[f * 3 + j];
 				}
-				firstVertex += vertices.length;
+				firstVertex = vertices.length;
 			}
 			uint32_t meshChartIndex = 0;
 			for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
