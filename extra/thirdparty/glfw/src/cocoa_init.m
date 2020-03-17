@@ -447,7 +447,6 @@ static GLFWbool initializeTIS(void)
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification
 {
-    _glfw.ns.finishedLaunching = GLFW_TRUE;
     _glfwPlatformPostEmptyEvent();
     [NSApp stop:nil];
 }
@@ -464,6 +463,32 @@ static GLFWbool initializeTIS(void)
 
 
 //////////////////////////////////////////////////////////////////////////
+//////                       GLFW internal API                      //////
+//////////////////////////////////////////////////////////////////////////
+
+void* _glfwLoadLocalVulkanLoaderNS(void)
+{
+    CFBundleRef bundle = CFBundleGetMainBundle();
+    if (!bundle)
+        return NULL;
+
+    CFURLRef url =
+        CFBundleCopyAuxiliaryExecutableURL(bundle, CFSTR("libvulkan.1.dylib"));
+    if (!url)
+        return NULL;
+
+    char path[PATH_MAX];
+    void* handle = NULL;
+
+    if (CFURLGetFileSystemRepresentation(url, true, (UInt8*) path, sizeof(path) - 1))
+        handle = _glfw_dlopen(path);
+
+    CFRelease(url);
+    return handle;
+}
+
+
+//////////////////////////////////////////////////////////////////////////
 //////                       GLFW platform API                      //////
 //////////////////////////////////////////////////////////////////////////
 
@@ -476,9 +501,6 @@ int _glfwPlatformInit(void)
     [NSThread detachNewThreadSelector:@selector(doNothing:)
                              toTarget:_glfw.ns.helper
                            withObject:nil];
-
-    if (NSApp)
-        _glfw.ns.finishedLaunching = GLFW_TRUE;
 
     [NSApplication sharedApplication];
 
@@ -532,6 +554,10 @@ int _glfwPlatformInit(void)
     _glfwInitJoysticksNS();
 
     _glfwPollMonitorsNS();
+
+    if (![[NSRunningApplication currentApplication] isFinishedLaunching])
+        [NSApp run];
+
     return GLFW_TRUE;
 
     } // autoreleasepool
