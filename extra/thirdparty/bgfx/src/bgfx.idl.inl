@@ -1,10 +1,14 @@
 /*
+ * Copyright 2011-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
 /*
  *
- * AUTO GENERATED! DO NOT EDIT!
+ * AUTO GENERATED FROM IDL! DO NOT EDIT! (source : temp.bgfx.idl.inl)
+ *
+ * More info about IDL:
+ * https://gist.github.com/bkaradzic/05a1c86a6dd57bf86e2d828878e88dc2#bgfx-is-switching-to-idl-to-generate-api
  *
  */
 
@@ -908,10 +912,10 @@ BGFX_C_API void bgfx_encoder_dispatch_indirect(bgfx_encoder_t* _this, bgfx_view_
 	This->dispatch((bgfx::ViewId)_id, program.cpp, indirectHandle.cpp, _start, _num);
 }
 
-BGFX_C_API void bgfx_encoder_discard(bgfx_encoder_t* _this)
+BGFX_C_API void bgfx_encoder_discard(bgfx_encoder_t* _this, uint8_t _flags)
 {
 	bgfx::Encoder* This = (bgfx::Encoder*)_this;
-	This->discard();
+	This->discard(_flags);
 }
 
 BGFX_C_API void bgfx_encoder_blit(bgfx_encoder_t* _this, bgfx_view_id_t _id, bgfx_texture_handle_t _dst, uint8_t _dstMip, uint16_t _dstX, uint16_t _dstY, uint16_t _dstZ, bgfx_texture_handle_t _src, uint8_t _srcMip, uint16_t _srcX, uint16_t _srcY, uint16_t _srcZ, uint16_t _width, uint16_t _height, uint16_t _depth)
@@ -1150,9 +1154,9 @@ BGFX_C_API void bgfx_dispatch_indirect(bgfx_view_id_t _id, bgfx_program_handle_t
 	bgfx::dispatch((bgfx::ViewId)_id, program.cpp, indirectHandle.cpp, _start, _num);
 }
 
-BGFX_C_API void bgfx_discard(void)
+BGFX_C_API void bgfx_discard(uint8_t _flags)
 {
-	bgfx::discard();
+	bgfx::discard(_flags);
 }
 
 BGFX_C_API void bgfx_blit(bgfx_view_id_t _id, bgfx_texture_handle_t _dst, uint8_t _dstMip, uint16_t _dstX, uint16_t _dstY, uint16_t _dstZ, bgfx_texture_handle_t _src, uint8_t _srcMip, uint16_t _srcX, uint16_t _srcY, uint16_t _srcZ, uint16_t _width, uint16_t _height, uint16_t _depth)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx/blob/master/LICENSE
  */
 
@@ -911,8 +911,10 @@ namespace bgfx
 	{
 		char    name[256];      //!< View name.
 		ViewId  view;           //!< View id.
-		int64_t cpuTimeElapsed; //!< CPU (submit) time elapsed.
-		int64_t gpuTimeElapsed; //!< GPU time elapsed.
+		int64_t cpuTimeBegin;   //!< CPU (submit) begin time.
+		int64_t cpuTimeEnd;     //!< CPU (submit) end time.
+		int64_t gpuTimeBegin;   //!< GPU begin time.
+		int64_t gpuTimeEnd;     //!< GPU end time.
 	};
 
 	/// Encoder stats.
@@ -1586,9 +1588,11 @@ namespace bgfx
 
 		/// Discard all previously set state for draw or compute call.
 		///
+		/// @param[in] _flags Draw/compute states to discard.
+		///
 		/// @attention C99 equivalent is `bgfx_encoder_discard`.
 		///
-		void discard();
+		void discard(uint8_t _flags = BGFX_DISCARD_ALL);
 
 		/// Blit texture 2D region between two 2D textures.
 		///
@@ -3238,7 +3242,7 @@ namespace bgfx
 	/// @param[in] _ratio Width and height will be set in respect to back-buffer size. See:
 	///   `BackbufferRatio::Enum`.
 	///
-	/// @attention C99 equivalent is `bgfx_set_view_rect_auto`.
+	/// @attention C99 equivalent is `bgfx_set_view_rect_ratio`.
 	///
 	void setViewRect(
 		  ViewId _id
@@ -3981,9 +3985,11 @@ namespace bgfx
 
 	/// Discard all previously set state for draw or compute call.
 	///
+	/// @param[in] _flags Draw/compute states to discard.
+	///
 	/// @attention C99 equivalent is `bgfx_discard`.
 	///
-	void discard();
+	void discard(uint8_t _flags = BGFX_DISCARD_ALL);
 
 	/// Blit 2D texture region between two 2D textures.
 	///

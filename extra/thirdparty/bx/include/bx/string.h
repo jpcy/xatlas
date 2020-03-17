@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2010-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bx#license-bsd-2-clause
  */
 
@@ -129,7 +129,14 @@ namespace bx
 		void append(const StringView& _str);
 
 		///
+		void append(const char* _ptr, const char* _term);
+
+		///
 		void clear();
+
+		/// Returns zero-terminated C string pointer.
+		///
+		const char* getCPtr() const;
 	};
 
 	/// Retruns true if character is part of space set.

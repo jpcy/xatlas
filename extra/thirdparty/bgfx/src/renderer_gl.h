@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -12,7 +12,6 @@
 			|| BX_PLATFORM_LINUX                          \
 			|| BX_PLATFORM_NX                             \
 			|| BX_PLATFORM_RPI                            \
-			|| BX_PLATFORM_STEAMLINK                      \
 			|| BX_PLATFORM_WINDOWS                        \
 			) )
 
@@ -555,6 +554,14 @@ typedef uint64_t GLuint64;
 #ifndef GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB
 #	define GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB 0x8E8F
 #endif // GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT_ARB
+
+#ifndef GL_SRGB_EXT
+#	define GL_SRGB_EXT 0x8C40
+#endif // GL_SRGB_EXT
+
+#ifndef GL_SRGB_ALPHA_EXT
+#	define GL_SRGB_ALPHA_EXT 0x8C42
+#endif // GL_SRGB_ALPHA_EXT
 
 #ifndef GL_SRGB8_ALPHA8
 #	define GL_SRGB8_ALPHA8 0x8C43

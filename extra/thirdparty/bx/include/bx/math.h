@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bx#license-bsd-2-clause
  */
 
@@ -146,6 +146,10 @@ namespace bx
 	///
 	BX_CONSTEXPR_FUNC float lerp(float _a, float _b, float _t);
 
+	/// Returns inverse linear interpolation of _value between two values _a and _b.
+	///
+	BX_CONSTEXPR_FUNC float invLerp(float _a, float _b, float _value);
+
 	/// Returns the sign of _a.
 	///
 	BX_CONSTEXPR_FUNC float sign(float _a);
@@ -225,7 +229,8 @@ namespace bx
 
 	/// Returns the base 2 logarithm of _a.
 	///
-	BX_CONST_FUNC float log2(float _a);
+	template<typename Ty>
+	BX_CONST_FUNC Ty log2(Ty _a);
 
 	/// Returns the square root of _a.
 	///
@@ -586,6 +591,12 @@ namespace bx
 
 	///
 	void mtxInverse(float* _result, const float* _a);
+
+	///
+	void mtx3Cofactor(float* _result, const float* _a);
+
+	///
+	void mtxCofactor(float* _result, const float* _a);
 
 	///
 	Vec3 calcNormal(const Vec3& _va, const Vec3& _vb, const Vec3& _vc);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -333,7 +333,7 @@ __IMAGE_IMPL_ATOMIC(r32ui,       x,    uvec4, xxxx)
 	, _numY               \
 	, _numZ               \
 	)                     \
-	_buffer[_offset*2+0] = uvec4(_numX, _numY, _numZ, 0u)
+	_buffer[(_offset)*2+0] = uvec4(_numX, _numY, _numZ, 0u)
 
 #define drawIndirect( \
 	  _buffer         \
@@ -343,7 +343,7 @@ __IMAGE_IMPL_ATOMIC(r32ui,       x,    uvec4, xxxx)
 	, _startVertex    \
 	, _startInstance  \
 	)                 \
-	_buffer[_offset*2+0] = uvec4(_numVertices, _numInstances, _startVertex, _startInstance)
+	_buffer[(_offset)*2+0] = uvec4(_numVertices, _numInstances, _startVertex, _startInstance)
 
 #define drawIndexedIndirect( \
 	  _buffer                \
@@ -354,8 +354,8 @@ __IMAGE_IMPL_ATOMIC(r32ui,       x,    uvec4, xxxx)
 	, _startVertex           \
 	, _startInstance         \
 	)                        \
-	_buffer[_offset*2+0] = uvec4(_numIndices, _numInstances, _startIndex, _startVertex); \
-	_buffer[_offset*2+1] = uvec4(_startInstance, 0u, 0u, 0u)
+	_buffer[(_offset)*2+0] = uvec4(_numIndices, _numInstances, _startIndex, _startVertex); \
+	_buffer[(_offset)*2+1] = uvec4(_startInstance, 0u, 0u, 0u)
 
 #endif // __cplusplus
 

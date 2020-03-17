@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -346,7 +346,6 @@ namespace bgfx
 
 	const InternalData* getInternalData()
 	{
-		BGFX_CHECK_RENDER_THREAD();
 		return &g_internalData;
 	}
 
@@ -699,6 +698,48 @@ namespace bgfx
 		s_ctx->destroyTransientIndexBuffer(m_ib);
 	}
 
+	static const uint32_t paletteSrgb[] =
+	{
+		0x0,        // Black
+		0xffa46534, // Blue
+		0xff069a4e, // Green
+		0xff9a9806, // Cyan
+		0xff0000cc, // Red
+		0xff7b5075, // Magenta
+		0xff00a0c4, // Brown
+		0xffcfd7d3, // Light Gray
+		0xff535755, // Dark Gray
+		0xffcf9f72, // Light Blue
+		0xff34e28a, // Light Green
+		0xffe2e234, // Light Cyan
+		0xff2929ef, // Light Red
+		0xffa87fad, // Light Magenta
+		0xff4fe9fc, // Yellow
+		0xffeceeee, // White
+	};
+	BX_STATIC_ASSERT(BX_COUNTOF(paletteSrgb) == 16);
+
+	static const uint32_t paletteLinear[] =
+	{
+		0x0,        // Black
+		0xff5e2108, // Blue
+		0xff005213, // Green
+		0xff525000, // Cyan
+		0xff000099, // Red
+		0xff32142d, // Magenta
+		0xff00598c, // Brown
+		0xff9fada6, // Light Gray
+		0xff161817, // Dark Gray
+		0xff9f582a, // Light Blue
+		0xff08c140, // Light Green
+		0xffc1c108, // Light Cyan
+		0xff0505dc, // Light Red
+		0xff63366a, // Light Magenta
+		0xff13cff8, // Yellow
+		0xffd5dada  // White
+	};
+	BX_STATIC_ASSERT(BX_COUNTOF(paletteLinear) == 16);
+
 	void blit(RendererContextI* _renderCtx, TextVideoMemBlitter& _blitter, const TextVideoMem& _mem)
 	{
 		struct Vertex
@@ -712,39 +753,23 @@ namespace bgfx
 			float m_v;
 		};
 
-		static uint32_t palette[] =
-		{
-			0x0,        // Black
-			0xffa46534, // Blue
-			0xff069a4e, // Green
-			0xff9a9806, // Cyan
-			0xff0000cc, // Red
-			0xff7b5075, // Magenta
-			0xff00a0c4, // Brown
-			0xffcfd7d3, // Light Gray
-			0xff535755, // Dark Gray
-			0xffcf9f72, // Light Blue
-			0xff34e28a, // Light Green
-			0xffe2e234, // Light Cyan
-			0xff2929ef, // Light Red
-			0xffa87fad, // Light Magenta
-			0xff4fe9fc, // Yellow
-			0xffeceeee, // White
-		};
-		BX_STATIC_ASSERT(BX_COUNTOF(palette) == 16);
-
 		uint32_t yy = 0;
 		uint32_t xx = 0;
 
-		const float texelWidth = 1.0f/2048.0f;
-		const float texelWidthHalf = RendererType::Direct3D9 == g_caps.rendererType ? 0.0f : texelWidth*0.5f;
-		const float texelHeight = 1.0f/24.0f;
+		const float texelWidth      = 1.0f/2048.0f;
+		const float texelWidthHalf  = RendererType::Direct3D9 == g_caps.rendererType ? 0.0f : texelWidth*0.5f;
+		const float texelHeight     = 1.0f/24.0f;
 		const float texelHeightHalf = RendererType::Direct3D9 == g_caps.rendererType ? texelHeight*0.5f : 0.0f;
-		const float utop = (_mem.m_small ? 0.0f : 8.0f)*texelHeight + texelHeightHalf;
-		const float ubottom = (_mem.m_small ? 8.0f : 24.0f)*texelHeight + texelHeightHalf;
+		const float utop       = (_mem.m_small ? 0.0f :  8.0f)*texelHeight + texelHeightHalf;
+		const float ubottom    = (_mem.m_small ? 8.0f : 24.0f)*texelHeight + texelHeightHalf;
 		const float fontHeight = (_mem.m_small ? 8.0f : 16.0f);
 
 		_renderCtx->blitSetup(_blitter);
+
+		const uint32_t* palette = 0 != (s_ctx->m_init.resolution.reset & BGFX_RESET_SRGB_BACKBUFFER)
+			? paletteLinear
+			: paletteSrgb
+			;
 
 		for (;yy < _mem.m_height;)
 		{
@@ -761,7 +786,8 @@ namespace bgfx
 				for (; xx < _mem.m_width && numIndices < numBatchIndices; ++xx)
 				{
 					uint32_t ch = line->character;
-					uint8_t attr = line->attribute;
+					const uint8_t attr = line->attribute;
+
 					if (ch > 0xff)
 					{
 						ch = 0;
@@ -770,8 +796,8 @@ namespace bgfx
 					if (0 != (ch|attr)
 					&& (' ' != ch || 0 != (attr&0xf0) ) )
 					{
-						uint32_t fg = palette[attr&0xf];
-						uint32_t bg = palette[(attr>>4)&0xf];
+						const uint32_t fg = palette[attr&0xf];
+						const uint32_t bg = palette[(attr>>4)&0xf];
 
 						Vertex vert[4] =
 						{
@@ -797,7 +823,7 @@ namespace bgfx
 						numIndices += 6;
 					}
 
-					line ++;
+					line++;
 				}
 
 				if (numIndices >= numBatchIndices)
@@ -3781,9 +3807,9 @@ namespace bgfx
 		BGFX_ENCODER(dispatch(_id, _program, _indirectHandle, _start, _num) );
 	}
 
-	void Encoder::discard()
+	void Encoder::discard(uint8_t flags)
 	{
-		BGFX_ENCODER(discard() );
+		BGFX_ENCODER(discard(flags) );
 	}
 
 	void Encoder::blit(ViewId _id, TextureHandle _dst, uint16_t _dstX, uint16_t _dstY, TextureHandle _src, uint16_t _srcX, uint16_t _srcY, uint16_t _width, uint16_t _height)
@@ -4993,10 +5019,10 @@ namespace bgfx
 		s_ctx->m_encoder0->dispatch(_id, _handle, _indirectHandle, _start, _num);
 	}
 
-	void discard()
+	void discard(uint8_t flags)
 	{
 		BGFX_CHECK_API_THREAD();
-		s_ctx->m_encoder0->discard();
+		s_ctx->m_encoder0->discard(flags);
 	}
 
 	void blit(ViewId _id, TextureHandle _dst, uint16_t _dstX, uint16_t _dstY, TextureHandle _src, uint16_t _srcX, uint16_t _srcY, uint16_t _width, uint16_t _height)
@@ -5154,35 +5180,37 @@ BX_STATIC_ASSERT(FLAGS_MASK_TEST(0
 	) );
 
 BX_STATIC_ASSERT( (0
-	| BGFX_STATE_WRITE_MASK
-	| BGFX_STATE_DEPTH_TEST_MASK
-	| BGFX_STATE_BLEND_MASK
+	| BGFX_STATE_ALPHA_REF_MASK
+	| BGFX_STATE_BLEND_ALPHA_TO_COVERAGE
 	| BGFX_STATE_BLEND_EQUATION_MASK
 	| BGFX_STATE_BLEND_INDEPENDENT
-	| BGFX_STATE_BLEND_ALPHA_TO_COVERAGE
-	| BGFX_STATE_CULL_MASK
-	| BGFX_STATE_ALPHA_REF_MASK
-	| BGFX_STATE_PT_MASK
-	| BGFX_STATE_POINT_SIZE_MASK
-	| BGFX_STATE_MSAA
-	| BGFX_STATE_LINEAA
+	| BGFX_STATE_BLEND_MASK
 	| BGFX_STATE_CONSERVATIVE_RASTER
+	| BGFX_STATE_CULL_MASK
+	| BGFX_STATE_DEPTH_TEST_MASK
+	| BGFX_STATE_FRONT_CCW
+	| BGFX_STATE_LINEAA
+	| BGFX_STATE_MSAA
+	| BGFX_STATE_POINT_SIZE_MASK
+	| BGFX_STATE_PT_MASK
 	| BGFX_STATE_RESERVED_MASK
+	| BGFX_STATE_WRITE_MASK
 	) == (0
-	^ BGFX_STATE_WRITE_MASK
-	^ BGFX_STATE_DEPTH_TEST_MASK
-	^ BGFX_STATE_BLEND_MASK
+	^ BGFX_STATE_ALPHA_REF_MASK
+	^ BGFX_STATE_BLEND_ALPHA_TO_COVERAGE
 	^ BGFX_STATE_BLEND_EQUATION_MASK
 	^ BGFX_STATE_BLEND_INDEPENDENT
-	^ BGFX_STATE_BLEND_ALPHA_TO_COVERAGE
-	^ BGFX_STATE_CULL_MASK
-	^ BGFX_STATE_ALPHA_REF_MASK
-	^ BGFX_STATE_PT_MASK
-	^ BGFX_STATE_POINT_SIZE_MASK
-	^ BGFX_STATE_MSAA
-	^ BGFX_STATE_LINEAA
+	^ BGFX_STATE_BLEND_MASK
 	^ BGFX_STATE_CONSERVATIVE_RASTER
+	^ BGFX_STATE_CULL_MASK
+	^ BGFX_STATE_DEPTH_TEST_MASK
+	^ BGFX_STATE_FRONT_CCW
+	^ BGFX_STATE_LINEAA
+	^ BGFX_STATE_MSAA
+	^ BGFX_STATE_POINT_SIZE_MASK
+	^ BGFX_STATE_PT_MASK
 	^ BGFX_STATE_RESERVED_MASK
+	^ BGFX_STATE_WRITE_MASK
 	) );
 
 BX_STATIC_ASSERT(FLAGS_MASK_TEST(BGFX_CAPS_TEXTURE_COMPARE_LEQUAL, BGFX_CAPS_TEXTURE_COMPARE_ALL) );

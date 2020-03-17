@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2011-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
  */
 
@@ -500,6 +500,7 @@ VK_DESTROY
 		uint8_t m_textureFormat;
 		uint8_t m_numMips;
 		VkFormat m_vkTextureFormat;
+		VkComponentMapping m_vkComponentMapping;
 		VkImageAspectFlags  m_vkTextureAspect;
 
 		VkImage m_textureImage;

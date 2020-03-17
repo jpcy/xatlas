@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2010-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bx#license-bsd-2-clause
  */
 
@@ -306,6 +306,12 @@ BX_SIMD128_IMPLEMENT_TEST(xyzw , 0xf);
 	BX_SIMD_FORCE_INLINE simd128_sse_t simd_cmpeq(simd128_sse_t _a, simd128_sse_t _b)
 	{
 		return _mm_cmpeq_ps(_a, _b);
+	}
+
+	template<>
+	BX_SIMD_FORCE_INLINE simd128_sse_t simd_cmpneq(simd128_sse_t _a, simd128_sse_t _b)
+	{
+		return _mm_cmpneq_ps(_a, _b);
 	}
 
 	template<>

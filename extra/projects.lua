@@ -145,6 +145,10 @@ project "bimg"
 	exceptionhandling "Off"
 	rtti "Off"
 	sanitizer()
+	defines
+	{
+		"BIMG_DECODE_ENABLE=0"
+	}
 	files
 	{
 		path.join(BIMG_DIR, "include/bimg/*.h"),

@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2010-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bx#license-bsd-2-clause
  */
 
@@ -30,6 +30,7 @@
 
 // C Runtime
 #define BX_CRT_BIONIC 0
+#define BX_CRT_BSD    0
 #define BX_CRT_GLIBC  0
 #define BX_CRT_LIBCXX 0
 #define BX_CRT_MINGW  0
@@ -56,7 +57,6 @@
 #define BX_PLATFORM_OSX        0
 #define BX_PLATFORM_PS4        0
 #define BX_PLATFORM_RPI        0
-#define BX_PLATFORM_STEAMLINK  0
 #define BX_PLATFORM_WINDOWS    0
 #define BX_PLATFORM_WINRT      0
 #define BX_PLATFORM_XBOXONE    0
@@ -134,18 +134,18 @@
 #endif //
 
 #if BX_CPU_PPC
-// _LITTLE_ENDIAN exists on ppc64le.
-#	if _LITTLE_ENDIAN
-#		undef  BX_CPU_ENDIAN_LITTLE
-#		define BX_CPU_ENDIAN_LITTLE 1
-#	else
+// __BIG_ENDIAN__ is gcc predefined macro
+#	if defined(__BIG_ENDIAN__)
 #		undef  BX_CPU_ENDIAN_BIG
 #		define BX_CPU_ENDIAN_BIG 1
+#	else
+#		undef  BX_CPU_ENDIAN_LITTLE
+#		define BX_CPU_ENDIAN_LITTLE 1
 #	endif
 #else
 #	undef  BX_CPU_ENDIAN_LITTLE
 #	define BX_CPU_ENDIAN_LITTLE 1
-#endif // BX_PLATFORM_
+#endif // BX_CPU_PPC
 
 // http://sourceforge.net/apps/mediawiki/predef/index.php?title=Operating_Systems
 #if defined(_DURANGO) || defined(_XBOX_ONE)
@@ -183,10 +183,6 @@
 #	include <sys/cdefs.h> // Defines __BIONIC__ and includes android/api-level.h
 #	undef  BX_PLATFORM_ANDROID
 #	define BX_PLATFORM_ANDROID __ANDROID_API__
-#elif defined(__STEAMLINK__)
-// SteamLink compiler defines __linux__
-#	undef  BX_PLATFORM_STEAMLINK
-#	define BX_PLATFORM_STEAMLINK 1
 #elif defined(__VCCOREVER__)
 // RaspberryPi compiler defines __linux__
 #	undef  BX_PLATFORM_RPI
@@ -242,9 +238,13 @@
 #	elif defined(__apple_build_version__) || defined(__ORBIS__) || defined(__EMSCRIPTEN__) || defined(__llvm__) || defined(__HAIKU__)
 #		undef  BX_CRT_LIBCXX
 #		define BX_CRT_LIBCXX 1
+#	elif BX_PLATFORM_BSD
+#		undef  BX_CRT_BSD
+#		define BX_CRT_BSD 1
 #	endif //
 
 #	if !BX_CRT_BIONIC \
+	&& !BX_CRT_BSD    \
 	&& !BX_CRT_GLIBC  \
 	&& !BX_CRT_LIBCXX \
 	&& !BX_CRT_MINGW  \
@@ -269,7 +269,6 @@
 	||  BX_PLATFORM_OSX        \
 	||  BX_PLATFORM_PS4        \
 	||  BX_PLATFORM_RPI        \
-	||  BX_PLATFORM_STEAMLINK  \
 	)
 
 ///
@@ -285,7 +284,6 @@
 	||  BX_PLATFORM_OSX        \
 	||  BX_PLATFORM_PS4        \
 	||  BX_PLATFORM_RPI        \
-	||  BX_PLATFORM_STEAMLINK  \
 	||  BX_PLATFORM_WINDOWS    \
 	||  BX_PLATFORM_WINRT      \
 	||  BX_PLATFORM_XBOXONE    \
@@ -312,7 +310,6 @@
 ///
 #define BX_PLATFORM_OS_EMBEDDED (0 \
 	||  BX_PLATFORM_RPI            \
-	||  BX_PLATFORM_STEAMLINK      \
 	)
 
 ///
@@ -385,8 +382,6 @@
 #	define BX_PLATFORM_NAME "PlayStation 4"
 #elif BX_PLATFORM_RPI
 #	define BX_PLATFORM_NAME "RaspberryPi"
-#elif BX_PLATFORM_STEAMLINK
-#	define BX_PLATFORM_NAME "SteamLink"
 #elif BX_PLATFORM_WINDOWS
 #	define BX_PLATFORM_NAME "Windows"
 #elif BX_PLATFORM_WINRT
@@ -413,6 +408,8 @@
 
 #if BX_CRT_BIONIC
 #	define BX_CRT_NAME "Bionic libc"
+#elif BX_CRT_BSD
+#	define BX_CRT_NAME "BSD libc"
 #elif BX_CRT_GLIBC
 #	define BX_CRT_NAME "GNU C Library"
 #elif BX_CRT_MSVC

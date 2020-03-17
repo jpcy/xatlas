@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2019 Branimir Karadzic. All rights reserved.
+ * Copyright 2010-2020 Branimir Karadzic. All rights reserved.
  * License: https://github.com/bkaradzic/bx#license-bsd-2-clause
  */
 
@@ -375,7 +375,7 @@ namespace bx
 
 	inline const char* strRFindUnsafe(const char* _str, int32_t _len, char _ch)
 	{
-		for (int32_t ii = _len; 0 <= ii; --ii)
+		for (int32_t ii = _len-1; 0 <= ii; --ii)
 		{
 			if (_str[ii] == _ch)
 			{
@@ -420,18 +420,9 @@ namespace bx
 				}
 			}
 
-			// Set pointers.
-			const char* string = ptr;
-			const char* search = _find;
-
-			// Start comparing.
-			while (fn(*string++) == fn(*search++) )
+			if (0 == strCmp<fn>(ptr, _findMax, _find, _findMax) )
 			{
-				// If end of the 'search' string is reached, all characters match.
-				if ('\0' == *search)
-				{
-					return ptr;
-				}
+				return ptr;
 			}
 		}
 
@@ -674,7 +665,7 @@ namespace bx
 		StringView ptr = strFind(_str, _word);
 		for (; !ptr.isEmpty(); ptr = strFind(StringView(ptr.getPtr() + len, _str.getTerm() ), _word) )
 		{
-			char ch = *(ptr.getPtr() - 1);
+			char ch = ptr.getPtr() != _str.getPtr() ? *(ptr.getPtr() - 1) : ' ';
 			if (isAlphaNum(ch) || '_' == ch)
 			{
 				continue;
