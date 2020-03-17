@@ -86,7 +86,7 @@ project "viewer"
 	}
 	links { "bgfx", "bimg", "bx", "cgltf", "enkiTS", "glfw", "imgui", "mimalloc", "nativefiledialog", "objzero", "OpenFBX", "stb_image", "stb_image_resize", "xatlas" }
 	filter "system:windows"
-		links { "gdi32", "ole32", "psapi", "uuid" }
+		links { "bcrypt", "gdi32", "ole32", "psapi", "uuid"}
 	filter "system:linux"
 		links { "dl", "GL", "gtk-3", "gobject-2.0", "glib-2.0", "pthread", "X11", "Xcursor", "Xinerama", "Xrandr" }
 	filter "action:vs*"
