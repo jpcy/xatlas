@@ -8,6 +8,7 @@ local ENKITS_DIR = path.join(THIRDPARTY_DIR, "enkiTS")
 local GLFW_DIR = path.join(THIRDPARTY_DIR, "glfw")
 local IGL_DIR = path.join(THIRDPARTY_DIR, "libigl")
 local MIMALLOC_DIR = path.join(THIRDPARTY_DIR, "mimalloc")
+local NATIVEFILEDIALOG_DIR = path.join(THIRDPARTY_DIR, "nativefiledialog")
 local OIDN_DIR = path.join(THIRDPARTY_DIR, "oidn")
 local OPENFBX_DIR = path.join(THIRDPARTY_DIR, "OpenFBX")
 
@@ -79,6 +80,7 @@ project "viewer"
 		path.join(GLFW_DIR, "include"),
 		path.join(IGL_DIR, "include"),
 		path.join(MIMALLOC_DIR, "include"),
+		path.join(NATIVEFILEDIALOG_DIR, "include"),
 		path.join(OIDN_DIR, "include"),
 		OPENFBX_DIR
 	}
@@ -284,11 +286,12 @@ project "nativefiledialog"
 	exceptionhandling "Off"
 	rtti "Off"
 	sanitizer()
-	files(path.join(THIRDPARTY_DIR, "nativefiledialog/nfd_common.*"))
+	includedirs(path.join(NATIVEFILEDIALOG_DIR, "include"))
+	files(path.join(NATIVEFILEDIALOG_DIR, "nfd_common.*"))
 	filter "system:windows"
-		files(path.join(THIRDPARTY_DIR, "nativefiledialog/nfd_win.cpp"))
+		files(path.join(NATIVEFILEDIALOG_DIR, "nfd_win.cpp"))
 	filter "system:linux"
-		files(path.join(THIRDPARTY_DIR, "nativefiledialog/nfd_gtk.c"))
+		files(path.join(NATIVEFILEDIALOG_DIR, "nfd_gtk.c"))
 		buildoptions(os.outputof("pkg-config --cflags gtk+-3.0"))
 	filter "action:vs*"
 		defines { "_CRT_SECURE_NO_WARNINGS" }

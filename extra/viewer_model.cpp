@@ -31,7 +31,7 @@ SOFTWARE.
 #include <cgltf.h>
 #include <GLFW/glfw3.h>
 #include <imgui/imgui.h>
-#include <nativefiledialog/nfd.h>
+#include <nfd.h>
 #include <ofbx.h>
 #include <stb_image.h>
 #include <stb_image_resize.h>
