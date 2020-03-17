@@ -125,7 +125,7 @@ namespace enki
             // Multiple potential readers mean we should check if the data is valid,
             // using an atomic compare exchange
             uint32_t previous = FLAG_CAN_READ;
-            bool bSuccess = m_Flags[  actualReadIndex ].compare_exchange_strong( previous, FLAG_INVALID, std::memory_order_relaxed );
+            bool bSuccess = m_Flags[  actualReadIndex ].compare_exchange_strong( previous, FLAG_INVALID, std::memory_order_acq_rel, std::memory_order_relaxed );
             if( bSuccess )
             {
                 break;
@@ -141,11 +141,10 @@ namespace enki
         // only read from unread data
         m_ReadCount.fetch_add(1, std::memory_order_relaxed );
 
-        std::atomic_thread_fence( std::memory_order_acquire );
         // now read data, ensuring we do so after above reads & CAS
         *pOut = m_Buffer[ actualReadIndex ];
 
-        m_Flags[  actualReadIndex ].store( FLAG_CAN_WRITE, std::memory_order_relaxed );
+        m_Flags[  actualReadIndex ].store( FLAG_CAN_WRITE, std::memory_order_release );
 
         return true;
     }
@@ -172,7 +171,7 @@ namespace enki
             --frontReadIndex;
             actualReadIndex    = frontReadIndex & ms_cIndexMask;
             uint32_t previous = FLAG_CAN_READ;
-            bool success = m_Flags[  actualReadIndex ].compare_exchange_strong( previous, FLAG_INVALID, std::memory_order_relaxed );
+            bool success = m_Flags[  actualReadIndex ].compare_exchange_strong( previous, FLAG_INVALID, std::memory_order_acq_rel, std::memory_order_relaxed );
             if( success )
             {
                 break;
@@ -183,7 +182,6 @@ namespace enki
             }
         }
 
-        std::atomic_thread_fence( std::memory_order_acquire );
         // now read data, ensuring we do so after above reads & CAS
         *pOut = m_Buffer[ actualReadIndex ];
 
@@ -207,7 +205,7 @@ namespace enki
         uint32_t actualWriteIndex    = writeIndex & ms_cIndexMask;
 
         // a reader may still be reading this item, as there are multiple readers
-        if( m_Flags[ actualWriteIndex ].load(std::memory_order_relaxed)  != FLAG_CAN_WRITE ) 
+        if( m_Flags[ actualWriteIndex ].load(std::memory_order_acquire)  != FLAG_CAN_WRITE ) 
         {
             return false; // still being read, so have caught up with tail. 
         }
@@ -215,11 +213,7 @@ namespace enki
         // as we are the only writer we can update the data without atomics
         //  whilst the write index has not been updated
         m_Buffer[ actualWriteIndex ] = in;
-        m_Flags[  actualWriteIndex ].store( FLAG_CAN_READ, std::memory_order_relaxed );
-
-        // We need to ensure the above writes occur prior to updating the write index,
-        // otherwise another thread might read before it's finished
-        std::atomic_thread_fence( std::memory_order_release );
+        m_Flags[  actualWriteIndex ].store( FLAG_CAN_READ, std::memory_order_release );
 
         m_WriteIndex.fetch_add(1, std::memory_order_relaxed);
         return true;

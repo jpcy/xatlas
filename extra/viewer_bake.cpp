@@ -698,7 +698,7 @@ static bool bakeTraceRays()
 #if 0
 		bakeTraceRaysTask(0, (int32_t)s_bake.sampleLocations.size(), 0, nullptr);
 #else
-		enkiAddTaskSetToPipe(s_bake.taskScheduler, task, 0, (int32_t)s_bake.sampleLocations.size());
+		enkiAddTaskSetArgs(s_bake.taskScheduler, task, nullptr, (int32_t)s_bake.sampleLocations.size());
 		enkiWaitForTaskSet(s_bake.taskScheduler, task);
 #endif
 		if (s_bake.cancelWorker)
@@ -712,7 +712,7 @@ static bool bakeTraceRays()
 			s_bake.updateStatus = UpdateStatus::Pending;
 		}
 	}
-	enkiDeleteTaskSet(task);
+	enkiDeleteTaskSet(s_bake.taskScheduler, task);
 	if (s_bake.cancelWorker)
 		return false;
 	const double elapsedSeconds = (clock() - start) / (double)CLOCKS_PER_SEC;
