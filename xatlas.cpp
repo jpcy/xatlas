@@ -4202,9 +4202,9 @@ private:
 			edgeExtents.add(edgePosition1(edge));
 		}
 		m_gridOrigin = edgeExtents.min;
-		// Size grid to approximately one edge per cell.
+		// Size grid to approximately one edge per cell in the largest dimension.
 		const Vector2 extentsSize(edgeExtents.max - edgeExtents.min);
-		m_cellSize = min(extentsSize.x, extentsSize.y) / sqrtf((float)edgeCount);
+		m_cellSize = max(extentsSize.x / edgeCount, extentsSize.y / edgeCount);
 		if (m_cellSize <= 0.0f)
 			return false;
 		m_gridWidth = uint32_t(ceilf(extentsSize.x / m_cellSize));
