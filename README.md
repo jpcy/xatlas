@@ -72,7 +72,7 @@ See the [viewer](https://github.com/jpcy/xatlas/tree/master/extra) for example c
 
 ## Technical information / related publications
 
-[Ignacio Castaño's blog post on thekla_atlas](http://the-witness.net/news/2010/03/graphics-tech-texture-parameterization/)
+[Ignacio Castaño's blog post on thekla_atlas](http://www.ludicon.com/castano/blog/articles/lightmap-parameterization/)
 
 P. Sander, J. Snyder, S. Gortler, and H. Hoppe. [Texture Mapping Progressive Meshes](http://hhoppe.com/proj/tmpm/)
 
@@ -118,7 +118,7 @@ Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.con
 
 [aobaker](https://github.com/prideout/aobaker) - Ambient occlusion baking. Uses [thekla_atlas](https://github.com/Thekla/thekla_atlas).
 
-[seamoptimizer](https://github.com/ands/seamoptimizer]) - A C/C++ single-file library that minimizes the hard transition errors of disjoint edges in lightmaps.
+[seamoptimizer](https://github.com/ands/seamoptimizer) - A C/C++ single-file library that minimizes the hard transition errors of disjoint edges in lightmaps.
 
 ## Models used
 
