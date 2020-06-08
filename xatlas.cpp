@@ -4204,12 +4204,12 @@ private:
 		m_gridOrigin = edgeExtents.min;
 		// Size grid to approximately one edge per cell in the largest dimension.
 		const Vector2 extentsSize(edgeExtents.max - edgeExtents.min);
-		m_cellSize = max(extentsSize.x / edgeCount, extentsSize.y / edgeCount);
+		m_cellSize = max(extentsSize.x, extentsSize.y) / (float)clamp(edgeCount, 32u, 512u);
 		if (m_cellSize <= 0.0f)
 			return false;
 		m_gridWidth = uint32_t(ceilf(extentsSize.x / m_cellSize));
 		m_gridHeight = uint32_t(ceilf(extentsSize.y / m_cellSize));
-		if (m_gridWidth == 0 || m_gridHeight == 0)
+		if (m_gridWidth <= 1 || m_gridHeight <= 1)
 			return false;
 		// Insert edges into cells.
 		m_cellDataOffsets.resize(m_gridWidth * m_gridHeight);
