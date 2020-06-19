@@ -311,6 +311,7 @@ static objzModel *fbxLoad(const char *filename, const char * /*basePath*/)
 		return nullptr;
 	}
 	objzModel *model = new objzModel();
+	model->flags = 0;
 	model->numIndices = 0;
 	model->numMaterials = 0;
 	model->numMeshes = (uint32_t)scene->getMeshCount();
@@ -353,6 +354,7 @@ static objzModel *fbxLoad(const char *filename, const char * /*basePath*/)
 		object.numVertices = model->numVertices;
 	}
 	uint32_t currentIndex = 0, currentVertex = 0;
+	bool hasTexcoords = true;
 	for (int i = 0; i < scene->getMeshCount(); i++) {
 		const ofbx::Mesh *sourceMesh = scene->getMesh(i);
 		ofbx::Matrix dtransform = sourceMesh->getGlobalTransform();
@@ -403,12 +405,15 @@ static objzModel *fbxLoad(const char *filename, const char * /*basePath*/)
 				vertex.texcoord[1] = (float)uv.y;
 			} else {
 				vertex.texcoord[0] = vertex.texcoord[1] = 0.0f;
+				hasTexcoords = false;
 			}
 			vertex.texcoord[2] = vertex.texcoord[3] = 0.0f;
 		}
 		currentIndex += mesh.numIndices;
 		currentVertex += (uint32_t)sourceGeo->getVertexCount();
 	}
+	if (hasTexcoords)
+		model->flags |= OBJZ_FLAG_TEXCOORDS;
 	uint32_t currentMaterial = 0;
 	for (int i = 0; i < scene->getAllObjectCount(); i++) {
 		const ofbx::Object *object = scene->getAllObjects()[i];
@@ -476,7 +481,7 @@ static const T *gltfGetBufferData(const cgltf_accessor *accessor)
 	return (const T *)&buffer[offset];
 }
 
-static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *firstMaterial, objzModel *model, uint32_t &currentObject, uint32_t &currentMesh, uint32_t &firstMeshIndex, uint32_t &firstMeshVertex)
+static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *firstMaterial, objzModel *model, uint32_t &currentObject, uint32_t &currentMesh, uint32_t &firstMeshIndex, uint32_t &firstMeshVertex, bool &hasTexcoords)
 {
 	const cgltf_mesh *sourceMesh = node->mesh;
 	if (sourceMesh) {
@@ -521,6 +526,8 @@ static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *f
 					vertex.texcoord[0] = meshTexcoord[0];
 					vertex.texcoord[1] = meshTexcoord[1];
 					meshTexcoord += atexcoords->stride / sizeof(float);
+				} else {
+					hasTexcoords = false;
 				}
 			}
 			// Copy indices.
@@ -570,7 +577,7 @@ static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *f
 		}
 	}
 	for (cgltf_size ci = 0; ci < node->children_count; ci++)
-		gltfPopulateMeshData(node->children[ci], firstMaterial, model, currentObject, currentMesh, firstMeshIndex, firstMeshVertex);
+		gltfPopulateMeshData(node->children[ci], firstMaterial, model, currentObject, currentMesh, firstMeshIndex, firstMeshVertex, hasTexcoords);
 }
 
 static objzModel *gltfLoad(const char *filename, const char *basePath) 
@@ -590,6 +597,7 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 		return nullptr;
 	}
 	objzModel *model = new objzModel();
+	model->flags = 0;
 	model->numIndices = 0;
 	model->numMaterials = (uint32_t)gltfData->materials_count;
 	model->numMeshes = 0;
@@ -615,6 +623,7 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 	model->vertices = new ModelVertex[model->numVertices];
 	// Populate data.
 	uint32_t currentObject = 0, currentMesh = 0, firstMeshIndex = 0, firstMeshVertex = 0;
+	bool hasTexcoords = true;
 	for (cgltf_size ni = 0; ni < gltfData->nodes_count; ni++) {
 		const cgltf_node &node = gltfData->nodes[ni];
 		if (node.parent)
@@ -634,11 +643,13 @@ static objzModel *gltfLoad(const char *filename, const char *basePath)
 		object.numVertices = 0;
 #endif
 		// Create mesh data.
-		gltfPopulateMeshData(&node, gltfData->materials, model, currentObject, currentMesh, firstMeshIndex, firstMeshVertex);
+		gltfPopulateMeshData(&node, gltfData->materials, model, currentObject, currentMesh, firstMeshIndex, firstMeshVertex, hasTexcoords);
 #if !ONE_GLTF_OBJECT_PER_MESH
 		currentObject++;
 #endif
 	}
+	if (hasTexcoords)
+		model->flags |= OBJZ_FLAG_TEXCOORDS;
 	// Materials.
 	model->materials = new objzMaterial[model->numMaterials];
 	for (uint32_t i = 0; i < model->numMaterials; i++) {
@@ -675,6 +686,7 @@ static objzModel *stlLoad(const char *filename, const char * /*basePath*/)
 	if (!stl_reader::ReadStlFile(filename, coords, normals, tris, solids))
 		return nullptr;
 	objzModel *model = new objzModel();
+	model->flags = 0;
 	model->numIndices = (uint32_t)tris.size();
 	model->numMaterials = 0;
 	model->numMeshes = (uint32_t)solids.size() - 1;

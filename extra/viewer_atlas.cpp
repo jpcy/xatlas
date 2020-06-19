@@ -159,7 +159,7 @@ struct BlitVertex
 
 struct AtlasOptions
 {
-	int cellSize = 0;
+	bool useUvMesh = false; // Use xatlas::AddUvMesh API
 	int selectedAtlas;
 	int selectedChart;
 	bool fitToWindow = true;
@@ -178,11 +178,12 @@ struct AtlasOptions
 struct
 {
 	xatlas::Atlas *data = nullptr;
+	bool useUvMesh = false; // True if xatlas::AddUvMesh API was used - AtlasOptions::useUvMesh was checked when atlas was generated.
+	bool useUvMeshChanged = false;
 	std::thread *thread = nullptr;
 	AtlasStatus status;
 	AtlasOptions options;
 	std::vector<float> chartColors;
-	std::mutex paramMutex; // Used by OpenNL
 	bgfx::FrameBufferHandle chartsFrameBuffer = BGFX_INVALID_HANDLE;
 	bgfx::TextureHandle chartsTexture = BGFX_INVALID_HANDLE;
 	std::vector<uint8_t> chartsTextureData;
@@ -413,11 +414,16 @@ static void atlasGenerateThread()
 	const objzModel *model = modelGetData();
 	const bool firstRun = !s_atlas.data;
 	const clock_t startTime = clock();
-	if (firstRun) {
-		// Create xatlas context on first run only.
 #if USE_MIMALLOC
+	if (firstRun)
 		xatlas::SetAlloc(mi_realloc);
 #endif
+	// Create xatlas context and add meshes on first run only, unless uv mesh option has changed.
+	if (firstRun || s_atlas.useUvMeshChanged) {
+		if (s_atlas.useUvMeshChanged && s_atlas.data) {
+			xatlas::Destroy(s_atlas.data);
+			s_atlas.data = nullptr;
+		}
 		s_atlas.data = xatlas::Create();
 		xatlas::SetProgressCallback(s_atlas.data, atlasProgressCallback);
 		std::vector<uint8_t> ignoreFaces; // Should be bool, workaround stupid C++ specialization.
@@ -435,20 +441,36 @@ static void atlasGenerateThread()
 						ignoreFaces[(mesh.firstIndex - object.firstIndex) / 3 + k] = true;
 				}
 			}
-			xatlas::MeshDecl meshDecl;
-			meshDecl.vertexCount = object.numVertices;
-			meshDecl.vertexPositionData = &v->pos;
-			meshDecl.vertexPositionStride = sizeof(ModelVertex);
-			meshDecl.vertexNormalData = &v->normal;
-			meshDecl.vertexNormalStride = sizeof(ModelVertex);
-			meshDecl.vertexUvData = &v->texcoord;
-			meshDecl.vertexUvStride = sizeof(ModelVertex);
-			meshDecl.indexCount = object.numIndices;
-			meshDecl.indexData = &((uint32_t *)model->indices)[object.firstIndex];
-			meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
-			meshDecl.indexOffset = -(int32_t)object.firstVertex;
-			meshDecl.faceIgnoreData = (const bool *)ignoreFaces.data();
-			xatlas::AddMeshError::Enum error = xatlas::AddMesh(s_atlas.data, meshDecl, model->numObjects);
+			xatlas::AddMeshError::Enum error;
+			if (s_atlas.useUvMesh)
+			{
+				xatlas::UvMeshDecl meshDecl;
+				meshDecl.vertexCount = object.numVertices;
+				meshDecl.vertexStride = sizeof(ModelVertex);
+				meshDecl.vertexUvData = &v->texcoord;
+				meshDecl.indexCount = object.numIndices;
+				meshDecl.indexData = &((uint32_t *)model->indices)[object.firstIndex];
+				meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
+				meshDecl.indexOffset = -(int32_t)object.firstVertex;
+				error = xatlas::AddUvMesh(s_atlas.data, meshDecl);
+			}
+			else
+			{
+				xatlas::MeshDecl meshDecl;
+				meshDecl.vertexCount = object.numVertices;
+				meshDecl.vertexPositionData = &v->pos;
+				meshDecl.vertexPositionStride = sizeof(ModelVertex);
+				meshDecl.vertexNormalData = &v->normal;
+				meshDecl.vertexNormalStride = sizeof(ModelVertex);
+				meshDecl.vertexUvData = &v->texcoord;
+				meshDecl.vertexUvStride = sizeof(ModelVertex);
+				meshDecl.indexCount = object.numIndices;
+				meshDecl.indexData = &((uint32_t *)model->indices)[object.firstIndex];
+				meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
+				meshDecl.indexOffset = -(int32_t)object.firstVertex;
+				meshDecl.faceIgnoreData = (const bool *)ignoreFaces.data();
+				error = xatlas::AddMesh(s_atlas.data, meshDecl, model->numObjects);
+			}
 			if (error != xatlas::AddMeshError::Success) {
 				fprintf(stderr, "Error adding mesh: %s\n", xatlas::StringForEnum(error));
 				setErrorMessage("Error adding mesh: %s", xatlas::StringForEnum(error));
@@ -467,7 +489,7 @@ static void atlasGenerateThread()
 			}
 		}
 	}
-	if (firstRun || s_atlas.options.chartChanged) {
+	if ((firstRun || s_atlas.useUvMeshChanged || s_atlas.options.chartChanged) && !s_atlas.useUvMesh) {
 		xatlas::ComputeCharts(s_atlas.data, s_atlas.options.chart);
 		if (s_atlas.status.getCancel()) {
 			s_atlas.options.chartChanged = true; // Force ComputeCharts to be called next time.
@@ -476,7 +498,7 @@ static void atlasGenerateThread()
 			return;
 		}
 	}
-	if (firstRun || s_atlas.options.chartChanged || s_atlas.options.paramChanged) {
+	if ((firstRun || s_atlas.useUvMeshChanged || s_atlas.options.chartChanged || s_atlas.options.paramChanged) && !s_atlas.useUvMesh) {
 		xatlas::ParameterizeOptions options;
 #if USE_LIBIGL
 		if (s_atlas.options.paramMethod != ParamMethod::LSCM)
@@ -490,7 +512,7 @@ static void atlasGenerateThread()
 			return;
 		}
 	}
-	if (firstRun || s_atlas.options.chartChanged || s_atlas.options.paramChanged || s_atlas.options.packChanged) {
+	if (firstRun || s_atlas.useUvMeshChanged || s_atlas.options.chartChanged || s_atlas.options.paramChanged || s_atlas.options.packChanged) {
 		xatlas::PackCharts(s_atlas.data, s_atlas.options.pack);
 		if (s_atlas.status.getCancel()) {
 			s_atlas.options.packChanged = true; // Force PackCharts to be called next time.
@@ -642,7 +664,7 @@ void atlasGenerate()
 {
 	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
 		return;
-	if (s_atlas.data && !s_atlas.options.chartChanged && !s_atlas.options.paramChanged && !s_atlas.options.packChanged) {
+	if (s_atlas.data && !s_atlas.options.chartChanged && !s_atlas.options.paramChanged && !s_atlas.options.packChanged && s_atlas.useUvMesh == s_atlas.options.useUvMesh) {
 		// Already have an atlas and none of the options that affect atlas creation have changed.
 		return;
 	}
@@ -651,6 +673,8 @@ void atlasGenerate()
 	g_options.shadeMode = ShadeMode::Flat;
 	g_options.wireframeMode = WireframeMode::Triangles;
 	s_atlas.status.set(AtlasStatus::Generating);
+	s_atlas.useUvMeshChanged = s_atlas.data && s_atlas.useUvMesh != s_atlas.options.useUvMesh;
+	s_atlas.useUvMesh = s_atlas.options.useUvMesh;
 	s_atlas.thread = new std::thread(atlasGenerateThread);
 }
 
@@ -881,9 +905,15 @@ void atlasShowGuiOptions()
 		return;
 	if (ImGui::Button(ICON_FA_COGS " Generate", buttonSize))
 		atlasGenerate();
+	if (modelGetData()->flags & OBJZ_FLAG_TEXCOORDS) {
+		ImGui::SameLine();
+		ImGui::Checkbox("Use UV mesh", &s_atlas.options.useUvMesh);
+	} else {
+		s_atlas.options.useUvMesh = false;
+	}
 	ImGui::Spacing();
 	const float indent = 12.0f;
-	if (ImGui::CollapsingHeader("Chart options", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (!s_atlas.options.useUvMesh && ImGui::CollapsingHeader("Chart options", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Indent(indent);
 		bool changed = false;
 		ImGui::Columns(2, nullptr, false);
@@ -907,7 +937,7 @@ void atlasShowGuiOptions()
 	}
 	ImGui::Spacing();
 #if USE_LIBIGL
-	if (ImGui::CollapsingHeader("Parameterization options", ImGuiTreeNodeFlags_DefaultOpen)) {
+	if (!s_atlas.options.useUvMesh && ImGui::CollapsingHeader("Parameterization options", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Indent(indent);
 		const ParamMethod oldParamMethod = s_atlas.options.paramMethod;
 		ImGui::RadioButton("LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::LSCM);
