@@ -231,6 +231,9 @@ int main(int argc, char *argv[])
 		PrintProgress("Adding meshes", "", "   ", 100, &stopwatch);
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
+	// Compute charts.
+	printf("Computing charts\n");
+	xatlas::ComputeCharts(atlas);
 	// Pack charts.
 	printf("Packing charts\n");
 	xatlas::PackCharts(atlas);

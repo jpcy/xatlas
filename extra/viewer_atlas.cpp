@@ -489,7 +489,7 @@ static void atlasGenerateThread()
 			}
 		}
 	}
-	if ((firstRun || s_atlas.useUvMeshChanged || s_atlas.options.chartChanged) && !s_atlas.useUvMesh) {
+	if (firstRun || s_atlas.useUvMeshChanged || s_atlas.options.chartChanged) {
 		xatlas::ComputeCharts(s_atlas.data, s_atlas.options.chart);
 		if (s_atlas.status.getCancel()) {
 			s_atlas.options.chartChanged = true; // Force ComputeCharts to be called next time.
