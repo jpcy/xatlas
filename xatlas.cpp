@@ -773,6 +773,11 @@ static Vector3 operator-(const Vector3 &a, const Vector3 &b)
 	return Vector3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
+static bool operator==(const Vector3 &a, const Vector3 &b)
+{
+	return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
 static Vector3 cross(const Vector3 &a, const Vector3 &b)
 {
 	return Vector3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
@@ -2510,7 +2515,7 @@ public:
 		return result;
 	}
 
-	void createColocals()
+	void createColocalsBVH()
 	{
 		const uint32_t vertexCount = m_positions.size();
 		Array<AABB> aabbs(MemTag::BVH);
@@ -2545,6 +2550,48 @@ public:
 				m_nextColocalVertex[colocals[j]] = colocals[(j + 1) % colocals.size()];
 			XA_DEBUG_ASSERT(m_nextColocalVertex[i] != UINT32_MAX);
 		}
+	}
+
+	void createColocalsHash()
+	{
+		const uint32_t vertexCount = m_positions.size();
+		internal::HashMap<internal::Vector3> positionToVertexMap(internal::MemTag::Default, vertexCount);
+		for (uint32_t i = 0; i < vertexCount; i++)
+			positionToVertexMap.add(m_positions[i]);
+		Array<uint32_t> colocals(MemTag::MeshColocals);
+		m_nextColocalVertex.resize(vertexCount);
+		m_nextColocalVertex.fillBytes(0xff);
+		for (uint32_t i = 0; i < vertexCount; i++) {
+			if (m_nextColocalVertex[i] != UINT32_MAX)
+				continue; // Already linked.
+						  // Find other vertices colocal to this one.
+			colocals.clear();
+			colocals.push_back(i); // Always add this vertex.
+			uint32_t otherVertex = positionToVertexMap.get(m_positions[i]);
+			while (otherVertex != UINT32_MAX) {
+				if (otherVertex != i && equal(m_positions[i], m_positions[otherVertex], m_epsilon) && m_nextColocalVertex[otherVertex] == UINT32_MAX)
+					colocals.push_back(otherVertex);
+				otherVertex = positionToVertexMap.getNext(otherVertex);
+			}
+			if (colocals.size() == 1) {
+				// No colocals for this vertex.
+				m_nextColocalVertex[i] = i;
+				continue; 
+			}
+			// Link in ascending order.
+			insertionSort(colocals.data(), colocals.size());
+			for (uint32_t j = 0; j < colocals.size(); j++)
+				m_nextColocalVertex[colocals[j]] = colocals[(j + 1) % colocals.size()];
+			XA_DEBUG_ASSERT(m_nextColocalVertex[i] != UINT32_MAX);
+		}
+	}
+
+	void createColocals()
+	{
+		if (m_epsilon <= FLT_EPSILON)
+			createColocalsHash();
+		else
+			createColocalsBVH();
 	}
 
 	void createBoundaries()
