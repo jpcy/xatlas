@@ -206,8 +206,10 @@ int main(int argc, char *argv[])
 			tinyobj::mesh_t &objMesh = shapes[s].mesh;
 			xatlas::UvMeshDecl meshDecl;
 			meshDecl.vertexCount = (int)objMesh.texcoords.size() / 2;
+			meshDecl.vertexPositionData = objMesh.positions.data();
+			meshDecl.vertexPositionStride = sizeof(float) * 3;
 			meshDecl.vertexUvData = objMesh.texcoords.data();
-			meshDecl.vertexStride = sizeof(float) * 2;
+			meshDecl.vertexUvStride = sizeof(float) * 2;
 			meshDecl.indexCount = (int)objMesh.indices.size();
 			meshDecl.indexData = objMesh.indices.data();
 			meshDecl.indexFormat = xatlas::IndexFormat::UInt32;

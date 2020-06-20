@@ -153,11 +153,13 @@ void AddMeshJoin(Atlas *atlas);
 
 struct UvMeshDecl
 {
+	const void *vertexPositionData = nullptr;
 	const void *vertexUvData = nullptr;
 	const void *indexData = nullptr; // optional
 	const uint32_t *faceMaterialData = nullptr; // Optional. Faces with different materials won't be assigned to the same chart. Must be indexCount / 3 in length.
 	uint32_t vertexCount = 0;
-	uint32_t vertexStride = 0;
+	uint32_t vertexPositionStride = 0;
+	uint32_t vertexUvStride = 0;
 	uint32_t indexCount = 0;
 	int32_t indexOffset = 0; // optional. Add this offset to all indices.
 	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
