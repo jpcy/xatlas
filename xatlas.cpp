@@ -2722,7 +2722,8 @@ public:
 	uint32_t findEdge(uint32_t vertex0, uint32_t vertex1) const
 	{
 		uint32_t result = UINT32_MAX;
-		if (m_nextColocalVertex.isEmpty()) {
+		// Try to find exact vertex match first.
+		{
 			EdgeKey key(vertex0, vertex1);
 			uint32_t edge = m_edgeMap.get(key);
 			while (edge != UINT32_MAX) {
@@ -2736,7 +2737,9 @@ public:
 				}
 				edge = m_edgeMap.getNext(edge);
 			}
-		} else {
+		}
+		// If colocals were created, try every permutation.
+		if (!m_nextColocalVertex.isEmpty()) {
 			for (ColocalVertexIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
 				for (ColocalVertexIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
 					EdgeKey key(it0.vertex(), it1.vertex());
