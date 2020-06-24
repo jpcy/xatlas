@@ -9616,13 +9616,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 					XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", i, tri[0], tri[1], tri[2], area);
 			}
 		}
-		if (!ignore) {
-			if (internal::equal(a, b, meshDecl.epsilon) || internal::equal(a, c, meshDecl.epsilon) || internal::equal(b, c, meshDecl.epsilon)) {
-				ignore = true;
-				if (++warningCount <= kMaxWarnings)
-					XA_PRINT("   Degenerate face: %d, area is %f\n", i, area);
-			}
-		}
 		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
 			ignore = true;
 		mesh->addFace(tri[0], tri[1], tri[2], ignore);
