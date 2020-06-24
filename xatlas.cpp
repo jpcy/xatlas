@@ -9716,11 +9716,11 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			break;
 		}
 	}
-	const uint32_t kMaxWarnings = 50;
-	uint32_t warningCount = 0;
 	if (!uvMesh) {
 		// Create mesh for geometry.
 		internal::Mesh *mesh = XA_NEW_ARGS(internal::MemTag::Mesh, internal::Mesh, FLT_EPSILON, decl.vertexCount, indexCount / 3, 0, ctx->uvMeshes.size());
+		const uint32_t kMaxWarnings = 50;
+		uint32_t warningCount = 0;
 		for (uint32_t i = 0; i < decl.vertexCount; i++) {
 			internal::Vector3 position = *((const internal::Vector3 *)&((const uint8_t *)decl.vertexPositionData)[decl.vertexPositionStride * i]);
 			internal::Vector2 texcoord = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexUvStride * i]);
@@ -9741,8 +9741,61 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			uint32_t tri[3];
 			for (int j = 0; j < 3; j++)
 				tri[j] = hasIndices ? DecodeIndex(decl.indexFormat, decl.indexData, decl.indexOffset, i * 3 + j) : i * 3 + j;
-			mesh->addFace(tri);
+			bool ignore = false;
+			// Check for degenerate or zero length edges.
+			for (int j = 0; j < 3; j++) {
+				const uint32_t index1 = tri[j];
+				const uint32_t index2 = tri[(j + 1) % 3];
+				if (index1 == index2) {
+					ignore = true;
+					if (++warningCount <= kMaxWarnings)
+						XA_PRINT("   Degenerate edge: index %d, index %d\n", index1, index2);
+					break;
+				}
+				const internal::Vector3 &pos1 = mesh->position(index1);
+				const internal::Vector3 &pos2 = mesh->position(index2);
+				if (internal::length(pos2 - pos1) <= 0.0f) {
+					ignore = true;
+					if (++warningCount <= kMaxWarnings)
+						XA_PRINT("   Zero length edge: index %d position (%g %g %g), index %d position (%g %g %g)\n", index1, pos1.x, pos1.y, pos1.z, index2, pos2.x, pos2.y, pos2.z);
+					break;
+				}
+				const internal::Vector2 &uv1 = mesh->texcoord(index1);
+				const internal::Vector2 &uv2 = mesh->texcoord(index2);
+				if (internal::length(uv1 - uv2) <= 0.0f) {
+					ignore = true;
+					if (++warningCount <= kMaxWarnings)
+						XA_PRINT("   Zero UV length edge: index %d texcoord (%g %g), index %d texcoord (%g %g)\n", index1, uv1.x, uv1.y, index2, uv2.x, uv2.y);
+					break;
+				}
+			}
+			// Check for zero area faces.
+			if (!ignore) {
+				const internal::Vector3 &a = mesh->position(tri[0]);
+				const internal::Vector3 &b = mesh->position(tri[1]);
+				const internal::Vector3 &c = mesh->position(tri[2]);
+				const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
+				if (area <= internal::kAreaEpsilon) {
+					ignore = true;
+					if (++warningCount <= kMaxWarnings)
+						XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", i, tri[0], tri[1], tri[2], area);
+				}
+			}
+			if (!ignore) {
+				const internal::Vector2 &v1 = mesh->texcoord(tri[0]);
+				const internal::Vector2 &v2 = mesh->texcoord(tri[1]);
+				const internal::Vector2 &v3 = mesh->texcoord(tri[2]);
+				const float area = fabsf(((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f);
+				if (area <= internal::kAreaEpsilon) {
+					ignore = true;
+					if (++warningCount <= kMaxWarnings)
+						XA_PRINT("   Zero UV area face: %d, indices (%d %d %d), area is %f\n", i, tri[0], tri[1], tri[2], area);
+				}
+			}
+			mesh->addFace(tri, ignore);
 		}
+		if (warningCount > kMaxWarnings)
+			XA_PRINT("   %u additional warnings truncated\n", warningCount - kMaxWarnings);
 		// Create UV mesh.
 		uvMesh = XA_NEW(internal::MemTag::Default, internal::UvMesh);
 		uvMesh->decl = decl;
