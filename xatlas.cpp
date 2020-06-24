@@ -6605,6 +6605,7 @@ struct ComputeUvMeshChartsTaskArgs
 {
 	UvMesh *mesh;
 	ConstArrayView<UvMeshInstance *> meshInstances;
+	Progress *progress;
 };
 
 // Charts are found by floodfilling faces without crossing UV seams.
@@ -6612,6 +6613,8 @@ static void runComputeUvMeshChartsTask(void *userData)
 {
 	XA_PROFILE_START(computeChartsThread)
 	auto args = (ComputeUvMeshChartsTaskArgs *)userData;
+	if (args->progress->cancel)
+		return;
 	UvMesh *uvMesh = args->mesh;
 	Mesh *mesh = uvMesh->mesh;
 	mesh->createColocals();
@@ -6655,6 +6658,8 @@ static void runComputeUvMeshChartsTask(void *userData)
 			if (!newFaceAssigned)
 				break;
 		}
+		if (args->progress->cancel)
+			return;
 		for (uint32_t i = 0; i < chart->faces.size(); i++) {
 			for (uint32_t j = 0; j < 3; j++) {
 				const uint32_t vertex = mesh->vertexAt(chart->faces[i] * 3 + j);
@@ -6700,10 +6705,15 @@ static void runComputeUvMeshChartsTask(void *userData)
 		}
 	}
 	XA_PROFILE_END(computeChartsThread)
+	if (args->progress->cancel)
+		return;
+	args->progress->value++;
+	args->progress->update();
 }
 
-static void computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *> meshes, ConstArrayView<UvMeshInstance *> meshInstances)
+static bool computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *> meshes, ConstArrayView<UvMeshInstance *> meshInstances, ProgressFunc progressFunc, void *progressUserData)
 {
+	Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, meshes.length);
 	TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(meshes.length);
 	Array<ComputeUvMeshChartsTaskArgs> taskArgs;
 	taskArgs.resize(meshes.length);
@@ -6711,12 +6721,14 @@ static void computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *
 		ComputeUvMeshChartsTaskArgs &args = taskArgs[i];
 		args.mesh = meshes[i];
 		args.meshInstances = meshInstances;
+		args.progress = &progress;
 		Task task;
 		task.userData = &args;
 		task.func = runComputeUvMeshChartsTask;
 		taskScheduler->run(taskGroup, task);
 	}
 	taskScheduler->wait(&taskGroup);
+	return !progress.cancel;
 }
 
 } // namespace segment
@@ -9804,7 +9816,10 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		XA_PROFILE_PRINT_AND_RESET("         Copy chart faces: ", copyChartFaces)
 	} else {
 		XA_PROFILE_START(computeChartsReal)
-		internal::segment::computeUvMeshCharts(ctx->taskScheduler, ctx->uvMeshes, ctx->uvMeshInstances);
+		if (!internal::segment::computeUvMeshCharts(ctx->taskScheduler, ctx->uvMeshes, ctx->uvMeshInstances, ctx->progressFunc, ctx->progressUserData)) {
+			XA_PRINT("   Cancelled by user\n");
+			return;
+		}
 		XA_PROFILE_END(computeChartsReal)
 		ctx->uvMeshChartsComputed = true;
 		// Count charts.
