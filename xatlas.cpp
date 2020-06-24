@@ -3704,6 +3704,50 @@ static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoop
 	}
 }
 
+// References invalid faces and vertices in a mesh.
+struct InvalidMeshGeometry
+{
+	// If meshFaceGroups is not null, invalid faces have the face group MeshFaceGroups::kInvalid.
+	// If meshFaceGroups is null, invalid faces are Mesh::isFaceIgnored.
+	void extract(const Mesh *mesh, const MeshFaceGroups *meshFaceGroups)
+	{
+		// Copy invalid faces.
+		m_faces.clear();
+		const uint32_t meshFaceCount = mesh->faceCount();
+		for (uint32_t f = 0; f < meshFaceCount; f++) {
+			if ((meshFaceGroups && meshFaceGroups->groupAt(f) == MeshFaceGroups::kInvalid) || (!meshFaceGroups && mesh->isFaceIgnored(f)))
+				m_faces.push_back(f);
+		}
+		// Create *unique* list of vertices of invalid faces.
+		const uint32_t faceCount = m_faces.size();
+		m_indices.resize(faceCount * 3);
+		const uint32_t approxVertexCount = min(faceCount * 3, mesh->vertexCount());
+		m_vertexToSourceVertexMap.clear();
+		m_vertexToSourceVertexMap.reserve(approxVertexCount);
+		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToVertexMap(MemTag::Mesh, approxVertexCount);
+		for (uint32_t f = 0; f < faceCount; f++) {
+			const uint32_t face = m_faces[f];
+			for (uint32_t i = 0; i < 3; i++) {
+				const uint32_t vertex = mesh->vertexAt(face * 3 + i);
+				uint32_t newVertex = sourceVertexToVertexMap.get(vertex);
+				if (newVertex == UINT32_MAX) {
+					newVertex = sourceVertexToVertexMap.add(vertex);
+					m_vertexToSourceVertexMap.push_back(vertex);
+				}
+				m_indices[f * 3 + i] = newVertex;
+			}
+		}
+	}
+
+	ConstArrayView<uint32_t> faces() const { return m_faces; }
+	ConstArrayView<uint32_t> indices() const { return m_indices; }
+	ConstArrayView<uint32_t> vertices() const { return m_vertexToSourceVertexMap; }
+
+private:
+	Array<uint32_t> m_faces, m_indices;
+	Array<uint32_t> m_vertexToSourceVertexMap; // Map face vertices to vertices of the source mesh.
+};
+
 struct Progress
 {
 	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : value(0), cancel(false), m_category(category), m_func(func), m_userData(userData), m_maxValue(maxValue), m_progress(0)
@@ -4419,6 +4463,7 @@ struct UvMesh
 {
 	UvMeshDecl decl;
 	Mesh *mesh;
+	InvalidMeshGeometry invalidMeshGeometry;
 	Array<UvMeshChart *> charts;
 };
 
@@ -6623,7 +6668,7 @@ static void runComputeUvMeshChartsTask(void *userData)
 	BitArray faceAssigned(faceCount);
 	faceAssigned.zeroOutMemory();
 	for (uint32_t f = 0; f < faceCount; f++) {
-		if (faceAssigned.get(f))
+		if (mesh->isFaceIgnored(f) || faceAssigned.get(f))
 			continue;
 		// Found an unassigned face, create a new chart.
 		UvMeshChart *chart = XA_NEW(MemTag::Default, UvMeshChart);
@@ -6640,6 +6685,8 @@ static void runComputeUvMeshChartsTask(void *userData)
 					const uint32_t face2 = edgeIt.oppositeFace();
 					if (face2 == UINT32_MAX)
 						continue; // Boundary edge.
+					if (mesh->isFaceIgnored(face2))
+						continue; // Ignored/invalid.
 					if (faceAssigned.get(face2))
 						continue; // Already assigned to chart.
 					if (uvMesh->decl.faceMaterialData && uvMesh->decl.faceMaterialData[face] != uvMesh->decl.faceMaterialData[face2])
@@ -8101,49 +8148,6 @@ private:
 	uint32_t m_faceCount; // Set by createMesh(). Used for sorting.
 	uint32_t m_paramAddedChartsCount; // Number of new charts added by recomputing charts with invalid parameterizations.
 	uint32_t m_paramDeletedChartsCount; // Number of charts with invalid parameterizations that were deleted, after charts were recomputed.
-};
-
-// References invalid faces and vertices in a mesh.
-struct InvalidMeshGeometry
-{
-	// Invalid faces have the face groups MeshFaceGroups::kInvalid.
-	void extract(const Mesh *mesh, const MeshFaceGroups *meshFaceGroups)
-	{
-		// Copy invalid faces.
-		m_faces.clear();
-		const uint32_t meshFaceCount = mesh->faceCount();
-		for (uint32_t f = 0; f < meshFaceCount; f++) {
-			if (meshFaceGroups->groupAt(f) == MeshFaceGroups::kInvalid)
-				m_faces.push_back(f);
-		}
-		// Create *unique* list of vertices of invalid faces.
-		const uint32_t faceCount = m_faces.size();
-		m_indices.resize(faceCount * 3);
-		const uint32_t approxVertexCount = min(faceCount * 3, mesh->vertexCount());
-		m_vertexToSourceVertexMap.clear();
-		m_vertexToSourceVertexMap.reserve(approxVertexCount);
-		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToVertexMap(MemTag::Mesh, approxVertexCount);
-		for (uint32_t f = 0; f < faceCount; f++) {
-			const uint32_t face = m_faces[f];
-			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t vertex = mesh->vertexAt(face * 3 + i);
-				uint32_t newVertex = sourceVertexToVertexMap.get(vertex);
-				if (newVertex == UINT32_MAX) {
-					newVertex = sourceVertexToVertexMap.add(vertex);
-					m_vertexToSourceVertexMap.push_back(vertex);
-				}
-				m_indices[f * 3 + i] = newVertex;
-			}
-		}
-	}
-
-	ConstArrayView<uint32_t> faces() const { return m_faces; }
-	ConstArrayView<uint32_t> indices() const { return m_indices; }
-	ConstArrayView<uint32_t> vertices() const { return m_vertexToSourceVertexMap; }
-
-private:
-	Array<uint32_t> m_faces, m_indices;
-	Array<uint32_t> m_vertexToSourceVertexMap; // Map face vertices to vertices of the source mesh.
 };
 
 struct ChartGroupComputeChartFacesTaskArgs
@@ -9718,7 +9722,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 	}
 	if (!uvMesh) {
 		// Create mesh for geometry.
-		internal::Mesh *mesh = XA_NEW_ARGS(internal::MemTag::Mesh, internal::Mesh, FLT_EPSILON, decl.vertexCount, indexCount / 3, 0, ctx->uvMeshes.size());
+		internal::Mesh *mesh = XA_NEW_ARGS(internal::MemTag::Mesh, internal::Mesh, FLT_EPSILON, decl.vertexCount, indexCount / 3, internal::MeshFlags::HasIgnoredFaces, ctx->uvMeshes.size());
 		const uint32_t kMaxWarnings = 50;
 		uint32_t warningCount = 0;
 		for (uint32_t i = 0; i < decl.vertexCount; i++) {
@@ -9800,6 +9804,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		uvMesh = XA_NEW(internal::MemTag::Default, internal::UvMesh);
 		uvMesh->decl = decl;
 		uvMesh->mesh = mesh;
+		uvMesh->invalidMeshGeometry.extract(uvMesh->mesh, nullptr);
 		ctx->uvMeshes.push_back(uvMesh);
 	}
 	// Create a mesh instance.
@@ -10148,7 +10153,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		for (uint32_t i = 0; i < atlas->meshCount; i++) {
 			Mesh &outputMesh = atlas->meshes[i];
 			// Count and alloc arrays.
-			const internal::param::InvalidMeshGeometry &invalid = ctx->paramAtlas.invalidMeshGeometry(i);
+			const internal::InvalidMeshGeometry &invalid = ctx->paramAtlas.invalidMeshGeometry(i);
 			outputMesh.vertexCount += invalid.vertices().length;
 			outputMesh.indexCount += invalid.faces().length * 3;
 			for (uint32_t cg = 0; cg < ctx->paramAtlas.chartGroupCount(i); cg++) {
@@ -10167,7 +10172,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 			// Copy mesh data.
 			uint32_t firstVertex = 0;
 			{
-				const internal::param::InvalidMeshGeometry &mesh = ctx->paramAtlas.invalidMeshGeometry(i);
+				const internal::InvalidMeshGeometry &mesh = ctx->paramAtlas.invalidMeshGeometry(i);
 				internal::ConstArrayView<uint32_t> faces = mesh.faces();
 				internal::ConstArrayView<uint32_t> indices = mesh.indices();
 				internal::ConstArrayView<uint32_t> vertices = mesh.vertices();
@@ -10250,18 +10255,42 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				internal::UvMeshChart *uvChart = uvMesh->charts[c];
 				outputMesh.indexCount += uvChart->texcoordIndices.size();
 			}
+			outputMesh.vertexCount += uvMesh->invalidMeshGeometry.vertices().length;
+			outputMesh.indexCount += uvMesh->invalidMeshGeometry.faces().length * 3;
 			outputMesh.chartCount = uvMesh->charts.size();
 			outputMesh.vertexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, Vertex, outputMesh.vertexCount);
 			outputMesh.indexArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputMesh.indexCount);
 			outputMesh.chartArray = XA_ALLOC_ARRAY(internal::MemTag::Default, Chart, outputMesh.chartCount);
 			XA_PRINT("   UV mesh %u: %u vertices, %u triangles, %u charts\n", m, outputMesh.vertexCount, outputMesh.indexCount / 3, outputMesh.chartCount);
 			// Copy mesh and chart data.
+			uint32_t firstValidVertex = 0;
+			{
+				const internal::InvalidMeshGeometry &mesh = uvMesh->invalidMeshGeometry;
+				internal::ConstArrayView<uint32_t> faces = mesh.faces();
+				internal::ConstArrayView<uint32_t> indices = mesh.indices();
+				internal::ConstArrayView<uint32_t> vertices = mesh.vertices();
+				// Vertices.
+				for (uint32_t v = 0; v < vertices.length; v++) {
+					Vertex &vertex = outputMesh.vertexArray[v];
+					vertex.atlasIndex = -1;
+					vertex.chartIndex = -1;
+					vertex.uv[0] = vertex.uv[1] = 0.0f;
+					vertex.xref = vertices[v];
+				}
+				firstValidVertex = vertices.length;
+				// Indices.
+				for (uint32_t f = 0; f < faces.length; f++) {
+					const uint32_t indexOffset = faces[f] * 3;
+					for (uint32_t j = 0; j < 3; j++)
+						outputMesh.indexArray[indexOffset + j] = indices[f * 3 + j];
+				}
+			}
 			uint32_t currentVertex = 0;
 			for (uint32_t c = 0; c < uvMesh->charts.size(); c++) {
 				internal::UvMeshChart *uvChart = uvMesh->charts[c];
 				// Vertices.
 				for (uint32_t v = 0; v < uvChart->vertices.size(); v++) {
-					Vertex &vertex = outputMesh.vertexArray[currentVertex];
+					Vertex &vertex = outputMesh.vertexArray[firstValidVertex + currentVertex];
 					vertex.uv[0] = uvMeshInstance->texcoords[uvChart->texcoordOffset + v].x;
 					vertex.uv[1] = uvMeshInstance->texcoords[uvChart->texcoordOffset + v].y;
 					vertex.xref = uvChart->vertices[v];
@@ -10274,7 +10303,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				for (uint32_t f = 0; f < uvChart->faces.size(); f++) {
 					const uint32_t indexOffset = uvChart->faces[f] * 3;
 					for (uint32_t j = 0; j < 3; j++)
-						outputMesh.indexArray[indexOffset + j] = uvChart->texcoordOffset + uvChart->texcoordIndices[f * 3 + j];
+						outputMesh.indexArray[indexOffset + j] = firstValidVertex + uvChart->texcoordOffset + uvChart->texcoordIndices[f * 3 + j];
 				}
 				// Chart.
 				Chart *outputChart = &outputMesh.chartArray[c];
