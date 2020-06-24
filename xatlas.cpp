@@ -9720,6 +9720,8 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			break;
 		}
 	}
+	const uint32_t kMaxWarnings = 50;
+	uint32_t warningCount = 0;
 	if (!uvMesh) {
 		// Create mesh for geometry.
 		internal::Mesh *mesh = XA_NEW_ARGS(internal::MemTag::Mesh, internal::Mesh, FLT_EPSILON, decl.vertexCount, indexCount / 3, 0, ctx->uvMeshes.size());
@@ -9727,10 +9729,16 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			internal::Vector3 position = *((const internal::Vector3 *)&((const uint8_t *)decl.vertexPositionData)[decl.vertexPositionStride * i]);
 			internal::Vector2 texcoord = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexUvStride * i]);
 			// Set nan values to 0.
-			if (internal::isNan(position.x) || internal::isNan(position.y) || internal::isNan(position.z))
+			if (internal::isNan(position.x) || internal::isNan(position.y) || internal::isNan(position.z)) {
 				position.x = position.y = position.z = 0.0f;
-			if (internal::isNan(texcoord.x) || internal::isNan(texcoord.y))
+				if (++warningCount <= kMaxWarnings)
+					XA_PRINT("   NAN position in vertex %u\n", i);
+			}
+			if (internal::isNan(texcoord.x) || internal::isNan(texcoord.y)) {
 				texcoord.x = texcoord.y = 0.0f;
+				if (++warningCount <= kMaxWarnings)
+					XA_PRINT("   NAN texture coordinate in vertex %u\n", i);
+			}
 			mesh->addVertex(position, internal::Vector3(), texcoord);
 		}
 		for (uint32_t i = 0; i < indexCount / 3; i++) {
