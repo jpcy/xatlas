@@ -9523,14 +9523,6 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	// Expecting triangle faces.
 	if ((indexCount % 3) != 0)
 		return AddMeshError::InvalidIndexCount;
-	if (hasIndices) {
-		// Check if any index is out of range.
-		for (uint32_t i = 0; i < indexCount; i++) {
-			const uint32_t index = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i);
-			if (index >= meshDecl.vertexCount)
-				return AddMeshError::IndexOutOfRange;
-		}
-	}
 	uint32_t meshFlags = internal::MeshFlags::HasIgnoredFaces;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
@@ -9548,8 +9540,19 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	uint32_t warningCount = 0;
 	for (uint32_t i = 0; i < indexCount / 3; i++) {
 		uint32_t tri[3];
-		for (int j = 0; j < 3; j++)
-			tri[j] = hasIndices ? DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j) : i * 3 + j;
+		for (int j = 0; j < 3; j++) {
+			if (hasIndices) {
+				tri[j] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
+				// Check if any index is out of range.
+				if (tri[j] >= meshDecl.vertexCount) {
+					mesh->~Mesh();
+					XA_FREE(mesh);
+					return AddMeshError::IndexOutOfRange;
+				}
+			} else {
+				tri[j] = i * 3 + j;
+			}
+		}
 		bool ignore = false;
 		// Check for degenerate or zero length edges.
 		for (int j = 0; j < 3; j++) {
