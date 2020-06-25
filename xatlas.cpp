@@ -6843,6 +6843,19 @@ static bool findApproximateDiameterVertices(Mesh *mesh, uint32_t *a, uint32_t *b
 	return true;
 }
 
+// From OpenNL LSCM example.
+// Computes the coordinates of the vertices of a triangle in a local 2D orthonormal basis of the triangle's plane.
+static void projectTriangle(Vector3 p0, Vector3 p1, Vector3 p2, Vector2 *z0, Vector2 *z1, Vector2 *z2, float epsilon)
+{
+	Vector3 X = normalize(p1 - p0, epsilon);
+	Vector3 Z = normalize(cross(X, p2 - p0), epsilon);
+	Vector3 Y = cross(Z, X);
+	Vector3 &O = p0;
+	*z0 = Vector2(0, 0);
+	*z1 = Vector2(length(p1 - O), 0);
+	*z2 = Vector2(dot(p2 - O, X), dot(p2 - O, Y));
+}
+
 // Conformal relations from Brecht Van Lommel (based on ABF):
 
 static float vec_angle_cos(const Vector3 &v1, const Vector3 &v2, const Vector3 &v3)
@@ -6865,13 +6878,15 @@ static void triangle_angles(const Vector3 &v1, const Vector3 &v2, const Vector3 
 	*a3 = kPi - *a2 - *a1;
 }
 
-static void setup_abf_relations(opennl::NLContext *context, int id0, int id1, int id2, const Vector3 &p0, const Vector3 &p1, const Vector3 &p2)
+static bool setup_abf_relations(opennl::NLContext *context, int id0, int id1, int id2, const Vector3 &p0, const Vector3 &p1, const Vector3 &p2)
 {
 	// @@ IC: Wouldn't it be more accurate to return cos and compute 1-cos^2?
 	// It does indeed seem to be a little bit more robust.
 	// @@ Need to revisit this more carefully!
 	float a0, a1, a2;
 	triangle_angles(p0, p1, p2, &a0, &a1, &a2);
+	if (a0 == 0.0f || a1 == 0.0f || a2 == 0.0f)
+		return false;
 	float s0 = sinf(a0);
 	float s1 = sinf(a1);
 	float s2 = sinf(a2);
@@ -6918,6 +6933,7 @@ static void setup_abf_relations(opennl::NLContext *context, int id0, int id1, in
 	opennl::nlCoefficient(context, v1_id, -cosine);
 	opennl::nlCoefficient(context, v2_id, 1);
 	opennl::nlEnd(context, NL_ROW);
+	return true;
 }
 
 static bool computeLeastSquaresConformalMap(Mesh *mesh)
@@ -6949,7 +6965,40 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 		const uint32_t v0 = indices[f * 3 + 0];
 		const uint32_t v1 = indices[f * 3 + 1];
 		const uint32_t v2 = indices[f * 3 + 2];
-		setup_abf_relations(context, v0, v1, v2, positions[v0], positions[v1], positions[v2]);
+		if (!setup_abf_relations(context, v0, v1, v2, positions[v0], positions[v1], positions[v2])) {
+			Vector2 z0, z1, z2;
+			projectTriangle(positions[v0], positions[v1], positions[v2], &z0, &z1, &z2, mesh->epsilon());
+			double a = z1.x - z0.x;
+			double b = z1.y - z0.y;
+			double c = z2.x - z0.x;
+			double d = z2.y - z0.y;
+			XA_DEBUG_ASSERT(b == 0.0);
+			// Note  : 2*id + 0 --> u
+			//         2*id + 1 --> v
+			uint32_t u0_id = 2 * v0;
+			uint32_t v0_id = 2 * v0 + 1;
+			uint32_t u1_id = 2 * v1;
+			uint32_t v1_id = 2 * v1 + 1;
+			uint32_t u2_id = 2 * v2;
+			uint32_t v2_id = 2 * v2 + 1;
+			// Note : b = 0
+			// Real part
+			opennl::nlBegin(context, NL_ROW);
+			opennl::nlCoefficient(context, u0_id, -a+c) ;
+			opennl::nlCoefficient(context, v0_id, b-d) ;
+			opennl::nlCoefficient(context, u1_id, -c) ;
+			opennl::nlCoefficient(context, v1_id, d) ;
+			opennl::nlCoefficient(context, u2_id, a);
+			opennl::nlEnd(context, NL_ROW);
+			// Imaginary part
+			opennl::nlBegin(context, NL_ROW);
+			opennl::nlCoefficient(context, u0_id, -b+d);
+			opennl::nlCoefficient(context, v0_id, -a+c);
+			opennl::nlCoefficient(context, u1_id, -d);
+			opennl::nlCoefficient(context, v1_id, -c);
+			opennl::nlCoefficient(context, v2_id, a);
+			opennl::nlEnd(context, NL_ROW);
+		}
 	}
 	opennl::nlEnd(context, NL_MATRIX);
 	opennl::nlEnd(context, NL_SYSTEM);
