@@ -2737,6 +2737,10 @@ public:
 				}
 				edge = m_edgeMap.getNext(edge);
 			}
+#if XA_DEBUG
+			if (result != UINT32_MAX)
+				return result;
+#endif
 		}
 		// If colocals were created, try every permutation.
 		if (!m_nextColocalVertex.isEmpty()) {
