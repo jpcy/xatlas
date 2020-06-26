@@ -869,6 +869,13 @@ void modelFinalize()
 		}
 	}
 	s_model.centroid = bx::mul(s_model.centroid, 1.0f / centroidCount);
+	float radius = 0.0f;
+	bx::Vec3 aabbCorners[8];
+	s_model.aabb.getCorners(aabbCorners);
+	for (uint32_t i = 0; i < 8; i++)
+		radius = bx::max(radius, bx::distance(s_model.centroid, aabbCorners[i]));
+	if (radius > 0.0f)
+		s_model.scale = 16.0f / radius;
 	s_model.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.data->vertices, s_model.data->numVertices * sizeof(ModelVertex)), ModelVertex::layout);
 	s_model.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_model.data->indices, s_model.data->numIndices * sizeof(uint32_t)), BGFX_BUFFER_INDEX32);
 	s_model.wireframeVb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.wireframeVertices.data(), uint32_t(s_model.wireframeVertices.size() * sizeof(WireframeVertex))), WireframeVertex::layout);
