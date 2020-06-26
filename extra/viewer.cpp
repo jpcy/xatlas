@@ -543,16 +543,26 @@ int main(int argc, char **argv)
 			bgfx::setViewRect(kModelTransparentView, 0, 0, bgfx::BackbufferRatio::Equal);
 		}
 		// Update camera.
-		if (s_camera.mode == CameraMode::FirstPerson && glfwGetInputMode(g_window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) {
-			const float speed = (s_keyDown[GLFW_KEY_LEFT_SHIFT] ? 20.0f : 5.0f) * deltaTime;
-			float deltaForward = 0.0f, deltaRight = 0.0f;
-			if (s_keyDown[GLFW_KEY_W]) deltaForward += speed;
-			if (s_keyDown[GLFW_KEY_S]) deltaForward -= speed;
-			if (s_keyDown[GLFW_KEY_A]) deltaRight -= speed;
-			if (s_keyDown[GLFW_KEY_D]) deltaRight += speed;
-			s_camera.firstPerson.move(deltaForward, deltaRight);
-			if (s_keyDown[GLFW_KEY_Q]) s_camera.firstPerson.position.y -= speed;
-			if (s_keyDown[GLFW_KEY_E]) s_camera.firstPerson.position.y += speed;
+		if (glfwGetInputMode(g_window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED) {
+			if (s_camera.mode == CameraMode::FirstPerson) {
+				float speed = 5.0f;
+				if (s_keyDown[GLFW_KEY_LEFT_SHIFT] || s_keyDown[GLFW_KEY_RIGHT_SHIFT])
+					speed = 20.0f;
+				else if (s_keyDown[GLFW_KEY_LEFT_CONTROL] || s_keyDown[GLFW_KEY_RIGHT_CONTROL])
+					speed = 1.0f;
+				speed *= deltaTime;
+				float deltaForward = 0.0f, deltaRight = 0.0f;
+				if (s_keyDown[GLFW_KEY_W] || s_keyDown[GLFW_KEY_UP]) deltaForward += speed;
+				if (s_keyDown[GLFW_KEY_S] || s_keyDown[GLFW_KEY_DOWN]) deltaForward -= speed;
+				if (s_keyDown[GLFW_KEY_A] || s_keyDown[GLFW_KEY_LEFT]) deltaRight -= speed;
+				if (s_keyDown[GLFW_KEY_D] || s_keyDown[GLFW_KEY_RIGHT]) deltaRight += speed;
+				s_camera.firstPerson.move(deltaForward, deltaRight);
+				if (s_keyDown[GLFW_KEY_Q]) s_camera.firstPerson.position.y -= speed;
+				if (s_keyDown[GLFW_KEY_E]) s_camera.firstPerson.position.y += speed;
+			} else if (s_camera.mode == CameraMode::Orbit) {
+				if (s_keyDown[GLFW_KEY_EQUAL] || s_keyDown[GLFW_KEY_KP_ADD]) s_camera.orbit.zoom(-1.0f);
+				if (s_keyDown[GLFW_KEY_MINUS] || s_keyDown[GLFW_KEY_KP_SUBTRACT]) s_camera.orbit.zoom(1.0f);
+			}
 		}
 		float view[16];
 		if (s_camera.mode == CameraMode::FirstPerson)
@@ -622,7 +632,7 @@ int main(int argc, char **argv)
 					ImGui::TextDisabled("(?)");
 					if (ImGui::IsItemHovered()) {
 						ImGui::BeginTooltip();
-						ImGui::Text("Hold left mouse button on 3D view to enable camera\nW,A,S,D and Q,E to move\nHold SHIFT for faster movement");
+						ImGui::Text("Hold left mouse button on 3D view to enable camera\nW,A,S,D or Arrows and Q,E to move\nHold SHIFT for faster movement\nHold CONTROL for slower movement");
 						ImGui::EndTooltip();
 					}
 					ImGui::RadioButton("Orbit", (int *)&s_camera.mode, (int)CameraMode::Orbit);
@@ -630,7 +640,7 @@ int main(int argc, char **argv)
 					ImGui::TextDisabled("(?)");
 					if (ImGui::IsItemHovered()) {
 						ImGui::BeginTooltip();
-						ImGui::Text("Hold left mouse button on 3D view to enable camera");
+						ImGui::Text("Hold left mouse button on 3D view to enable camera\nScroll mouse or +/- keys to zoom");
 						ImGui::EndTooltip();
 					}
 					ImGui::Spacing();
