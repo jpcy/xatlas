@@ -978,7 +978,6 @@ void modelRender(const float *view, const float *projection)
 	for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
 		const objzMesh &mesh = s_model.data->meshes[i];
 		const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
-		const bool emissive = mat ? mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f : false;
 		const bool transparent = mat ? mat->opacity < 1.0f : false;
 		if (atlasIsReady()) {
 			bgfx::setIndexBuffer(atlasGetIb(), mesh.firstIndex, mesh.numIndices);

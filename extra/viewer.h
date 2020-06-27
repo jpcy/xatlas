@@ -28,6 +28,7 @@ SOFTWARE.
 #include <bgfx/bgfx.h>
 #include <objzero/objzero.h>
 #include <IconFontCppHeaders/IconsFontAwesome4.h>
+#undef None
 
 namespace ImGui {
 	bool Spinner(const char* label);
