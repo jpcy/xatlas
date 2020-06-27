@@ -71,7 +71,6 @@ void atlasShutdown();
 void atlasDestroy();
 void atlasGenerate();
 void atlasFinalize();
-void atlasRenderCharts(const float *modelMatrix, uint64_t state);
 void atlasRenderChartsWireframe(const float *modelMatrix);
 void atlasShowGuiOptions();
 void atlasShowGuiWindow();
@@ -83,6 +82,7 @@ struct ModelVertex;
 std::vector<ModelVertex> *atlasGetVertices();
 std::vector<uint32_t> *atlasGetIndices();
 bgfx::VertexBufferHandle atlasGetVb();
+bgfx::VertexBufferHandle atlasGetChartColorVb();
 bgfx::IndexBufferHandle atlasGetIb();
 bool atlasIsNotGenerated();
 bool atlasIsReady();
@@ -167,11 +167,9 @@ bool modelSampleMaterialEmission(const objzMaterial *mat, const float *uv, bx::V
 
 enum class ShadeMode
 {
-	Flat,
-	Charts,
-	Lightmap,
-	LightmapOnly,
-	Random
+	FlatMaterial,
+	LightmapMaterial,
+	LightmapOnly
 };
 
 enum class WireframeMode
@@ -192,13 +190,22 @@ enum class ChartColorMode
 	All
 };
 
+enum class OverlayMode
+{
+	None,
+	Chart,
+	Mesh
+};
+
 struct Options
 {
 	bool gui = true;
 	bool wireframe = true;
-	ShadeMode shadeMode = ShadeMode::Flat;
+	ShadeMode shadeMode = ShadeMode::FlatMaterial;
 	WireframeMode wireframeMode = WireframeMode::Triangles;
 	ChartColorMode chartColorMode = ChartColorMode::All;
+	OverlayMode overlayMode = OverlayMode::None;
+	float overlayOpacity = 0.5f;
 	int chartCellSize = 1;
 	bool lightmapPointSampling = false;
 	bool useDenoisedLightmap = true;
@@ -221,13 +228,11 @@ void resetCamera();
 enum class ShaderId
 {
 	fs_blit,
-	fs_chart,
 	fs_color,
 	fs_gui,
 	fs_material,
 	fs_wireframe,
 	vs_blit,
-	vs_chart,
 	vs_color,
 	vs_gui,
 	vs_model,

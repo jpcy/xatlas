@@ -354,13 +354,11 @@ struct ShaderSourceBundle
 static ShaderSourceBundle s_shaders[] = 
 {
 	SHADER_SOURCE_BUNDLE(fs_blit),
-	SHADER_SOURCE_BUNDLE(fs_chart),
 	SHADER_SOURCE_BUNDLE(fs_color),
 	SHADER_SOURCE_BUNDLE(fs_gui),
 	SHADER_SOURCE_BUNDLE(fs_material),
 	SHADER_SOURCE_BUNDLE(fs_wireframe),
 	SHADER_SOURCE_BUNDLE(vs_blit),
-	SHADER_SOURCE_BUNDLE(vs_chart),
 	SHADER_SOURCE_BUNDLE(vs_color),
 	SHADER_SOURCE_BUNDLE(vs_gui),
 	SHADER_SOURCE_BUNDLE(vs_model),
@@ -661,33 +659,37 @@ int main(int argc, char **argv)
 						}
 					}
 					if (ImGui::BeginMenu("Shading")) {
-						ImGui::RadioButton("Flat", (int *)&g_options.shadeMode, (int)ShadeMode::Flat);
-						if (atlasIsReady()) {
-							ImGui::RadioButton("Charts##shading", (int *)&g_options.shadeMode, (int)ShadeMode::Charts);
-							if (bakeIsLightmapReady()) {
-								ImGui::RadioButton("Lightmap", (int *)&g_options.shadeMode, (int)ShadeMode::Lightmap);
-								ImGui::RadioButton("Lightmap only", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapOnly);
-							}
+						ImGui::RadioButton("Flat material", (int *)&g_options.shadeMode, (int)ShadeMode::FlatMaterial);
+						if (bakeIsLightmapReady()) {
+							ImGui::RadioButton("Lightmapped material", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapMaterial);
+							ImGui::RadioButton("Lightmap only", (int *)&g_options.shadeMode, (int)ShadeMode::LightmapOnly);
 						}
-						ImGui::RadioButton("Random", (int *)&g_options.shadeMode, (int)ShadeMode::Random);
+						ImGui::EndMenu();
+					}
+					if (ImGui::BeginMenu("Overlay")) {
+						ImGui::RadioButton("None", (int *)&g_options.overlayMode, (int)OverlayMode::None);
+						if (atlasIsReady())
+							ImGui::RadioButton("Chart", (int *)&g_options.overlayMode, (int)OverlayMode::Chart);
+						ImGui::RadioButton("Mesh", (int *)&g_options.overlayMode, (int)OverlayMode::Mesh);
+						ImGui::PushItemWidth(100.0f);
+						ImGui::SliderFloat("Opacity", &g_options.overlayOpacity, 0.0f, 1.0f);
+						ImGui::PopItemWidth();
 						ImGui::EndMenu();
 					}
 					if (atlasIsReady()) {
-						if (g_options.shadeMode == ShadeMode::Charts) {
-							if (ImGui::BeginMenu("Chart color")) {
-								ImGui::RadioButton("Planar", (int *)&g_options.chartColorMode, (int)ChartColorMode::Planar);
-								ImGui::RadioButton("Ortho", (int *)&g_options.chartColorMode, (int)ChartColorMode::Ortho);
-								ImGui::RadioButton("LSCM", (int *)&g_options.chartColorMode, (int)ChartColorMode::LSCM);
-								ImGui::RadioButton("Piecewise", (int *)&g_options.chartColorMode, (int)ChartColorMode::Piecewise);
-								ImGui::RadioButton("Invalid", (int *)&g_options.chartColorMode, (int)ChartColorMode::Invalid);
-								ImGui::RadioButton("All", (int *)&g_options.chartColorMode, (int)ChartColorMode::All);
-								ImGui::EndMenu();
-							}
-							ImGui::PushItemWidth(100.0f);
-							ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
-							ImGui::PopItemWidth();
+						if (ImGui::BeginMenu("Chart color")) {
+							ImGui::RadioButton("Planar", (int *)&g_options.chartColorMode, (int)ChartColorMode::Planar);
+							ImGui::RadioButton("Ortho", (int *)&g_options.chartColorMode, (int)ChartColorMode::Ortho);
+							ImGui::RadioButton("LSCM", (int *)&g_options.chartColorMode, (int)ChartColorMode::LSCM);
+							ImGui::RadioButton("Piecewise", (int *)&g_options.chartColorMode, (int)ChartColorMode::Piecewise);
+							ImGui::RadioButton("Invalid", (int *)&g_options.chartColorMode, (int)ChartColorMode::Invalid);
+							ImGui::RadioButton("All", (int *)&g_options.chartColorMode, (int)ChartColorMode::All);
+							ImGui::EndMenu();
 						}
-						if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly) {
+						ImGui::PushItemWidth(100.0f);
+						ImGui::SliderInt("Chart cell size", &g_options.chartCellSize, 1, 32);
+						ImGui::PopItemWidth();
+						if (g_options.shadeMode == ShadeMode::LightmapMaterial || g_options.shadeMode == ShadeMode::LightmapOnly) {
 							ImGui::Checkbox("Lightmap point sampling", &g_options.lightmapPointSampling);
 							if (bakeIsDenoised())
 								ImGui::Checkbox("Use denoised lightmap", &g_options.useDenoisedLightmap);

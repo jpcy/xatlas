@@ -205,13 +205,7 @@ struct
 	// Blit.
 	bgfx::ProgramHandle blitProgram;
 	bgfx::UniformHandle s_texture;
-	// Chart rendering with checkerboard pattern.
 	bgfx::UniformHandle u_color;
-	bgfx::UniformHandle u_textureSize_cellSize;
-	bgfx::UniformHandle u_colorChartType;
-	bgfx::ShaderHandle fs_chart;
-	bgfx::ShaderHandle vs_chart;
-	bgfx::ProgramHandle chartProgram;
 }
 s_atlas;
 
@@ -246,11 +240,6 @@ void atlasInit()
 		s_atlas.blitProgram = bgfx::createProgram(vertex, fragment, true);
 	}
 	s_atlas.u_color = bgfx::createUniform("u_color", bgfx::UniformType::Vec4);
-	s_atlas.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize", bgfx::UniformType::Vec4);
-	s_atlas.u_colorChartType = bgfx::createUniform("u_colorChartType", bgfx::UniformType::Vec4);
-	s_atlas.fs_chart = loadShader(ShaderId::fs_chart);
-	s_atlas.vs_chart = loadShader(ShaderId::vs_chart);
-	s_atlas.chartProgram = bgfx::createProgram(s_atlas.vs_chart, s_atlas.fs_chart);
 	clearPackOptions();
 }
 
@@ -259,11 +248,6 @@ void atlasShutdown()
 	bgfx::destroy(s_atlas.s_texture);
 	bgfx::destroy(s_atlas.blitProgram);
 	bgfx::destroy(s_atlas.u_color);
-	bgfx::destroy(s_atlas.u_textureSize_cellSize);
-	bgfx::destroy(s_atlas.u_colorChartType);
-	bgfx::destroy(s_atlas.fs_chart);
-	bgfx::destroy(s_atlas.vs_chart);
-	bgfx::destroy(s_atlas.chartProgram);
 }
 
 void atlasDestroy()
@@ -672,7 +656,7 @@ void atlasGenerate()
 	}
 	bakeClear();
 	xatlas::SetPrint(printf, true);
-	g_options.shadeMode = ShadeMode::Flat;
+	g_options.shadeMode = ShadeMode::FlatMaterial;
 	g_options.wireframeMode = WireframeMode::Triangles;
 	s_atlas.status.set(AtlasStatus::Generating);
 	s_atlas.useUvMeshChanged = s_atlas.data && s_atlas.useUvMesh != s_atlas.options.useUvMesh;
@@ -851,29 +835,11 @@ void atlasFinalize()
 	s_atlas.options.selectedAtlas = 0;
 	s_atlas.options.selectedChart = -1;
 	atlasRenderChartsTextures();
-	g_options.shadeMode = ShadeMode::Charts;
+	g_options.shadeMode = ShadeMode::FlatMaterial;
+	g_options.overlayMode = OverlayMode::Chart;
 	g_options.wireframeMode = WireframeMode::Charts;
 	g_options.chartColorMode = ChartColorMode::All;
 	s_atlas.status.set(AtlasStatus::Ready);
-}
-
-void atlasRenderCharts(const float *modelMatrix, uint64_t state)
-{
-	float textureSize_cellSize[4];
-	textureSize_cellSize[0] = (float)s_atlas.data->width;
-	textureSize_cellSize[1] = (float)s_atlas.data->height;
-	textureSize_cellSize[2] = (float)g_options.chartCellSize;
-	textureSize_cellSize[3] = (float)g_options.chartCellSize;
-	bgfx::setUniform(s_atlas.u_textureSize_cellSize, textureSize_cellSize);
-	float colorChartType[4];
-	colorChartType[0] = (float)g_options.chartColorMode;
-	bgfx::setUniform(s_atlas.u_colorChartType, colorChartType);
-	bgfx::setState(state);
-	bgfx::setTransform(modelMatrix);
-	bgfx::setIndexBuffer(s_atlas.chartIb);
-	bgfx::setVertexBuffer(0, s_atlas.vb);
-	bgfx::setVertexBuffer(1, s_atlas.chartColorVb);
-	bgfx::submit(kModelView, s_atlas.chartProgram);
 }
 
 void atlasRenderChartsWireframe(const float *modelMatrix)
@@ -1121,6 +1087,11 @@ std::vector<uint32_t> *atlasGetIndices()
 bgfx::VertexBufferHandle atlasGetVb()
 {
 	return s_atlas.vb;
+}
+
+bgfx::VertexBufferHandle atlasGetChartColorVb()
+{
+	return s_atlas.chartColorVb;
 }
 
 bgfx::IndexBufferHandle atlasGetIb()

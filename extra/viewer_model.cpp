@@ -82,7 +82,10 @@ struct
 	bgfx::UniformHandle u_diffuse;
 	bgfx::UniformHandle u_emission;
 	bgfx::UniformHandle u_lightDir;
-	bgfx::UniformHandle u_shade_diffuse_emission;
+	bgfx::UniformHandle u_shade_overlay_diffuse_emission;
+	bgfx::UniformHandle u_textureSize_cellSize;
+	bgfx::UniformHandle u_overlayOpacity_colorChartType;
+	bgfx::UniformHandle u_meshColor;
 	bgfx::UniformHandle s_diffuse;
 	bgfx::UniformHandle s_emission;
 	bgfx::UniformHandle s_lightmap;
@@ -257,7 +260,10 @@ void modelInit()
 	s_model.u_diffuse = bgfx::createUniform("u_diffuse", bgfx::UniformType::Vec4);
 	s_model.u_emission = bgfx::createUniform("u_emission", bgfx::UniformType::Vec4);
 	s_model.u_lightDir = bgfx::createUniform("u_lightDir", bgfx::UniformType::Vec4);
-	s_model.u_shade_diffuse_emission = bgfx::createUniform("u_shade_diffuse_emission", bgfx::UniformType::Vec4);
+	s_model.u_shade_overlay_diffuse_emission = bgfx::createUniform("u_shade_overlay_diffuse_emission", bgfx::UniformType::Vec4);
+	s_model.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize2", bgfx::UniformType::Vec4);
+	s_model.u_overlayOpacity_colorChartType = bgfx::createUniform("u_overlayOpacity_colorChartType", bgfx::UniformType::Vec4);
+	s_model.u_meshColor = bgfx::createUniform("u_meshColor", bgfx::UniformType::Vec4);
 	s_model.s_diffuse = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
 	s_model.s_emission = bgfx::createUniform("s_emission", bgfx::UniformType::Sampler);
 	s_model.s_lightmap = bgfx::createUniform("s_lightmap", bgfx::UniformType::Sampler);
@@ -279,7 +285,10 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_diffuse);
 	bgfx::destroy(s_model.u_emission);
 	bgfx::destroy(s_model.u_lightDir);
-	bgfx::destroy(s_model.u_shade_diffuse_emission);
+	bgfx::destroy(s_model.u_shade_overlay_diffuse_emission);
+	bgfx::destroy(s_model.u_textureSize_cellSize);
+	bgfx::destroy(s_model.u_overlayOpacity_colorChartType);
+	bgfx::destroy(s_model.u_meshColor);
 	bgfx::destroy(s_model.s_diffuse);
 	bgfx::destroy(s_model.s_emission);
 	bgfx::destroy(s_model.s_lightmap);
@@ -880,7 +889,7 @@ void modelFinalize()
 	s_model.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_model.data->indices, s_model.data->numIndices * sizeof(uint32_t)), BGFX_BUFFER_INDEX32);
 	s_model.wireframeVb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.wireframeVertices.data(), uint32_t(s_model.wireframeVertices.size() * sizeof(WireframeVertex))), WireframeVertex::layout);
 	resetCamera();
-	g_options.shadeMode = ShadeMode::Flat;
+	g_options.shadeMode = ShadeMode::FlatMaterial;
 	g_options.wireframeMode = WireframeMode::Triangles;
 	s_model.status = ModelStatus::Loaded;
 }
@@ -965,92 +974,102 @@ void modelRender(const float *view, const float *projection)
 	bx::mtxMul(modelMatrix, transform, scaleMatrix);
 	bgfx::setViewTransform(kModelView, view, projection);
 	bgfx::setViewTransform(kModelTransparentView, view, projection);
-	const bool renderCharts = g_options.shadeMode == ShadeMode::Charts && atlasIsReady();
-	if (g_options.shadeMode != ShadeMode::Charts || renderCharts) {
-		const float lightDir[] = { view[2], view[6], view[10], 0.0f };
-		for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
-			const objzMesh &mesh = s_model.data->meshes[i];
-			const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
-			// When rendering charts, emissive and transparent meshes won't be rendered, so do that here.
-			const bool emissive = mat ? mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f : false;
-			const bool transparent = mat ? mat->opacity < 1.0f : false;
-			if (renderCharts && !emissive && !transparent)
-				continue;
-			if (atlasIsReady()) {
-				bgfx::setIndexBuffer(atlasGetIb(), mesh.firstIndex, mesh.numIndices);
-				bgfx::setVertexBuffer(0, atlasGetVb());
-			} else {
-				bgfx::setIndexBuffer(s_model.ib, mesh.firstIndex, mesh.numIndices);
-				bgfx::setVertexBuffer(0, s_model.vb);
-			}
-			uint64_t state = BGFX_STATE_DEFAULT;
-			if (!s_model.clockwiseFaceWinding)
-				state = (state & ~BGFX_STATE_CULL_CW) | BGFX_STATE_CULL_CCW;
-			if (transparent)
-				state |= BGFX_STATE_BLEND_ALPHA;
-			bgfx::setState(state);
-			bgfx::setTransform(modelMatrix);
-			bgfx::setUniform(s_model.u_lightDir, lightDir);
-			float diffuse[4], emission[4];
-			if (g_options.shadeMode == ShadeMode::Random) {
-				srand(i);
-				uint8_t color[4];
-				randomRGB(color);
-				diffuse[0] = color[0] / 255.0f;
-				diffuse[1] = color[1] / 255.0f;
-				diffuse[2] = color[2] / 255.0f;
-				diffuse[3] = 1.0f;
-				emission[0] = emission[1] = emission[2] = emission[3] = 0.0f;
-			} else if (!mat) {
-				diffuse[0] = diffuse[1] = diffuse[2] = 0.5f;
-				diffuse[3] = 1.0f;
-				emission[0] = emission[1] = emission[2] = emission[3] = 0.0f;
-			} else {
-				diffuse[0] = mat->diffuse[0];
-				diffuse[1] = mat->diffuse[1];
-				diffuse[2] = mat->diffuse[2];
-				diffuse[3] = mat->opacity;
-				emission[0] = mat->emission[0];
-				emission[1] = mat->emission[1];
-				emission[2] = mat->emission[2];
-				emission[3] = mat->opacity;
-			}
-			bgfx::setUniform(s_model.u_diffuse, diffuse);
-			bgfx::setUniform(s_model.u_emission, emission);
-			float shade_diffuse_emission[4];
-			shade_diffuse_emission[1] = DIFFUSE_COLOR;
-			shade_diffuse_emission[2] = EMISSION_COLOR;
-			if (g_options.shadeMode == ShadeMode::Lightmap)
-				shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP;
-			else if (g_options.shadeMode == ShadeMode::LightmapOnly)
-				shade_diffuse_emission[0] = (float)SHADE_LIGHTMAP_ONLY;
-			else
-				shade_diffuse_emission[0] = (float)SHADE_FLAT;
-			bgfx::TextureHandle diffuseTexture = BGFX_INVALID_HANDLE;
-			bgfx::TextureHandle emissionTexture = BGFX_INVALID_HANDLE;
-			if (mat) {
-				diffuseTexture = textureGetHandle(s_model.diffuseTextures[mesh.materialIndex]);
-				emissionTexture = textureGetHandle(s_model.emissionTextures[mesh.materialIndex]);
-			}
-			if (bgfx::isValid(diffuseTexture))
-				shade_diffuse_emission[1] = DIFFUSE_TEXTURE;
-			if (bgfx::isValid(emissionTexture))
-				shade_diffuse_emission[2] = EMISSION_TEXTURE;
-			bgfx::setUniform(s_model.u_shade_diffuse_emission, shade_diffuse_emission);
-			bgfx::setTexture(0, s_model.s_diffuse, bgfx::isValid(diffuseTexture) ? diffuseTexture : s_model.u_dummyTexture);
-			bgfx::setTexture(1, s_model.s_emission, bgfx::isValid(emissionTexture) ? emissionTexture : s_model.u_dummyTexture);
-			if (g_options.shadeMode == ShadeMode::Lightmap || g_options.shadeMode == ShadeMode::LightmapOnly)
-				bgfx::setTexture(2, s_model.s_lightmap, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
-			else
-				bgfx::setTexture(2, s_model.s_lightmap, s_model.u_dummyTexture);
-			bgfx::submit(transparent ? kModelTransparentView : kModelView, s_model.materialProgram);
+	const float lightDir[] = { view[2], view[6], view[10], 0.0f };
+	for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
+		const objzMesh &mesh = s_model.data->meshes[i];
+		const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
+		const bool emissive = mat ? mat->emission[0] > 0.0f || mat->emission[1] > 0.0f || mat->emission[2] > 0.0f : false;
+		const bool transparent = mat ? mat->opacity < 1.0f : false;
+		if (atlasIsReady()) {
+			bgfx::setIndexBuffer(atlasGetIb(), mesh.firstIndex, mesh.numIndices);
+			bgfx::setVertexBuffer(0, atlasGetVb());
+			bgfx::setVertexBuffer(1, atlasGetChartColorVb());
+		} else {
+			bgfx::setIndexBuffer(s_model.ib, mesh.firstIndex, mesh.numIndices);
+			bgfx::setVertexBuffer(0, s_model.vb);
 		}
-	}
-	if (renderCharts) {
 		uint64_t state = BGFX_STATE_DEFAULT;
 		if (!s_model.clockwiseFaceWinding)
 			state = (state & ~BGFX_STATE_CULL_CW) | BGFX_STATE_CULL_CCW;
-		atlasRenderCharts(modelMatrix, state);
+		if (transparent)
+			state |= BGFX_STATE_BLEND_ALPHA;
+		bgfx::setState(state);
+		bgfx::setTransform(modelMatrix);
+		bgfx::setUniform(s_model.u_lightDir, lightDir);
+		float diffuse[4], emission[4];
+		if (!mat) {
+			diffuse[0] = diffuse[1] = diffuse[2] = 0.5f;
+			diffuse[3] = 1.0f;
+			emission[0] = emission[1] = emission[2] = emission[3] = 0.0f;
+		} else {
+			diffuse[0] = mat->diffuse[0];
+			diffuse[1] = mat->diffuse[1];
+			diffuse[2] = mat->diffuse[2];
+			diffuse[3] = mat->opacity;
+			emission[0] = mat->emission[0];
+			emission[1] = mat->emission[1];
+			emission[2] = mat->emission[2];
+			emission[3] = mat->opacity;
+		}
+		bgfx::setUniform(s_model.u_diffuse, diffuse);
+		bgfx::setUniform(s_model.u_emission, emission);
+		float shade_overlay_diffuse_emission[4];
+		shade_overlay_diffuse_emission[2] = DIFFUSE_COLOR;
+		shade_overlay_diffuse_emission[3] = EMISSION_COLOR;
+		if (g_options.shadeMode == ShadeMode::LightmapMaterial)
+			shade_overlay_diffuse_emission[0] = (float)SHADE_LIGHTMAP;
+		else if (g_options.shadeMode == ShadeMode::LightmapOnly)
+			shade_overlay_diffuse_emission[0] = (float)SHADE_LIGHTMAP_ONLY;
+		else
+			shade_overlay_diffuse_emission[0] = (float)SHADE_FLAT;
+		shade_overlay_diffuse_emission[1] = (float)OVERLAY_NONE;
+		if (g_options.overlayMode == OverlayMode::Chart && atlasIsReady())
+			shade_overlay_diffuse_emission[1] = (float)OVERLAY_CHART;
+		else if (g_options.overlayMode == OverlayMode::Mesh)
+			shade_overlay_diffuse_emission[1] = (float)OVERLAY_MESH;
+		bgfx::TextureHandle diffuseTexture = BGFX_INVALID_HANDLE;
+		bgfx::TextureHandle emissionTexture = BGFX_INVALID_HANDLE;
+		if (mat) {
+			diffuseTexture = textureGetHandle(s_model.diffuseTextures[mesh.materialIndex]);
+			emissionTexture = textureGetHandle(s_model.emissionTextures[mesh.materialIndex]);
+		}
+		if (bgfx::isValid(diffuseTexture))
+			shade_overlay_diffuse_emission[2] = DIFFUSE_TEXTURE;
+		if (bgfx::isValid(emissionTexture))
+			shade_overlay_diffuse_emission[3] = EMISSION_TEXTURE;
+		bgfx::setUniform(s_model.u_shade_overlay_diffuse_emission, shade_overlay_diffuse_emission);
+		float textureSize_cellSize[4];
+		if (atlasIsReady()) {
+			textureSize_cellSize[0] = (float)atlasGetWidth();
+			textureSize_cellSize[1] = (float)atlasGetHeight();
+		} else {
+			textureSize_cellSize[0] = textureSize_cellSize[1] = 0.0f;
+		}
+		textureSize_cellSize[2] = (float)g_options.chartCellSize;
+		textureSize_cellSize[3] = (float)g_options.chartCellSize;
+		bgfx::setUniform(s_model.u_textureSize_cellSize, textureSize_cellSize);
+		float overlayOpacity_colorChartType[4];
+		overlayOpacity_colorChartType[0] = g_options.overlayOpacity;
+		overlayOpacity_colorChartType[1] = (float)g_options.chartColorMode;
+		bgfx::setUniform(s_model.u_overlayOpacity_colorChartType, overlayOpacity_colorChartType);
+		float meshColor[4];
+		if (g_options.overlayMode == OverlayMode::Mesh) {
+			srand(i);
+			uint8_t color[4];
+			randomRGB(color);
+			meshColor[0] = color[0] / 255.0f;
+			meshColor[1] = color[1] / 255.0f;
+			meshColor[2] = color[2] / 255.0f;
+			meshColor[3] = 1.0f;
+		}
+		bgfx::setUniform(s_model.u_meshColor, meshColor);
+		bgfx::setTexture(0, s_model.s_diffuse, bgfx::isValid(diffuseTexture) ? diffuseTexture : s_model.u_dummyTexture);
+		bgfx::setTexture(1, s_model.s_emission, bgfx::isValid(emissionTexture) ? emissionTexture : s_model.u_dummyTexture);
+		if (g_options.shadeMode == ShadeMode::LightmapMaterial || g_options.shadeMode == ShadeMode::LightmapOnly)
+			bgfx::setTexture(2, s_model.s_lightmap, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
+		else
+			bgfx::setTexture(2, s_model.s_lightmap, s_model.u_dummyTexture);
+		bgfx::submit(transparent ? kModelTransparentView : kModelView, s_model.materialProgram);
 	}
 	if (g_options.wireframe) {
 		if (g_options.wireframeMode == WireframeMode::Triangles) {

@@ -1004,7 +1004,9 @@ void bakeExecute()
 		s_bake.denoisedLightmap = bgfx::createTexture2D((uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_SAMPLER_UVW_CLAMP);
 	}
 	s_bake.initialized = true;
-	g_options.shadeMode = ShadeMode::Lightmap;
+	g_options.shadeMode = ShadeMode::LightmapMaterial;
+	g_options.overlayMode = OverlayMode::None;
+	g_options.wireframe = false;
 	s_bake.status = BakeStatus::InitEmbree;
 	s_bake.denoiseStatus = DenoiseStatus::Idle;
 	s_bake.updateStatus = UpdateStatus::Idle;
@@ -1020,9 +1022,9 @@ void bakeFrame(uint32_t frameNo)
 		// Do a final update of the lightmap texture with the dilated result.
 		bgfx::updateTexture2D(s_bake.lightmap, 0, 0, 0, 0, (uint16_t)s_bake.lightmapWidth, (uint16_t)s_bake.lightmapHeight, bgfx::makeRef(s_bake.lightmapData.data(), (uint32_t)s_bake.lightmapData.size() * sizeof(float)));
 		s_bake.status = BakeStatus::Finished;
-	} else if ((s_bake.status == BakeStatus::Cancelled || s_bake.status == BakeStatus::Error) && g_options.shadeMode == ShadeMode::Lightmap) {
-		// Executing bake sets shade mode to lightmap. Set it back to charts if bake was cancelled or there was an error.
-		g_options.shadeMode = ShadeMode::Charts;
+	} else if ((s_bake.status == BakeStatus::Cancelled || s_bake.status == BakeStatus::Error) && g_options.shadeMode == ShadeMode::LightmapMaterial) {
+		// Executing bake sets shade mode to lightmap. Set it back to flat if bake was cancelled or there was an error.
+		g_options.shadeMode = ShadeMode::FlatMaterial;
 	}
 	if (s_bake.denoiseStatus == DenoiseStatus::ThreadFinished) {
 #if BX_ARCH_64BIT
@@ -1045,7 +1047,7 @@ void bakeClear()
 {
 	s_bake.status = BakeStatus::Idle;
 	s_bake.denoiseStatus = DenoiseStatus::Idle;
-	g_options.shadeMode = atlasIsReady() ? ShadeMode::Charts : ShadeMode::Flat;
+	g_options.shadeMode = ShadeMode::FlatMaterial;
 	if (s_bake.embreeDevice) {
 		embree::ReleaseGeometry(s_bake.embreeGeometry);
 		embree::ReleaseScene(s_bake.embreeScene);

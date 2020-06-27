@@ -1,4 +1,4 @@
-$input v_normal, v_texcoord0
+$input v_color0, v_normal, v_texcoord0
 
 #include <bgfx_shader.sh>
 #include "shared.h"
@@ -10,10 +10,16 @@ SAMPLER2D(s_lightmap, 2);
 uniform vec4 u_diffuse;
 uniform vec4 u_emission;
 uniform vec4 u_lightDir;
-uniform vec4 u_shade_diffuse_emission;
-#define u_shadeType uint(u_shade_diffuse_emission.x)
-#define u_diffuseType uint(u_shade_diffuse_emission.y)
-#define u_emissionType uint(u_shade_diffuse_emission.z)
+uniform vec4 u_shade_overlay_diffuse_emission;
+#define u_shadeType uint(u_shade_overlay_diffuse_emission.x)
+#define u_overlayType uint(u_shade_overlay_diffuse_emission.y)
+#define u_diffuseType uint(u_shade_overlay_diffuse_emission.z)
+#define u_emissionType uint(u_shade_overlay_diffuse_emission.w)
+uniform vec4 u_textureSize_cellSize2;
+uniform vec4 u_overlayOpacity_colorChartType;
+#define u_overlayOpacity u_overlayOpacity_colorChartType.x
+#define u_colorChartType uint(u_overlayOpacity_colorChartType.y)
+uniform vec4 u_meshColor;
 
 void main()
 {
@@ -35,6 +41,27 @@ void main()
 		else if (u_shadeType == SHADE_LIGHTMAP_ONLY)
 			color.rgb = texture2D(s_lightmap, v_texcoord0.zw).rgb;
 		color.a = diffuse.a;
+	}
+	if (u_overlayType != OVERLAY_NONE)
+	{
+		vec3 overlayColor;
+		if (u_overlayType == OVERLAY_CHART)
+		{
+			uint x = uint(v_texcoord0.z * u_textureSize_cellSize2.x);
+			uint y = uint(v_texcoord0.w * u_textureSize_cellSize2.y);
+			uint cellSize = uint(u_textureSize_cellSize2.z);
+			float scale = 1.0;
+			if (cellSize > 0u)
+				scale = (x / cellSize % 2u) != (y / cellSize % 2u) ? 0.75 : 1.0;
+			uint chartType = uint(v_color0.a + 0.5);
+			if (u_colorChartType == CHART_TYPE_ANY || u_colorChartType == chartType)
+				overlayColor = v_color0.rgb * scale;
+			else
+				overlayColor = vec3_splat(0.75) * scale;
+		}
+		else if (u_overlayType == OVERLAY_MESH)
+			overlayColor = u_meshColor.rgb;
+		color.rgb = color.rgb * (1.0 - u_overlayOpacity) + overlayColor * u_overlayOpacity;
 	}
 	gl_FragColor = color;
 }

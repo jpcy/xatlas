@@ -8,6 +8,10 @@
 #define SHADE_LIGHTMAP      1u
 #define SHADE_LIGHTMAP_ONLY 2u
 
+#define OVERLAY_NONE  0u
+#define OVERLAY_CHART 1u
+#define OVERLAY_MESH  2u
+
 #define LIGHTMAP_OP_CLEAR_CURR  0u
 #define LIGHTMAP_OP_CLEAR_SUM   1u
 #define LIGHTMAP_OP_WRITE_FINAL 2u
