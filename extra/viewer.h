@@ -195,7 +195,8 @@ enum class OverlayMode
 {
 	None,
 	Chart,
-	Mesh
+	Mesh,
+	Stretch
 };
 
 struct Options

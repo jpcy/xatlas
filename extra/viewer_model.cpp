@@ -893,6 +893,7 @@ void modelFinalize()
 	s_model.wireframeVb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.wireframeVertices.data(), uint32_t(s_model.wireframeVertices.size() * sizeof(WireframeVertex))), WireframeVertex::layout);
 	resetCamera();
 	g_options.shadeMode = ShadeMode::FlatMaterial;
+	g_options.overlayMode = OverlayMode::None;
 	g_options.wireframeMode = WireframeMode::Triangles;
 	s_model.status = ModelStatus::Loaded;
 }
@@ -1029,6 +1030,8 @@ void modelRender(const float *view, const float *projection)
 			shade_overlay_diffuse_emission[1] = (float)OVERLAY_CHART;
 		else if (g_options.overlayMode == OverlayMode::Mesh)
 			shade_overlay_diffuse_emission[1] = (float)OVERLAY_MESH;
+		else if (g_options.overlayMode == OverlayMode::Stretch)
+			shade_overlay_diffuse_emission[1] = (float)OVERLAY_STRETCH;
 		bgfx::TextureHandle diffuseTexture = BGFX_INVALID_HANDLE;
 		bgfx::TextureHandle emissionTexture = BGFX_INVALID_HANDLE;
 		if (mat) {
@@ -1071,7 +1074,7 @@ void modelRender(const float *view, const float *projection)
 			bgfx::setTexture(2, s_model.s_lightmap, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
 		else
 			bgfx::setTexture(2, s_model.s_lightmap, s_model.u_dummyTexture);
-		if (g_options.overlayMode == OverlayMode::Chart)
+		if (g_options.overlayMode == OverlayMode::Chart || g_options.overlayMode == OverlayMode::Stretch)
 			bgfx::setTexture(3, s_model.s_faceData, atlasGetFaceDataTexture());
 		else
 			bgfx::setTexture(3, s_model.s_faceData, s_model.u_dummyTexture);

@@ -200,9 +200,9 @@ struct
 	bgfx::VertexLayout atlasVertexLayout;
 	bgfx::VertexLayout blitVertexLayout;
 	bgfx::VertexLayout wireVertexLayout;
-	bgfx::TextureHandle faceColorsTexture;
-	std::vector<float> faceColorsTextureData;
-	uint16_t faceColorsTextureSize[2];
+	bgfx::TextureHandle faceColorsTexture, faceStretchTexture;
+	std::vector<float> faceColorsTextureData, faceStretchTextureData;
+	uint16_t faceDataTextureSize[2];
 	// Blit.
 	bgfx::ProgramHandle blitProgram;
 	bgfx::UniformHandle s_texture;
@@ -264,6 +264,7 @@ void atlasDestroy()
 	bgfx::destroyAndClear(s_atlas.chartsFrameBuffer);
 	bgfx::destroyAndClear(s_atlas.chartsTexture);
 	bgfx::destroyAndClear(s_atlas.faceColorsTexture);
+	bgfx::destroyAndClear(s_atlas.faceStretchTexture);
 	bgfx::destroyAndClear(s_atlas.vb);
 	bgfx::destroyAndClear(s_atlas.ib);
 	bgfx::destroyAndClear(s_atlas.chartIb);
@@ -563,29 +564,59 @@ static void atlasGenerateThread()
 			chartIndex++;
 		}
 	}
-	// Face colors (charts).
+	// Face colors (charts) and stretch.
 	uint32_t faceCount = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
 		faceCount += mesh.indexCount / 3;
 	}
-	s_atlas.faceColorsTextureSize[0] = FACE_DATA_TEXTURE_WIDTH;
-	s_atlas.faceColorsTextureSize[1] = uint16_t(ceilf(faceCount / (float)s_atlas.faceColorsTextureSize[0]));
-	s_atlas.faceColorsTextureData.resize(s_atlas.faceColorsTextureSize[0] * s_atlas.faceColorsTextureSize[1] * 4);
+	s_atlas.faceDataTextureSize[0] = FACE_DATA_TEXTURE_WIDTH;
+	s_atlas.faceDataTextureSize[1] = uint16_t(bx::ceil(faceCount / (float)s_atlas.faceDataTextureSize[0]));
+	s_atlas.faceColorsTextureData.resize(s_atlas.faceDataTextureSize[0] * s_atlas.faceDataTextureSize[1] * 4);
+	s_atlas.faceStretchTextureData.resize(s_atlas.faceDataTextureSize[0] * s_atlas.faceDataTextureSize[1]);
 	chartIndex = 0;
 	uint32_t firstMeshFace = 0;
 	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
 		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
+		const objzObject &object = model->objects[i];
+		const ModelVertex *oldVertices = &((const ModelVertex *)model->vertices)[object.firstVertex];
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
 			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				const uint32_t face = firstMeshFace + chart.faceArray[k];
-				float *dest = &s_atlas.faceColorsTextureData[face * 4];
-				const float *source = &s_atlas.chartColors[chartIndex * 4];
-				dest[0] = source[0];
-				dest[1] = source[1];
-				dest[2] = source[2];
-				dest[3] = source[3];
+				// Color.
+				{
+					float *dest = &s_atlas.faceColorsTextureData[face * 4];
+					const float *source = &s_atlas.chartColors[chartIndex * 4];
+					dest[0] = source[0];
+					dest[1] = source[1];
+					dest[2] = source[2];
+					dest[3] = source[3];
+				}
+				// Stretch.
+				{
+					bx::Vec3 pos[3];
+					float texcoord[3][2];
+					for (int l = 0; l < 3; l++) {
+						const uint32_t vertex = mesh.indexArray[chart.faceArray[k] * 3 + l];
+						pos[l] = oldVertices[mesh.vertexArray[vertex].xref].pos;
+						texcoord[l][0] = mesh.vertexArray[vertex].uv[0];
+						texcoord[l][1] = mesh.vertexArray[vertex].uv[1];
+					}
+					{
+						// Scale to the first edge.
+						const float a = texcoord[0][0] - texcoord[1][0];
+						const float b = texcoord[0][1] - texcoord[1][1];
+						const float parametricLength = bx::sqrt(a * a + b * b);
+						const float geometricLength = bx::distance(pos[0], pos[1]);
+						const float scale = parametricLength / geometricLength;
+						for (int l = 0; l < 3; l++)
+							pos[l] = bx::mul(pos[l], scale);
+					}
+					const float parametricArea = bx::abs(((texcoord[1][1] - texcoord[0][1]) * (texcoord[2][0] - texcoord[0][0]) - (texcoord[2][1] - texcoord[0][1]) * (texcoord[1][0] - texcoord[0][0])) * 0.5f);
+					const float geometricArea = bx::length(bx::cross(bx::sub(pos[1], pos[0]), bx::sub(pos[2], pos[0]))) * 0.5f;
+					s_atlas.faceStretchTextureData[face] = bx::abs(parametricArea / geometricArea - 1.0f) * 2.0f;
+				}
 			}
 			chartIndex++;
 		}
@@ -846,8 +877,9 @@ void atlasFinalize()
 	bgfx::TextureHandle texture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack));
 	s_atlas.chartsFrameBuffer = bgfx::createFrameBuffer(1, &texture, true);
 	s_atlas.chartsTexture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8);
-	// Face colors.
-	s_atlas.faceColorsTexture = bgfx::createTexture2D(s_atlas.faceColorsTextureSize[0], s_atlas.faceColorsTextureSize[1], false, 1, bgfx::TextureFormat::RGBA32F, 0, bgfx::makeRef(s_atlas.faceColorsTextureData));
+	// Face data.
+	s_atlas.faceColorsTexture = bgfx::createTexture2D(s_atlas.faceDataTextureSize[0], s_atlas.faceDataTextureSize[1], false, 1, bgfx::TextureFormat::RGBA32F, 0, bgfx::makeRef(s_atlas.faceColorsTextureData));
+	s_atlas.faceStretchTexture = bgfx::createTexture2D(s_atlas.faceDataTextureSize[0], s_atlas.faceDataTextureSize[1], false, 1, bgfx::TextureFormat::R32F, 0, bgfx::makeRef(s_atlas.faceStretchTextureData));
 	// Render charts to texture(s) for previewing UVs.
 	s_atlas.options.selectedAtlas = 0;
 	s_atlas.options.selectedChart = -1;
@@ -1113,6 +1145,8 @@ bgfx::IndexBufferHandle atlasGetIb()
 
 bgfx::TextureHandle atlasGetFaceDataTexture()
 {
+	if (g_options.overlayMode == OverlayMode::Stretch)
+		return s_atlas.faceStretchTexture;
 	return s_atlas.faceColorsTexture;
 }
 

@@ -671,6 +671,8 @@ int main(int argc, char **argv)
 						if (atlasIsReady())
 							ImGui::RadioButton("Chart", (int *)&g_options.overlayMode, (int)OverlayMode::Chart);
 						ImGui::RadioButton("Mesh", (int *)&g_options.overlayMode, (int)OverlayMode::Mesh);
+						if (atlasIsReady())
+							ImGui::RadioButton("Stretch", (int *)&g_options.overlayMode, (int)OverlayMode::Stretch);
 						ImGui::PushItemWidth(100.0f);
 						ImGui::SliderFloat("Opacity", &g_options.overlayOpacity, 0.0f, 1.0f);
 						ImGui::PopItemWidth();

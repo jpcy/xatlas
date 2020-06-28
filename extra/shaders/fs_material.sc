@@ -67,6 +67,13 @@ void main()
 		}
 		else if (u_overlayType == OVERLAY_MESH)
 			overlayColor = u_meshColor;
+		else if (u_overlayType == OVERLAY_STRETCH)
+		{
+			int u = int((u_primitiveIdStart + uint(gl_PrimitiveID)) % FACE_DATA_TEXTURE_WIDTH);
+			int v = int((u_primitiveIdStart + uint(gl_PrimitiveID)) / FACE_DATA_TEXTURE_WIDTH);
+			vec4 faceData = texelFetch(s_faceData, ivec2(u, v), 0);
+			overlayColor = mix(vec3(0.1, 0.9, 0.1), vec3(0.9, 0.1, 0.01), faceData.x);
+		}
 		color.rgb = color.rgb * (1.0 - u_overlayOpacity) + overlayColor * u_overlayOpacity;
 	}
 	gl_FragColor = color;
