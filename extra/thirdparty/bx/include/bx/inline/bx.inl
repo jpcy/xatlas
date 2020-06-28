@@ -15,27 +15,22 @@ namespace bx
 	template<typename Ty, size_t Num>
 	char(&CountOfRequireArrayArgumentT(const Ty(&)[Num]))[Num];
 
-	template<bool>
-	inline constexpr bool isEnabled()
+	template<bool B>
+	struct isEnabled
 	{
-		return true;
+		// Template for avoiding MSVC: C4127: conditional expression is constant
+		static constexpr bool value = B;
+	};
+
+	inline constexpr bool ignoreC4127(bool _x)
+	{
+		return _x;
 	}
 
 	template<class Ty>
 	inline constexpr bool isTriviallyCopyable()
 	{
 		return __is_trivially_copyable(Ty);
-	}
-
-	template<>
-	inline constexpr bool isEnabled<false>()
-	{
-		return false;
-	}
-
-	inline constexpr bool ignoreC4127(bool _x)
-	{
-		return _x;
 	}
 
 	template<typename Ty>

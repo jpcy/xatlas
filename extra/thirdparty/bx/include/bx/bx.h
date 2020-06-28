@@ -20,19 +20,19 @@
 #define BX_COUNTOF(_x) sizeof(bx::CountOfRequireArrayArgumentT(_x) )
 
 ///
-#define BX_IGNORE_C4127(_x) bx::ignoreC4127(!!(_x) )
+#if BX_COMPILER_MSVC
+#	define BX_IGNORE_C4127(_x) bx::ignoreC4127(!!(_x) )
+#else
+#	define BX_IGNORE_C4127(_x) (!!(_x) )
+#endif // BX_COMPILER_MSVC
 
 ///
-#define BX_ENABLED(_x) bx::isEnabled<!!(_x)>()
+#define BX_ENABLED(_x) BX_IGNORE_C4127(bx::isEnabled<!!(_x)>::value)
 
 namespace bx
 {
 	constexpr int32_t kExitSuccess = 0;
 	constexpr int32_t kExitFailure = 1;
-
-	/// Template for avoiding MSVC: C4127: conditional expression is constant
-	template<bool>
-	constexpr bool isEnabled();
 
 	///
 	template<class Ty>
