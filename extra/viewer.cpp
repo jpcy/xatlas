@@ -496,7 +496,7 @@ int main(int argc, char **argv)
 	g_windowSize[1] = height;
 	init.resolution.width = (uint32_t)width;
 	init.resolution.height = (uint32_t)height;
-	init.resolution.reset = BGFX_RESET_VSYNC | BGFX_RESET_MSAA_X16;
+	init.resolution.reset = BGFX_RESET_VSYNC | BGFX_RESET_MSAA_X16 | BGFX_RESET_MAXANISOTROPY;
 	bgfx::init(init);
 	WireframeVertex::init();
 	commonShadersInit();
