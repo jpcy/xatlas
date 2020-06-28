@@ -83,8 +83,8 @@ struct ModelVertex;
 std::vector<ModelVertex> *atlasGetVertices();
 std::vector<uint32_t> *atlasGetIndices();
 bgfx::VertexBufferHandle atlasGetVb();
-bgfx::VertexBufferHandle atlasGetChartColorVb();
 bgfx::IndexBufferHandle atlasGetIb();
+bgfx::TextureHandle atlasGetFaceDataTexture();
 bool atlasIsNotGenerated();
 bool atlasIsReady();
 

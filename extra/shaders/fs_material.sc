@@ -1,4 +1,4 @@
-$input v_color0, v_normal, v_texcoord0
+$input v_normal, v_texcoord0
 
 #include <bgfx_shader.sh>
 #include "shared.h"
@@ -6,6 +6,7 @@ $input v_color0, v_normal, v_texcoord0
 SAMPLER2D(s_diffuse, 0);
 SAMPLER2D(s_emission, 1);
 SAMPLER2D(s_lightmap, 2);
+SAMPLER2D(s_faceData, 3);
 
 uniform vec4 u_diffuse;
 uniform vec4 u_emission;
@@ -19,7 +20,9 @@ uniform vec4 u_textureSize_cellSize2;
 uniform vec4 u_overlayOpacity_colorChartType;
 #define u_overlayOpacity u_overlayOpacity_colorChartType.x
 #define u_colorChartType uint(u_overlayOpacity_colorChartType.y)
-uniform vec4 u_meshColor;
+uniform vec4 u_meshColor_primitiveIdStart;
+#define u_meshColor u_meshColor_primitiveIdStart.rgb
+#define u_primitiveIdStart uint(u_meshColor_primitiveIdStart.w)
 
 void main()
 {
@@ -44,23 +47,26 @@ void main()
 	}
 	if (u_overlayType != OVERLAY_NONE)
 	{
-		vec3 overlayColor;
+		vec3 overlayColor = vec3_splat(1.0);
 		if (u_overlayType == OVERLAY_CHART)
 		{
+			int u = int((u_primitiveIdStart + uint(gl_PrimitiveID)) % FACE_DATA_TEXTURE_WIDTH);
+			int v = int((u_primitiveIdStart + uint(gl_PrimitiveID)) / FACE_DATA_TEXTURE_WIDTH);
+			vec4 faceData = texelFetch(s_faceData, ivec2(u, v), 0);
 			uint x = uint(v_texcoord0.z * u_textureSize_cellSize2.x);
 			uint y = uint(v_texcoord0.w * u_textureSize_cellSize2.y);
 			uint cellSize = uint(u_textureSize_cellSize2.z);
 			float scale = 1.0;
 			if (cellSize > 0u)
 				scale = (x / cellSize % 2u) != (y / cellSize % 2u) ? 0.75 : 1.0;
-			uint chartType = uint(v_color0.a + 0.5);
+			uint chartType = uint(faceData.a + 0.5);
 			if (u_colorChartType == CHART_TYPE_ANY || u_colorChartType == chartType)
-				overlayColor = v_color0.rgb * scale;
+				overlayColor = faceData.rgb * scale;
 			else
 				overlayColor = vec3_splat(0.75) * scale;
 		}
 		else if (u_overlayType == OVERLAY_MESH)
-			overlayColor = u_meshColor.rgb;
+			overlayColor = u_meshColor;
 		color.rgb = color.rgb * (1.0 - u_overlayOpacity) + overlayColor * u_overlayOpacity;
 	}
 	gl_FragColor = color;

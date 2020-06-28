@@ -57,6 +57,7 @@ SOFTWARE.
 #endif
 
 #include "../xatlas.h"
+#include "shaders/shared.h"
 #include "viewer.h"
 
 namespace std { typedef std::lock_guard<std::mutex> mutex_lock; }
@@ -189,19 +190,19 @@ struct
 	std::vector<uint8_t> chartsTextureData;
 	bgfx::VertexBufferHandle vb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle ib = BGFX_INVALID_HANDLE;
-	bgfx::VertexBufferHandle chartColorVb = BGFX_INVALID_HANDLE;
 	bgfx::IndexBufferHandle chartIb = BGFX_INVALID_HANDLE;
 	bgfx::VertexBufferHandle chartBoundaryVb = BGFX_INVALID_HANDLE;
 	std::vector<ModelVertex> vertices;
 	std::vector<uint32_t> indices;
-	std::vector<float> chartColorVertices;
 	std::vector<uint32_t> chartIndices;
 	std::vector<bool> boundaryEdges;
 	std::vector<WireframeVertex> chartBoundaryVertices;
 	bgfx::VertexLayout atlasVertexLayout;
 	bgfx::VertexLayout blitVertexLayout;
-	bgfx::VertexLayout chartColorDecl;
 	bgfx::VertexLayout wireVertexLayout;
+	bgfx::TextureHandle faceColorsTexture;
+	std::vector<float> faceColorsTextureData;
+	uint16_t faceColorsTextureSize[2];
 	// Blit.
 	bgfx::ProgramHandle blitProgram;
 	bgfx::UniformHandle s_texture;
@@ -224,9 +225,6 @@ void atlasInit()
 	s_atlas.blitVertexLayout.begin()
 		.add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
 		.add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-		.end();
-	s_atlas.chartColorDecl.begin()
-		.add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
 		.end();
 	s_atlas.wireVertexLayout
 		.begin()
@@ -265,9 +263,9 @@ void atlasDestroy()
 	}
 	bgfx::destroyAndClear(s_atlas.chartsFrameBuffer);
 	bgfx::destroyAndClear(s_atlas.chartsTexture);
+	bgfx::destroyAndClear(s_atlas.faceColorsTexture);
 	bgfx::destroyAndClear(s_atlas.vb);
 	bgfx::destroyAndClear(s_atlas.ib);
-	bgfx::destroyAndClear(s_atlas.chartColorVb);
 	bgfx::destroyAndClear(s_atlas.chartIb);
 	bgfx::destroyAndClear(s_atlas.chartBoundaryVb);
 	s_atlas.status.set(AtlasStatus::NotGenerated);
@@ -565,11 +563,38 @@ static void atlasGenerateThread()
 			chartIndex++;
 		}
 	}
+	// Face colors (charts).
+	uint32_t faceCount = 0;
+	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
+		faceCount += mesh.indexCount / 3;
+	}
+	s_atlas.faceColorsTextureSize[0] = FACE_DATA_TEXTURE_WIDTH;
+	s_atlas.faceColorsTextureSize[1] = uint16_t(ceilf(faceCount / (float)s_atlas.faceColorsTextureSize[0]));
+	s_atlas.faceColorsTextureData.resize(s_atlas.faceColorsTextureSize[0] * s_atlas.faceColorsTextureSize[1] * 4);
+	chartIndex = 0;
+	uint32_t firstMeshFace = 0;
+	for (uint32_t i = 0; i < s_atlas.data->meshCount; i++) {
+		const xatlas::Mesh &mesh = s_atlas.data->meshes[i];
+		for (uint32_t j = 0; j < mesh.chartCount; j++) {
+			const xatlas::Chart &chart = mesh.chartArray[j];
+			for (uint32_t k = 0; k < chart.faceCount; k++) {
+				const uint32_t face = firstMeshFace + chart.faceArray[k];
+				float *dest = &s_atlas.faceColorsTextureData[face * 4];
+				const float *source = &s_atlas.chartColors[chartIndex * 4];
+				dest[0] = source[0];
+				dest[1] = source[1];
+				dest[2] = source[2];
+				dest[3] = source[3];
+			}
+			chartIndex++;
+		}
+		firstMeshFace += mesh.indexCount / 3;
+	}
 	// Copy charts for rendering.
 	s_atlas.chartsTextureData.resize(s_atlas.data->width * s_atlas.data->height * 4);
 	s_atlas.vertices.clear();
 	s_atlas.indices.clear();
-	s_atlas.chartColorVertices.clear();
 	s_atlas.chartIndices.clear();
 	s_atlas.chartBoundaryVertices.clear();
 	uint32_t numIndices = 0, numVertices = 0;
@@ -580,7 +605,6 @@ static void atlasGenerateThread()
 	}
 	s_atlas.vertices.resize(numVertices);
 	s_atlas.indices.resize(numIndices);
-	s_atlas.chartColorVertices.resize(numVertices * 4);
 	s_atlas.chartIndices.resize(numIndices);
 	chartIndex = 0;
 	uint32_t firstIndex = 0;
@@ -596,14 +620,6 @@ static void atlasGenerateThread()
 		firstIndex += mesh.indexCount;
 		for (uint32_t j = 0; j < mesh.chartCount; j++) {
 			const xatlas::Chart &chart = mesh.chartArray[j];
-			for (uint32_t k = 0; k < chart.faceCount; k++) {
-				for (uint32_t l = 0; l < 3; l++) {
-					uint32_t &index = s_atlas.chartIndices[firstChartIndex + k * 3 + l];
-					index = firstVertex + mesh.indexArray[chart.faceArray[k] * 3 + l];
-					for (uint32_t m = 0; m < 4; m++)
-						s_atlas.chartColorVertices[index * 4 + m] = s_atlas.chartColors[chartIndex * 4 + m];
-				}
-			}
 			firstChartIndex += chart.faceCount * 3;
 			for (uint32_t k = 0; k < chart.faceCount; k++) {
 				bool removeEdge[3];
@@ -823,7 +839,6 @@ void atlasFinalize()
 	// Charts geometry.
 	s_atlas.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.vertices), ModelVertex::layout);
 	s_atlas.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.indices), BGFX_BUFFER_INDEX32);
-	s_atlas.chartColorVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartColorVertices), s_atlas.chartColorDecl);
 	s_atlas.chartIb = bgfx::createIndexBuffer(bgfx::makeRef(s_atlas.chartIndices), BGFX_BUFFER_INDEX32);
 	// Chart boundaries.
 	s_atlas.chartBoundaryVb = bgfx::createVertexBuffer(bgfx::makeRef(s_atlas.chartBoundaryVertices), WireframeVertex::layout);
@@ -831,6 +846,8 @@ void atlasFinalize()
 	bgfx::TextureHandle texture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8, BGFX_TEXTURE_RT | BGFX_SAMPLER_UVW_BORDER | BGFX_SAMPLER_BORDER_COLOR(kPaletteBlack));
 	s_atlas.chartsFrameBuffer = bgfx::createFrameBuffer(1, &texture, true);
 	s_atlas.chartsTexture = bgfx::createTexture2D((uint16_t)s_atlas.data->width, (uint16_t)s_atlas.data->height, false, 1, bgfx::TextureFormat::BGRA8);
+	// Face colors.
+	s_atlas.faceColorsTexture = bgfx::createTexture2D(s_atlas.faceColorsTextureSize[0], s_atlas.faceColorsTextureSize[1], false, 1, bgfx::TextureFormat::RGBA32F, 0, bgfx::makeRef(s_atlas.faceColorsTextureData));
 	// Render charts to texture(s) for previewing UVs.
 	s_atlas.options.selectedAtlas = 0;
 	s_atlas.options.selectedChart = -1;
@@ -1089,14 +1106,14 @@ bgfx::VertexBufferHandle atlasGetVb()
 	return s_atlas.vb;
 }
 
-bgfx::VertexBufferHandle atlasGetChartColorVb()
-{
-	return s_atlas.chartColorVb;
-}
-
 bgfx::IndexBufferHandle atlasGetIb()
 {
 	return s_atlas.ib;
+}
+
+bgfx::TextureHandle atlasGetFaceDataTexture()
+{
+	return s_atlas.faceColorsTexture;
 }
 
 bool atlasIsNotGenerated()

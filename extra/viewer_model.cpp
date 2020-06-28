@@ -85,10 +85,11 @@ struct
 	bgfx::UniformHandle u_shade_overlay_diffuse_emission;
 	bgfx::UniformHandle u_textureSize_cellSize;
 	bgfx::UniformHandle u_overlayOpacity_colorChartType;
-	bgfx::UniformHandle u_meshColor;
+	bgfx::UniformHandle u_meshColor_primitiveIdStart;
 	bgfx::UniformHandle s_diffuse;
 	bgfx::UniformHandle s_emission;
 	bgfx::UniformHandle s_lightmap;
+	bgfx::UniformHandle s_faceData;
 	bgfx::UniformHandle u_color;
 	bgfx::TextureHandle u_dummyTexture;
 }
@@ -263,10 +264,11 @@ void modelInit()
 	s_model.u_shade_overlay_diffuse_emission = bgfx::createUniform("u_shade_overlay_diffuse_emission", bgfx::UniformType::Vec4);
 	s_model.u_textureSize_cellSize = bgfx::createUniform("u_textureSize_cellSize2", bgfx::UniformType::Vec4);
 	s_model.u_overlayOpacity_colorChartType = bgfx::createUniform("u_overlayOpacity_colorChartType", bgfx::UniformType::Vec4);
-	s_model.u_meshColor = bgfx::createUniform("u_meshColor", bgfx::UniformType::Vec4);
+	s_model.u_meshColor_primitiveIdStart = bgfx::createUniform("u_meshColor_primitiveIdStart", bgfx::UniformType::Vec4);
 	s_model.s_diffuse = bgfx::createUniform("s_diffuse", bgfx::UniformType::Sampler);
 	s_model.s_emission = bgfx::createUniform("s_emission", bgfx::UniformType::Sampler);
 	s_model.s_lightmap = bgfx::createUniform("s_lightmap", bgfx::UniformType::Sampler);
+	s_model.s_faceData = bgfx::createUniform("s_faceData", bgfx::UniformType::Sampler);
 	s_model.vs_model = loadShader(ShaderId::vs_model);
 	s_model.fs_material = loadShader(ShaderId::fs_material);
 	s_model.materialProgram = bgfx::createProgram(s_model.vs_model, s_model.fs_material);
@@ -288,10 +290,11 @@ void modelShutdown()
 	bgfx::destroy(s_model.u_shade_overlay_diffuse_emission);
 	bgfx::destroy(s_model.u_textureSize_cellSize);
 	bgfx::destroy(s_model.u_overlayOpacity_colorChartType);
-	bgfx::destroy(s_model.u_meshColor);
+	bgfx::destroy(s_model.u_meshColor_primitiveIdStart);
 	bgfx::destroy(s_model.s_diffuse);
 	bgfx::destroy(s_model.s_emission);
 	bgfx::destroy(s_model.s_lightmap);
+	bgfx::destroy(s_model.s_faceData);
 	bgfx::destroy(s_model.vs_model);
 	bgfx::destroy(s_model.fs_material);
 	bgfx::destroy(s_model.materialProgram);
@@ -975,6 +978,7 @@ void modelRender(const float *view, const float *projection)
 	bgfx::setViewTransform(kModelView, view, projection);
 	bgfx::setViewTransform(kModelTransparentView, view, projection);
 	const float lightDir[] = { view[2], view[6], view[10], 0.0f };
+	uint32_t primitiveIdStart = 0;
 	for (uint32_t i = 0; i < s_model.data->numMeshes; i++) {
 		const objzMesh &mesh = s_model.data->meshes[i];
 		const objzMaterial *mat = mesh.materialIndex == -1 ? nullptr : &s_model.data->materials[mesh.materialIndex];
@@ -982,7 +986,6 @@ void modelRender(const float *view, const float *projection)
 		if (atlasIsReady()) {
 			bgfx::setIndexBuffer(atlasGetIb(), mesh.firstIndex, mesh.numIndices);
 			bgfx::setVertexBuffer(0, atlasGetVb());
-			bgfx::setVertexBuffer(1, atlasGetChartColorVb());
 		} else {
 			bgfx::setIndexBuffer(s_model.ib, mesh.firstIndex, mesh.numIndices);
 			bgfx::setVertexBuffer(0, s_model.vb);
@@ -1051,24 +1054,29 @@ void modelRender(const float *view, const float *projection)
 		overlayOpacity_colorChartType[0] = g_options.overlayOpacity;
 		overlayOpacity_colorChartType[1] = (float)g_options.chartColorMode;
 		bgfx::setUniform(s_model.u_overlayOpacity_colorChartType, overlayOpacity_colorChartType);
-		float meshColor[4];
+		float meshColor_primitiveIdStart[4];
 		if (g_options.overlayMode == OverlayMode::Mesh) {
 			srand(i);
 			uint8_t color[4];
 			randomRGB(color);
-			meshColor[0] = color[0] / 255.0f;
-			meshColor[1] = color[1] / 255.0f;
-			meshColor[2] = color[2] / 255.0f;
-			meshColor[3] = 1.0f;
+			meshColor_primitiveIdStart[0] = color[0] / 255.0f;
+			meshColor_primitiveIdStart[1] = color[1] / 255.0f;
+			meshColor_primitiveIdStart[2] = color[2] / 255.0f;
 		}
-		bgfx::setUniform(s_model.u_meshColor, meshColor);
+		meshColor_primitiveIdStart[3] = (float)primitiveIdStart;
+		bgfx::setUniform(s_model.u_meshColor_primitiveIdStart, meshColor_primitiveIdStart);
 		bgfx::setTexture(0, s_model.s_diffuse, bgfx::isValid(diffuseTexture) ? diffuseTexture : s_model.u_dummyTexture);
 		bgfx::setTexture(1, s_model.s_emission, bgfx::isValid(emissionTexture) ? emissionTexture : s_model.u_dummyTexture);
 		if (g_options.shadeMode == ShadeMode::LightmapMaterial || g_options.shadeMode == ShadeMode::LightmapOnly)
 			bgfx::setTexture(2, s_model.s_lightmap, bakeGetLightmap(), bakeGetLightmapSamplerFlags());
 		else
 			bgfx::setTexture(2, s_model.s_lightmap, s_model.u_dummyTexture);
+		if (g_options.overlayMode == OverlayMode::Chart)
+			bgfx::setTexture(3, s_model.s_faceData, atlasGetFaceDataTexture());
+		else
+			bgfx::setTexture(3, s_model.s_faceData, s_model.u_dummyTexture);
 		bgfx::submit(transparent ? kModelTransparentView : kModelView, s_model.materialProgram);
+		primitiveIdStart += mesh.numIndices / 3;
 	}
 	if (g_options.wireframe) {
 		if (g_options.wireframeMode == WireframeMode::Triangles) {
