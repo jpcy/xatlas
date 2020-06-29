@@ -97,6 +97,10 @@ Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.con
 
 [Lightmaps - An OpenGL sample demonstrating path traced lightmap baking on the CPU with Embree](https://github.com/diharaw/Lightmaps)
 
+[redner](https://github.com/BachiLi/redner)
+
+[Skylicht Engine](https://github.com/skylicht-lab/skylicht-engine)
+
 [toy](https://github.com/hugoam/toy) / [two](https://github.com/hugoam/two)
 
 [Wicked Engine](https://github.com/turanszkij/WickedEngine)
