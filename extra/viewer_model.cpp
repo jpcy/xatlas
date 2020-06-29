@@ -232,8 +232,13 @@ static void textureCreateCachedTextures()
 		bgfx::TextureFormat::Enum format = bgfx::TextureFormat::RGBA8;
 		if (texture.data.numComponents == 1)
 			format = bgfx::TextureFormat::R8;
+		else if (texture.data.numComponents == 2)
+			format = bgfx::TextureFormat::RG8;
 		else if (texture.data.numComponents == 3)
 			format = bgfx::TextureFormat::RGB8;
+		else {
+			assert(false);
+		}
 		texture.handle = bgfx::createTexture2D(texture.data.width, texture.data.height, true, 1, format, BGFX_SAMPLER_MIN_ANISOTROPIC | BGFX_SAMPLER_MAG_ANISOTROPIC, texture.data.mem);
 	}
 }
