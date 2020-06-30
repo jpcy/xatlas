@@ -3277,56 +3277,23 @@ struct MeshFaceGroups
 				const uint32_t f = growFaces.back();
 				growFaces.pop_back();
 				for (Mesh::FaceEdgeIterator edgeIt(m_mesh, f); !edgeIt.isDone(); edgeIt.advance()) {
-					// Iterate opposite edges. There may be more than one - non-manifold geometry can have duplicate edges.
-					// Prioritize the one with exact vertex match, not just colocal.
-					// If *any* of the opposite edges are already assigned to this group, don't do anything.
-					bool alreadyAssignedToThisGroup = false;
-					uint32_t bestConnectedFace = UINT32_MAX;
-					for (Mesh::ColocalEdgeIterator oppositeEdgeIt(m_mesh, edgeIt.vertex1(), edgeIt.vertex0()); !oppositeEdgeIt.isDone(); oppositeEdgeIt.advance()) {
-						const uint32_t oppositeEdge = oppositeEdgeIt.edge();
-						const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
-#if 0
-						// Reject opposite face if dihedral angle >= 90 degrees.
-						{
-							Vector3 a = m_mesh->computeFaceNormal(f);
-							Vector3 b = m_mesh->computeFaceNormal(oppositeFace);
-							if (dot(a, b) <= 0.0f)
-								continue;
-						}
-#endif
-						if (m_mesh->isFaceIgnored(oppositeFace))
-							continue; // Don't add ignored faces to group.
-						if (m_groups[oppositeFace] == group) {
-							alreadyAssignedToThisGroup = true;
-							break;
-						}
-						if (m_groups[oppositeFace] != kInvalid)
-							continue; // Connected face is already assigned to another group.
-						if (faceDuplicatesGroupEdge(group, oppositeFace))
-							continue; // Don't want duplicate edges in a group.
-						const uint32_t oppositeVertex0 = m_mesh->vertexAt(meshEdgeIndex0(oppositeEdge));
-						const uint32_t oppositeVertex1 = m_mesh->vertexAt(meshEdgeIndex1(oppositeEdge));
-						if (bestConnectedFace == UINT32_MAX || (oppositeVertex0 == edgeIt.vertex1() && oppositeVertex1 == edgeIt.vertex0()))
-							bestConnectedFace = oppositeFace;
-#if 0
-						else {
-							// Choose the opposite face with the smallest dihedral angle.
-							const float d1 = 1.0f - dot(computeFaceNormal(f), computeFaceNormal(bestConnectedFace));
-							const float d2 = 1.0f - dot(computeFaceNormal(f), computeFaceNormal(oppositeFace));
-							if (d2 < d1)
-								bestConnectedFace = oppositeFace;
-						}
-#endif
-					}
-					if (!alreadyAssignedToThisGroup && bestConnectedFace != UINT32_MAX) {
-						m_groups[bestConnectedFace] = group;
-						m_nextFace[bestConnectedFace] = UINT32_MAX;
-						if (prevFace != UINT32_MAX)
-							m_nextFace[prevFace] = bestConnectedFace;
-						prevFace = bestConnectedFace;
-						groupFaceCount++;
-						growFaces.push_back(bestConnectedFace);
-					}
+					const uint32_t oppositeEdge = m_mesh->findEdge(edgeIt.vertex1(), edgeIt.vertex0());
+					if (oppositeEdge == UINT32_MAX)
+						continue; // Boundary edge.
+					const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
+					if (m_mesh->isFaceIgnored(oppositeFace))
+						continue; // Don't add ignored faces to group.
+					if (m_groups[oppositeFace] != kInvalid)
+						continue; // Connected face is already assigned to another group.
+					if (faceDuplicatesGroupEdge(group, oppositeFace))
+						continue; // Don't want duplicate edges in a group.
+					m_groups[oppositeFace] = group;
+					m_nextFace[oppositeFace] = UINT32_MAX;
+					if (prevFace != UINT32_MAX)
+						m_nextFace[prevFace] = oppositeFace;
+					prevFace = oppositeFace;
+					groupFaceCount++;
+					growFaces.push_back(oppositeFace);
 				}
 			}
 			m_faceCount.push_back(groupFaceCount);
