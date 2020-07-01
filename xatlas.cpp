@@ -7540,8 +7540,7 @@ struct ChartWarningFlags
 	{
 		CloseHolesFailed = 1<<1,
 		FixTJunctionsDuplicatedEdge = 1<<2,
-		FixTJunctionsFailed = 1<<3,
-		TriangulateDuplicatedEdge = 1<<4,
+		FixTJunctionsFailed = 1<<3
 	};
 };
 
@@ -10005,8 +10004,6 @@ void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions created non-manifold geometry\n", chartCount, i, j, k);
 				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsFailed)
 					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
-				if (chart->warningFlags() & internal::param::ChartWarningFlags::TriangulateDuplicatedEdge)
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): triangulation created non-manifold geometry\n", chartCount, i, j, k);
 #endif
 				holesCount += chart->closedHolesCount();
 				if (chart->closedHolesCount() > 0)
