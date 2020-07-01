@@ -27,7 +27,10 @@ SOFTWARE.
 #include <imgui/imgui.h>
 
 #define USE_MIMALLOC 1
+
+#ifndef USE_LIBIGL
 #define USE_LIBIGL 0
+#endif
 
 #if USE_MIMALLOC
 #include <mimalloc.h>
@@ -169,11 +172,10 @@ struct AtlasOptions
 	bool showPadding = false;
 	bool showBlockGrid = false;
 	xatlas::ChartOptions chart;
-	bool chartChanged = false;
+	ParamMethod paramMethod = ParamMethod::LSCM;
+	bool chartChanged = false; // ChartOpions or ParamMethod changed.
 	xatlas::PackOptions pack;
 	bool packChanged = false;
-	ParamMethod paramMethod = ParamMethod::LSCM;
-	bool paramChanged = false;
 };
 
 struct
@@ -475,6 +477,12 @@ static void atlasGenerateThread()
 		}
 	}
 	if (firstRun || s_atlas.useUvMeshChanged || s_atlas.options.chartChanged) {
+#if USE_LIBIGL
+		if (s_atlas.options.paramMethod != ParamMethod::LSCM)
+			s_atlas.options.chart.paramFunc = atlasParameterizationCallback;
+		else
+			s_atlas.options.chart.paramFunc = nullptr;
+#endif
 		xatlas::ComputeCharts(s_atlas.data, s_atlas.options.chart);
 		if (s_atlas.status.getCancel()) {
 			s_atlas.options.chartChanged = true; // Force ComputeCharts to be called next time.
@@ -483,21 +491,7 @@ static void atlasGenerateThread()
 			return;
 		}
 	}
-	if ((firstRun || s_atlas.useUvMeshChanged || s_atlas.options.chartChanged || s_atlas.options.paramChanged) && !s_atlas.useUvMesh) {
-		xatlas::ParameterizeOptions options;
-#if USE_LIBIGL
-		if (s_atlas.options.paramMethod != ParamMethod::LSCM)
-			options.func = atlasParameterizationCallback;
-#endif
-		xatlas::ParameterizeCharts(s_atlas.data, options);
-		if (s_atlas.status.getCancel()) {
-			s_atlas.options.paramChanged = true; // Force ParameterizeCharts to be called next time.
-			s_atlas.status.set(AtlasStatus::NotGenerated);
-			s_atlas.status.setCancel(false);
-			return;
-		}
-	}
-	if (firstRun || s_atlas.useUvMeshChanged || s_atlas.options.chartChanged || s_atlas.options.paramChanged || s_atlas.options.packChanged) {
+	if (firstRun || s_atlas.useUvMeshChanged || s_atlas.options.chartChanged || s_atlas.options.packChanged) {
 		xatlas::PackCharts(s_atlas.data, s_atlas.options.pack);
 		if (s_atlas.status.getCancel()) {
 			s_atlas.options.packChanged = true; // Force PackCharts to be called next time.
@@ -509,7 +503,6 @@ static void atlasGenerateThread()
 	const double elapsedTime = (clock() - startTime) * 1000.0 / CLOCKS_PER_SEC;
 	printf("Generated atlas in %.2f seconds (%g ms)\n", elapsedTime / 1000.0, elapsedTime);
 	s_atlas.options.chartChanged = false;
-	s_atlas.options.paramChanged = false;
 	s_atlas.options.packChanged = false;
 	// Find chart boundary edges.
 	uint32_t numEdges = 0;
@@ -697,7 +690,7 @@ void atlasGenerate()
 {
 	if (!(s_atlas.status.get() == AtlasStatus::NotGenerated || s_atlas.status.get() == AtlasStatus::Ready))
 		return;
-	if (s_atlas.data && !s_atlas.options.chartChanged && !s_atlas.options.paramChanged && !s_atlas.options.packChanged && s_atlas.useUvMesh == s_atlas.options.useUvMesh) {
+	if (s_atlas.data && !s_atlas.options.chartChanged && !s_atlas.options.packChanged && s_atlas.useUvMesh == s_atlas.options.useUvMesh) {
 		// Already have an atlas and none of the options that affect atlas creation have changed.
 		return;
 	}
@@ -944,8 +937,20 @@ void atlasShowGuiOptions()
 		changed |= guiColumnInputFloat("Max chart area", "##chartOption8", &s_atlas.options.chart.maxChartArea);
 		changed |= guiColumnInputFloat("Max boundary length", "##chartOption9", &s_atlas.options.chart.maxBoundaryLength);
 		ImGui::Columns(1);
+#if USE_LIBIGL
+		if (!s_atlas.options.useUvMesh) {
+			const ParamMethod oldParamMethod = s_atlas.options.paramMethod;
+			ImGui::RadioButton("LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::LSCM);
+			ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_Harmonic);
+			ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_LSCM);
+			ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_ARAP);
+			if (s_atlas.options.paramMethod != oldParamMethod)
+				changed = true;
+		}
+#endif
 		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
 			s_atlas.options.chart = xatlas::ChartOptions();
+			s_atlas.options.paramMethod = ParamMethod::LSCM;
 			changed = true;
 		}
 		if (changed)
@@ -953,22 +958,6 @@ void atlasShowGuiOptions()
 		ImGui::Unindent(indent);
 	}
 	ImGui::Spacing();
-#if USE_LIBIGL
-	if (!s_atlas.options.useUvMesh && ImGui::CollapsingHeader("Parameterization options", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::Indent(indent);
-		const ParamMethod oldParamMethod = s_atlas.options.paramMethod;
-		ImGui::RadioButton("LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::LSCM);
-#if USE_LIBIGL
-		ImGui::RadioButton("libigl Harmonic", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_Harmonic);
-		ImGui::RadioButton("libigl LSCM", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_LSCM);
-		ImGui::RadioButton("libigl ARAP", (int *)&s_atlas.options.paramMethod, (int)ParamMethod::libigl_ARAP);
-#endif
-		if (s_atlas.options.paramMethod != oldParamMethod)
-			s_atlas.options.paramChanged = true;
-		ImGui::Unindent(indent);
-	}
-	ImGui::Spacing();
-#endif
 	if (ImGui::CollapsingHeader("Pack options", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Indent(indent);
 		bool changed = false;

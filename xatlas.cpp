@@ -3462,7 +3462,7 @@ static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const
 		// Closing holes failed if we don't have a smallest angle.
 		// Fallback to ignoring the backwards facing normal test if possible.
 		if (smallestAngleIndex == UINT32_MAX || smallestAngle <= 0.0f || smallestAngle >= kPi) {
-			if (smallestAngleIgnoringNormal == UINT32_MAX || smallestAngleIgnoringNormal <= 0.0f || smallestAngleIgnoringNormal >= kPi)
+			if (smallestAngleIndexIgnoringNormal == UINT32_MAX || smallestAngleIgnoringNormal <= 0.0f || smallestAngleIgnoringNormal >= kPi)
 				return false;
 			else
 				smallestAngleIndex = smallestAngleIndexIgnoringNormal;
@@ -7554,7 +7554,7 @@ struct ChartCtorBuffers
 class Chart
 {
 public:
-	Chart(ChartCtorBuffers &buffers, const ParameterizeOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_isInvalid(false)
+	Chart(ChartCtorBuffers &buffers, const ChartOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_isInvalid(false)
 	{
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
@@ -7763,7 +7763,7 @@ public:
 	const Mesh *unifiedMesh() const { return m_unifiedMesh; }
 	const Mesh *unmodifiedUnifiedMesh() const { return m_unmodifiedUnifiedMesh; }
 
-	void parameterize(const ParameterizeOptions &options, UniformGrid2 &boundaryGrid)
+	void parameterize(const ChartOptions &options, UniformGrid2 &boundaryGrid)
 	{
 		XA_PROFILE_START(parameterizeChartsOrthogonal)
 		{
@@ -7786,8 +7786,8 @@ public:
 		}
 		if (m_type == ChartType::LSCM) {
 			XA_PROFILE_START(parameterizeChartsLSCM)
-			if (options.func) {
-				options.func(&m_unifiedMesh->position(0).x, &m_unifiedMesh->texcoord(0).x, m_unifiedMesh->vertexCount(), m_unifiedMesh->indices(), m_unifiedMesh->indexCount());
+			if (options.paramFunc) {
+				options.paramFunc(&m_unifiedMesh->position(0).x, &m_unifiedMesh->texcoord(0).x, m_unifiedMesh->vertexCount(), m_unifiedMesh->indices(), m_unifiedMesh->indexCount());
 			}
 			else
 				computeLeastSquaresConformalMap(m_unifiedMesh);
@@ -7893,7 +7893,7 @@ struct CreateAndParameterizeChartTaskArgs
 	Array<Chart *> charts; // output (if more than one chart)
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 	const Mesh *mesh;
-	const ParameterizeOptions *options;
+	const ChartOptions *options;
 #if XA_RECOMPUTE_CHARTS
 	ThreadLocal<PiecewiseParam> *pp;
 #endif
@@ -8061,7 +8061,7 @@ public:
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	void parameterizeCharts(TaskScheduler *taskScheduler, const ParameterizeOptions &options, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
+	void parameterizeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
 #else
 	void parameterizeCharts(TaskScheduler* taskScheduler, const ParameterizeOptions &options, ThreadLocal<UniformGrid2>* boundaryGrid, ThreadLocal<ChartCtorBuffers>* chartBuffers)
 #endif
@@ -8335,7 +8335,7 @@ struct ParameterizeChartsTaskArgs
 {
 	TaskScheduler *taskScheduler;
 	ChartGroup *chartGroup;
-	const ParameterizeOptions *options;
+	const ChartOptions *options;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 #if XA_RECOMPUTE_CHARTS
@@ -8450,7 +8450,7 @@ public:
 		return true;
 	}
 
-	bool parameterizeCharts(TaskScheduler *taskScheduler, const ParameterizeOptions &options, ProgressFunc progressFunc, void *progressUserData)
+	bool parameterizeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
 		m_chartsParameterized = false;
 		uint32_t chartGroupCount = 0;
@@ -9885,6 +9885,13 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		XA_PRINT_WARNING("ComputeCharts: No meshes. Call AddMesh or AddUvMesh first.\n");
 		return;
 	}
+	// Reset atlas state. This function may be called multiple times, or again after PackCharts.
+	if (atlas->utilization)
+		XA_FREE(atlas->utilization);
+	if (atlas->image)
+		XA_FREE(atlas->image);
+	DestroyOutputMeshes(ctx);
+	memset(&ctx->atlas, 0, sizeof(Atlas));
 	XA_PRINT("Computing charts\n");
 	if (!ctx->meshes.isEmpty()) {
 		XA_PROFILE_START(computeChartsReal)
@@ -9934,6 +9941,130 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		XA_PROFILE_PRINT_AND_RESET("               Merge: ", clusteredChartsMerge)
 		XA_PROFILE_PRINT_AND_RESET("               Fill holes: ", clusteredChartsFillHoles)
 		XA_PROFILE_PRINT_AND_RESET("         Copy chart faces: ", copyChartFaces)
+		XA_PRINT("Parameterizing charts\n");
+		XA_PROFILE_START(parameterizeChartsReal)
+		if (!ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, options, ctx->progressFunc, ctx->progressUserData)) {
+			XA_PRINT("   Cancelled by user\n");
+			return;
+		}
+		XA_PROFILE_END(parameterizeChartsReal)
+		uint32_t chartsWithHolesCount = 0, holesCount = 0, chartsWithTJunctionsCount = 0, tJunctionsCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
+		chartCount = 0;
+		for (uint32_t i = 0; i < meshCount; i++) {
+			for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
+				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
+				for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
+					const internal::param::Chart *chart = chartGroup->chartAt(k);
+#if XA_PRINT_CHART_WARNINGS
+					if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesFailed)
+						XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): failed to close holes\n", chartCount, i, j, k);
+					if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
+						XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions created non-manifold geometry\n", chartCount, i, j, k);
+					if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsFailed)
+						XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
+#endif
+					holesCount += chart->closedHolesCount();
+					if (chart->closedHolesCount() > 0)
+						chartsWithHolesCount++;
+					tJunctionsCount += chart->fixedTJunctionsCount();
+					if (chart->fixedTJunctionsCount() > 0)
+						chartsWithTJunctionsCount++;
+					if (chart->type() == ChartType::Planar)
+						planarChartsCount++;
+					else if (chart->type() == ChartType::Ortho)
+						orthoChartsCount++;
+					else if (chart->type() == ChartType::LSCM)
+						lscmChartsCount++;
+					else if (chart->type() == ChartType::Piecewise)
+						piecewiseChartsCount++;
+				}
+				chartCount += chartGroup->chartCount();
+				chartsAddedCount += chartGroup->paramAddedChartsCount();
+				chartsDeletedCount += chartGroup->paramDeletedChartsCount();
+			}
+		}
+		if (holesCount > 0)
+			XA_PRINT("   %u holes closed in %u charts\n", holesCount, chartsWithHolesCount);
+		if (tJunctionsCount > 0)
+			XA_PRINT("   %u t-junctions fixed in %u charts\n", tJunctionsCount, chartsWithTJunctionsCount);
+		XA_PRINT("   %u planar charts, %u ortho charts, %u LSCM charts, %u piecewise charts\n", planarChartsCount, orthoChartsCount, lscmChartsCount, piecewiseChartsCount);
+		if (chartsDeletedCount > 0) {
+			XA_PRINT("   %u charts with invalid parameterizations replaced with %u new charts\n", chartsDeletedCount, chartsAddedCount);
+			XA_PRINT("   %u charts\n", chartCount);
+		}
+		uint32_t chartIndex = 0, invalidParamCount = 0;
+		for (uint32_t i = 0; i < meshCount; i++) {
+			for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
+				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
+				for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
+					internal::param::Chart *chart = chartGroup->chartAt(k);
+					const internal::param::Quality &quality = chart->quality();
+#if XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION
+					{
+						char filename[256];
+						XA_SPRINTF(filename, sizeof(filename), "debug_chart_%03u_after_parameterization.obj", chartIndex);
+						chart->unifiedMesh()->writeObjFile(filename);
+					}
+#endif
+					const char *type = "LSCM";
+					if (chart->type() == ChartType::Planar)
+						type = "planar";
+					else if (chart->type() == ChartType::Ortho)
+						type = "ortho";
+					else if (chart->type() == ChartType::Piecewise)
+						type = "piecewise";
+					if (chart->isInvalid()) {
+						if (quality.boundaryIntersection) {
+							XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u) (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, i, j, k, type);
+						}
+						if (quality.flippedTriangleCount > 0) {
+							XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, i, j, k, type, quality.flippedTriangleCount, quality.totalTriangleCount);
+						}
+						invalidParamCount++;
+#if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
+						char filename[256];
+						XA_SPRINTF(filename, sizeof(filename), "debug_chart_%03u_invalid_parameterization.obj", chartIndex);
+						const internal::Mesh *mesh = chart->unifiedMesh();
+						FILE *file;
+						XA_FOPEN(file, filename, "w");
+						if (file) {
+							mesh->writeObjVertices(file);
+							fprintf(file, "s off\n");
+							fprintf(file, "o object\n");
+							for (uint32_t f = 0; f < mesh->faceCount(); f++)
+								mesh->writeObjFace(file, f);
+							if (!chart->paramFlippedFaces().isEmpty()) {
+								fprintf(file, "o flipped_faces\n");
+								for (uint32_t f = 0; f < chart->paramFlippedFaces().size(); f++)
+									mesh->writeObjFace(file, chart->paramFlippedFaces()[f]);
+							}
+							mesh->writeObjBoundaryEges(file);
+							mesh->writeObjLinkedBoundaries(file);
+							fclose(file);
+						}
+#endif
+					}
+					chartIndex++;
+				}
+			}
+		}
+		if (invalidParamCount > 0)
+			XA_PRINT_WARNING("   %u charts with invalid parameterizations\n", invalidParamCount);
+		XA_PROFILE_PRINT_AND_RESET("   Total (real): ", parameterizeChartsReal)
+		XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", parameterizeChartsThread)
+		XA_PROFILE_PRINT_AND_RESET("      Create chart mesh: ", createChartMesh)
+		XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
+		XA_PROFILE_PRINT_AND_RESET("         Close holes: ", closeChartMeshHoles)
+		XA_PROFILE_PRINT_AND_RESET("      Orthogonal: ", parameterizeChartsOrthogonal)
+		XA_PROFILE_PRINT_AND_RESET("      LSCM: ", parameterizeChartsLSCM)
+		XA_PROFILE_PRINT_AND_RESET("      Recompute: ", parameterizeChartsRecompute)
+		XA_PROFILE_PRINT_AND_RESET("         Piecewise: ", parameterizeChartsPiecewise)
+		XA_PROFILE_PRINT_AND_RESET("            Boundary intersection: ", parameterizeChartsPiecewiseBoundaryIntersection)
+		XA_PROFILE_PRINT_AND_RESET("      Evaluate quality: ", parameterizeChartsEvaluateQuality)
+#if XA_PROFILE_ALLOC
+		XA_PROFILE_PRINT_AND_RESET("   Alloc: ", alloc)
+#endif
+		XA_PRINT_MEM_USAGE
 	} else {
 		XA_PROFILE_START(computeChartsReal)
 		if (!internal::segment::computeUvMeshCharts(ctx->taskScheduler, ctx->uvMeshes, ctx->uvMeshInstances, ctx->progressFunc, ctx->progressUserData)) {
@@ -9957,158 +10088,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 	XA_PRINT_MEM_USAGE
 }
 
-void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options)
-{
-	if (!atlas) {
-		XA_PRINT_WARNING("ParameterizeCharts: atlas is null.\n");
-		return;
-	}
-	Context *ctx = (Context *)atlas;
-	if (!ctx->uvMeshInstances.isEmpty())
-		return; // No-op if using UV meshes.
-	if (!ctx->paramAtlas.chartsComputed()) {
-		XA_PRINT_WARNING("ParameterizeCharts: ComputeCharts must be called first.\n");
-		return;
-	}
-	atlas->atlasCount = 0;
-	atlas->height = 0;
-	atlas->texelsPerUnit = 0;
-	atlas->width = 0;
-	if (atlas->utilization) {
-		XA_FREE(atlas->utilization);
-		atlas->utilization = nullptr;
-	}
-	if (atlas->image) {
-		XA_FREE(atlas->image);
-		atlas->image = nullptr;
-	}
-	DestroyOutputMeshes(ctx);
-	XA_PRINT("Parameterizing charts\n");
-	XA_PROFILE_START(parameterizeChartsReal)
-	if (!ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, options, ctx->progressFunc, ctx->progressUserData)) {
-		XA_PRINT("   Cancelled by user\n");
-			return;
-	}
-	XA_PROFILE_END(parameterizeChartsReal)
-	const uint32_t meshCount = ctx->meshes.size();
-	uint32_t chartCount = 0, chartsWithHolesCount = 0, holesCount = 0, chartsWithTJunctionsCount = 0, tJunctionsCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
-	for (uint32_t i = 0; i < meshCount; i++) {
-		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
-			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
-				const internal::param::Chart *chart = chartGroup->chartAt(k);
-#if XA_PRINT_CHART_WARNINGS
-				if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesFailed)
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): failed to close holes\n", chartCount, i, j, k);
-				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions created non-manifold geometry\n", chartCount, i, j, k);
-				if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsFailed)
-					XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
-#endif
-				holesCount += chart->closedHolesCount();
-				if (chart->closedHolesCount() > 0)
-					chartsWithHolesCount++;
-				tJunctionsCount += chart->fixedTJunctionsCount();
-				if (chart->fixedTJunctionsCount() > 0)
-					chartsWithTJunctionsCount++;
-				if (chart->type() == ChartType::Planar)
-					planarChartsCount++;
-				else if (chart->type() == ChartType::Ortho)
-					orthoChartsCount++;
-				else if (chart->type() == ChartType::LSCM)
-					lscmChartsCount++;
-				else if (chart->type() == ChartType::Piecewise)
-					piecewiseChartsCount++;
-			}
-			chartCount += chartGroup->chartCount();
-			chartsAddedCount += chartGroup->paramAddedChartsCount();
-			chartsDeletedCount += chartGroup->paramDeletedChartsCount();
-		}
-	}
-	if (holesCount > 0)
-		XA_PRINT("   %u holes closed in %u charts\n", holesCount, chartsWithHolesCount);
-	if (tJunctionsCount > 0)
-		XA_PRINT("   %u t-junctions fixed in %u charts\n", tJunctionsCount, chartsWithTJunctionsCount);
-	XA_PRINT("   %u planar charts, %u ortho charts, %u LSCM charts, %u piecewise charts\n", planarChartsCount, orthoChartsCount, lscmChartsCount, piecewiseChartsCount);
-	if (chartsDeletedCount > 0) {
-		XA_PRINT("   %u charts with invalid parameterizations replaced with %u new charts\n", chartsDeletedCount, chartsAddedCount);
-		XA_PRINT("   %u charts\n", chartCount);
-	}
-	uint32_t chartIndex = 0, invalidParamCount = 0;
-	for (uint32_t i = 0; i < meshCount; i++) {
-		for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
-			const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-			for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
-				internal::param::Chart *chart = chartGroup->chartAt(k);
-				const internal::param::Quality &quality = chart->quality();
-#if XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION
-				{
-					char filename[256];
-					XA_SPRINTF(filename, sizeof(filename), "debug_chart_%03u_after_parameterization.obj", chartIndex);
-					chart->unifiedMesh()->writeObjFile(filename);
-				}
-#endif
-				const char *type = "LSCM";
-				if (chart->type() == ChartType::Planar)
-					type = "planar";
-				else if (chart->type() == ChartType::Ortho)
-					type = "ortho";
-				else if (chart->type() == ChartType::Piecewise)
-					type = "piecewise";
-				if (chart->isInvalid()) {
-					if (quality.boundaryIntersection) {
-						XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u) (%s): invalid parameterization, self-intersecting boundary.\n", chartIndex, i, j, k, type);
-					}
-					if (quality.flippedTriangleCount > 0) {
-						XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, i, j, k, type, quality.flippedTriangleCount, quality.totalTriangleCount);
-					}
-					invalidParamCount++;
-#if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-					char filename[256];
-					XA_SPRINTF(filename, sizeof(filename), "debug_chart_%03u_invalid_parameterization.obj", chartIndex);
-					const internal::Mesh *mesh = chart->unifiedMesh();
-					FILE *file;
-					XA_FOPEN(file, filename, "w");
-					if (file) {
-						mesh->writeObjVertices(file);
-						fprintf(file, "s off\n");
-						fprintf(file, "o object\n");
-						for (uint32_t f = 0; f < mesh->faceCount(); f++)
-							mesh->writeObjFace(file, f);
-						if (!chart->paramFlippedFaces().isEmpty()) {
-							fprintf(file, "o flipped_faces\n");
-							for (uint32_t f = 0; f < chart->paramFlippedFaces().size(); f++)
-								mesh->writeObjFace(file, chart->paramFlippedFaces()[f]);
-						}
-						mesh->writeObjBoundaryEges(file);
-						mesh->writeObjLinkedBoundaries(file);
-						fclose(file);
-					}
-#endif
-				}
-				chartIndex++;
-			}
-		}
-	}
-	if (invalidParamCount > 0)
-		XA_PRINT_WARNING("   %u charts with invalid parameterizations\n", invalidParamCount);
-	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", parameterizeChartsReal)
-	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", parameterizeChartsThread)
-	XA_PROFILE_PRINT_AND_RESET("      Create chart mesh: ", createChartMesh)
-	XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
-	XA_PROFILE_PRINT_AND_RESET("         Close holes: ", closeChartMeshHoles)
-	XA_PROFILE_PRINT_AND_RESET("      Orthogonal: ", parameterizeChartsOrthogonal)
-	XA_PROFILE_PRINT_AND_RESET("      LSCM: ", parameterizeChartsLSCM)
-	XA_PROFILE_PRINT_AND_RESET("      Recompute: ", parameterizeChartsRecompute)
-	XA_PROFILE_PRINT_AND_RESET("         Piecewise: ", parameterizeChartsPiecewise)
-	XA_PROFILE_PRINT_AND_RESET("            Boundary intersection: ", parameterizeChartsPiecewiseBoundaryIntersection)
-	XA_PROFILE_PRINT_AND_RESET("      Evaluate quality: ", parameterizeChartsEvaluateQuality)
-#if XA_PROFILE_ALLOC
-	XA_PROFILE_PRINT_AND_RESET("   Alloc: ", alloc)
-#endif
-	XA_PRINT_MEM_USAGE
-}
-
 void PackCharts(Atlas *atlas, PackOptions packOptions)
 {
 	// Validate arguments and context state.
@@ -10122,12 +10101,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		return;
 	}
 	if (ctx->uvMeshInstances.isEmpty()) {
-		if (!ctx->paramAtlas.chartsComputed()) {
+		if (!ctx->paramAtlas.chartsComputed() || !ctx->paramAtlas.chartsParameterized()) {
 			XA_PRINT_WARNING("PackCharts: ComputeCharts must be called first.\n");
-			return;
-		}
-		if (!ctx->paramAtlas.chartsParameterized()) {
-			XA_PRINT_WARNING("PackCharts: ParameterizeCharts must be called first.\n");
 			return;
 		}
 	} else if (!ctx->uvMeshChartsComputed) {
@@ -10393,7 +10368,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	XA_PRINT_MEM_USAGE
 }
 
-void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeOptions parameterizeOptions, PackOptions packOptions)
+void Generate(Atlas *atlas, ChartOptions chartOptions, PackOptions packOptions)
 {
 	if (!atlas) {
 		XA_PRINT_WARNING("Generate: atlas is null.\n");
@@ -10405,8 +10380,6 @@ void Generate(Atlas *atlas, ChartOptions chartOptions, ParameterizeOptions param
 		return;
 	}
 	ComputeCharts(atlas, chartOptions);
-	if (ctx->uvMeshInstances.isEmpty())
-		ParameterizeCharts(atlas, parameterizeOptions);
 	PackCharts(atlas, packOptions);
 }
 

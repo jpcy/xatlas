@@ -168,6 +168,9 @@ struct UvMeshDecl
 
 AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl);
 
+// Custom parameterization function. texcoords initial values are an orthogonal parameterization.
+typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount);
+
 struct ChartOptions
 {
 	float maxChartArea = 0.0f; // Don't grow charts to be larger than this. 0 means no limit.
@@ -182,23 +185,14 @@ struct ChartOptions
 
 	float maxCost = 2.0f; // If total of all metrics * weights > maxCost, don't grow chart. Lower values result in more charts.
 	uint32_t maxIterations = 1; // Number of iterations of the chart growing and seeding phases. Higher values result in better charts.
-};
 
-// Call after all AddMesh calls. Can be called multiple times to recompute charts with different options.
-void ComputeCharts(Atlas *atlas, ChartOptions options = ChartOptions());
-
-// Custom parameterization function. texcoords initial values are an orthogonal parameterization.
-typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount);
-
-struct ParameterizeOptions
-{
-	ParameterizeFunc func = nullptr;
+	ParameterizeFunc paramFunc = nullptr;
 	bool closeHoles = false; // If the custom parameterization function works with multiple boundaries, this can be set to false to improve performance.
 	bool fixTJunctions = true; // If meshes don't have T-junctions, this can be set to false to improve performance.
 };
 
-// Call after ComputeCharts. Can be called multiple times to re-parameterize charts with a different ParameterizeFunc.
-void ParameterizeCharts(Atlas *atlas, ParameterizeOptions options = ParameterizeOptions());
+// Call after all AddMesh calls. Can be called multiple times to recompute charts with different options.
+void ComputeCharts(Atlas *atlas, ChartOptions options = ChartOptions());
 
 struct PackOptions
 {
@@ -231,11 +225,11 @@ struct PackOptions
 	uint32_t resolution = 0;
 };
 
-// Call after ParameterizeCharts. Can be called multiple times to re-pack charts with different options.
+// Call after ComputeCharts. Can be called multiple times to re-pack charts with different options.
 void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions());
 
-// Equivalent to calling ComputeCharts, ParameterizeCharts and PackCharts in sequence. Can be called multiple times to regenerate with different options.
-void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), ParameterizeOptions parameterizeOptions = ParameterizeOptions(), PackOptions packOptions = PackOptions());
+// Equivalent to calling ComputeCharts and PackCharts in sequence. Can be called multiple times to regenerate with different options.
+void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), PackOptions packOptions = PackOptions());
 
 // Progress tracking.
 struct ProgressCategory
