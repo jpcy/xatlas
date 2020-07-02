@@ -2,9 +2,9 @@
 
 [![Appveyor CI Build Status](https://ci.appveyor.com/api/projects/status/github/jpcy/xatlas?branch=master&svg=true)](https://ci.appveyor.com/project/jpcy/xatlas) [![Travis CI Build Status](https://travis-ci.org/jpcy/xatlas.svg?branch=master)](https://travis-ci.org/jpcy/xatlas) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A cleaned up version of [thekla_atlas](https://github.com/Thekla/thekla_atlas).
+xatlas is a small C++11 library with no external dependencies that generates unique texture coordinates suitable for baking lightmaps or texture painting.
 
-Mesh charting, parameterization and atlas packing. Suitable for generating unique texture coordinates for baking lightmaps.
+It is an independent fork of [thekla_atlas](https://github.com/Thekla/thekla_atlas), used by [The Witness](https://en.wikipedia.org/wiki/The_Witness_(2016_video_game)).
 
 ## Screenshots
 
@@ -18,14 +18,6 @@ Mesh charting, parameterization and atlas packing. Suitable for generating uniqu
 
 #### [Graphite/Geogram](http://alice.loria.fr/index.php?option=com_content&view=article&id=22)
 ![Graphite/Geogram](https://user-images.githubusercontent.com/19478253/69903392-c0deb900-1398-11ea-8a52-c211bc7803a9.gif)
-
-## Changes from thekla_atlas
-* Smaller code size - from about 18 KLOC to 10 KLOC
-* Easier to integrate and build - a single source/header file pair instead of around 120 files and 10 directories.
-* Atlas resolution option for outputting multiple atlases.
-* Flexible data description API for input meshes.
-* Better tolerance of bad input geometry. Zero length edges and zero area faces are ignored.
-* Support for packing multiple atlases/parameterizations into a single atlas.
 
 ## How to use
 
@@ -45,9 +37,8 @@ Cleanup with `xatlas::Destroy`.
 
 Instead of calling `xatlas::Generate`, the following functions can be called in sequence:
 
-1. `xatlas::ComputeCharts`: meshes are segmented into charts.
-2. `xatlas::ParameterizeCharts`: charts are flattened into 2D parameterizations.
-3. `xatlas::PackCharts`: charts are packed into one or more atlases.
+1. `xatlas::ComputeCharts`: meshes are segmented into charts and parameterized.
+2. `xatlas::PackCharts`: charts are packed into one or more atlases.
 
 All of these functions take a progress callback. Return false to cancel.
 
