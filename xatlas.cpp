@@ -119,6 +119,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION 0
 #define XA_FIX_INTERNAL_BOUNDARY_LOOPS 1
 #define XA_PRINT_CHART_WARNINGS 0
+#define XA_USE_ORIGINAL_UV_CHARTS 0
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
@@ -191,6 +192,7 @@ struct ProfileData
 	std::atomic<clock_t> buildAtlas;
 	std::atomic<clock_t> buildAtlasInit;
 	std::atomic<clock_t> planarCharts;
+	std::atomic<clock_t> originalUvCharts;
 	std::atomic<clock_t> clusteredCharts;
 	std::atomic<clock_t> clusteredChartsPlaceSeeds;
 	std::atomic<clock_t> clusteredChartsPlaceSeedsBoundaryIntersection;
@@ -5569,6 +5571,7 @@ struct AtlasData
 	Array<float> edgeDihedralAngles;
 	Array<float> edgeLengths;
 	Array<float> faceAreas;
+	Array<float> faceUvAreas;
 	Array<Vector3> faceNormals;
 	BitArray isFaceInChart;
 
@@ -5581,6 +5584,9 @@ struct AtlasData
 		edgeDihedralAngles.resize(edgeCount);
 		edgeLengths.resize(edgeCount);
 		faceAreas.resize(faceCount);
+#if XA_USE_ORIGINAL_UV_CHARTS
+		faceUvAreas.resize(faceCount);
+#endif
 		faceNormals.resize(faceCount);
 		isFaceInChart.resize(faceCount);
 		isFaceInChart.zeroOutMemory();
@@ -5594,6 +5600,9 @@ struct AtlasData
 			}
 			faceAreas[f] = mesh->computeFaceArea(f);
 			XA_DEBUG_ASSERT(faceAreas[f] > 0.0f);
+#if XA_USE_ORIGINAL_UV_CHARTS
+			faceUvAreas[f] = mesh->computeFaceParametricArea(f);
+#endif
 			faceNormals[f] = mesh->computeFaceNormal(f);
 		}
 		for (uint32_t face = 0; face < faceCount; face++) {
@@ -5609,6 +5618,97 @@ struct AtlasData
 			}
 		}
 	}
+};
+
+// If MeshDecl::vertexUvData is set on input meshes, find charts by floodfilling faces in world/model space without crossing UV seams.
+struct OriginalUvCharts
+{
+	OriginalUvCharts(AtlasData &data) : m_data(data) {}
+	uint32_t chartCount() const { return m_charts.size(); }
+	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartBasis[chartIndex]; }
+
+	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const
+	{
+		const Chart &chart = m_charts[chartIndex];
+		return ConstArrayView<uint32_t>(&m_chartFaces[chart.firstFace], chart.faceCount);
+	}
+
+	void compute()
+	{
+		m_charts.clear();
+		m_chartFaces.clear();
+		const Mesh *mesh = m_data.mesh;
+		const uint32_t faceCount = mesh->faceCount();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			if (m_data.isFaceInChart.get(f))
+				continue;
+			if (m_data.faceUvAreas[f] <= 0.0f)
+				continue; // Face must have valid UVs.
+						  // Found an unassigned face, create a new chart.
+			Chart chart;
+			chart.firstFace = m_chartFaces.size();
+			chart.faceCount = 1;
+			m_chartFaces.push_back(f);
+			m_data.isFaceInChart.set(f);
+			floodfillFaces(chart);
+			m_charts.push_back(chart);
+		}
+		// Compute basis for each chart.
+		m_chartBasis.resize(m_charts.size());
+		for (uint32_t c = 0; c < m_charts.size(); c++)
+		{
+			const Chart &chart = m_charts[c];
+			m_tempPoints.resize(chart.faceCount * 3);
+			for (uint32_t f = 0; f < chart.faceCount; f++) {
+				const uint32_t face = m_chartFaces[chart.firstFace + f];
+				for (uint32_t i = 0; i < 3; i++)
+					m_tempPoints[f * 3 + i] = m_data.mesh->position(m_data.mesh->vertexAt(face * 3 + i));
+			}
+			Fit::computeBasis(m_tempPoints.data(), m_tempPoints.size(), &m_chartBasis[c]);
+		}
+	}
+
+private:
+	struct Chart
+	{
+		uint32_t firstFace, faceCount;
+	};
+
+	void floodfillFaces(Chart &chart)
+	{
+		for (;;) {
+			bool newFaceAdded = false;
+			const uint32_t faceCount = chart.faceCount;
+			for (uint32_t f = 0; f < faceCount; f++) {
+				const uint32_t sourceFace = m_chartFaces[chart.firstFace + f];
+				for (Mesh::FaceEdgeIterator edgeIt(m_data.mesh, sourceFace); !edgeIt.isDone(); edgeIt.advance()) {
+					const uint32_t face = edgeIt.oppositeFace();
+					if (face == UINT32_MAX)
+						continue; // Boundary edge.
+					if (m_data.isFaceInChart.get(face))
+						continue; // Already assigned to a chart.
+					const Vector2 &uv0 = m_data.mesh->texcoord(edgeIt.vertex0());
+					const Vector2 &uv1 = m_data.mesh->texcoord(edgeIt.vertex1());
+					const Vector2 &ouv0 = m_data.mesh->texcoord(m_data.mesh->vertexAt(meshEdgeIndex0(edgeIt.oppositeEdge())));
+					const Vector2 &ouv1 = m_data.mesh->texcoord(m_data.mesh->vertexAt(meshEdgeIndex1(edgeIt.oppositeEdge())));
+					if (uv0 != ouv1 || uv1 != ouv0)
+						continue; // UVs must match exactly.
+					m_chartFaces.push_back(face);
+					chart.faceCount++;
+					m_data.isFaceInChart.set(face);
+					newFaceAdded = true;
+				}
+			}
+			if (!newFaceAdded)
+				break;
+		}
+	}
+
+	AtlasData &m_data;
+	Array<Chart> m_charts;
+	Array<Basis> m_chartBasis;
+	Array<uint32_t> m_chartFaces;
+	Array<Vector3> m_tempPoints;
 };
 
 #if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
@@ -5649,6 +5749,8 @@ struct PlanarCharts
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_nextRegionFace[f] != f)
 				continue; // Already assigned.
+			if (m_data.isFaceInChart.get(f))
+				continue; // Already in a chart.
 			faceStack.clear();
 			faceStack.push_back(f);
 			for (;;) {
@@ -5663,6 +5765,8 @@ struct PlanarCharts
 						continue;
 					if (m_nextRegionFace[oface] != oface)
 						continue; // Already assigned.
+					if (m_data.isFaceInChart.get(oface))
+						continue; // Already in a chart.
 					if (!equal(dot(m_data.faceNormals[face], m_data.faceNormals[oface]), 1.0f, kEpsilon))
 						continue; // Not coplanar.
 					const uint32_t next = m_nextRegionFace[face];
@@ -5700,8 +5804,11 @@ struct PlanarCharts
 		// Precompute planar region areas.
 		m_regionAreas.resize(regionCount);
 		m_regionAreas.zeroOutMemory();
-		for (uint32_t f = 0; f < faceCount; f++)
+		for (uint32_t f = 0; f < faceCount; f++) {
+			if (m_faceToRegionId[f] == UINT32_MAX)
+				continue;
 			m_regionAreas[m_faceToRegionId[f]] += m_data.faceAreas[f];
+		}
 		// Create charts from suitable planar regions.
 		// The dihedral angle of all boundary edges must be >= 90 degrees.
 		m_charts.clear();
@@ -6569,15 +6676,18 @@ private:
 
 struct Atlas
 {
-	Atlas() : m_planarCharts(m_data), m_clusteredCharts(m_data, m_planarCharts) {}
+	Atlas() : m_originalUvCharts(m_data), m_planarCharts(m_data), m_clusteredCharts(m_data, m_planarCharts) {}
 
 	uint32_t chartCount() const
 	{
-		return m_planarCharts.chartCount() + m_clusteredCharts.chartCount();
+		return m_originalUvCharts.chartCount() + m_planarCharts.chartCount() + m_clusteredCharts.chartCount();
 	}
 
 	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const
 	{
+		if (chartIndex < m_originalUvCharts.chartCount())
+			return m_originalUvCharts.chartFaces(chartIndex);
+		chartIndex -= m_originalUvCharts.chartCount();
 		if (chartIndex < m_planarCharts.chartCount())
 			return m_planarCharts.chartFaces(chartIndex);
 		chartIndex -= m_planarCharts.chartCount();
@@ -6586,6 +6696,9 @@ struct Atlas
 
 	const Basis &chartBasis(uint32_t chartIndex) const
 	{
+		if (chartIndex < m_originalUvCharts.chartCount())
+			return m_originalUvCharts.chartBasis(chartIndex);
+		chartIndex -= m_originalUvCharts.chartCount();
 		if (chartIndex < m_planarCharts.chartCount())
 			return m_planarCharts.chartBasis(chartIndex);
 		chartIndex -= m_planarCharts.chartCount();
@@ -6603,6 +6716,11 @@ struct Atlas
 
 	void compute()
 	{
+#if XA_USE_ORIGINAL_UV_CHARTS
+		XA_PROFILE_START(originalUvCharts)
+		m_originalUvCharts.compute();
+		XA_PROFILE_END(originalUvCharts)
+#endif
 		XA_PROFILE_START(planarCharts)
 		m_planarCharts.compute();
 		XA_PROFILE_END(planarCharts)
@@ -6613,6 +6731,7 @@ struct Atlas
 
 private:
 	AtlasData m_data;
+	OriginalUvCharts m_originalUvCharts;
 	PlanarCharts m_planarCharts;
 	ClusteredCharts m_clusteredCharts;
 };
@@ -9931,6 +10050,9 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		XA_PROFILE_PRINT_AND_RESET("         Build atlas: ", buildAtlas)
 		XA_PROFILE_PRINT_AND_RESET("            Init: ", buildAtlasInit)
 		XA_PROFILE_PRINT_AND_RESET("            Planar charts: ", planarCharts)
+#if XA_USE_ORIGINAL_UV_CHARTS
+		XA_PROFILE_PRINT_AND_RESET("            Original UV charts: ", originalUvCharts)
+#endif
 		XA_PROFILE_PRINT_AND_RESET("            Clustered charts: ", clusteredCharts)
 		XA_PROFILE_PRINT_AND_RESET("               Place seeds: ", clusteredChartsPlaceSeeds)
 		XA_PROFILE_PRINT_AND_RESET("                  Boundary intersection: ", clusteredChartsPlaceSeedsBoundaryIntersection)
