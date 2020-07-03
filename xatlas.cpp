@@ -7734,7 +7734,6 @@ public:
 			m_type = ChartType::Planar;
 			return;
 		}
-		m_unifiedMesh->linkBoundaries();
 #if XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
 		m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
 #endif
@@ -7751,12 +7750,12 @@ public:
 				m_unmodifiedUnifiedMesh = m_unifiedMesh;
 				m_unifiedMesh = fixedUnifiedMesh;
 				m_unifiedMesh->createBoundaries();
-				m_unifiedMesh->linkBoundaries();
 				m_initialFaceCount = m_unifiedMesh->faceCount(); // Fixing t-junctions rewrites faces.
 			}
 		}
 		if (options.closeHoles) {
 			// See if there are any holes that need closing.
+			m_unifiedMesh->linkBoundaries(); // meshGetBoundaryLoops needs linked boundaries.
 			Array<uint32_t> &boundaryLoops = buffers.boundaryLoops;
 			meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 			if (boundaryLoops.size() > 1) {
@@ -7778,7 +7777,7 @@ public:
 #endif
 				XA_PROFILE_END(closeChartMeshHoles)
 				m_unifiedMesh->createBoundaries();
-				m_unifiedMesh->linkBoundaries();
+				m_unifiedMesh->linkBoundaries(); // meshGetBoundaryLoops needs linked boundaries.
 				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
 				if (failed || boundaryLoops.size() > 1)
 					m_warningFlags |= ChartWarningFlags::CloseHolesFailed;
