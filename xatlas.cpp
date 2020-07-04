@@ -59,7 +59,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_PROFILE 0
 #endif
 #if XA_PROFILE
-#include <time.h>
+#include <chrono>
 #endif
 
 #ifndef XA_MULTITHREADED
@@ -166,75 +166,78 @@ static PrintFunc s_print = printf;
 static bool s_printVerbose = false;
 
 #if XA_PROFILE
-#define XA_PROFILE_START(var) const clock_t var##Start = clock();
-#define XA_PROFILE_END(var) internal::s_profile.var += clock() - var##Start;
-#define XA_PROFILE_PRINT_AND_RESET(label, var) XA_PRINT("%s%.2f seconds (%g ms)\n", label, internal::clockToSeconds(internal::s_profile.var), internal::clockToMs(internal::s_profile.var)); internal::s_profile.var = 0;
+typedef uint64_t Duration;
+
+#define XA_PROFILE_START(var) const std::chrono::time_point<std::chrono::high_resolution_clock> var##Start = std::chrono::high_resolution_clock::now();
+#define XA_PROFILE_END(var) internal::s_profile.var += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - var##Start).count());
+#define XA_PROFILE_PRINT_AND_RESET(label, var) XA_PRINT("%s%.2f seconds (%g ms)\n", label, internal::durationToSeconds(internal::s_profile.var), internal::durationToMs(internal::s_profile.var)); internal::s_profile.var = 0u;
 #define XA_PROFILE_ALLOC 0
 
 struct ProfileData
 {
 #if XA_PROFILE_ALLOC
-	std::atomic<clock_t> alloc;
+	std::atomic<Duration> alloc;
 #endif
-	clock_t addMeshReal;
-	clock_t addMeshCopyData;
-	std::atomic<clock_t> addMeshThread;
-	std::atomic<clock_t> addMeshCreateColocals;
-	clock_t computeChartsReal;
-	std::atomic<clock_t> computeChartsThread;
-	std::atomic<clock_t> createFaceGroups;
-	std::atomic<clock_t> extractInvalidMeshGeometry;
-	std::atomic<clock_t> chartGroupComputeChartsReal;
-	std::atomic<clock_t> chartGroupComputeChartsThread;
-	std::atomic<clock_t> createChartGroupMesh;
-	std::atomic<clock_t> createChartGroupMeshColocals;
-	std::atomic<clock_t> createChartGroupMeshBoundaries;
-	std::atomic<clock_t> buildAtlas;
-	std::atomic<clock_t> buildAtlasInit;
-	std::atomic<clock_t> planarCharts;
-	std::atomic<clock_t> originalUvCharts;
-	std::atomic<clock_t> clusteredCharts;
-	std::atomic<clock_t> clusteredChartsPlaceSeeds;
-	std::atomic<clock_t> clusteredChartsPlaceSeedsBoundaryIntersection;
-	std::atomic<clock_t> clusteredChartsRelocateSeeds;
-	std::atomic<clock_t> clusteredChartsReset;
-	std::atomic<clock_t> clusteredChartsGrow;
-	std::atomic<clock_t> clusteredChartsGrowBoundaryIntersection;
-	std::atomic<clock_t> clusteredChartsMerge;
-	std::atomic<clock_t> clusteredChartsFillHoles;
-	std::atomic<clock_t> copyChartFaces;
-	clock_t parameterizeChartsReal;
-	std::atomic<clock_t> parameterizeChartsThread;
-	std::atomic<clock_t> createChartMesh;
-	std::atomic<clock_t> fixChartMeshTJunctions;
-	std::atomic<clock_t> closeChartMeshHoles;
-	std::atomic<clock_t> parameterizeChartsOrthogonal;
-	std::atomic<clock_t> parameterizeChartsLSCM;
-	std::atomic<clock_t> parameterizeChartsRecompute;
-	std::atomic<clock_t> parameterizeChartsPiecewise;
-	std::atomic<clock_t> parameterizeChartsPiecewiseBoundaryIntersection;
-	std::atomic<clock_t> parameterizeChartsEvaluateQuality;
-	clock_t packCharts;
-	clock_t packChartsAddCharts;
-	std::atomic<clock_t> packChartsAddChartsThread;
-	std::atomic<clock_t> packChartsAddChartsRestoreTexcoords;
-	clock_t packChartsRasterize;
-	clock_t packChartsDilate;
-	clock_t packChartsFindLocation;
-	clock_t packChartsBlit;
-	clock_t buildOutputMeshes;
+	std::chrono::time_point<std::chrono::high_resolution_clock> addMeshRealStart;
+	Duration addMeshReal;
+	Duration addMeshCopyData;
+	std::atomic<Duration> addMeshThread;
+	std::atomic<Duration> addMeshCreateColocals;
+	Duration computeChartsReal;
+	std::atomic<Duration> computeChartsThread;
+	std::atomic<Duration> createFaceGroups;
+	std::atomic<Duration> extractInvalidMeshGeometry;
+	std::atomic<Duration> chartGroupComputeChartsReal;
+	std::atomic<Duration> chartGroupComputeChartsThread;
+	std::atomic<Duration> createChartGroupMesh;
+	std::atomic<Duration> createChartGroupMeshColocals;
+	std::atomic<Duration> createChartGroupMeshBoundaries;
+	std::atomic<Duration> buildAtlas;
+	std::atomic<Duration> buildAtlasInit;
+	std::atomic<Duration> planarCharts;
+	std::atomic<Duration> originalUvCharts;
+	std::atomic<Duration> clusteredCharts;
+	std::atomic<Duration> clusteredChartsPlaceSeeds;
+	std::atomic<Duration> clusteredChartsPlaceSeedsBoundaryIntersection;
+	std::atomic<Duration> clusteredChartsRelocateSeeds;
+	std::atomic<Duration> clusteredChartsReset;
+	std::atomic<Duration> clusteredChartsGrow;
+	std::atomic<Duration> clusteredChartsGrowBoundaryIntersection;
+	std::atomic<Duration> clusteredChartsMerge;
+	std::atomic<Duration> clusteredChartsFillHoles;
+	std::atomic<Duration> copyChartFaces;
+	Duration parameterizeChartsReal;
+	std::atomic<Duration> parameterizeChartsThread;
+	std::atomic<Duration> createChartMesh;
+	std::atomic<Duration> fixChartMeshTJunctions;
+	std::atomic<Duration> closeChartMeshHoles;
+	std::atomic<Duration> parameterizeChartsOrthogonal;
+	std::atomic<Duration> parameterizeChartsLSCM;
+	std::atomic<Duration> parameterizeChartsRecompute;
+	std::atomic<Duration> parameterizeChartsPiecewise;
+	std::atomic<Duration> parameterizeChartsPiecewiseBoundaryIntersection;
+	std::atomic<Duration> parameterizeChartsEvaluateQuality;
+	Duration packCharts;
+	Duration packChartsAddCharts;
+	std::atomic<Duration> packChartsAddChartsThread;
+	std::atomic<Duration> packChartsAddChartsRestoreTexcoords;
+	Duration packChartsRasterize;
+	Duration packChartsDilate;
+	Duration packChartsFindLocation;
+	Duration packChartsBlit;
+	Duration buildOutputMeshes;
 };
 
 static ProfileData s_profile;
 
-static double clockToMs(clock_t c)
+static double durationToMs(Duration c)
 {
-	return c * 1000.0 / CLOCKS_PER_SEC;
+	return (double)c * 0.001;
 }
 
-static double clockToSeconds(clock_t c)
+static double durationToSeconds(Duration c)
 {
-	return c / (double)CLOCKS_PER_SEC;
+	return (double)c * 0.000001;
 }
 #else
 #define XA_PROFILE_START(var)
@@ -8415,9 +8418,11 @@ static void runMeshComputeChartFacesJob(void *userData)
 	for (uint32_t i = 0; i < chartGroupCount; i++)
 		(*args->chartGroups)[i] = XA_NEW_ARGS(MemTag::Default, ChartGroup, i, args->sourceMesh, meshFaceGroups, MeshFaceGroups::Handle(i));
 	// Extract invalid geometry via the invalid face group (MeshFaceGroups::kInvalid).
-	XA_PROFILE_START(extractInvalidMeshGeometry)
-	args->invalidMeshGeometry->extract(args->sourceMesh, meshFaceGroups);
-	XA_PROFILE_END(extractInvalidMeshGeometry)
+	{
+		XA_PROFILE_START(extractInvalidMeshGeometry)
+		args->invalidMeshGeometry->extract(args->sourceMesh, meshFaceGroups);
+		XA_PROFILE_END(extractInvalidMeshGeometry)
+	}
 	// One task for each chart group - compute chart faces.
 	{
 		XA_PROFILE_START(chartGroupComputeChartsReal)
@@ -9687,7 +9692,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	}
 #if XA_PROFILE
 	if (ctx->meshes.isEmpty())
-		internal::s_profile.addMeshReal = clock();
+		internal::s_profile.addMeshRealStart = std::chrono::high_resolution_clock::now();
 #endif
 	// Don't know how many times AddMesh will be called, so progress needs to adjusted each time.
 	if (!ctx->addMeshProgress) {
@@ -9835,7 +9840,7 @@ void AddMeshJoin(Atlas *atlas)
 	ctx->addMeshProgress = nullptr;
 #if XA_PROFILE
 	XA_PRINT("Added %u meshes\n", ctx->meshes.size());
-	internal::s_profile.addMeshReal = clock() - internal::s_profile.addMeshReal;
+	internal::s_profile.addMeshReal = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - internal::s_profile.addMeshRealStart).count());
 #endif
 	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", addMeshReal)
 	XA_PROFILE_PRINT_AND_RESET("      Copy data: ", addMeshCopyData)
