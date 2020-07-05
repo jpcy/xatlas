@@ -205,6 +205,7 @@ int main(int argc, char *argv[])
 		for (int s = 0; s < (int)shapes.size(); s++) {
 			tinyobj::mesh_t &objMesh = shapes[s].mesh;
 			xatlas::UvMeshDecl meshDecl;
+			meshDecl.faceMaterialData = (const uint32_t *)objMesh.material_ids.data();
 			meshDecl.vertexCount = (int)objMesh.texcoords.size() / 2;
 			meshDecl.vertexUvData = objMesh.texcoords.data();
 			meshDecl.vertexStride = sizeof(float) * 2;

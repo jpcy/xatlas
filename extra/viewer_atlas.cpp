@@ -412,6 +412,7 @@ static void atlasGenerateThread()
 		s_atlas.data = xatlas::Create();
 		xatlas::SetProgressCallback(s_atlas.data, atlasProgressCallback);
 		std::vector<uint8_t> ignoreFaces; // Should be bool, workaround stupid C++ specialization.
+		std::vector<uint32_t> faceMaterials;
 		for (uint32_t i = 0; i < model->numObjects; i++) {
 			const objzObject &object = model->objects[i];
 			auto v = &((const ModelVertex *)model->vertices)[object.firstVertex];
@@ -429,7 +430,15 @@ static void atlasGenerateThread()
 			xatlas::AddMeshError::Enum error;
 			if (s_atlas.useUvMesh)
 			{
+				// Set face materials so charts are detected correctly with overlapping UVs.
+				faceMaterials.resize(object.numIndices / 3);
+				for (uint32_t j = 0; j < object.numMeshes; j++) {
+					const objzMesh &mesh = model->meshes[object.firstMesh + j];
+					for (uint32_t k = 0; k < mesh.numIndices / 3; k++)
+						faceMaterials[(mesh.firstIndex - object.firstIndex) / 3 + k] = (uint32_t)mesh.materialIndex;
+				}
 				xatlas::UvMeshDecl meshDecl;
+				meshDecl.faceMaterialData = faceMaterials.data();
 				meshDecl.vertexCount = object.numVertices;
 				meshDecl.vertexUvData = &v->texcoord;
 				meshDecl.vertexStride = sizeof(ModelVertex);

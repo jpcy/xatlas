@@ -4435,6 +4435,7 @@ struct UvMeshChart
 struct UvMesh
 {
 	UvMeshDecl decl;
+	Array<uint32_t> faceMaterials;
 	Array<uint32_t> indices;
 	Array<UvMeshChart *> charts;
 	Array<uint32_t> vertexToChartMap;
@@ -6761,7 +6762,7 @@ static void runComputeUvMeshChartsTask(void *userData)
 			continue;
 		// Found an unassigned face, create a new chart.
 		internal::UvMeshChart *chart = XA_NEW(internal::MemTag::Default, internal::UvMeshChart);
-		chart->material = mesh->decl.faceMaterialData ? mesh->decl.faceMaterialData[f] : 0;
+		chart->material = mesh->faceMaterials.isEmpty() ? 0 : mesh->faceMaterials[f];
 		// Walk incident faces and assign them to the chart.
 		faceAssigned.set(f);
 		chart->faces.push_back(f);
@@ -6775,8 +6776,8 @@ static void runComputeUvMeshChartsTask(void *userData)
 					uint32_t mapIndex = vertexToFaceMap.get(texcoord);
 					while (mapIndex != UINT32_MAX) {
 						const uint32_t face2 = mapIndex / 3; // 3 vertices added per face.
-															 // Materials must match.
-						if (!faceAssigned.get(face2) && (!mesh->decl.faceMaterialData || mesh->decl.faceMaterialData[face] == mesh->decl.faceMaterialData[face2])) {
+						// Materials must match.
+						if (!faceAssigned.get(face2) && (mesh->faceMaterials.isEmpty() || mesh->faceMaterials[face] == mesh->faceMaterials[face2])) {
 							faceAssigned.set(face2);
 							chart->faces.push_back(face2);
 							newFaceAssigned = true;
@@ -9886,6 +9887,10 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		// Copy geometry to mesh.
 		mesh = XA_NEW(internal::MemTag::Default, internal::UvMesh);
 		mesh->decl = decl;
+		if (decl.faceMaterialData) {
+			mesh->faceMaterials.resize(decl.indexCount / 3);
+			memcpy(mesh->faceMaterials.data(), decl.faceMaterialData, mesh->faceMaterials.size() * sizeof(uint32_t));
+		}
 		mesh->indices.resize(decl.indexCount);
 		for (uint32_t i = 0; i < indexCount; i++)
 			mesh->indices[i] = hasIndices ? DecodeIndex(decl.indexFormat, decl.indexData, decl.indexOffset, i) : i;
