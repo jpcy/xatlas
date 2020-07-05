@@ -431,10 +431,8 @@ static void atlasGenerateThread()
 			{
 				xatlas::UvMeshDecl meshDecl;
 				meshDecl.vertexCount = object.numVertices;
-				meshDecl.vertexPositionData = &v->pos;
-				meshDecl.vertexPositionStride = sizeof(ModelVertex);
 				meshDecl.vertexUvData = &v->texcoord;
-				meshDecl.vertexUvStride = sizeof(ModelVertex);
+				meshDecl.vertexStride = sizeof(ModelVertex);
 				meshDecl.indexCount = object.numIndices;
 				meshDecl.indexData = &((uint32_t *)model->indices)[object.firstIndex];
 				meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
