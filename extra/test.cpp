@@ -28,6 +28,7 @@ SOFTWARE.
 #include <assert.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 #include <time.h>
 
 #ifdef _MSC_VER
@@ -214,6 +215,7 @@ int main(int argc, char **argv)
 #ifdef _MSC_VER
 		processFilesRecursive(searchPath, useUvMesh);
 #else
+		useUvMesh = useUvMesh;
 		logf("not implemented\n");
 #endif
 	} else {
