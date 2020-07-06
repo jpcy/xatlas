@@ -9836,29 +9836,40 @@ void AddMeshJoin(Atlas *atlas)
 		return;
 	}
 	Context *ctx = (Context *)atlas;
-	if (!ctx->uvMeshes.isEmpty())
-		return; // No-op if using UV meshes.
-	if (!ctx->addMeshProgress)
-		return;
-	ctx->taskScheduler->wait(&ctx->addMeshTaskGroup);
-	ctx->addMeshProgress->~Progress();
-	XA_FREE(ctx->addMeshProgress);
-	ctx->addMeshProgress = nullptr;
+	if (!ctx->uvMeshes.isEmpty()) {
 #if XA_PROFILE
-	XA_PRINT("Added %u meshes\n", ctx->meshes.size());
-	internal::s_profile.addMeshReal = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - internal::s_profile.addMeshRealStart).count());
+		XA_PRINT("Added %u UV meshes\n", ctx->uvMeshes.size());
+		internal::s_profile.addMeshReal = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - internal::s_profile.addMeshRealStart).count());
 #endif
-	XA_PROFILE_PRINT_AND_RESET("   Total (real): ", addMeshReal)
-	XA_PROFILE_PRINT_AND_RESET("      Copy data: ", addMeshCopyData)
-	XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", addMeshThread)
-	XA_PROFILE_PRINT_AND_RESET("      Create colocals: ", addMeshCreateColocals)
+		XA_PROFILE_PRINT_AND_RESET("   Total: ", addMeshReal)
+		XA_PROFILE_PRINT_AND_RESET("      Copy data: ", addMeshCopyData)
 #if XA_PROFILE_ALLOC
-	XA_PROFILE_PRINT_AND_RESET("   Alloc: ", alloc)
+		XA_PROFILE_PRINT_AND_RESET("   Alloc: ", alloc)
 #endif
-	XA_PRINT_MEM_USAGE
+		XA_PRINT_MEM_USAGE
+	} else {
+		if (!ctx->addMeshProgress)
+			return;
+		ctx->taskScheduler->wait(&ctx->addMeshTaskGroup);
+		ctx->addMeshProgress->~Progress();
+		XA_FREE(ctx->addMeshProgress);
+		ctx->addMeshProgress = nullptr;
+#if XA_PROFILE
+		XA_PRINT("Added %u meshes\n", ctx->meshes.size());
+		internal::s_profile.addMeshReal = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - internal::s_profile.addMeshRealStart).count());
+#endif
+		XA_PROFILE_PRINT_AND_RESET("   Total (real): ", addMeshReal)
+		XA_PROFILE_PRINT_AND_RESET("      Copy data: ", addMeshCopyData)
+		XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", addMeshThread)
+		XA_PROFILE_PRINT_AND_RESET("      Create colocals: ", addMeshCreateColocals)
+#if XA_PROFILE_ALLOC
+		XA_PROFILE_PRINT_AND_RESET("   Alloc: ", alloc)
+#endif
+		XA_PRINT_MEM_USAGE
 #if XA_DEBUG_EXPORT_OBJ_FACE_GROUPS
-	internal::param::s_faceGroupsCurrentVertex = 0;
+		internal::param::s_faceGroupsCurrentVertex = 0;
 #endif
+	}
 }
 
 struct EdgeKey
@@ -9884,6 +9895,11 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		XA_PRINT_WARNING("AddUvMesh: Meshes and UV meshes cannot be added to the same atlas.\n");
 		return AddMeshError::Error;
 	}
+#if XA_PROFILE
+	if (ctx->uvMeshInstances.isEmpty())
+		internal::s_profile.addMeshRealStart = std::chrono::high_resolution_clock::now();
+#endif
+	XA_PROFILE_START(addMeshCopyData)
 	const bool hasIndices = decl.indexCount > 0;
 	const uint32_t indexCount = hasIndices ? decl.indexCount : decl.vertexCount;
 	XA_PRINT("Adding UV mesh %d: %u vertices, %u triangles\n", ctx->uvMeshes.size(), decl.vertexCount, indexCount / 3);
@@ -9966,6 +9982,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			XA_PRINT("   %u additional warnings truncated\n", warningCount - kMaxWarnings);
 	}
 	meshInstance->mesh = mesh;
+	XA_PROFILE_END(addMeshCopyData)
 	return AddMeshError::Success;
 }
 
