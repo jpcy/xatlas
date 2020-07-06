@@ -6853,7 +6853,6 @@ static bool computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *
 				break;
 			}
 		}
-		XA_ASSERT(args.texcoords.length > 0);
 		Task task;
 		task.userData = &args;
 		task.func = runComputeUvMeshChartsTask;

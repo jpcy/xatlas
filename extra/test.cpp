@@ -64,7 +64,7 @@ struct AtlasResult {
 	uint32_t chartCount;
 };
 
-bool generateAtlas(const char *filename, AtlasResult *result)
+bool generateAtlas(const char *filename, bool useUvMesh, AtlasResult *result)
 {
 	logf("%s\n", filename);
 	std::vector<tinyobj::shape_t> shapes;
@@ -82,26 +82,47 @@ bool generateAtlas(const char *filename, AtlasResult *result)
 	xatlas::Atlas *atlas = xatlas::Create();
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
-		xatlas::MeshDecl meshDecl;
-		meshDecl.vertexCount = (int)objMesh.positions.size() / 3;
-		meshDecl.vertexPositionData = objMesh.positions.data();
-		meshDecl.vertexPositionStride = sizeof(float) * 3;
-		if (!objMesh.normals.empty()) {
-			meshDecl.vertexNormalData = objMesh.normals.data();
-			meshDecl.vertexNormalStride = sizeof(float) * 3;
-		}
-		if (!objMesh.texcoords.empty()) {
-			meshDecl.vertexUvData = objMesh.texcoords.data();
-			meshDecl.vertexUvStride = sizeof(float) * 2;
-		}
-		meshDecl.indexCount = (int)objMesh.indices.size();
-		meshDecl.indexData = objMesh.indices.data();
-		meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
-		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, meshDecl);
-		if (error != xatlas::AddMeshError::Success) {
-			xatlas::Destroy(atlas);
-			logf("   [FAILED]: Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
-			return false;
+		if (useUvMesh) {
+			xatlas::UvMeshDecl decl;
+			if (!objMesh.texcoords.empty()) {
+				decl.vertexUvData = objMesh.texcoords.data();
+				decl.vertexCount = (int)objMesh.texcoords.size() / 2;
+				decl.vertexStride = sizeof(float) * 2;
+				decl.indexCount = (int)objMesh.indices.size();
+				decl.indexData = objMesh.indices.data();
+				decl.indexFormat = xatlas::IndexFormat::UInt32;
+				decl.faceMaterialData = (const uint32_t *)objMesh.material_ids.data();
+			} else {
+				logf("   Missing UVs\n");
+			}
+			xatlas::AddMeshError::Enum error = xatlas::AddUvMesh(atlas, decl);
+			if (error != xatlas::AddMeshError::Success) {
+				xatlas::Destroy(atlas);
+				logf("   [FAILED]: Error adding UV mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
+				return false;
+			}
+		} else {
+			xatlas::MeshDecl decl;
+			decl.vertexCount = (int)objMesh.positions.size() / 3;
+			decl.vertexPositionData = objMesh.positions.data();
+			decl.vertexPositionStride = sizeof(float) * 3;
+			if (!objMesh.normals.empty()) {
+				decl.vertexNormalData = objMesh.normals.data();
+				decl.vertexNormalStride = sizeof(float) * 3;
+			}
+			if (!objMesh.texcoords.empty()) {
+				decl.vertexUvData = objMesh.texcoords.data();
+				decl.vertexUvStride = sizeof(float) * 2;
+			}
+			decl.indexCount = (int)objMesh.indices.size();
+			decl.indexData = objMesh.indices.data();
+			decl.indexFormat = xatlas::IndexFormat::UInt32;
+			xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, decl);
+			if (error != xatlas::AddMeshError::Success) {
+				xatlas::Destroy(atlas);
+				logf("   [FAILED]: Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
+				return false;
+			}
 		}
 	}
 	xatlas::Generate(atlas);
@@ -110,14 +131,25 @@ bool generateAtlas(const char *filename, AtlasResult *result)
 	for (uint32_t i = 0; i < atlas->meshCount; i++) {
 		const xatlas::Mesh &mesh = atlas->meshes[i];
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
-		// Index count shouldn't change.
-		ASSERT(mesh.indexCount == objMesh.indices.size());
-		// Vertex count should be equal or greater.
-		ASSERT(mesh.vertexCount >= objMesh.positions.size() / 3);
-		// Index order should be preserved.
-		for (uint32_t j = 0; j < mesh.indexCount; j++) {
-			const xatlas::Vertex &vertex = mesh.vertexArray[mesh.indexArray[j]];
-			ASSERT(vertex.xref == objMesh.indices[j]);
+		if (useUvMesh) {
+			if (objMesh.texcoords.empty()) {
+				ASSERT(mesh.indexCount == 0);
+			} else {
+				// Index count shouldn't change.
+				ASSERT(mesh.indexCount == objMesh.indices.size());
+			}
+			// Vertex count shouldn't change.
+			ASSERT(mesh.vertexCount == objMesh.texcoords.size() / 2);
+		} else {
+			// Index count shouldn't change.
+			ASSERT(mesh.indexCount == objMesh.indices.size());
+			// Vertex count should be equal or greater.
+			ASSERT(mesh.vertexCount >= objMesh.positions.size() / 3);
+			// Index order should be preserved.
+			for (uint32_t j = 0; j < mesh.indexCount; j++) {
+				const xatlas::Vertex &vertex = mesh.vertexArray[mesh.indexArray[j]];
+				ASSERT(vertex.xref == objMesh.indices[j]);
+			}
 		}
 	}
 	if (result)
@@ -127,7 +159,7 @@ bool generateAtlas(const char *filename, AtlasResult *result)
 }
 
 #ifdef _MSC_VER
-void processFilesRecursive(const char *path)
+void processFilesRecursive(const char *path, bool useUvMesh)
 {
 	WIN32_FIND_DATAA ffd;
 	const char lastChar = path[strlen(path) - 1];
@@ -143,7 +175,7 @@ void processFilesRecursive(const char *path)
 			if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
 				char childPath[256];
 				sprintf_s(childPath, sizeof(childPath), "%s%s/", cleanPath, ffd.cFileName);
-				processFilesRecursive(childPath);
+				processFilesRecursive(childPath, useUvMesh);
 			} else {
 				const char *dot = strrchr(ffd.cFileName, (int)'.');
 				if (!dot)
@@ -152,7 +184,7 @@ void processFilesRecursive(const char *path)
 					continue;
 				char filename[256];
 				sprintf_s(filename, sizeof(filename), "%s%s", cleanPath, ffd.cFileName);
-				if (!generateAtlas(filename, nullptr))
+				if (!generateAtlas(filename, useUvMesh, nullptr))
 					exit(1);
 			}
 		}
@@ -172,34 +204,40 @@ int main(int argc, char **argv)
 #endif
 	xatlas::SetPrint(logf, false);
 	if (argc > 1) {
-		logf("Search path is '%s'\n", argv[1]);
+		const char *searchPath = argv[1];
+		bool useUvMesh = false;
+		if (argc > 2 && strncmp(argv[1], "--uv", 4) == 0) {
+			useUvMesh = true;
+			searchPath = argv[2];
+		}
+		logf("Search path is '%s'\n", searchPath);
 #ifdef _MSC_VER
-		processFilesRecursive(argv[1]);
+		processFilesRecursive(searchPath, useUvMesh);
 #else
 		logf("not implemented\n");
 #endif
 	} else {
 		AtlasResult result;
-		if (generateAtlas(MODEL_PATH "cube.obj", &result)) {
+		if (generateAtlas(MODEL_PATH "cube.obj", false, &result)) {
 			ASSERT(result.chartCount == 6);
 		}
-		if (generateAtlas(MODEL_PATH "degenerate_edge.obj", &result)) {
+		if (generateAtlas(MODEL_PATH "degenerate_edge.obj", false, &result)) {
 			ASSERT(result.chartCount == 1);
 		}
 		// double sided quad
-		if (generateAtlas(MODEL_PATH "double_sided.obj", &result)) {
+		if (generateAtlas(MODEL_PATH "double_sided.obj", false, &result)) {
 			ASSERT(result.chartCount == 2);
 		}
-		if (generateAtlas(MODEL_PATH "duplicate_edge.obj", &result)) {
+		if (generateAtlas(MODEL_PATH "duplicate_edge.obj", false, &result)) {
 			ASSERT(result.chartCount == 2);
 		}
-		if (generateAtlas(MODEL_PATH "gazebo.obj", &result)) {
+		if (generateAtlas(MODEL_PATH "gazebo.obj", false, &result)) {
 			ASSERT(result.chartCount == 333);
 		}
-		if (generateAtlas(MODEL_PATH "zero_area_face.obj", &result)) {
+		if (generateAtlas(MODEL_PATH "zero_area_face.obj", false, &result)) {
 			ASSERT(result.chartCount == 0);
 		}
-		if (generateAtlas(MODEL_PATH "zero_length_edge.obj", &result)) {
+		if (generateAtlas(MODEL_PATH "zero_length_edge.obj", false, &result)) {
 			ASSERT(result.chartCount == 1);
 		}
 	}
