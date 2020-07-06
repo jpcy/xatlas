@@ -4435,6 +4435,7 @@ struct UvMeshChart
 struct UvMesh
 {
 	UvMeshDecl decl;
+	BitArray faceIgnore;
 	Array<uint32_t> faceMaterials;
 	Array<uint32_t> indices;
 	Array<UvMeshChart *> charts;
@@ -6766,7 +6767,10 @@ static void runComputeUvMeshChartsTask(void *userData)
 	for (uint32_t f = 0; f < faceCount; f++) {
 		if (faceAssigned.get(f))
 			continue;
-		// Found an unassigned face, create a new chart.
+		// Found an unassigned face, skip if ignored.
+		if (mesh->faceIgnore.get(f))
+			continue;
+		// Valid, create a new chart.
 		const uint32_t chartIndex = mesh->charts.size();
 		internal::UvMeshChart *chart = XA_NEW(internal::MemTag::Default, internal::UvMeshChart);
 		chart->material = mesh->faceMaterials.isEmpty() ? 0 : mesh->faceMaterials[f];
@@ -6799,6 +6803,8 @@ static void runComputeUvMeshChartsTask(void *userData)
 							if (mesh->vertexToChartMap[vertex] != UINT32_MAX && mesh->vertexToChartMap[vertex] != chartIndex)
 								goto next; // One or more of the vertices are already assigned to another chart.
 						}
+						if (mesh->faceIgnore.get(newFace))
+							goto next; // Not a valid face.
 						// Assign face to chart.
 						faceAssigned.set(newFace);
 						chart->faces.push_back(newFace);
@@ -9893,6 +9899,14 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 				return AddMeshError::IndexOutOfRange;
 		}
 	}
+	// Create a mesh instance.
+	internal::UvMeshInstance *meshInstance = XA_NEW(internal::MemTag::Default, internal::UvMeshInstance);
+	meshInstance->mesh = nullptr;
+	meshInstance->texcoords.resize(decl.vertexCount);
+	for (uint32_t i = 0; i < decl.vertexCount; i++)
+		meshInstance->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
+	meshInstance->rotateCharts = decl.rotateCharts;
+	ctx->uvMeshInstances.push_back(meshInstance);
 	// See if this is an instance of an already existing mesh.
 	internal::UvMesh *mesh = nullptr;
 	for (uint32_t m = 0; m < ctx->uvMeshes.size(); m++) {
@@ -9905,6 +9919,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 	if (!mesh) {
 		// Copy geometry to mesh.
 		mesh = XA_NEW(internal::MemTag::Default, internal::UvMesh);
+		ctx->uvMeshes.push_back(mesh);
 		mesh->decl = decl;
 		if (decl.faceMaterialData) {
 			mesh->faceMaterials.resize(decl.indexCount / 3);
@@ -9913,21 +9928,45 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		mesh->indices.resize(decl.indexCount);
 		for (uint32_t i = 0; i < indexCount; i++)
 			mesh->indices[i] = hasIndices ? DecodeIndex(decl.indexFormat, decl.indexData, decl.indexOffset, i) : i;
-		ctx->uvMeshes.push_back(mesh);
+		// Validate.
+		mesh->faceIgnore.resize(decl.indexCount / 3);
+		mesh->faceIgnore.zeroOutMemory();
+		const uint32_t kMaxWarnings = 50;
+		uint32_t warningCount = 0;
+		for (uint32_t f = 0; f < indexCount / 3; f++) {
+			bool ignore = false;
+			uint32_t tri[3];
+			for (uint32_t i = 0; i < 3; i++)
+				tri[i] = mesh->indices[f * 3 + i];
+			// Check for nan UVs.
+			for (uint32_t i = 0; i < 3; i++) {
+				const uint32_t vertex = tri[i];
+				if (internal::isNan(meshInstance->texcoords[vertex].x) || internal::isNan(meshInstance->texcoords[vertex].y)) {
+					ignore = true;
+					if (++warningCount <= kMaxWarnings)
+						XA_PRINT("   NAN texture coordinate in vertex %u\n", vertex);
+					break;
+				}
+			}
+			// Check for zero area faces.
+			if (!ignore) {
+				const internal::Vector2 &v1 = meshInstance->texcoords[tri[0]];
+				const internal::Vector2 &v2 = meshInstance->texcoords[tri[1]];
+				const internal::Vector2 &v3 = meshInstance->texcoords[tri[2]];
+				const float area = fabsf(((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f);
+				if (area <= internal::kAreaEpsilon) {
+					ignore = true;
+					if (++warningCount <= kMaxWarnings)
+						XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", f, tri[0], tri[1], tri[2], area);
+				}
+			}
+			if (ignore)
+				mesh->faceIgnore.set(f);
+		}
+		if (warningCount > kMaxWarnings)
+			XA_PRINT("   %u additional warnings truncated\n", warningCount - kMaxWarnings);
 	}
-	// Create a mesh instance.
-	internal::UvMeshInstance *meshInstance = XA_NEW(internal::MemTag::Default, internal::UvMeshInstance);
 	meshInstance->mesh = mesh;
-	meshInstance->texcoords.resize(decl.vertexCount);
-	for (uint32_t i = 0; i < decl.vertexCount; i++) {
-		internal::Vector2 texcoord = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
-		// Set nan values to 0.
-		if (internal::isNan(texcoord.x) || internal::isNan(texcoord.y))
-			texcoord.x = texcoord.y = 0.0f;
-		meshInstance->texcoords[i] = texcoord;
-	}
-	meshInstance->rotateCharts = decl.rotateCharts;
-	ctx->uvMeshInstances.push_back(meshInstance);
 	return AddMeshError::Success;
 }
 
