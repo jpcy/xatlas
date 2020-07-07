@@ -6765,6 +6765,10 @@ static void runComputeUvMeshChartsTask(void *userData)
 	internal::BitArray faceAssigned(faceCount);
 	faceAssigned.zeroOutMemory();
 	for (uint32_t f = 0; f < faceCount; f++) {
+		if (args->progress->cancel)
+			return;
+		args->progress->value++;
+		args->progress->update();
 		if (faceAssigned.get(f))
 			continue;
 		// Found an unassigned face, skip if ignored.
@@ -6822,20 +6826,17 @@ static void runComputeUvMeshChartsTask(void *userData)
 			if (!newFaceAssigned)
 				break;
 		}
-		if (args->progress->cancel)
-			return;
 		mesh->charts.push_back(chart);
 	}
 	XA_PROFILE_END(computeChartsThread)
-	if (args->progress->cancel)
-		return;
-	args->progress->value++;
-	args->progress->update();
 }
 
 static bool computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *> meshes, ConstArrayView<UvMeshInstance *> meshInstances, ProgressFunc progressFunc, void *progressUserData)
 {
-	Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, meshes.length);
+	uint32_t totalFaceCount = 0;
+	for (uint32_t i = 0; i < meshes.length; i++)
+		totalFaceCount += meshes[i]->indices.size() / 3;
+	Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, totalFaceCount);
 	TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(meshes.length);
 	Array<ComputeUvMeshChartsTaskArgs> taskArgs;
 	taskArgs.resize(meshes.length);

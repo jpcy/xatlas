@@ -137,7 +137,7 @@ private:
 	std::mutex m_lock;
 	Enum m_value = NotGenerated;
 	bool m_cancel = false;
-	xatlas::ProgressCategory::Enum m_category;
+	xatlas::ProgressCategory::Enum m_category = xatlas::ProgressCategory::AddMesh;
 	int m_progress = 0;
 };
 
