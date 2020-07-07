@@ -6787,10 +6787,11 @@ static void runComputeUvMeshChartsTask(void *userData)
 			chart->indices.push_back(vertex);
 		}
 		// Walk incident faces and assign them to the chart.
+		uint32_t f2 = 0;
 		for (;;) {
 			bool newFaceAssigned = false;
 			const uint32_t faceCount2 = chart->faces.size();
-			for (uint32_t f2 = 0; f2 < faceCount2; f2++) {
+			for (; f2 < faceCount2; f2++) {
 				const uint32_t face = chart->faces[f2];
 				for (uint32_t i = 0; i < 3; i++) {
 					const internal::Vector2 &texcoord = args->texcoords[mesh->indices[face * 3 + i]];

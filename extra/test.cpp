@@ -81,6 +81,7 @@ bool generateAtlas(const char *filename, bool useUvMesh, AtlasResult *result)
 	}
 	const clock_t start = clock();
 	xatlas::Atlas *atlas = xatlas::Create();
+	int missingUvsCount = 0;
 	for (int i = 0; i < (int)shapes.size(); i++) {
 		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
 		if (useUvMesh) {
@@ -94,7 +95,7 @@ bool generateAtlas(const char *filename, bool useUvMesh, AtlasResult *result)
 				decl.indexFormat = xatlas::IndexFormat::UInt32;
 				decl.faceMaterialData = (const uint32_t *)objMesh.material_ids.data();
 			} else {
-				logf("   Missing UVs\n");
+				missingUvsCount++;
 			}
 			xatlas::AddMeshError::Enum error = xatlas::AddUvMesh(atlas, decl);
 			if (error != xatlas::AddMeshError::Success) {
@@ -126,6 +127,8 @@ bool generateAtlas(const char *filename, bool useUvMesh, AtlasResult *result)
 			}
 		}
 	}
+	if (missingUvsCount > 0)
+		logf("   %u/%u meshes missing UVs\n", missingUvsCount, (int)shapes.size());
 	xatlas::Generate(atlas);
 	const clock_t end = clock();
 	logf("   %g ms\n", (end - start) * 1000.0 / (double)CLOCKS_PER_SEC);
