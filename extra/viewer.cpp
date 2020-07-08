@@ -699,22 +699,20 @@ int main(int argc, char **argv)
 					}
 					ImGui::EndMenu();
 				}
-				if (atlasIsReady() || bakeIsLightmapReady()) {
-					if (ImGui::BeginMenu(ICON_FA_WINDOWS " Window")) {
-						ImGui::MenuItem("Atlas Options", nullptr, &g_options.showAtlasOptionsWindow);
-						if (atlasIsReady())
-							ImGui::MenuItem("Atlas", nullptr, &g_options.showAtlasWindow);
-						if (bakeIsLightmapReady())
-							ImGui::MenuItem("Lightmap", nullptr, &g_options.showLightmapWindow);
-						ImGui::EndMenu();
-					}
+				if (ImGui::BeginMenu(ICON_FA_WINDOWS " Window")) {
+					ImGui::MenuItem("Atlas Options", nullptr, &g_options.showAtlasOptionsWindow);
+					if (atlasIsReady())
+						ImGui::MenuItem("Atlas", nullptr, &g_options.showAtlasWindow);
+					if (bakeIsLightmapReady())
+						ImGui::MenuItem("Lightmap", nullptr, &g_options.showLightmapWindow);
+					ImGui::EndMenu();
 				}
 				ImGui::EndMainMenuBar();
 			} else {
 				ImGui::PopStyleVar();
 			}
 			ImGui::End(); // DockSpaceWindow
-			if (ImGui::Begin(atlasOptionsWindowName, &g_options.showAtlasOptionsWindow)) {
+			if (g_options.showAtlasOptionsWindow && ImGui::Begin(atlasOptionsWindowName, &g_options.showAtlasOptionsWindow)) {
 				ImGui::PushItemWidth(ImGui::GetWindowWidth() * 0.5f);
 				if (modelIsLoaded()) {
 					atlasShowGuiOptions();
