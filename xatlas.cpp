@@ -4446,7 +4446,6 @@ struct UvMeshInstance
 {
 	UvMesh *mesh;
 	Array<Vector2> texcoords;
-	bool rotateCharts;
 };
 
 /*
@@ -8756,8 +8755,18 @@ private:
 	Array<uint32_t> m_data;
 };
 
+struct ChartType
+{
+	enum Enum
+	{
+		Mesh,
+		UvMesh
+	};
+};
+
 struct Chart
 {
+	ChartType::Enum type;
 	int32_t atlasIndex;
 	uint32_t material;
 	uint32_t indexCount;
@@ -8767,7 +8776,6 @@ struct Chart
 	Vector2 *vertices;
 	uint32_t vertexCount;
 	Array<uint32_t> uniqueVertices;
-	bool allowRotate;
 	// bounding box
 	Vector2 majorAxis, minorAxis, minCorner, maxCorner;
 	// Mesh only
@@ -8796,6 +8804,7 @@ static void runAddChartTask(void *userData)
 	XA_PROFILE_END(packChartsAddChartsRestoreTexcoords)
 	Mesh *mesh = paramChart->mesh();
 	Chart *chart = args->chart = XA_NEW(MemTag::Default, Chart);
+	chart->type = ChartType::Mesh;
 	chart->atlasIndex = -1;
 	chart->material = 0;
 	chart->indexCount = mesh->indexCount();
@@ -8809,7 +8818,6 @@ static void runAddChartTask(void *userData)
 	chart->surfaceArea = mesh->computeSurfaceArea();
 	chart->vertices = mesh->texcoords();
 	chart->vertexCount = mesh->vertexCount();
-	chart->allowRotate = true;
 	chart->boundaryEdges = &mesh->boundaryEdges();
 	// Compute bounding box of chart.
 	BoundingBox2D &bb = args->boundingBox->get();
@@ -8903,13 +8911,13 @@ struct Atlas
 		for (uint32_t c = 0; c < mesh->mesh->charts.size(); c++) {
 			UvMeshChart *uvChart = mesh->mesh->charts[c];
 			Chart *chart = XA_NEW(MemTag::Default, Chart);
+			chart->type = ChartType::UvMesh;
 			chart->atlasIndex = -1;
 			chart->material = uvChart->material;
 			chart->indexCount = uvChart->indices.size();
 			chart->indices = uvChart->indices.data();
 			chart->vertices = mesh->texcoords.data();
 			chart->vertexCount = mesh->texcoords.size();
-			chart->allowRotate = mesh->rotateCharts;
 			chart->boundaryEdges = nullptr;
 			chart->faces.resize(uvChart->faces.size());
 			memcpy(chart->faces.data(), uvChart->faces.data(), sizeof(uint32_t) * uvChart->faces.size());
@@ -9004,6 +9012,7 @@ struct Atlas
 		float minChartPerimeter = FLT_MAX, maxChartPerimeter = 0.0f;
 		for (uint32_t c = 0; c < chartCount; c++) {
 			Chart *chart = m_charts[c];
+			const bool rotateChart = options.rotateCharts && chart->type == ChartType::UvMesh;
 			// Compute chart scale
 			float scale = 1.0f;
 			if (chart->parametricArea != 0.0f) {
@@ -9012,14 +9021,14 @@ struct Atlas
 			}
 			// Translate, rotate and scale vertices. Compute extents.
 			Vector2 minCorner(FLT_MAX, FLT_MAX);
-			if (!chart->allowRotate) {
+			if (!rotateChart) {
 				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
 					minCorner = min(minCorner, chart->uniqueVertexAt(i));
 			}
 			Vector2 extents(0.0f);
 			for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(i);
-				if (chart->allowRotate) {
+				if (rotateChart) {
 					const float x = dot(texcoord, chart->majorAxis);
 					const float y = dot(texcoord, chart->minorAxis);
 					texcoord.x = x;
@@ -9114,6 +9123,7 @@ struct Atlas
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 			Chart *chart = m_charts[c];
+			const bool rotateChart = options.rotateCharts && chart->type == ChartType::UvMesh;
 			// @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
 			// @@ We could also have a special case for chart quads. If the quad surface <= 4 texels, align vertices with texel centers and do not add padding. May be very useful for foliage.
 			// @@ In general we could reduce the padding of all charts by one texel by using a rasterizer that takes into account the 2-texel footprint of the tent bilinear filter. For example,
@@ -9130,11 +9140,11 @@ struct Atlas
 			// Resize and clear (discard = true) chart images.
 			// Leave room for padding at extents.
 			chartImage.resize(ftoi_ceil(chartExtents[c].x) + options.padding, ftoi_ceil(chartExtents[c].y) + options.padding, true);
-			if (chart->allowRotate)
+			if (rotateChart)
 				chartImageRotated.resize(chartImage.height(), chartImage.width(), true);
 			if (options.bilinear) {
 				chartImageBilinear.resize(chartImage.width(), chartImage.height(), true);
-				if (chart->allowRotate)
+				if (rotateChart)
 					chartImageBilinearRotated.resize(chartImage.height(), chartImage.width(), true);
 			}
 			// Rasterize chart faces.
@@ -9145,12 +9155,12 @@ struct Atlas
 					vertices[v] = chart->vertices[chart->indices[f * 3 + v]];
 				DrawTriangleCallbackArgs args;
 				args.chartBitImage = &chartImage;
-				args.chartBitImageRotated = chart->allowRotate ? &chartImageRotated : nullptr;
+				args.chartBitImageRotated = rotateChart ? &chartImageRotated : nullptr;
 				raster::drawTriangle(Vector2((float)chartImage.width(), (float)chartImage.height()), vertices, drawTriangleCallback, &args);
 			}
 			// Expand chart by pixels sampled by bilinear interpolation.
 			if (options.bilinear)
-				bilinearExpand(chart, &chartImage, &chartImageBilinear, chart->allowRotate ? &chartImageBilinearRotated : nullptr, boundaryEdgeGrid);
+				bilinearExpand(chart, &chartImage, &chartImageBilinear, rotateChart ? &chartImageBilinearRotated : nullptr, boundaryEdgeGrid);
 			// Expand chart by padding pixels (dilation).
 			if (options.padding > 0) {
 				// Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
@@ -9160,7 +9170,7 @@ struct Atlas
 				else
 					chartImage.copyTo(chartImagePadding);
 				chartImagePadding.dilate(options.padding);
-				if (chart->allowRotate) {
+				if (rotateChart) {
 					if (options.bilinear)
 						chartImageBilinearRotated.copyTo(chartImagePaddingRotated);
 					else
@@ -9211,7 +9221,7 @@ struct Atlas
 					chartStartPositions.push_back(Vector2i(0, 0));
 				}
 				XA_PROFILE_START(packChartsFindLocation)
-				const bool foundLocation = findChartLocation(chartStartPositions[currentAtlas], options.bruteForce, m_bitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, maxResolution, chart->allowRotate);
+				const bool foundLocation = findChartLocation(chartStartPositions[currentAtlas], options.bruteForce, m_bitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, maxResolution, rotateChart);
 				XA_PROFILE_END(packChartsFindLocation)
 				XA_DEBUG_ASSERT(!(firstChartInBitImage && !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
 				if (maxResolution == 0) {
@@ -9940,7 +9950,6 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 	meshInstance->texcoords.resize(decl.vertexCount);
 	for (uint32_t i = 0; i < decl.vertexCount; i++)
 		meshInstance->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
-	meshInstance->rotateCharts = decl.rotateCharts;
 	ctx->uvMeshInstances.push_back(meshInstance);
 	// See if this is an instance of an already existing mesh.
 	internal::UvMesh *mesh = nullptr;

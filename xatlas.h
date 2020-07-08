@@ -161,7 +161,6 @@ struct UvMeshDecl
 	uint32_t indexCount = 0;
 	int32_t indexOffset = 0; // optional. Add this offset to all indices.
 	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
-	bool rotateCharts = true;
 };
 
 AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl);
@@ -221,6 +220,9 @@ struct PackOptions
 	// If not 0, and texelsPerUnit is not 0, generate one or more atlases with that exact resolution.
 	// If not 0, and texelsPerUnit is 0, texelsPerUnit is estimated to approximately match the resolution.
 	uint32_t resolution = 0;
+
+	// AddUvMesh only.
+	bool rotateCharts = true;
 };
 
 // Call after ComputeCharts. Can be called multiple times to re-pack charts with different options.

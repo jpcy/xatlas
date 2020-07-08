@@ -164,6 +164,7 @@ struct BlitVertex
 struct AtlasOptions
 {
 	bool useUvMesh = false; // Use xatlas::AddUvMesh API
+	bool rotateCharts = true; // UvMeshDecl option.
 	int selectedAtlas;
 	int selectedChart;
 	bool fitToWindow = true;
@@ -924,7 +925,12 @@ void atlasShowGuiOptions()
 		atlasGenerate();
 	if (modelGetData()->flags & OBJZ_FLAG_TEXCOORDS) {
 		ImGui::SameLine();
-		ImGui::Checkbox("Use UV mesh", &s_atlas.options.useUvMesh);
+		ImGui::Checkbox("Use existing mesh UVs", &s_atlas.options.useUvMesh);
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::Text("Compute and pack charts from the existing mesh texture coordinates, rather than generating new ones.");
+			ImGui::EndTooltip();
+		}
 	} else {
 		s_atlas.options.useUvMesh = false;
 	}
@@ -976,6 +982,8 @@ void atlasShowGuiOptions()
 		changed |= guiColumnInputInt("Resolution", "##packOption5", (int *)&s_atlas.options.pack.resolution, 8);
 		changed |= guiColumnSliderInt("Padding", "##packOption6", (int *)&s_atlas.options.pack.padding, 0, 8);
 		changed |= guiColumnInputInt("Max chart size", "##packOption7", (int *)&s_atlas.options.pack.maxChartSize);
+		if (s_atlas.options.useUvMesh)
+			changed |= guiColumnCheckbox("Rotate charts", "##packOption8", &s_atlas.options.pack.rotateCharts);
 		ImGui::Columns(1);
 		if (ImGui::Button(ICON_FA_UNDO " Reset to default", resetButtonSize)) {
 			clearPackOptions();
