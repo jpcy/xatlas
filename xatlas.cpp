@@ -2560,7 +2560,7 @@ public:
 	void createColocalsHash()
 	{
 		const uint32_t vertexCount = m_positions.size();
-		internal::HashMap<internal::Vector3> positionToVertexMap(internal::MemTag::Default, vertexCount);
+		HashMap<Vector3> positionToVertexMap(MemTag::Default, vertexCount);
 		for (uint32_t i = 0; i < vertexCount; i++)
 			positionToVertexMap.add(m_positions[i]);
 		Array<uint32_t> colocals(MemTag::MeshColocals);
@@ -6746,89 +6746,107 @@ struct ComputeUvMeshChartsTaskArgs
 };
 
 // Charts are found by floodfilling faces without crossing UV seams.
+struct ComputeUvMeshChartsTask
+{
+	ComputeUvMeshChartsTask(ComputeUvMeshChartsTaskArgs *args) : m_mesh(args->mesh), m_texcoords(args->texcoords), m_progress(args->progress), m_uvToEdgeMap(MemTag::Default, m_mesh->indices.size()), m_faceAssigned(m_mesh->indices.size() / 3) {}
+
+	void run()
+	{
+		const uint32_t vertexCount = m_texcoords.length;
+		const uint32_t indexCount = m_mesh->indices.size();
+		const uint32_t faceCount = indexCount / 3;
+		// A vertex can only be assigned to one chart.
+		m_mesh->vertexToChartMap.resize(vertexCount);
+		m_mesh->vertexToChartMap.fill(UINT32_MAX);
+		// Map vertex UV to edge. Face is then edge / 3.
+		for (uint32_t i = 0; i < indexCount; i++)
+			m_uvToEdgeMap.add(m_texcoords[m_mesh->indices[i]]);
+		// Find charts.
+		m_faceAssigned.zeroOutMemory();
+		for (uint32_t f = 0; f < faceCount; f++) {
+			if (m_progress->cancel)
+				return;
+			m_progress->value++;
+			m_progress->update();
+			// Found an unassigned face, see if it can be added.
+			const uint32_t chartIndex = m_mesh->charts.size();
+			if (!canAddFaceToChart(chartIndex, f))
+				continue;
+			// Face is OK, create a new chart with the face.
+			UvMeshChart *chart = XA_NEW(MemTag::Default, UvMeshChart);
+			m_mesh->charts.push_back(chart);
+			chart->material = m_mesh->faceMaterials.isEmpty() ? 0 : m_mesh->faceMaterials[f];
+			addFaceToChart(chartIndex, f);
+			// Walk incident faces and assign them to the chart.
+			uint32_t f2 = 0;
+			for (;;) {
+				bool newFaceAssigned = false;
+				const uint32_t faceCount2 = chart->faces.size();
+				for (; f2 < faceCount2; f2++) {
+					const uint32_t face = chart->faces[f2];
+					for (uint32_t i = 0; i < 3; i++) {
+						// Add any valid faces with colocal UVs to the chart.
+						uint32_t edge = m_uvToEdgeMap.get(m_texcoords[m_mesh->indices[face * 3 + i]]);
+						while (edge != UINT32_MAX) {
+							const uint32_t newFace = edge / 3;
+							if (canAddFaceToChart(chartIndex, newFace)) {
+								addFaceToChart(chartIndex, newFace);
+								newFaceAssigned = true;
+							}
+							edge = m_uvToEdgeMap.getNext(edge);
+						}
+					}
+				}
+				if (!newFaceAssigned)
+					break;
+			}
+		}
+	}
+
+private:
+	// The chart at chartIndex doesn't have to exist yet.
+	bool canAddFaceToChart(uint32_t chartIndex, uint32_t face) const
+	{
+		if (m_faceAssigned.get(face))
+			return false; // Already assigned to a chart.
+		if (m_mesh->faceIgnore.get(face))
+			return false; // Face is ignored (zero area or nan UVs).
+		if (!m_mesh->faceMaterials.isEmpty() && chartIndex < m_mesh->charts.size()) {
+			if (m_mesh->faceMaterials[face] != m_mesh->charts[chartIndex]->material)
+				return false; // Materials don't match.
+		}
+		for (uint32_t i = 0; i < 3; i++) {
+			const uint32_t vertex = m_mesh->indices[face * 3 + i];
+			if (m_mesh->vertexToChartMap[vertex] != UINT32_MAX && m_mesh->vertexToChartMap[vertex] != chartIndex)
+				return false; // Vertex already assigned to another chart.
+		}
+		return true;
+	}
+
+	void addFaceToChart(uint32_t chartIndex, uint32_t face)
+	{
+		UvMeshChart *chart = m_mesh->charts[chartIndex];
+		m_faceAssigned.set(face);
+		chart->faces.push_back(face);
+		for (uint32_t i = 0; i < 3; i++) {
+			const uint32_t vertex = m_mesh->indices[face * 3 + i];
+			m_mesh->vertexToChartMap[vertex] = chartIndex;
+			chart->indices.push_back(vertex);
+		}
+	}
+
+	UvMesh * const m_mesh;
+	ConstArrayView<Vector2> m_texcoords;
+	Progress * const m_progress;
+	HashMap<Vector2> m_uvToEdgeMap; // Face is edge / 3.
+	BitArray m_faceAssigned;
+};
+
 static void runComputeUvMeshChartsTask(void *userData)
 {
 	XA_PROFILE_START(computeChartsThread)
-	auto args = (ComputeUvMeshChartsTaskArgs *)userData;
-	UvMesh *mesh = args->mesh;
-	const uint32_t vertexCount = args->texcoords.length;
-	const uint32_t indexCount = mesh->indices.size();
-	const uint32_t faceCount = indexCount / 3;
-	// A vertex can only be assigned to one chart.
-	mesh->vertexToChartMap.resize(vertexCount);
-	mesh->vertexToChartMap.fill(UINT32_MAX);
-	// Map vertex UV to face.
-	internal::HashMap<internal::Vector2> vertexToFaceMap(internal::MemTag::Default, indexCount); // Face is index / 3
-	for (uint32_t i = 0; i < indexCount; i++)
-		vertexToFaceMap.add(args->texcoords[mesh->indices[i]]);
-	// Find charts.
-	internal::BitArray faceAssigned(faceCount);
-	faceAssigned.zeroOutMemory();
-	for (uint32_t f = 0; f < faceCount; f++) {
-		if (args->progress->cancel)
-			return;
-		args->progress->value++;
-		args->progress->update();
-		if (faceAssigned.get(f))
-			continue;
-		// Found an unassigned face, skip if ignored.
-		if (mesh->faceIgnore.get(f))
-			continue;
-		// Valid, create a new chart.
-		const uint32_t chartIndex = mesh->charts.size();
-		internal::UvMeshChart *chart = XA_NEW(internal::MemTag::Default, internal::UvMeshChart);
-		chart->material = mesh->faceMaterials.isEmpty() ? 0 : mesh->faceMaterials[f];
-		// Add the first face to the chart.
-		faceAssigned.set(f);
-		chart->faces.push_back(f);
-		for (uint32_t i = 0; i < 3; i++) {
-			const uint32_t vertex = mesh->indices[f * 3 + i];
-			mesh->vertexToChartMap[vertex] = chartIndex;
-			chart->indices.push_back(vertex);
-		}
-		// Walk incident faces and assign them to the chart.
-		uint32_t f2 = 0;
-		for (;;) {
-			bool newFaceAssigned = false;
-			const uint32_t faceCount2 = chart->faces.size();
-			for (; f2 < faceCount2; f2++) {
-				const uint32_t face = chart->faces[f2];
-				for (uint32_t i = 0; i < 3; i++) {
-					const internal::Vector2 &texcoord = args->texcoords[mesh->indices[face * 3 + i]];
-					// Iterate colocal (in UV space) vertices.
-					uint32_t mapIndex = vertexToFaceMap.get(texcoord);
-					while (mapIndex != UINT32_MAX) {
-						const uint32_t newFace = mapIndex / 3; // 3 vertices added per face.
-						if (faceAssigned.get(newFace))
-							goto next; // Face already assigned to another chart.
-						if (!(mesh->faceMaterials.isEmpty() || mesh->faceMaterials[face] == mesh->faceMaterials[newFace]))
-							goto next; // Materials don't match.
-						for (uint32_t j = 0; j < 3; j++) {
-							const uint32_t vertex = mesh->indices[newFace * 3 + j];
-							if (mesh->vertexToChartMap[vertex] != UINT32_MAX && mesh->vertexToChartMap[vertex] != chartIndex)
-								goto next; // One or more of the vertices are already assigned to another chart.
-						}
-						if (mesh->faceIgnore.get(newFace))
-							goto next; // Not a valid face.
-						// Assign face to chart.
-						faceAssigned.set(newFace);
-						chart->faces.push_back(newFace);
-						for (uint32_t j = 0; j < 3; j++) {
-							const uint32_t vertex = mesh->indices[newFace * 3 + j];
-							mesh->vertexToChartMap[vertex] = chartIndex;
-							chart->indices.push_back(vertex);
-						}
-						newFaceAssigned = true;
-					next:
-						mapIndex = vertexToFaceMap.getNext(mapIndex);
-					}
-				}
-			}
-			if (!newFaceAssigned)
-				break;
-		}
-		mesh->charts.push_back(chart);
-	}
+	ComputeUvMeshChartsTask task((ComputeUvMeshChartsTaskArgs *)userData);
+	task.run();
 	XA_PROFILE_END(computeChartsThread)
 }
 
