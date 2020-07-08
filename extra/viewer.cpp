@@ -293,6 +293,10 @@ static void glfw_keyCallback(GLFWwindow * /*window*/, int key, int, int action, 
 		s_showBgfxStats = !s_showBgfxStats;
 	if (key == GLFW_KEY_F2 && action == GLFW_RELEASE)
 		g_options.gui = !g_options.gui;
+	if (key == GLFW_KEY_F3 && action == GLFW_RELEASE)
+		s_camera.mode = CameraMode::FirstPerson;
+	if (key == GLFW_KEY_F4 && action == GLFW_RELEASE)
+		s_camera.mode = CameraMode::Orbit;
 	if (g_options.gui) {
 		ImGuiIO &io = ImGui::GetIO();
 		if (key >= 0 && key < 512)
@@ -630,7 +634,7 @@ int main(int argc, char **argv)
 					ImGui::TextDisabled("(?)");
 					if (ImGui::IsItemHovered()) {
 						ImGui::BeginTooltip();
-						ImGui::Text("Hold left mouse button on 3D view to enable camera\nW,A,S,D or Arrows and Q,E to move\nHold SHIFT for faster movement\nHold CONTROL for slower movement");
+						ImGui::Text("F3 to enable.\nHold left mouse button on 3D view to enable camera\nW,A,S,D or Arrows and Q,E to move\nHold SHIFT for faster movement\nHold CONTROL for slower movement");
 						ImGui::EndTooltip();
 					}
 					ImGui::RadioButton("Orbit", (int *)&s_camera.mode, (int)CameraMode::Orbit);
@@ -638,7 +642,7 @@ int main(int argc, char **argv)
 					ImGui::TextDisabled("(?)");
 					if (ImGui::IsItemHovered()) {
 						ImGui::BeginTooltip();
-						ImGui::Text("Hold left mouse button on 3D view to enable camera\nScroll mouse or +/- keys to zoom");
+						ImGui::Text("F4 to enable.\nHold left mouse button on 3D view to enable camera\nScroll mouse or +/- keys to zoom");
 						ImGui::EndTooltip();
 					}
 					ImGui::Spacing();
