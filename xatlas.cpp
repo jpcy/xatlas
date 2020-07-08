@@ -4438,6 +4438,7 @@ struct UvMesh
 	BitArray faceIgnore;
 	Array<uint32_t> faceMaterials;
 	Array<uint32_t> indices;
+	Array<Vector2> texcoords; // Copied from input and never modified, UvMeshInstance::texcoords are. Used to restore UvMeshInstance::texcoords so packing can be run multiple times.
 	Array<UvMeshChart *> charts;
 	Array<uint32_t> vertexToChartMap;
 };
@@ -6740,18 +6741,17 @@ private:
 struct ComputeUvMeshChartsTaskArgs
 {
 	UvMesh *mesh;
-	ConstArrayView<Vector2> texcoords;
 	Progress *progress;
 };
 
 // Charts are found by floodfilling faces without crossing UV seams.
 struct ComputeUvMeshChartsTask
 {
-	ComputeUvMeshChartsTask(ComputeUvMeshChartsTaskArgs *args) : m_mesh(args->mesh), m_texcoords(args->texcoords), m_progress(args->progress), m_uvToEdgeMap(MemTag::Default, m_mesh->indices.size()), m_faceAssigned(m_mesh->indices.size() / 3) {}
+	ComputeUvMeshChartsTask(ComputeUvMeshChartsTaskArgs *args) : m_mesh(args->mesh), m_progress(args->progress), m_uvToEdgeMap(MemTag::Default, m_mesh->indices.size()), m_faceAssigned(m_mesh->indices.size() / 3) {}
 
 	void run()
 	{
-		const uint32_t vertexCount = m_texcoords.length;
+		const uint32_t vertexCount = m_mesh->texcoords.size();
 		const uint32_t indexCount = m_mesh->indices.size();
 		const uint32_t faceCount = indexCount / 3;
 		// A vertex can only be assigned to one chart.
@@ -6759,7 +6759,7 @@ struct ComputeUvMeshChartsTask
 		m_mesh->vertexToChartMap.fill(UINT32_MAX);
 		// Map vertex UV to edge. Face is then edge / 3.
 		for (uint32_t i = 0; i < indexCount; i++)
-			m_uvToEdgeMap.add(m_texcoords[m_mesh->indices[i]]);
+			m_uvToEdgeMap.add(m_mesh->texcoords[m_mesh->indices[i]]);
 		// Find charts.
 		m_faceAssigned.zeroOutMemory();
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -6785,7 +6785,7 @@ struct ComputeUvMeshChartsTask
 					const uint32_t face = chart->faces[f2];
 					for (uint32_t i = 0; i < 3; i++) {
 						// Add any valid faces with colocal UVs to the chart.
-						uint32_t edge = m_uvToEdgeMap.get(m_texcoords[m_mesh->indices[face * 3 + i]]);
+						uint32_t edge = m_uvToEdgeMap.get(m_mesh->texcoords[m_mesh->indices[face * 3 + i]]);
 						while (edge != UINT32_MAX) {
 							const uint32_t newFace = edge / 3;
 							if (canAddFaceToChart(chartIndex, newFace)) {
@@ -6835,7 +6835,6 @@ private:
 	}
 
 	UvMesh * const m_mesh;
-	ConstArrayView<Vector2> m_texcoords;
 	Progress * const m_progress;
 	HashMap<Vector2> m_uvToEdgeMap; // Face is edge / 3.
 	BitArray m_faceAssigned;
@@ -6849,7 +6848,7 @@ static void runComputeUvMeshChartsTask(void *userData)
 	XA_PROFILE_END(computeChartsThread)
 }
 
-static bool computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *> meshes, ConstArrayView<UvMeshInstance *> meshInstances, ProgressFunc progressFunc, void *progressUserData)
+static bool computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *> meshes, ProgressFunc progressFunc, void *progressUserData)
 {
 	uint32_t totalFaceCount = 0;
 	for (uint32_t i = 0; i < meshes.length; i++)
@@ -6863,15 +6862,6 @@ static bool computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *
 		ComputeUvMeshChartsTaskArgs &args = taskArgs[i];
 		args.mesh = meshes[i];
 		args.progress = &progress;
-		// Find the first instance that uses this mesh, so the texcoords can be accessed (they are all the same before packing).
-		for (uint32_t j = 0; j < meshInstances.length; j++)
-		{
-			if (meshInstances[j]->mesh == meshes[i])
-			{
-				args.texcoords = meshInstances[j]->texcoords;
-				break;
-			}
-		}
 		Task task;
 		task.userData = &args;
 		task.func = runComputeUvMeshChartsTask;
@@ -8906,6 +8896,9 @@ struct Atlas
 
 	void addUvMeshCharts(UvMeshInstance *mesh)
 	{
+		// Copy texcoords from mesh.
+		mesh->texcoords.resize(mesh->mesh->texcoords.size());
+		memcpy(mesh->texcoords.data(), mesh->mesh->texcoords.data(), mesh->texcoords.size() * sizeof(Vector2));
 		BitArray vertexUsed(mesh->texcoords.size());
 		BoundingBox2D boundingBox;
 		for (uint32_t c = 0; c < mesh->mesh->charts.size(); c++) {
@@ -9947,9 +9940,6 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 	// Create a mesh instance.
 	internal::UvMeshInstance *meshInstance = XA_NEW(internal::MemTag::Default, internal::UvMeshInstance);
 	meshInstance->mesh = nullptr;
-	meshInstance->texcoords.resize(decl.vertexCount);
-	for (uint32_t i = 0; i < decl.vertexCount; i++)
-		meshInstance->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
 	ctx->uvMeshInstances.push_back(meshInstance);
 	// See if this is an instance of an already existing mesh.
 	internal::UvMesh *mesh = nullptr;
@@ -9972,6 +9962,9 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		mesh->indices.resize(decl.indexCount);
 		for (uint32_t i = 0; i < indexCount; i++)
 			mesh->indices[i] = hasIndices ? DecodeIndex(decl.indexFormat, decl.indexData, decl.indexOffset, i) : i;
+		mesh->texcoords.resize(decl.vertexCount);
+		for (uint32_t i = 0; i < decl.vertexCount; i++)
+			mesh->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
 		// Validate.
 		mesh->faceIgnore.resize(decl.indexCount / 3);
 		mesh->faceIgnore.zeroOutMemory();
@@ -9985,7 +9978,7 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			// Check for nan UVs.
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = tri[i];
-				if (internal::isNan(meshInstance->texcoords[vertex].x) || internal::isNan(meshInstance->texcoords[vertex].y)) {
+				if (internal::isNan(mesh->texcoords[vertex].x) || internal::isNan(mesh->texcoords[vertex].y)) {
 					ignore = true;
 					if (++warningCount <= kMaxWarnings)
 						XA_PRINT("   NAN texture coordinate in vertex %u\n", vertex);
@@ -9994,9 +9987,9 @@ AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 			}
 			// Check for zero area faces.
 			if (!ignore) {
-				const internal::Vector2 &v1 = meshInstance->texcoords[tri[0]];
-				const internal::Vector2 &v2 = meshInstance->texcoords[tri[1]];
-				const internal::Vector2 &v3 = meshInstance->texcoords[tri[2]];
+				const internal::Vector2 &v1 = mesh->texcoords[tri[0]];
+				const internal::Vector2 &v2 = mesh->texcoords[tri[1]];
+				const internal::Vector2 &v3 = mesh->texcoords[tri[2]];
 				const float area = fabsf(((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f);
 				if (area <= internal::kAreaEpsilon) {
 					ignore = true;
@@ -10212,7 +10205,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		XA_PRINT_MEM_USAGE
 	} else {
 		XA_PROFILE_START(computeChartsReal)
-		if (!internal::segment::computeUvMeshCharts(ctx->taskScheduler, ctx->uvMeshes, ctx->uvMeshInstances, ctx->progressFunc, ctx->progressUserData)) {
+		if (!internal::segment::computeUvMeshCharts(ctx->taskScheduler, ctx->uvMeshes, ctx->progressFunc, ctx->progressUserData)) {
 			XA_PRINT("   Cancelled by user\n");
 			return;
 		}
