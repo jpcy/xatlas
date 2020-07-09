@@ -58,6 +58,7 @@ Copyright (c) 2012-2018 Syoyo Fujita and many contributors.
 
 static char s_error[OBJZ_MAX_ERROR_LENGTH] = { 0 };
 static objzReallocFunc s_realloc = NULL;
+static objzProgressFunc s_progress = NULL;
 static uint32_t s_indexFormat = OBJZ_INDEX_FORMAT_AUTO;
 
 typedef struct {
@@ -475,11 +476,29 @@ bool fileOpen(File *_file, const char *_filename) {
 	}
 	_file->pos = 0;
 	_file->buffer = OBJZ_MALLOC(_file->length + 1);
-	const size_t bytesRead = fread(_file->buffer, 1, _file->length, handle);
-	fclose(handle);
-	if (bytesRead < _file->length) {
-		OBJZ_FREE(_file->buffer);
-		return false;
+	const size_t chunkSize = 8192;
+	size_t totalBytesRead = 0;
+	int progress = 0;
+	for (;;) {
+		const size_t bytesRemaining = _file->length - totalBytesRead;
+		const size_t bytesRequested = bytesRemaining > chunkSize ? chunkSize : bytesRemaining;
+		const size_t bytesRead = fread(&_file->buffer[totalBytesRead], 1, bytesRequested, handle);
+		totalBytesRead += bytesRead;
+		if (s_progress) {
+			const int newProgress = (int)(totalBytesRead / (float)_file->length * 50.0f);
+			if (newProgress > progress) {
+				progress = newProgress;
+				s_progress(_filename, progress);
+			}
+		}
+		if (totalBytesRead == _file->length) {
+			fclose(handle);
+			break;
+		} else if (bytesRead < bytesRequested) {
+			fclose(handle);
+			OBJZ_FREE(_file->buffer);
+			return false;
+		}
 	}
 	_file->buffer[_file->length] = 0;
 	return true;
@@ -1004,6 +1023,10 @@ void objz_setRealloc(objzReallocFunc _realloc) {
 	s_realloc = _realloc;
 }
 
+void objz_setProgress(objzProgressFunc _progress) {
+	s_progress = _progress;
+}
+
 void objz_setIndexFormat(uint32_t _format) {
 	s_indexFormat = _format;
 }
@@ -1017,11 +1040,15 @@ void objz_setVertexFormat(size_t _stride, size_t _positionOffset, size_t _texcoo
 
 objzModel *objz_load(const char *_filename) {
 	s_error[0] = 0;
+	if (s_progress)
+		s_progress(_filename, 0);
 	File file;
 	if (!fileOpen(&file, _filename)) {
 		appendError("Failed to read file '%s'", _filename);
 		return NULL;
 	}
+	if (s_progress)
+		s_progress(_filename, 50);
 	const uint32_t *bom32 = (const uint32_t *)file.buffer;
 	if (*bom32 == 0x0000feff || *bom32 == 0xfffe0000) {
 		appendError("UTF-32 encoding not supported in file '%s'", _filename);
@@ -1055,8 +1082,16 @@ objzModel *objz_load(const char *_filename) {
 	Lexer lexer;
 	initLexer(&lexer);
 	Token token;
+	int progress = 50;
 	for (;;) {
 		char *line = fileReadLine(&file);
+		if (s_progress) {
+			const int newProgress = (int)(50.0f + (file.pos / (float)file.length) * 25.0f);
+			if (newProgress > progress) {
+				progress = newProgress;
+				s_progress(_filename, progress);
+			}
+		}
 		if (!line)
 			break;
 		lexerSetLine(&lexer, line);
@@ -1209,6 +1244,10 @@ objzModel *objz_load(const char *_filename) {
 	arrayDestroy(&faceIndices);
 	arrayDestroy(&tempFaceIndices);
 	fileClose(&file);
+	if (s_progress) {
+		progress = 75;
+		s_progress(_filename, progress);
+	}
 	// Do some post-processing of parsed data:
 	//   * generate normals
 	//   * find unique vertices from separately index vertex attributes (pos, texcoord, normal).
@@ -1249,6 +1288,13 @@ objzModel *objz_load(const char *_filename) {
 		normalHashMapInit(&normalHashMap, OBJZ_LARGEST(maxObjectFaces, 32), &normals); // Guess capacity.
 	}
 	for (uint32_t i = 0; i < tempObjects.length; i++) {
+		if (s_progress) {
+			const int newProgress = (int)(75.0f + (i / (float)tempObjects.length) * 25.0f);
+			if (newProgress > progress) {
+				progress = newProgress;
+				s_progress(_filename, progress);
+			}
+		}
 		const TempObject *tempObject = OBJZ_ARRAY_ELEMENT(tempObjects, i);
 		if (!tempObject->numFaces)
 			continue;
@@ -1361,6 +1407,8 @@ objzModel *objz_load(const char *_filename) {
 	chunkedArrayDestroy(&texcoords);
 	chunkedArrayDestroy(&normals);
 	vertexHashMapDestroy(&vertexHashMap);
+	if (s_progress)
+		s_progress(_filename, 100);
 	return model;
 error:
 	fileClose(&file);

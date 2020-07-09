@@ -63,6 +63,7 @@ struct
 {
 	std::atomic<ModelStatus> status;
 	std::thread *thread = nullptr;
+	std::atomic<int> loadProgress;
 	objzModel *data = nullptr;
 	void (*destroyModelData)(objzModel *) = nullptr;
 	std::vector<uint32_t> diffuseTextures;
@@ -752,6 +753,11 @@ static void stlDestroy(objzModel *model)
 	delete model;
 }
 
+static void objzLoadProgress(const char *, int progress)
+{
+	s_model.loadProgress = progress;
+}
+
 struct ModelLoadThreadArgs
 {
 	char filename[256];
@@ -794,6 +800,7 @@ static void modelLoadThread(ModelLoadThreadArgs args)
 		s_model.data = model;
 		s_model.destroyModelData = gltfDestroy;
 	} else if (bx::strCmpI(ext, ".obj") == 0) {
+		objz_setProgress(objzLoadProgress);
 		objz_setIndexFormat(OBJZ_INDEX_FORMAT_U32);
 		objz_setVertexFormat(sizeof(ModelVertex), offsetof(ModelVertex, pos), offsetof(ModelVertex, texcoord), offsetof(ModelVertex, normal));
 		objzModel *model = objz_load(args.filename);
@@ -917,6 +924,7 @@ void modelOpen(const char *filename)
 	if (!modelCanOpen())
 		return;
 	modelDestroy();
+	s_model.loadProgress = 0;
 	s_model.status = ModelStatus::Loading;
 	char windowTitle[256];
 	snprintf(windowTitle, sizeof(windowTitle), "%s - %s\n", WINDOW_TITLE, filename);
@@ -1121,6 +1129,8 @@ void modelShowGuiWindow()
 			ImGui::Text("Loading model");
 			ImGui::SameLine();
 			ImGui::Spinner("##modelSpinner");
+			if (s_model.loadProgress > 0)
+				ImGui::ProgressBar(s_model.loadProgress.load() / 100.0f);
 			ImGui::End();
 		}
 	}

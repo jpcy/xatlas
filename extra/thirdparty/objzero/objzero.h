@@ -35,6 +35,9 @@ extern "C" {
 typedef void *(*objzReallocFunc)(void *_ptr, size_t _size);
 void objz_setRealloc(objzReallocFunc _realloc);
 
+typedef void (*objzProgressFunc)(const char *_filename, int _percent);
+void objz_setProgress(objzProgressFunc _progress);
+
 #define OBJZ_INDEX_FORMAT_AUTO 0
 #define OBJZ_INDEX_FORMAT_U32  1
 
