@@ -9005,7 +9005,7 @@ struct Atlas
 		float minChartPerimeter = FLT_MAX, maxChartPerimeter = 0.0f;
 		for (uint32_t c = 0; c < chartCount; c++) {
 			Chart *chart = m_charts[c];
-			const bool rotateChart = options.rotateCharts && chart->type == ChartType::UvMesh;
+			const bool rotateChart = chart->type == ChartType::Mesh || (options.rotateCharts && chart->type == ChartType::UvMesh);
 			// Compute chart scale
 			float scale = 1.0f;
 			if (chart->parametricArea != 0.0f) {
@@ -9116,7 +9116,7 @@ struct Atlas
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 			Chart *chart = m_charts[c];
-			const bool rotateChart = options.rotateCharts && chart->type == ChartType::UvMesh;
+			const bool rotateChart = chart->type == ChartType::Mesh || (options.rotateCharts && chart->type == ChartType::UvMesh);
 			// @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
 			// @@ We could also have a special case for chart quads. If the quad surface <= 4 texels, align vertices with texel centers and do not add padding. May be very useful for foliage.
 			// @@ In general we could reduce the padding of all charts by one texel by using a rasterizer that takes into account the 2-texel footprint of the tent bilinear filter. For example,
