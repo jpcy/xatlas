@@ -121,6 +121,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_PRINT_CHART_WARNINGS 0
 #define XA_USE_ORIGINAL_UV_CHARTS 0
 #define XA_CHECK_PARAM_WINDING 0
+#define XA_CHECK_PIECEWISE_CHART_QUALITY 0
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
@@ -7969,6 +7970,20 @@ public:
 		return (maxCorner - minCorner) * 0.5f;
 	}
 
+#if XA_CHECK_PIECEWISE_CHART_QUALITY
+	void evaluateQuality(UniformGrid2 &boundaryGrid)
+	{
+		m_quality.computeBoundaryIntersection(m_mesh, boundaryGrid);
+#if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
+		m_quality.computeFlippedFaces(m_mesh, m_initialFaceCount, &m_paramFlippedFaces);
+#else
+		m_quality.computeFlippedFaces(m_mesh, m_initialFaceCount, nullptr);
+#endif
+		if (m_quality.boundaryIntersection || m_quality.flippedTriangleCount > 0 || m_quality.zeroAreaTriangleCount > 0)
+			m_isInvalid = true;
+	}
+#endif
+
 	void restoreTexcoords()
 	{
 		memcpy(m_mesh->texcoords(), m_backupTexcoords.data(), m_mesh->vertexCount() * sizeof(Vector2));
@@ -8079,6 +8094,9 @@ static void runCreateAndParameterizeChartTask(void *userData)
 		if (!facesRemaining)
 			break;
 		Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), invalidChart, invalidMesh, pp.chartFaces(), pp.texcoords(), args->mesh);
+#if XA_CHECK_PIECEWISE_CHART_QUALITY
+		chart->evaluateQuality(args->boundaryGrid->get());
+#endif
 		args->charts.push_back(chart);
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
 		if (file) {
@@ -10170,6 +10188,9 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 						}
 						if (quality.flippedTriangleCount > 0) {
 							XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u flipped triangles.\n", chartIndex, i, j, k, type, quality.flippedTriangleCount, quality.totalTriangleCount);
+						}
+						if (quality.zeroAreaTriangleCount > 0) {
+							XA_PRINT_WARNING("   Chart %u  (mesh %u, group %u, id %u) (%s): invalid parameterization, %u / %u zero area triangles.\n", chartIndex, i, j, k, type, quality.zeroAreaTriangleCount, quality.totalTriangleCount);
 						}
 						invalidParamCount++;
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
