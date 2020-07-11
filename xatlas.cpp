@@ -7829,6 +7829,10 @@ public:
 		Array<uint32_t> &chartMeshIndices = buffers.chartMeshIndices;
 		chartMeshIndices.resize(sourceMesh->vertexCount());
 		chartMeshIndices.fillBytes(0xff);
+#if XA_CHECK_PIECEWISE_CHART_QUALITY
+		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), m_faceToSourceFaceMap.size() * 3, m_faceToSourceFaceMap.size());
+		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToUnifiedVertexMap(MemTag::Mesh, m_faceToSourceFaceMap.size() * 3);
+#endif
 		// Add vertices.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
@@ -7839,21 +7843,42 @@ public:
 					m_vertexToSourceVertexMap.push_back(vertex);
 					m_mesh->addVertex(sourceMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
 				}
+#if XA_CHECK_PIECEWISE_CHART_QUALITY
+				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocal(vertex);
+				uint32_t unifiedVertex = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
+				if (unifiedVertex == UINT32_MAX) {
+					unifiedVertex = sourceVertexToUnifiedVertexMap.add(sourceUnifiedVertex);
+					m_unifiedMesh->addVertex(sourceMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
+				}
+#endif
 			}
 		}
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			uint32_t indices[3];
+#if XA_CHECK_PIECEWISE_CHART_QUALITY
+			uint32_t unifiedIndices[3];
+#endif
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
 				indices[i] = chartMeshIndices[vertex];
+#if XA_CHECK_PIECEWISE_CHART_QUALITY
+				const uint32_t unifiedVertex = sourceMesh->firstColocal(vertex);
+				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(unifiedVertex);
+#endif
 			}
 			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
+#if XA_CHECK_PIECEWISE_CHART_QUALITY
+			result = m_unifiedMesh->addFace(unifiedIndices);
+#endif
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
+#if XA_CHECK_PIECEWISE_CHART_QUALITY
+		m_unifiedMesh->createBoundaries();
+#endif
 		// Need to store texcoords for backup/restore so packing can be run multiple times.
 		backupTexcoords();
 	}
@@ -7952,8 +7977,10 @@ public:
 			m_mesh->texcoord(v) = m_unifiedMesh->texcoord(m_chartVertexToUnifiedVertexMap[v]);
 		// Can destroy unified mesh now.
 		// But not if the parameterization is invalid, the unified mesh will be needed for PiecewiseParameterization.
+#if !XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 		if (!m_isInvalid)
 			destroyUnifiedMesh();
+#endif
 		// Need to store texcoords for backup/restore so packing can be run multiple times.
 		backupTexcoords();
 	}
@@ -7973,11 +8000,11 @@ public:
 #if XA_CHECK_PIECEWISE_CHART_QUALITY
 	void evaluateQuality(UniformGrid2 &boundaryGrid)
 	{
-		m_quality.computeBoundaryIntersection(m_mesh, boundaryGrid);
+		m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-		m_quality.computeFlippedFaces(m_mesh, m_initialFaceCount, &m_paramFlippedFaces);
+		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, &m_paramFlippedFaces);
 #else
-		m_quality.computeFlippedFaces(m_mesh, m_initialFaceCount, nullptr);
+		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
 #endif
 		if (m_quality.boundaryIntersection || m_quality.flippedTriangleCount > 0 || m_quality.zeroAreaTriangleCount > 0)
 			m_isInvalid = true;
@@ -9311,7 +9338,7 @@ struct Atlas
 				Vector2 &texcoord = chart->uniqueVertexAt(v);
 				Vector2 t = texcoord;
 				if (best_r) {
-					XA_DEBUG_ASSERT(chart->allowRotate);
+					XA_DEBUG_ASSERT(options.rotateCharts);
 					swap(t.x, t.y);
 				}
 				texcoord.x = best_x + t.x;
