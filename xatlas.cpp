@@ -7900,7 +7900,7 @@ public:
 			m_quality.computeMetrics(m_unifiedMesh, m_initialFaceCount);
 			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 			// Use orthogonal parameterization if quality is acceptable.
-			if (!m_quality.boundaryIntersection && m_quality.flippedTriangleCount == 0 && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
+			if (!m_quality.boundaryIntersection && m_quality.flippedTriangleCount == 0 && m_quality.zeroAreaTriangleCount == 0 && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
 				m_type = ChartType::Ortho;
 		}
 		if (m_type == ChartType::LSCM) {
@@ -7919,7 +7919,7 @@ public:
 			m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
 #endif
 			// Don't need to call computeMetrics here, that's only used in evaluateOrthoQuality to determine if quality is acceptable enough to use ortho projection.
-			if (m_quality.boundaryIntersection || m_quality.flippedTriangleCount > 0)
+			if (m_quality.boundaryIntersection || m_quality.flippedTriangleCount > 0 || m_quality.zeroAreaTriangleCount > 0)
 				m_isInvalid = true;
 			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 		}
