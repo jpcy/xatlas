@@ -186,6 +186,7 @@ struct ChartOptions
 	ParameterizeFunc paramFunc = nullptr;
 	bool closeHoles = false; // If the custom parameterization function works with multiple boundaries, this can be set to false to improve performance.
 	bool fixTJunctions = true; // If meshes don't have T-junctions, this can be set to false to improve performance.
+	bool fixWinding = false; // Enforce consistent texture coordinate winding.
 };
 
 // Call after all AddMesh calls. Can be called multiple times to recompute charts with different options.
@@ -221,7 +222,10 @@ struct PackOptions
 	// If not 0, and texelsPerUnit is 0, texelsPerUnit is estimated to approximately match the resolution.
 	uint32_t resolution = 0;
 
-	// AddUvMesh only.
+	// Rotate charts to the axis of their convex hull.
+	bool rotateChartsToAxis = true;
+
+	// Rotate charts to improve packing.
 	bool rotateCharts = true;
 };
 
