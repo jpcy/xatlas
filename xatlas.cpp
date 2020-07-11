@@ -3543,21 +3543,6 @@ static bool meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, con
 	return result;
 }
 
-static bool meshIsPlanar(const Mesh &mesh)
-{
-	const Vector3 p1 = mesh.position(mesh.vertexAt(0));
-	const Vector3 p2 = mesh.position(mesh.vertexAt(1));
-	const Vector3 p3 = mesh.position(mesh.vertexAt(2));
-	const Plane plane(p1, p2, p3);
-	const uint32_t vertexCount = mesh.vertexCount();
-	for (uint32_t v = 0; v < vertexCount; v++) {
-		const float d = plane.distance(mesh.position(v));
-		if (!isZero(d, mesh.epsilon()))
-			return false;
-	}
-	return true;
-}
-
 /*
 Fixing T-junctions.
 
@@ -5629,6 +5614,7 @@ struct OriginalUvCharts
 	OriginalUvCharts(AtlasData &data) : m_data(data) {}
 	uint32_t chartCount() const { return m_charts.size(); }
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartBasis[chartIndex]; }
+	bool chartIsPlanar(uint32_t /*chartIndex*/) const { return false; }
 
 	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const
 	{
@@ -5647,7 +5633,7 @@ struct OriginalUvCharts
 				continue;
 			if (m_data.faceUvAreas[f] <= 0.0f)
 				continue; // Face must have valid UVs.
-						  // Found an unassigned face, create a new chart.
+			// Found an unassigned face, create a new chart.
 			Chart chart;
 			chart.firstFace = m_chartFaces.size();
 			chart.faceCount = 1;
@@ -5723,6 +5709,7 @@ struct PlanarCharts
 {
 	PlanarCharts(AtlasData &data) : m_data(data), m_nextRegionFace(MemTag::SegmentAtlasPlanarRegions), m_faceToRegionId(MemTag::SegmentAtlasPlanarRegions) {}
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartBasis[chartIndex]; }
+	bool chartIsPlanar(uint32_t /*chartIndex*/) const { return true; }
 	uint32_t chartCount() const { return m_charts.size(); }
 	
 	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const
@@ -5898,6 +5885,7 @@ struct ClusteredCharts
 	uint32_t chartCount() const { return m_charts.size(); }
 	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const { return m_charts[chartIndex]->faces; }
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_charts[chartIndex]->basis; }
+	bool chartIsPlanar(uint32_t /*chartIndex*/) const { return false; }
 
 	void compute()
 	{
@@ -6706,6 +6694,17 @@ struct Atlas
 			return m_planarCharts.chartBasis(chartIndex);
 		chartIndex -= m_planarCharts.chartCount();
 		return m_clusteredCharts.chartBasis(chartIndex);
+	}
+
+	bool chartIsPlanar(uint32_t chartIndex) const
+	{
+		if (chartIndex < m_originalUvCharts.chartCount())
+			return m_originalUvCharts.chartIsPlanar(chartIndex);
+		chartIndex -= m_originalUvCharts.chartCount();
+		if (chartIndex < m_planarCharts.chartCount())
+			return m_planarCharts.chartIsPlanar(chartIndex);
+		chartIndex -= m_planarCharts.chartCount();
+		return m_clusteredCharts.chartIsPlanar(chartIndex);
 	}
 
 	void reset(const Mesh *mesh, const ChartOptions &options)
@@ -7677,7 +7676,7 @@ struct ChartCtorBuffers
 class Chart
 {
 public:
-	Chart(ChartCtorBuffers &buffers, const ChartOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_isInvalid(false)
+	Chart(ChartCtorBuffers &buffers, const ChartOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, bool isPlanar, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_isInvalid(false)
 	{
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
@@ -7734,7 +7733,7 @@ public:
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
 		m_unifiedMesh->createBoundaries();
-		if (meshIsPlanar(*m_unifiedMesh)) {
+		if (isPlanar) {
 			m_type = ChartType::Planar;
 			return;
 		}
@@ -8031,6 +8030,7 @@ struct CreateAndParameterizeChartTaskArgs
 	Chart *chart; // output
 	Array<Chart *> charts; // output (if more than one chart)
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
+	bool isPlanar;
 	const Mesh *mesh;
 	const ChartOptions *options;
 #if XA_RECOMPUTE_CHARTS
@@ -8045,7 +8045,7 @@ static void runCreateAndParameterizeChartTask(void *userData)
 {
 	auto args = (CreateAndParameterizeChartTaskArgs *)userData;
 	XA_PROFILE_START(createChartMesh)
-	args->chart = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), *args->options, *args->basis, args->faces, args->mesh, args->chartGroupId, args->chartId);
+	args->chart = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), *args->options, *args->basis, args->faces, args->isPlanar, args->mesh, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMesh)
 	args->chart->parameterize(*args->options, args->boundaryGrid->get());
 #if XA_RECOMPUTE_CHARTS
@@ -8185,6 +8185,13 @@ public:
 		m_chartBasis.resize(chartCount);
 		for (uint32_t i = 0; i < chartCount; i++)
 			m_chartBasis[i] = atlas.chartBasis(i);
+		// Copy whether chart is planar.
+		m_chartIsPlanar.resize(chartCount);
+		m_chartIsPlanar.zeroOutMemory();
+		for (uint32_t i = 0; i < chartCount; i++) {
+			if (atlas.chartIsPlanar(i))
+				m_chartIsPlanar.set(i);
+		}
 		// Copy faces from segment::Atlas to m_chartFaces array with <chart 0 face count> <face 0> <face n> <chart 1 face count> etc. encoding.
 		// segment::Atlas faces refer to the chart group mesh. Map them to the input mesh instead.
 		m_chartFaces.resize(chartCount + faceCount);
@@ -8228,6 +8235,7 @@ public:
 			const uint32_t faceCount = m_chartFaces[offset++];
 			args.faces = ConstArrayView<uint32_t>(&m_chartFaces[offset], faceCount);
 			offset += faceCount;
+			args.isPlanar = m_chartIsPlanar.get(i);
 			args.mesh = m_sourceMesh;
 			args.options = &options;
 #if XA_RECOMPUTE_CHARTS
@@ -8340,6 +8348,7 @@ private:
 	const MeshFaceGroups::Handle m_faceGroup;
 	Array<uint32_t> m_faceToSourceFaceMap; // List of faces of the source mesh that belong to this chart group.
 	Array<Basis> m_chartBasis; // Copied from segment::Atlas.
+	BitArray m_chartIsPlanar; // Copied from segment::Atlas.
 	Array<uint32_t> m_chartFaces; // Copied from segment::Atlas. Encoding: <chart 0 face count> <face 0> <face n> <chart 1 face count> etc.
 	Array<Chart *> m_charts;
 	uint32_t m_faceCount; // Set by createMesh(). Used for sorting.
