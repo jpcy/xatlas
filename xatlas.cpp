@@ -7214,17 +7214,18 @@ struct PiecewiseParam
 				XA_PROFILE_START(parameterizeChartsPiecewiseBoundaryIntersection)
 				// Test candidate edges that would form part of the new patch boundary.
 				// Ignore boundary edges that would become internal if the candidate faces were added to the patch.
-				Array<uint32_t> newBoundaryEdges, ignoreEdges;
+				m_newBoundaryEdges.clear();
+				m_ignoreBoundaryEdges.clear();
 				for (CandidateIterator candidateIt(bestCandidate); !candidateIt.isDone(); candidateIt.advance()) {
 					for (Mesh::FaceEdgeIterator it(m_mesh, candidateIt.current()->face); !it.isDone(); it.advance()) {
 						const uint32_t oface = it.oppositeFace();
 						if (oface == UINT32_MAX || oface >= m_faceCount || !m_faceInPatch.get(oface))
-							newBoundaryEdges.push_back(it.edge());
+							m_newBoundaryEdges.push_back(it.edge());
 						if (oface != UINT32_MAX && oface < m_faceCount && m_faceInPatch.get(oface))
-							ignoreEdges.push_back(it.oppositeEdge());
+							m_ignoreBoundaryEdges.push_back(it.oppositeEdge());
 					}
 				}
-				invalid = m_boundaryGrid.intersect(m_mesh->epsilon(), newBoundaryEdges, ignoreEdges);
+				invalid = m_boundaryGrid.intersect(m_mesh->epsilon(), m_newBoundaryEdges, m_ignoreBoundaryEdges);
 				XA_PROFILE_END(parameterizeChartsPiecewiseBoundaryIntersection)
 			}
 			if (invalid) {
@@ -7289,6 +7290,7 @@ private:
 	BitArray m_faceInPatch, m_vertexInPatch; // Face/vertex is in the current patch.
 	BitArray m_faceInvalid; // Face cannot be added to the patch - flipped, cost too high or causes boundary intersection.
 	UniformGrid2 m_boundaryGrid;
+	Array<uint32_t> m_newBoundaryEdges, m_ignoreBoundaryEdges; // Temp arrays used when testing for boundary intersection.
 
 	void addFaceToPatch(uint32_t face)
 	{
