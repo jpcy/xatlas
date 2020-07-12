@@ -7198,6 +7198,17 @@ struct PiecewiseParam
 					break;
 				}
 			}
+			// Check for zero area and flipped faces (using area).
+			for (CandidateIterator it(bestCandidate); !it.isDone(); it.advance()) {
+				const Vector2 a = m_texcoords[m_mesh->vertexAt(it.current()->face * 3 + 0)];
+				const Vector2 b = m_texcoords[m_mesh->vertexAt(it.current()->face * 3 + 1)];
+				const Vector2 c = m_texcoords[m_mesh->vertexAt(it.current()->face * 3 + 2)];
+				const float area = triangleArea(a, b, c);
+				if (area <= 0.0f) {
+					invalid = true;
+					break;
+				}
+			}
 			// Check for boundary intersection.
 			if (!invalid) {
 				XA_PROFILE_START(parameterizeChartsPiecewiseBoundaryIntersection)
@@ -7305,12 +7316,14 @@ private:
 				}
 			}
 			XA_DEBUG_ASSERT(freeVertex != UINT32_MAX);
-			// If the free vertex is already in the patch, the face is enclosed by the patch. Add the face to the patch - don't need to assign texcoords.
-			/*if (m_vertexInPatch.get(freeVertex)) {
+			if (m_vertexInPatch.get(freeVertex)) {
+#if 0
+				// If the free vertex is already in the patch, the face is enclosed by the patch. Add the face to the patch - don't need to assign texcoords.
 				freeVertex = UINT32_MAX;
-				addFaceToPatch(oface, false);
+				addFaceToPatch(oface);
+#endif
 				continue;
-			}*/
+			}
 			// Check this here rather than above so faces enclosed by the patch are always added.
 			if (m_faceInvalid.get(oface))
 				continue;
@@ -7365,8 +7378,10 @@ private:
 			uv.x = x + texcoords[localVertex0].x;
 			uv.y = y + texcoords[localVertex0].y;
 		}
-		if (isNan(texcoords[localFreeVertex].x) || isNan(texcoords[localFreeVertex].y))
+		if (isNan(texcoords[localFreeVertex].x) || isNan(texcoords[localFreeVertex].y)) {
+			m_faceInvalid.set(face);
 			return;
+		}
 		// Check for local overlap (flipped triangle).
 		// The patch face vertex that isn't on the active edge and the free vertex should be oriented on opposite sides to the active edge.
 		const float freeVertexOrient = orientToEdge(m_texcoords[vertex0], m_texcoords[vertex1], texcoords[localFreeVertex]);
@@ -7380,12 +7395,10 @@ private:
 			return;
 		}
 		const float cost = fabsf(stretch - 1.0f);
-#if 0
-		if (cost > 0.25f) {
+		if (cost > 0.5f) {
 			m_faceInvalid.set(face);
 			return;
 		}
-#endif
 		// Add the candidate.
 		Candidate *candidate = XA_ALLOC(MemTag::Default, Candidate);
 		candidate->face = face;
