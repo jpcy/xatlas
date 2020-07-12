@@ -218,7 +218,7 @@ int main(int argc, char **argv)
 #ifdef _MSC_VER
 		processFilesRecursive(searchPath, useUvMesh);
 #else
-		useUvMesh = useUvMesh;
+		(void)useUvMesh;
 		logf("not implemented\n");
 #endif
 	} else {
