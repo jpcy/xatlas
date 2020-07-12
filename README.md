@@ -23,11 +23,19 @@ It is an independent fork of [thekla_atlas](https://github.com/Thekla/thekla_atl
 
 ### Building
 
-Windows: run `build\premake.bat`. Open `build\vs2019\xatlas.sln`.
+Premake is used. For CMake support, see [here](https://github.com/cpp-pm/xatlas).
 
-Linux: install premake5. Run `premake5 gmake`, `cd build/gmake`, `make`.
+Integration into an existing build is simple, only `xatlas.cpp` and `xatlas.h` are required.
 
-For CMake support, see [here](https://github.com/cpp-pm/xatlas).
+#### Windows
+
+Run `build\premake.bat`. Open `build\vs2019\xatlas.sln`.
+
+Note: change the build configuration to "Release". The default - "Debug" - severely degrades performance.
+
+#### Linux
+
+Install premake5. Run `premake5 gmake`, `cd build/gmake`, `make`.
 
 ### Generate an atlas (simple API)
 
