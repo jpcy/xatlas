@@ -9287,7 +9287,7 @@ struct Atlas
 					chartStartPositions.push_back(Vector2i(0, 0));
 				}
 				XA_PROFILE_START(packChartsFindLocation)
-				const bool foundLocation = findChartLocation(chartStartPositions[currentAtlas], options.bruteForce, m_bitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, options.blockAlign, maxResolution, options.rotateCharts);
+				const bool foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], m_bitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
 				XA_PROFILE_END(packChartsFindLocation)
 				XA_DEBUG_ASSERT(!(firstChartInBitImage && !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
 				if (maxResolution == 0) {
@@ -9414,28 +9414,24 @@ struct Atlas
 	}
 
 private:
-	// IC: Brute force is slow, and random may take too much time to converge. We start inserting large charts in a small atlas. Using brute force is lame, because most of the space
-	// is occupied at this point. At the end we have many small charts and a large atlas with sparse holes. Finding those holes randomly is slow. A better approach would be to
-	// start stacking large charts as if they were tetris pieces. Once charts get small try to place them randomly. It may be interesting to try a intermediate strategy, first try
-	// along one axis and then try exhaustively along that axis.
-	bool findChartLocation(const Vector2i &startPosition, bool bruteForce, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, uint32_t maxResolution, bool allowRotate)
+	bool findChartLocation(const PackOptions &options, const Vector2i &startPosition, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
 	{
 		const int attempts = 4096;
-		if (bruteForce || attempts >= w * h)
-			return findChartLocation_bruteForce(startPosition, atlasBitImage, chartBitImage, chartBitImageRotated, w, h, best_x, best_y, best_w, best_h, best_r, blockAligned, maxResolution, allowRotate);
-		return findChartLocation_random(atlasBitImage, chartBitImage, chartBitImageRotated, w, h, best_x, best_y, best_w, best_h, best_r, attempts, blockAligned, maxResolution, allowRotate);
+		if (options.bruteForce || attempts >= w * h)
+			return findChartLocation_bruteForce(options, startPosition, atlasBitImage, chartBitImage, chartBitImageRotated, w, h, best_x, best_y, best_w, best_h, best_r, maxResolution);
+		return findChartLocation_random(options, atlasBitImage, chartBitImage, chartBitImageRotated, w, h, best_x, best_y, best_w, best_h, best_r, attempts, maxResolution);
 	}
 
-	bool findChartLocation_bruteForce(const Vector2i &startPosition, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, bool blockAligned, uint32_t maxResolution, bool allowRotate)
+	bool findChartLocation_bruteForce(const PackOptions &options, const Vector2i &startPosition, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
 	{
-		const int stepSize = blockAligned ? 4 : 1;
+		const int stepSize = options.blockAlign ? 4 : 1;
 		int best_metric = INT_MAX;
 		// Try two different orientations.
 		for (int r = 0; r < 2; r++) {
 			int cw = chartBitImage->width();
 			int ch = chartBitImage->height();
 			if (r == 1) {
-				if (allowRotate)
+				if (options.rotateCharts)
 					swap(cw, ch);
 				else
 					break;
@@ -9472,15 +9468,15 @@ private:
 		return best_metric != INT_MAX;
 	}
 
-	bool findChartLocation_random(const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int minTrialCount, bool blockAligned, uint32_t maxResolution, bool allowRotate)
+	bool findChartLocation_random(const PackOptions &options, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int attempts, uint32_t maxResolution)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
 		int best_metric = INT_MAX;
-		for (int i = 0; i < minTrialCount; i++) {
+		for (int i = 0; i < attempts; i++) {
 			int cw = chartBitImage->width();
 			int ch = chartBitImage->height();
-			int r = allowRotate ? m_rand.getRange(1) : 0;
+			int r = options.rotateCharts ? m_rand.getRange(1) : 0;
 			if (r == 1)
 				swap(cw, ch);
 			// + 1 to extend atlas in case atlas full. We may want to use a higher number to increase probability of extending atlas.
@@ -9493,7 +9489,7 @@ private:
 			}
 			int x = m_rand.getRange(xRange);
 			int y = m_rand.getRange(yRange);
-			if (blockAligned) {
+			if (options.blockAlign) {
 				x = align(x, BLOCK_SIZE);
 				y = align(y, BLOCK_SIZE);
 				if (maxResolution > 0 && (x > (int)maxResolution - cw || y > (int)maxResolution - ch))
@@ -9518,7 +9514,7 @@ private:
 				*best_y = y;
 				*best_w = cw;
 				*best_h = ch;
-				*best_r = allowRotate ? r : 0;
+				*best_r = options.rotateCharts ? r : 0;
 				if (area == w * h) {
 					// Chart is completely inside, do not look at any other location.
 					break;
