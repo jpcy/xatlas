@@ -7844,7 +7844,7 @@ public:
 		Array<uint32_t> &chartMeshIndices = buffers.chartMeshIndices;
 		chartMeshIndices.resize(sourceMesh->vertexCount());
 		chartMeshIndices.fillBytes(0xff);
-#if XA_CHECK_PIECEWISE_CHART_QUALITY
+#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), m_faceToSourceFaceMap.size() * 3, m_faceToSourceFaceMap.size());
 		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToUnifiedVertexMap(MemTag::Mesh, m_faceToSourceFaceMap.size() * 3);
 #endif
@@ -7858,7 +7858,7 @@ public:
 					m_vertexToSourceVertexMap.push_back(vertex);
 					m_mesh->addVertex(sourceMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
 				}
-#if XA_CHECK_PIECEWISE_CHART_QUALITY
+#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocal(vertex);
 				uint32_t unifiedVertex = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
 				if (unifiedVertex == UINT32_MAX) {
@@ -7871,13 +7871,13 @@ public:
 		// Add faces.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			uint32_t indices[3];
-#if XA_CHECK_PIECEWISE_CHART_QUALITY
+#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 			uint32_t unifiedIndices[3];
 #endif
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
 				indices[i] = chartMeshIndices[vertex];
-#if XA_CHECK_PIECEWISE_CHART_QUALITY
+#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 				const uint32_t unifiedVertex = sourceMesh->firstColocal(vertex);
 				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(unifiedVertex);
 #endif
@@ -7885,13 +7885,13 @@ public:
 			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
 			XA_UNUSED(result);
 			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
-#if XA_CHECK_PIECEWISE_CHART_QUALITY
+#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 			result = m_unifiedMesh->addFace(unifiedIndices);
 #endif
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
-#if XA_CHECK_PIECEWISE_CHART_QUALITY
+#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 		m_unifiedMesh->createBoundaries();
 #endif
 		// Need to store texcoords for backup/restore so packing can be run multiple times.
