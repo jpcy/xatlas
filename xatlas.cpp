@@ -122,6 +122,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_USE_ORIGINAL_UV_CHARTS 0
 #define XA_CHECK_PARAM_WINDING 0
 #define XA_CHECK_PIECEWISE_CHART_QUALITY 0
+#define XA_CHECK_T_JUNCTIONS 0
 
 #define XA_DEBUG_HEAP 0
 #define XA_DEBUG_SINGLE_CHART 0
@@ -134,7 +135,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_DEBUG_EXPORT_OBJ_CHART_GROUPS 0
 #define XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
-#define XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION 0
+#define XA_DEBUG_EXPORT_OBJ_TJUNCTION 0 // XA_CHECK_T_JUNCTIONS must also be set
 #define XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION 0
 #define XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION 0
@@ -145,7 +146,7 @@ Copyright (c) 2012 Brandon Pelfrey
 	|| XA_DEBUG_EXPORT_OBJ_CHART_GROUPS \
 	|| XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
-	|| XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION \
+	|| XA_DEBUG_EXPORT_OBJ_TJUNCTION \
 	|| XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION \
 	|| XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION \
@@ -211,7 +212,6 @@ struct ProfileData
 	Duration parameterizeChartsReal;
 	std::atomic<Duration> parameterizeChartsThread;
 	std::atomic<Duration> createChartMesh;
-	std::atomic<Duration> fixChartMeshTJunctions;
 	std::atomic<Duration> closeChartMeshHoles;
 	std::atomic<Duration> parameterizeChartsOrthogonal;
 	std::atomic<Duration> parameterizeChartsLSCM;
@@ -3574,14 +3574,11 @@ struct SplitEdge
 	}
 };
 
-// Returns nullptr if there were no t-junctions to fix.
-static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, bool *failed, uint32_t *fixedTJunctionsCount)
+#if XA_CHECK_T_JUNCTIONS
+// Returns the number of T-junctions found.
+static int meshCheckTJunctions(const Mesh &inputMesh)
 {
-	if (duplicatedEdge)
-		*duplicatedEdge = false;
-	if (failed)
-		*failed = false;
-	Array<SplitEdge> splitEdges;
+	int count = 0;
 	const uint32_t vertexCount = inputMesh.vertexCount();
 	const uint32_t edgeCount = inputMesh.edgeCount();
 	for (uint32_t v = 0; v < vertexCount; v++) {
@@ -3595,60 +3592,13 @@ static Mesh *meshFixTJunctions(const Mesh &inputMesh, bool *duplicatedEdge, bool
 			const Vector3 &edgePos1 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex0(e)));
 			const Vector3 &edgePos2 = inputMesh.position(inputMesh.vertexAt(meshEdgeIndex1(e)));
 			float t;
-			if (!lineIntersectsPoint(pos, edgePos1, edgePos2, &t, inputMesh.epsilon()))
-				continue;
-			SplitEdge splitEdge;
-			splitEdge.edge = e;
-			splitEdge.t = t;
-			splitEdge.vertex = v;
-			splitEdges.push_back(splitEdge);
+			if (lineIntersectsPoint(pos, edgePos1, edgePos2, &t, inputMesh.epsilon()))
+				count++;
 		}
 	}
-	if (splitEdges.isEmpty())
-		return nullptr;
-	const uint32_t faceCount = inputMesh.faceCount();
-	Mesh *mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, inputMesh.epsilon(), vertexCount + splitEdges.size(), faceCount);
-	for (uint32_t v = 0; v < vertexCount; v++)
-		mesh->addVertex(inputMesh.position(v));
-	Array<uint32_t> indexArray;
-	indexArray.reserve(4);
-	Array<SplitEdge> faceSplitEdges;
-	faceSplitEdges.reserve(4);
-	for (uint32_t f = 0; f < faceCount; f++) {
-		// Find t-junctions in this face.
-		faceSplitEdges.clear();
-		for (uint32_t i = 0; i < splitEdges.size(); i++) {
-			if (meshEdgeFace(splitEdges[i].edge) == f)
-				faceSplitEdges.push_back(splitEdges[i]);
-		}
-		if (!faceSplitEdges.isEmpty()) {
-			// Need to split edges in winding order when a single edge has multiple t-junctions.
-			insertionSort(faceSplitEdges.data(), faceSplitEdges.size());
-			indexArray.clear();
-			for (Mesh::FaceEdgeIterator it(&inputMesh, f); !it.isDone(); it.advance()) {
-				indexArray.push_back(it.vertex0());
-				for (uint32_t se = 0; se < faceSplitEdges.size(); se++) {
-					const SplitEdge &splitEdge = faceSplitEdges[se];
-					if (splitEdge.edge == it.edge())
-						indexArray.push_back(splitEdge.vertex);
-				}
-			}
-			if (!meshCloseHole(mesh, indexArray, Vector3(0.0f))) {
-				if (failed)
-					*failed = true;
-			}
-		} else {
-			// No t-junctions in this face. Copy from input mesh.
-			if (mesh->addFace(&inputMesh.indices()[f * 3]) == Mesh::AddFaceResult::DuplicateEdge) {
-				if (duplicatedEdge)
-					*duplicatedEdge = true;
-			}
-		}
-	}
-	if (fixedTJunctionsCount)
-		*fixedTJunctionsCount = splitEdges.size();
-	return mesh;
+	return count;
 }
+#endif
 
 // boundaryLoops are the first edges for each boundary loop.
 static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoops)
@@ -7676,9 +7626,7 @@ struct ChartWarningFlags
 {
 	enum Enum
 	{
-		CloseHolesFailed = 1<<1,
-		FixTJunctionsDuplicatedEdge = 1<<2,
-		FixTJunctionsFailed = 1<<3
+		CloseHolesFailed = 1<<1
 	};
 };
 
@@ -7692,7 +7640,7 @@ struct ChartCtorBuffers
 class Chart
 {
 public:
-	Chart(ChartCtorBuffers &buffers, const ChartOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, bool isPlanar, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_isInvalid(false)
+	Chart(ChartCtorBuffers &buffers, const ChartOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, bool isPlanar, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_tjunctionCount(0), m_isInvalid(false)
 	{
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
@@ -7753,25 +7701,16 @@ public:
 			m_type = ChartType::Planar;
 			return;
 		}
-#if XA_DEBUG_EXPORT_OBJ_BEFORE_FIX_TJUNCTION
-		m_unifiedMesh->writeObjFile("debug_before_fix_tjunction.obj");
-#endif
-		bool duplicatedEdge = false, failed = false;
-		if (options.fixTJunctions) {
-			XA_PROFILE_START(fixChartMeshTJunctions)
-			Mesh *fixedUnifiedMesh = meshFixTJunctions(*m_unifiedMesh, &duplicatedEdge, &failed, &m_fixedTJunctionsCount);
-			XA_PROFILE_END(fixChartMeshTJunctions)
-			if (fixedUnifiedMesh) {
-				if (duplicatedEdge)
-					m_warningFlags |= ChartWarningFlags::FixTJunctionsDuplicatedEdge;
-				if (failed)
-					m_warningFlags |= ChartWarningFlags::FixTJunctionsFailed;
-				m_unmodifiedUnifiedMesh = m_unifiedMesh;
-				m_unifiedMesh = fixedUnifiedMesh;
-				m_unifiedMesh->createBoundaries();
-				m_initialFaceCount = m_unifiedMesh->faceCount(); // Fixing t-junctions rewrites faces.
-			}
+#if XA_CHECK_T_JUNCTIONS
+		m_tjunctionCount = meshCheckTJunctions(*m_unifiedMesh);
+#if XA_DEBUG_EXPORT_OBJ_TJUNCTION
+		if (m_tjunctionCount > 0) {
+			char filename[256];
+			XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_chart_%03u_tjunction.obj", sourceMesh->id(), chartGroupId, chartId);
+			m_unifiedMesh->writeObjFile(filename);
 		}
+#endif
+#endif
 		if (options.closeHoles) {
 			// See if there are any holes that need closing.
 			m_unifiedMesh->linkBoundaries(); // meshGetBoundaryLoops needs linked boundaries.
@@ -7790,9 +7729,9 @@ public:
 				uint32_t holeCount = 0;
 #if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
 				Array<uint32_t> holeFaceCounts;
-				failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, &holeFaceCounts);
+				bool failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, &holeFaceCounts);
 #else
-				failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, &holeCount, nullptr);
+				bool failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, &holeCount, nullptr);
 #endif
 				XA_PROFILE_END(closeChartMeshHoles)
 				m_unifiedMesh->createBoundaries();
@@ -7833,7 +7772,7 @@ public:
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_fixedTJunctionsCount(0), m_isInvalid(false)
+	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_tjunctionCount(0), m_isInvalid(false)
 	{
 		const uint32_t faceCount = m_initialFaceCount = faces.length;
 		m_faceToSourceFaceMap.resize(faceCount);
@@ -7912,7 +7851,7 @@ public:
 	ChartType::Enum type() const { return m_type; }
 	uint32_t warningFlags() const { return m_warningFlags; }
 	uint32_t closedHolesCount() const { return m_closedHolesCount; }
-	uint32_t fixedTJunctionsCount() const { return m_fixedTJunctionsCount; }
+	uint32_t tjunctionCount() const { return m_tjunctionCount; }
 	const Quality &quality() const { return m_quality; }
 	uint32_t initialFaceCount() const { return m_initialFaceCount; }
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
@@ -8061,7 +8000,7 @@ private:
 	ChartType::Enum m_type;
 	uint32_t m_warningFlags;
 	uint32_t m_initialFaceCount; // Before fixing T-junctions and/or closing holes.
-	uint32_t m_closedHolesCount, m_fixedTJunctionsCount;
+	uint32_t m_closedHolesCount, m_tjunctionCount;
 
 	// List of faces of the source mesh that belong to this chart.
 	Array<uint32_t> m_faceToSourceFaceMap;
@@ -10155,7 +10094,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 			return;
 		}
 		XA_PROFILE_END(parameterizeChartsReal)
-		uint32_t chartsWithHolesCount = 0, holesCount = 0, chartsWithTJunctionsCount = 0, tJunctionsCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
+		uint32_t chartsWithHolesCount = 0, holesCount = 0, chartsWithTJunctionsCount = 0, tJunctionCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
 		chartCount = 0;
 		for (uint32_t i = 0; i < meshCount; i++) {
 			for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
@@ -10163,18 +10102,14 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 				for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 					const internal::param::Chart *chart = chartGroup->chartAt(k);
 #if XA_PRINT_CHART_WARNINGS
-					if (chart->warningFlags() & internal::param::ChartWarningFlags::CloseHolesFailed)
-						XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): failed to close holes\n", chartCount, i, j, k);
-					if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsDuplicatedEdge)
-						XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions created non-manifold geometry\n", chartCount, i, j, k);
 					if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsFailed)
 						XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
 #endif
 					holesCount += chart->closedHolesCount();
 					if (chart->closedHolesCount() > 0)
 						chartsWithHolesCount++;
-					tJunctionsCount += chart->fixedTJunctionsCount();
-					if (chart->fixedTJunctionsCount() > 0)
+					tJunctionCount += chart->tjunctionCount();
+					if (chart->tjunctionCount() > 0)
 						chartsWithTJunctionsCount++;
 					if (chart->type() == ChartType::Planar)
 						planarChartsCount++;
@@ -10192,8 +10127,8 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		}
 		if (holesCount > 0)
 			XA_PRINT("   %u holes closed in %u charts\n", holesCount, chartsWithHolesCount);
-		if (tJunctionsCount > 0)
-			XA_PRINT("   %u t-junctions fixed in %u charts\n", tJunctionsCount, chartsWithTJunctionsCount);
+		if (tJunctionCount > 0)
+			XA_PRINT("   %u t-junctions found in %u charts\n", tJunctionCount, chartsWithTJunctionsCount);
 		XA_PRINT("   %u planar charts, %u ortho charts, %u LSCM charts, %u piecewise charts\n", planarChartsCount, orthoChartsCount, lscmChartsCount, piecewiseChartsCount);
 		if (chartsDeletedCount > 0) {
 			XA_PRINT("   %u charts with invalid parameterizations replaced with %u new charts\n", chartsDeletedCount, chartsAddedCount);
@@ -10263,7 +10198,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		XA_PROFILE_PRINT_AND_RESET("   Total (real): ", parameterizeChartsReal)
 		XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", parameterizeChartsThread)
 		XA_PROFILE_PRINT_AND_RESET("      Create chart mesh: ", createChartMesh)
-		XA_PROFILE_PRINT_AND_RESET("         Fix t-junctions: ", fixChartMeshTJunctions)
 		XA_PROFILE_PRINT_AND_RESET("         Close holes: ", closeChartMeshHoles)
 		XA_PROFILE_PRINT_AND_RESET("      Orthogonal: ", parameterizeChartsOrthogonal)
 		XA_PROFILE_PRINT_AND_RESET("      LSCM: ", parameterizeChartsLSCM)

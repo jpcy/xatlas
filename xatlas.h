@@ -185,7 +185,6 @@ struct ChartOptions
 
 	ParameterizeFunc paramFunc = nullptr;
 	bool closeHoles = false; // If the custom parameterization function works with multiple boundaries, this can be set to false to improve performance.
-	bool fixTJunctions = true; // If meshes don't have T-junctions, this can be set to false to improve performance.
 	bool fixWinding = false; // Enforce consistent texture coordinate winding.
 };
 
