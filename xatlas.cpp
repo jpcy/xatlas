@@ -116,9 +116,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_MERGE_CHARTS 1
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 #define XA_RECOMPUTE_CHARTS 1
-#define XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION 0
 #define XA_FIX_INTERNAL_BOUNDARY_LOOPS 1
-#define XA_PRINT_CHART_WARNINGS 0
 #define XA_USE_ORIGINAL_UV_CHARTS 0
 #define XA_CHECK_PARAM_WINDING 0
 #define XA_CHECK_PIECEWISE_CHART_QUALITY 0
@@ -136,7 +134,6 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS 0
 #define XA_DEBUG_EXPORT_OBJ_TJUNCTION 0 // XA_CHECK_T_JUNCTIONS must also be set
-#define XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR 0
 #define XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION 0
 #define XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION 0
 #define XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS 0
@@ -147,7 +144,6 @@ Copyright (c) 2012 Brandon Pelfrey
 	|| XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS \
 	|| XA_DEBUG_EXPORT_OBJ_TJUNCTION \
-	|| XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR \
 	|| XA_DEBUG_EXPORT_OBJ_CHARTS_AFTER_PARAMETERIZATION \
 	|| XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION \
 	|| XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS)
@@ -212,7 +208,6 @@ struct ProfileData
 	Duration parameterizeChartsReal;
 	std::atomic<Duration> parameterizeChartsThread;
 	std::atomic<Duration> createChartMesh;
-	std::atomic<Duration> closeChartMeshHoles;
 	std::atomic<Duration> parameterizeChartsOrthogonal;
 	std::atomic<Duration> parameterizeChartsLSCM;
 	std::atomic<Duration> parameterizeChartsRecompute;
@@ -434,7 +429,6 @@ static void *Realloc(void *ptr, size_t size, int /*tag*/, const char * /*file*/,
 #endif
 
 static constexpr float kPi = 3.14159265358979323846f;
-static constexpr float kPi2 = 6.28318530717958647692f;
 static constexpr float kEpsilon = 0.0001f;
 static constexpr float kAreaEpsilon = FLT_EPSILON;
 static constexpr float kNormalEpsilon = 0.001f;
@@ -895,94 +889,6 @@ struct Extents2
 		return e1.min.x <= e2.max.x && e1.max.x >= e2.min.x && e1.min.y <= e2.max.y && e1.max.y >= e2.min.y;
 	}
 };
-
-struct Plane
-{
-	Plane() = default;
-	
-	Plane(const Vector3 &p1, const Vector3 &p2, const Vector3 &p3)
-	{
-		normal = cross(p2 - p1, p3 - p1);
-		dist = dot(normal, p1);
-	}
-
-	float distance(const Vector3 &p) const
-	{
-		return dot(normal, p) - dist;
-	}
-
-	void normalize()
-	{
-		const float len = length(normal);
-		if (len > 0.0f) {
-			const float il = 1.0f / len;
-			normal *= il;
-			dist *= il;
-		}
-	}
-
-	Vector3 normal;
-	float dist;
-};
-
-static bool lineIntersectsPoint(const Vector3 &point, const Vector3 &lineStart, const Vector3 &lineEnd, float *t, float epsilon)
-{
-	float tt;
-	if (!t)
-		t = &tt;
-	*t = 0.0f;
-	if (equal(lineStart, point, epsilon) || equal(lineEnd, point, epsilon))
-		return false; // Vertex lies on either line vertices.
-	const Vector3 v01 = point - lineStart;
-	const Vector3 v21 = lineEnd - lineStart;
-	const float l = length(v21);
-	const float d = length(cross(v01, v21)) / l;
-	if (!isZero(d, epsilon))
-		return false;
-	*t = dot(v01, v21) / (l * l);
-	return *t > kEpsilon && *t < 1.0f - kEpsilon;
-}
-
-static bool sameSide(const Vector3 &p1, const Vector3 &p2, const Vector3 &a, const Vector3 &b)
-{
-	const Vector3 &ab = b - a;
-	return dot(cross(ab, p1 - a), cross(ab, p2 - a)) >= 0.0f;
-}
-
-// http://blackpawn.com/texts/pointinpoly/default.html
-static bool pointInTriangle(const Vector3 &p, const Vector3 &a, const Vector3 &b, const Vector3 &c)
-{
-	return sameSide(p, a, b, c) && sameSide(p, b, a, c) && sameSide(p, c, a, b);
-}
-
-#if XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION
-// https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
-static bool rayIntersectsTriangle(const Vector3 &rayOrigin, const Vector3 &rayDir, const Vector3 *tri, float *t)
-{
-	*t = 0.0f;
-	const Vector3 &edge1 = tri[1] - tri[0];
-	const Vector3 &edge2 = tri[2] - tri[0];
-	const Vector3 h = cross(rayDir, edge2);
-	const float a = dot(edge1, h);
-	if (a > -kEpsilon && a < kEpsilon)
-		return false; // This ray is parallel to this triangle.
-	const float f = 1.0f / a;
-	const Vector3 s = rayOrigin - tri[0];
-	const float u = f * dot(s, h);
-	if (u < 0.0f || u > 1.0f)
-		return false;
-	const Vector3 q = cross(s, edge1);
-	const float v = f * dot(rayDir, q);
-	if (v < 0.0f || u + v > 1.0f)
-		return false;
-	// At this stage we can compute t to find out where the intersection point is on the line.
-	*t = f * dot(edge2, q);
-	if (*t > kEpsilon && *t < 1.0f - kEpsilon)
-		return true;
-	// This means that there is a line intersection but not a ray intersection.
-	return false;
-}
-#endif
 
 // From Fast-BVH
 struct AABB
@@ -2775,7 +2681,6 @@ public:
 	// Edge map can be destroyed when no longer used to reduce memory usage. It's used by:
 	//   * Mesh::createBoundaries()
 	//   * Mesh::ColocalEdgeIterator (used by MeshFaceGroups)
-	//   * meshCloseHole()
 	void destroyEdgeMap()
 	{
 		m_edgeMap.destroy();
@@ -3360,221 +3265,25 @@ private:
 
 constexpr MeshFaceGroups::Handle MeshFaceGroups::kInvalid;
 
-static bool meshCloseHole(Mesh *mesh, const Array<uint32_t> &holeVertices, const Vector3 &normal)
-{
-#if XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION
-	const uint32_t faceCount = mesh->faceCount();
-#endif
-	const bool compareNormal = equal(normal, Vector3(0.0f), FLT_EPSILON);
-	uint32_t frontCount = holeVertices.size();
-	Array<uint32_t> frontVertices;
-	Array<Vector3> frontPoints;
-	Array<float> frontAngles;
-	frontVertices.resize(frontCount);
-	frontPoints.resize(frontCount);
-	for (uint32_t i = 0; i < frontCount; i++) {
-		frontVertices[i] = holeVertices[i];
-		frontPoints[i] = mesh->position(frontVertices[i]);
-	}
-	while (frontCount >= 3) {
-		frontAngles.resize(frontCount);
-		float smallestAngle = kPi2, smallestAngleIgnoringNormal = kPi2;
-		uint32_t smallestAngleIndex = UINT32_MAX, smallestAngleIndexIgnoringNormal = UINT32_MAX;
-		for (uint32_t i = 0; i < frontCount; i++) {
-			const uint32_t i1 = i == 0 ? frontCount - 1 : i - 1;
-			const uint32_t i2 = i;
-			const uint32_t i3 = (i + 1) % frontCount;
-			const Vector3 edge1 = frontPoints[i1] - frontPoints[i2];
-			const Vector3 edge2 = frontPoints[i3] - frontPoints[i2];
-			frontAngles[i] = atan2f(length(cross(edge1, edge2)), dot(edge1, edge2));
-			if (frontAngles[i] >= smallestAngle || isNan(frontAngles[i]))
-				continue;
-			// Don't duplicate edges.
-			if (mesh->findEdge(frontVertices[i1], frontVertices[i2]) != UINT32_MAX)
-				continue;
-			if (mesh->findEdge(frontVertices[i2], frontVertices[i3]) != UINT32_MAX)
-				continue;
-			if (mesh->findEdge(frontVertices[i3], frontVertices[i1]) != UINT32_MAX)
-				continue;
-			/*
-			Make sure he new edge that would be formed by (i3, i1) doesn't intersect any vertices. This often happens when fixing t-junctions.
-
-			       i2
-			       *
-			      / \
-			     /   \
-			 i1 *--*--* i3
-			     \ | /
-				  \|/
-				   *
-			*/
-			bool intersection = false;
-			for (uint32_t j = 0; j < frontCount; j++) {
-				if (j == i1 || j == i2 || j == i3)
-					continue;
-				if (lineIntersectsPoint(frontPoints[j], frontPoints[i3], frontPoints[i1], nullptr, mesh->epsilon())) {
-					intersection = true;
-					break;
-				}
-			}
-			if (intersection)
-				continue;
-			// Don't add the triangle if a boundary point lies on the same plane as the triangle, and is inside it.
-			intersection = false;
-			const Plane plane(frontPoints[i1], frontPoints[i2], frontPoints[i3]);
-			for (uint32_t j = 0; j < frontCount; j++) {
-				if (j == i1 || j == i2 || j == i3)
-					continue;
-				if (!isZero(plane.distance(frontPoints[j]), mesh->epsilon()))
-					continue;
-				if (pointInTriangle(frontPoints[j], frontPoints[i1], frontPoints[i2], frontPoints[i3])) {
-					intersection = true;
-					break;
-				}
-			}
-			if (intersection)
-				continue;
-#if XA_CLOSE_HOLES_CHECK_EDGE_INTERSECTION
-			// Don't add the triangle if the new edge (i3, i1), intersects any other triangle that isn't part of the filled hole.
-			intersection = false;
-			const Vector3 newEdgeVector = frontPoints[i1] - frontPoints[i3];
-			for (uint32_t f = 0; f < faceCount; f++) {
-				Vector3 tri[3];
-				for (uint32_t j = 0; j < 3; j++)
-					tri[j] = mesh->position(mesh->vertexAt(f * 3 + j));
-				float t;
-				if (rayIntersectsTriangle(frontPoints[i3], newEdgeVector, tri, &t)) {
-					intersection = true;
-					break;
-				}
-			}
-			if (intersection)
-				continue;
-#endif
-			// Skip backwards facing triangles.
-			if (compareNormal) {
-				if (frontAngles[i] < smallestAngleIgnoringNormal) {
-					smallestAngleIgnoringNormal = frontAngles[i];
-					smallestAngleIndexIgnoringNormal = i;
-				}
-				const Vector3 e0 = frontPoints[i3] - frontPoints[i1];
-				const Vector3 e1 = frontPoints[i2] - frontPoints[i1];
-				const Vector3 triNormal = normalizeSafe(cross(e0, e1), Vector3(0.0f), mesh->epsilon());
-				if (dot(normal, triNormal) <= 0.0f)
-					continue;
-			}
-			smallestAngle = smallestAngleIgnoringNormal = frontAngles[i];
-			smallestAngleIndex = smallestAngleIndexIgnoringNormal = i;
-		}
-		// Closing holes failed if we don't have a smallest angle.
-		// Fallback to ignoring the backwards facing normal test if possible.
-		if (smallestAngleIndex == UINT32_MAX || smallestAngle <= 0.0f || smallestAngle >= kPi) {
-			if (smallestAngleIndexIgnoringNormal == UINT32_MAX || smallestAngleIgnoringNormal <= 0.0f || smallestAngleIgnoringNormal >= kPi)
-				return false;
-			else
-				smallestAngleIndex = smallestAngleIndexIgnoringNormal;
-		}
-		const uint32_t i1 = smallestAngleIndex == 0 ? frontCount - 1 : smallestAngleIndex - 1;
-		const uint32_t i2 = smallestAngleIndex;
-		const uint32_t i3 = (smallestAngleIndex + 1) % frontCount;
-		const Mesh::AddFaceResult::Enum result = mesh->addFace(frontVertices[i1], frontVertices[i2], frontVertices[i3]);
-		XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK); // Shouldn't happen due to the findEdge calls above.
-		XA_UNUSED(result);
-		frontVertices.removeAt(i2);
-		frontPoints.removeAt(i2);
-		frontCount = frontVertices.size();
-	}
-	return true;
-}
-
-static bool meshCloseHoles(Mesh *mesh, const Array<uint32_t> &boundaryLoops, const Vector3 &normal, uint32_t *holeCount, Array<uint32_t> *holeFaceCounts)
-{
-	if (holeFaceCounts)
-		holeFaceCounts->clear();
-	// Compute lengths.
-	const uint32_t boundaryCount = boundaryLoops.size();
-	Array<float> boundaryLengths;
-	Array<uint32_t> boundaryEdgeCounts;
-	boundaryEdgeCounts.resize(boundaryCount);
-	for (uint32_t i = 0; i < boundaryCount; i++) {
-		float boundaryLength = 0.0f;
-		boundaryEdgeCounts[i] = 0;
-		for (Mesh::BoundaryLoopEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
-			const Vector3 &t0 = mesh->position(mesh->vertexAt(meshEdgeIndex0(it.edge())));
-			const Vector3 &t1 = mesh->position(mesh->vertexAt(meshEdgeIndex1(it.edge())));
-			boundaryLength += length(t1 - t0);
-			boundaryEdgeCounts[i]++;
-		}
-		boundaryLengths.push_back(boundaryLength);
-	}
-	// Find disk boundary.
-	uint32_t diskBoundary = 0;
-	float maxLength = boundaryLengths[0];
-	for (uint32_t i = 1; i < boundaryCount; i++) {
-		if (boundaryLengths[i] > maxLength) {
-			maxLength = boundaryLengths[i];
-			diskBoundary = i;
-		}
-	}
-	// Close holes.
-	Array<uint32_t> holeVertices;
-	Array<Vector3> holePoints;
-	bool result = true;
-	for (uint32_t i = 0; i < boundaryCount; i++) {
-		if (diskBoundary == i)
-			continue; // Skip disk boundary.
-		holeVertices.resize(boundaryEdgeCounts[i]);
-		holePoints.resize(boundaryEdgeCounts[i]);
-		// Winding is backwards for internal boundaries.
-		uint32_t e = 0;
-		for (Mesh::BoundaryLoopEdgeIterator it(mesh, boundaryLoops[i]); !it.isDone(); it.advance()) {
-			const uint32_t vertex = mesh->vertexAt(meshEdgeIndex0(it.edge()));
-			holeVertices[boundaryEdgeCounts[i] - 1 - e] = vertex;
-			holePoints[boundaryEdgeCounts[i] - 1 - e] = mesh->position(vertex);
-			e++;
-		}
-		const uint32_t oldFaceCount = mesh->faceCount();
-		if (!meshCloseHole(mesh, holeVertices, normal))
-			result = false; // Return false if any hole failed to close, but keep trying to close other holes.
-		if (holeCount)
-			(*holeCount)++;
-		if (holeFaceCounts)
-			holeFaceCounts->push_back(mesh->faceCount() - oldFaceCount);
-	}
-	return result;
-}
-
-/*
-Fixing T-junctions.
-
-- Find T-junctions. Find  vertices that are on an edge.
-- This test is approximate.
-- Insert edges on a spatial index to speedup queries.
-- Consider only open edges, that is edges that have no pairs.
-- Consider only vertices on boundaries.
-- Close T-junction.
-- Split edge.
-
-*/
-struct SplitEdge
-{
-	uint32_t edge;
-	float t;
-	uint32_t vertex;
-
-	bool operator<(const SplitEdge &other) const
-	{
-		if (edge < other.edge)
-			return true;
-		else if (edge == other.edge) {
-			if (t < other.t)
-				return true;
-		}
-		return false;
-	}
-};
-
 #if XA_CHECK_T_JUNCTIONS
+static bool lineIntersectsPoint(const Vector3 &point, const Vector3 &lineStart, const Vector3 &lineEnd, float *t, float epsilon)
+{
+	float tt;
+	if (!t)
+		t = &tt;
+	*t = 0.0f;
+	if (equal(lineStart, point, epsilon) || equal(lineEnd, point, epsilon))
+		return false; // Vertex lies on either line vertices.
+	const Vector3 v01 = point - lineStart;
+	const Vector3 v21 = lineEnd - lineStart;
+	const float l = length(v21);
+	const float d = length(cross(v01, v21)) / l;
+	if (!isZero(d, epsilon))
+		return false;
+	*t = dot(v01, v21) / (l * l);
+	return *t > kEpsilon && *t < 1.0f - kEpsilon;
+}
+
 // Returns the number of T-junctions found.
 static int meshCheckTJunctions(const Mesh &inputMesh)
 {
@@ -7060,20 +6769,20 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 #if XA_RECOMPUTE_CHARTS
 struct PiecewiseParam
 {
-	void reset(const Mesh *mesh, uint32_t faceCount)
+	void reset(const Mesh *mesh)
 	{
 		m_mesh = mesh;
-		m_faceCount = faceCount;
+		const uint32_t faceCount = m_mesh->faceCount();
 		const uint32_t vertexCount = m_mesh->vertexCount();
 		m_texcoords.resize(vertexCount);
-		m_patch.reserve(m_faceCount);
-		m_candidates.reserve(m_faceCount);
-		m_faceInAnyPatch.resize(m_faceCount);
+		m_patch.reserve(faceCount);
+		m_candidates.reserve(faceCount);
+		m_faceInAnyPatch.resize(faceCount);
 		m_faceInAnyPatch.zeroOutMemory();
-		m_faceInvalid.resize(m_faceCount);
-		m_faceInPatch.resize(m_faceCount);
+		m_faceInvalid.resize(faceCount);
+		m_faceInPatch.resize(faceCount);
 		m_vertexInPatch.resize(vertexCount);
-		m_faceToCandidate.resize(m_faceCount);
+		m_faceToCandidate.resize(faceCount);
 	}
 
 	ConstArrayView<uint32_t> chartFaces() const { return m_patch; }
@@ -7089,8 +6798,9 @@ struct PiecewiseParam
 		m_faceInPatch.zeroOutMemory();
 		m_vertexInPatch.zeroOutMemory();
 		// Add the seed face (first unassigned face) to the patch.
+		const uint32_t faceCount = m_mesh->faceCount();
 		uint32_t seed = UINT32_MAX;
-		for (uint32_t f = 0; f < m_faceCount; f++) {
+		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_faceInAnyPatch.get(f))
 				continue;
 			seed = f;
@@ -7169,9 +6879,9 @@ struct PiecewiseParam
 				for (CandidateIterator candidateIt(bestCandidate); !candidateIt.isDone(); candidateIt.advance()) {
 					for (Mesh::FaceEdgeIterator it(m_mesh, candidateIt.current()->face); !it.isDone(); it.advance()) {
 						const uint32_t oface = it.oppositeFace();
-						if (oface == UINT32_MAX || oface >= m_faceCount || !m_faceInPatch.get(oface))
+						if (oface == UINT32_MAX || !m_faceInPatch.get(oface))
 							m_newBoundaryEdges.push_back(it.edge());
-						if (oface != UINT32_MAX && oface < m_faceCount && m_faceInPatch.get(oface))
+						if (oface != UINT32_MAX && m_faceInPatch.get(oface))
 							m_ignoreBoundaryEdges.push_back(it.oppositeEdge());
 					}
 				}
@@ -7197,7 +6907,7 @@ struct PiecewiseParam
 				for (uint32_t i = 0; i < m_patch.size(); i++) {
 					for (Mesh::FaceEdgeIterator it(m_mesh, m_patch[i]); !it.isDone(); it.advance()) {
 						const uint32_t oface = it.oppositeFace();
-						if (oface == UINT32_MAX || oface >= m_faceCount || !m_faceInPatch.get(oface))
+						if (oface == UINT32_MAX || !m_faceInPatch.get(oface))
 							m_boundaryGrid.append(it.edge());
 					}
 				}
@@ -7231,7 +6941,6 @@ private:
 	};
 
 	const Mesh *m_mesh;
-	uint32_t m_faceCount;
 	Array<Vector2> m_texcoords;
 	BitArray m_faceInAnyPatch; // Face is in a previous chart patch or the current patch.
 	Array<Candidate *> m_candidates; // Incident faces to the patch.
@@ -7252,7 +6961,7 @@ private:
 		// Find new candidate faces on the patch incident to the newly added face.
 		for (Mesh::FaceEdgeIterator it(m_mesh, face); !it.isDone(); it.advance()) {
 			const uint32_t oface = it.oppositeFace();
-			if (oface == UINT32_MAX || oface >= m_faceCount || m_faceInAnyPatch.get(oface) || m_faceToCandidate[oface])
+			if (oface == UINT32_MAX || m_faceInAnyPatch.get(oface) || m_faceToCandidate[oface])
 				continue;
 			// Found an active edge on the patch front.
 			// Find the free vertex (the vertex that isn't on the active edge).
@@ -7493,11 +7202,12 @@ struct Quality
 #endif
 	}
 
-	void computeFlippedFaces(const Mesh *mesh, uint32_t faceCount, Array<uint32_t> *flippedFaces)
+	void computeFlippedFaces(const Mesh *mesh, Array<uint32_t> *flippedFaces)
 	{
 		totalTriangleCount = flippedTriangleCount = zeroAreaTriangleCount = 0;
 		if (flippedFaces)
 			flippedFaces->clear();
+		const uint32_t faceCount = mesh->faceCount();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			Vector2 texcoord[3];
 			for (int i = 0; i < 3; i++) {
@@ -7552,10 +7262,11 @@ struct Quality
 		}
 	}
 
-	void computeMetrics(const Mesh *mesh, uint32_t faceCount)
+	void computeMetrics(const Mesh *mesh)
 	{
 		totalGeometricArea = totalParametricArea = 0.0f;
 		stretchMetric = maxStretchMetric = conformalMetric = authalicMetric = 0.0f;
+		const uint32_t faceCount = mesh->faceCount();
 		for (uint32_t f = 0; f < faceCount; f++) {
 			Vector3 pos[3];
 			Vector2 texcoord[3];
@@ -7622,14 +7333,6 @@ struct Quality
 	}
 };
 
-struct ChartWarningFlags
-{
-	enum Enum
-	{
-		CloseHolesFailed = 1<<1
-	};
-};
-
 struct ChartCtorBuffers
 {
 	Array<uint32_t> chartMeshIndices;
@@ -7640,7 +7343,7 @@ struct ChartCtorBuffers
 class Chart
 {
 public:
-	Chart(ChartCtorBuffers &buffers, const ChartOptions &options, const Basis &basis, ConstArrayView<uint32_t> faces, bool isPlanar, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::LSCM), m_warningFlags(0), m_closedHolesCount(0), m_tjunctionCount(0), m_isInvalid(false)
+	Chart(const Basis &basis, ConstArrayView<uint32_t> faces, bool isPlanar, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_type(ChartType::LSCM), m_tjunctionCount(0), m_isInvalid(false)
 	{
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
@@ -7650,7 +7353,7 @@ public:
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faces.length);
 		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToUnifiedVertexMap(MemTag::Mesh, approxVertexCount), sourceVertexToChartVertexMap(MemTag::Mesh, approxVertexCount);
 		// Add vertices.
-		const uint32_t faceCount = m_initialFaceCount = faces.length;
+		const uint32_t faceCount = faces.length;
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t sourceVertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
@@ -7711,70 +7414,12 @@ public:
 		}
 #endif
 #endif
-		if (options.closeHoles) {
-			// See if there are any holes that need closing.
-			m_unifiedMesh->linkBoundaries(); // meshGetBoundaryLoops needs linked boundaries.
-			Array<uint32_t> &boundaryLoops = buffers.boundaryLoops;
-			meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
-			if (boundaryLoops.size() > 1) {
-#if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
-				const uint32_t faceCountBeforeHolesClosed = m_unifiedMesh->faceCount();
-#endif
-				// Closing the holes is not always the best solution and does not fix all the problems.
-				// We need to do some analysis of the holes and the genus to:
-				// - Find cuts that reduce genus.
-				// - Find cuts to connect holes.
-				// - Use minimal spanning trees or seamster.
-				XA_PROFILE_START(closeChartMeshHoles)
-				uint32_t holeCount = 0;
-#if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
-				Array<uint32_t> holeFaceCounts;
-				bool failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, &holeFaceCounts);
-#else
-				bool failed = !meshCloseHoles(m_unifiedMesh, boundaryLoops, m_basis.normal, &holeCount, nullptr);
-#endif
-				XA_PROFILE_END(closeChartMeshHoles)
-				m_unifiedMesh->createBoundaries();
-				m_unifiedMesh->linkBoundaries(); // meshGetBoundaryLoops needs linked boundaries.
-				meshGetBoundaryLoops(*m_unifiedMesh, boundaryLoops);
-				if (failed || boundaryLoops.size() > 1)
-					m_warningFlags |= ChartWarningFlags::CloseHolesFailed;
-				m_closedHolesCount = holeCount;
-#if XA_DEBUG_EXPORT_OBJ_CLOSE_HOLES_ERROR
-				if (m_warningFlags & ChartWarningFlags::CloseHolesFailed) {
-					char filename[256];
-					XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_chart_%03u_close_holes_error.obj", sourceMesh->id(), chartGroupId, chartId);
-					FILE *file;
-					XA_FOPEN(file, filename, "w");
-					if (file) {
-						m_unifiedMesh->writeObjVertices(file);
-						fprintf(file, "s off\n");
-						fprintf(file, "o object\n");
-						for (uint32_t i = 0; i < faceCountBeforeHolesClosed; i++)
-							m_unifiedMesh->writeObjFace(file, i);
-						uint32_t face = faceCountBeforeHolesClosed;
-						for (uint32_t i = 0; i < holeFaceCounts.size(); i++) {
-							fprintf(file, "s off\n");
-							fprintf(file, "o hole%u\n", i);
-							for (uint32_t j = 0; j < holeFaceCounts[i]; j++) {
-								m_unifiedMesh->writeObjFace(file, face);
-								face++;
-							}
-						}
-						m_unifiedMesh->writeObjBoundaryEges(file);
-						m_unifiedMesh->writeObjLinkedBoundaries(file);
-						fclose(file);
-					}
-				}
-#endif
-			}
-		}
 	}
 
 #if XA_RECOMPUTE_CHARTS
-	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_unmodifiedUnifiedMesh(nullptr), m_type(ChartType::Piecewise), m_warningFlags(0), m_closedHolesCount(0), m_tjunctionCount(0), m_isInvalid(false)
+	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_type(ChartType::Piecewise), m_tjunctionCount(0), m_isInvalid(false)
 	{
-		const uint32_t faceCount = m_initialFaceCount = faces.length;
+		const uint32_t faceCount = faces.length;
 		m_faceToSourceFaceMap.resize(faceCount);
 		for (uint32_t i = 0; i < faceCount; i++)
 			m_faceToSourceFaceMap[i] = parent->m_faceToSourceFaceMap[faces[i]]; // Map faces to parent chart source mesh.
@@ -7849,11 +7494,8 @@ public:
 
 	bool isInvalid() const { return m_isInvalid; }
 	ChartType::Enum type() const { return m_type; }
-	uint32_t warningFlags() const { return m_warningFlags; }
-	uint32_t closedHolesCount() const { return m_closedHolesCount; }
 	uint32_t tjunctionCount() const { return m_tjunctionCount; }
 	const Quality &quality() const { return m_quality; }
-	uint32_t initialFaceCount() const { return m_initialFaceCount; }
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 	const Array<uint32_t> &paramFlippedFaces() const { return m_paramFlippedFaces; }
 #endif
@@ -7862,7 +7504,6 @@ public:
 	const Mesh *mesh() const { return m_mesh; }
 	Mesh *mesh() { return m_mesh; }
 	const Mesh *unifiedMesh() const { return m_unifiedMesh; }
-	const Mesh *unmodifiedUnifiedMesh() const { return m_unmodifiedUnifiedMesh; }
 
 	void parameterize(const ChartOptions &options, UniformGrid2 &boundaryGrid)
 	{
@@ -7876,8 +7517,8 @@ public:
 		if (m_type != ChartType::Planar) {
 			XA_PROFILE_START(parameterizeChartsEvaluateQuality)
 			m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
-			m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
-			m_quality.computeMetrics(m_unifiedMesh, m_initialFaceCount);
+			m_quality.computeFlippedFaces(m_unifiedMesh, nullptr);
+			m_quality.computeMetrics(m_unifiedMesh);
 			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
 			// Use orthogonal parameterization if quality is acceptable.
 			if (!m_quality.boundaryIntersection && m_quality.flippedTriangleCount == 0 && m_quality.zeroAreaTriangleCount == 0 && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
@@ -7894,9 +7535,9 @@ public:
 			XA_PROFILE_START(parameterizeChartsEvaluateQuality)
 			m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-			m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, &m_paramFlippedFaces);
+			m_quality.computeFlippedFaces(m_unifiedMesh, &m_paramFlippedFaces);
 #else
-			m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
+			m_quality.computeFlippedFaces(m_unifiedMesh, nullptr);
 #endif
 			// Don't need to call computeMetrics here, that's only used in evaluateOrthoQuality to determine if quality is acceptable enough to use ortho projection.
 			if (m_quality.boundaryIntersection || m_quality.flippedTriangleCount > 0 || m_quality.zeroAreaTriangleCount > 0)
@@ -7956,9 +7597,9 @@ public:
 	{
 		m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, &m_paramFlippedFaces);
+		m_quality.computeFlippedFaces(m_unifiedMesh, &m_paramFlippedFaces);
 #else
-		m_quality.computeFlippedFaces(m_unifiedMesh, m_initialFaceCount, nullptr);
+		m_quality.computeFlippedFaces(m_unifiedMesh, nullptr);
 #endif
 		if (m_quality.boundaryIntersection || m_quality.flippedTriangleCount > 0 || m_quality.zeroAreaTriangleCount > 0)
 			m_isInvalid = true;
@@ -7984,11 +7625,6 @@ private:
 			XA_FREE(m_unifiedMesh);
 			m_unifiedMesh = nullptr;
 		}
-		if (m_unmodifiedUnifiedMesh) {
-			m_unmodifiedUnifiedMesh->~Mesh();
-			XA_FREE(m_unmodifiedUnifiedMesh);
-			m_unmodifiedUnifiedMesh = nullptr;
-		}
 		// Don't need this when unified meshes are destroyed.
 		m_chartVertexToUnifiedVertexMap.destroy();
 	}
@@ -7996,11 +7632,8 @@ private:
 	Basis m_basis;
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
-	Mesh *m_unmodifiedUnifiedMesh; // Unified mesh before fixing t-junctions. Null if no t-junctions were fixed
 	ChartType::Enum m_type;
-	uint32_t m_warningFlags;
-	uint32_t m_initialFaceCount; // Before fixing T-junctions and/or closing holes.
-	uint32_t m_closedHolesCount, m_tjunctionCount;
+	uint32_t m_tjunctionCount;
 
 	// List of faces of the source mesh that belong to this chart.
 	Array<uint32_t> m_faceToSourceFaceMap;
@@ -8041,7 +7674,7 @@ static void runCreateAndParameterizeChartTask(void *userData)
 {
 	auto args = (CreateAndParameterizeChartTaskArgs *)userData;
 	XA_PROFILE_START(createChartMesh)
-	args->chart = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), *args->options, *args->basis, args->faces, args->isPlanar, args->mesh, args->chartGroupId, args->chartId);
+	args->chart = XA_NEW_ARGS(MemTag::Default, Chart, *args->basis, args->faces, args->isPlanar, args->mesh, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMesh)
 	args->chart->parameterize(*args->options, args->boundaryGrid->get());
 #if XA_RECOMPUTE_CHARTS
@@ -8050,17 +7683,9 @@ static void runCreateAndParameterizeChartTask(void *userData)
 	// Recompute charts with invalid parameterizations.
 	XA_PROFILE_START(parameterizeChartsRecompute)
 	Chart *invalidChart = args->chart;
-	// Fixing t-junctions rewrites unified mesh faces, and we need to map faces back to input mesh. So use the unmodified unified mesh.
-	const Mesh *invalidMesh = invalidChart->unmodifiedUnifiedMesh();
-	uint32_t faceCount = 0;
-	if (invalidMesh) {
-		faceCount = invalidMesh->faceCount();
-	} else {
-		invalidMesh = invalidChart->unifiedMesh();
-		faceCount = invalidChart->initialFaceCount(); // Not invalidMesh->faceCount(). Don't want faces added by hole closing.
-	}
+	const Mesh *invalidMesh = invalidChart->unifiedMesh();
 	PiecewiseParam &pp = args->pp->get();
-	pp.reset(invalidMesh, faceCount);
+	pp.reset(invalidMesh);
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
 	char filename[256];
 	XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_chart_%03u_recomputed.obj", args->mesh->id(), args->chartGroupId, args->chartId);
@@ -10096,20 +9721,13 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 			return;
 		}
 		XA_PROFILE_END(parameterizeChartsReal)
-		uint32_t chartsWithHolesCount = 0, holesCount = 0, chartsWithTJunctionsCount = 0, tJunctionCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
+		uint32_t chartsWithTJunctionsCount = 0, tJunctionCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
 		chartCount = 0;
 		for (uint32_t i = 0; i < meshCount; i++) {
 			for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
 				for (uint32_t k = 0; k < chartGroup->chartCount(); k++) {
 					const internal::param::Chart *chart = chartGroup->chartAt(k);
-#if XA_PRINT_CHART_WARNINGS
-					if (chart->warningFlags() & internal::param::ChartWarningFlags::FixTJunctionsFailed)
-						XA_PRINT_WARNING("   Chart %u (mesh %u, group %u, id %u): fixing t-junctions failed\n", chartCount, i, j, k);
-#endif
-					holesCount += chart->closedHolesCount();
-					if (chart->closedHolesCount() > 0)
-						chartsWithHolesCount++;
 					tJunctionCount += chart->tjunctionCount();
 					if (chart->tjunctionCount() > 0)
 						chartsWithTJunctionsCount++;
@@ -10127,8 +9745,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 				chartsDeletedCount += chartGroup->paramDeletedChartsCount();
 			}
 		}
-		if (holesCount > 0)
-			XA_PRINT("   %u holes closed in %u charts\n", holesCount, chartsWithHolesCount);
 		if (tJunctionCount > 0)
 			XA_PRINT("   %u t-junctions found in %u charts\n", tJunctionCount, chartsWithTJunctionsCount);
 		XA_PRINT("   %u planar charts, %u ortho charts, %u LSCM charts, %u piecewise charts\n", planarChartsCount, orthoChartsCount, lscmChartsCount, piecewiseChartsCount);
@@ -10200,7 +9816,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		XA_PROFILE_PRINT_AND_RESET("   Total (real): ", parameterizeChartsReal)
 		XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", parameterizeChartsThread)
 		XA_PROFILE_PRINT_AND_RESET("      Create chart mesh: ", createChartMesh)
-		XA_PROFILE_PRINT_AND_RESET("         Close holes: ", closeChartMeshHoles)
 		XA_PROFILE_PRINT_AND_RESET("      Orthogonal: ", parameterizeChartsOrthogonal)
 		XA_PROFILE_PRINT_AND_RESET("      LSCM: ", parameterizeChartsLSCM)
 		XA_PROFILE_PRINT_AND_RESET("      Recompute: ", parameterizeChartsRecompute)

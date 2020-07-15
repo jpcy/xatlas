@@ -184,7 +184,6 @@ struct ChartOptions
 	uint32_t maxIterations = 1; // Number of iterations of the chart growing and seeding phases. Higher values result in better charts.
 
 	ParameterizeFunc paramFunc = nullptr;
-	bool closeHoles = false; // If the custom parameterization function works with multiple boundaries, this can be set to false to improve performance.
 	bool fixWinding = false; // Enforce consistent texture coordinate winding.
 };
 
