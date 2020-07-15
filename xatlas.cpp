@@ -116,7 +116,6 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_MERGE_CHARTS 1
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 #define XA_RECOMPUTE_CHARTS 1
-#define XA_FIX_INTERNAL_BOUNDARY_LOOPS 1
 #define XA_USE_ORIGINAL_UV_CHARTS 0
 #define XA_CHECK_PARAM_WINDING 0
 #define XA_CHECK_PIECEWISE_CHART_QUALITY 0
@@ -2362,13 +2361,10 @@ struct MeshFlags
 	};
 };
 
-class Mesh;
-static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoops);
-
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_nextBoundaryEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -2538,99 +2534,6 @@ public:
 		}
 	}
 
-	void linkBoundaries()
-	{
-		const uint32_t edgeCount = m_indices.size();
-		HashMap<uint32_t> vertexToEdgeMap(MemTag::Mesh, edgeCount); // Edge is index / 2
-		for (uint32_t i = 0; i < edgeCount; i++) {
-			vertexToEdgeMap.add(m_indices[meshEdgeIndex0(i)]);
-			vertexToEdgeMap.add(m_indices[meshEdgeIndex1(i)]);
-		}
-		m_nextBoundaryEdges.resize(edgeCount);
-		for (uint32_t i = 0; i < edgeCount; i++)
-			m_nextBoundaryEdges[i] = UINT32_MAX;
-		uint32_t numBoundaryLoops = 0, numUnclosedBoundaries = 0;
-		BitArray linkedEdges(edgeCount);
-		linkedEdges.zeroOutMemory();
-		for (;;) {
-			// Find the first boundary edge that hasn't been linked yet.
-			uint32_t firstEdge = UINT32_MAX;
-			for (uint32_t i = 0; i < edgeCount; i++) {
-				if (m_oppositeEdges[i] == UINT32_MAX && !linkedEdges.get(i)) {
-					firstEdge = i;
-					break;
-				}
-			}
-			if (firstEdge == UINT32_MAX)
-				break;
-			uint32_t currentEdge = firstEdge;
-			for (;;) {
-				// Find the next boundary edge. The first vertex will be the same as (or colocal to) the current edge second vertex.
-				const uint32_t startVertex = m_indices[meshEdgeIndex1(currentEdge)];
-				uint32_t bestNextEdge = UINT32_MAX;
-				for (ColocalVertexIterator it(this, startVertex); !it.isDone(); it.advance()) {
-					uint32_t mapIndex = vertexToEdgeMap.get(it.vertex());
-					while (mapIndex != UINT32_MAX) {
-						const uint32_t otherEdge = mapIndex / 2; // Two vertices added per edge.
-						if (m_oppositeEdges[otherEdge] != UINT32_MAX)
-							goto next; // Not a boundary edge.
-						if (linkedEdges.get(otherEdge))
-							goto next; // Already linked.
-						if (m_indices[meshEdgeIndex0(otherEdge)] != it.vertex())
-							goto next; // Edge contains the vertex, but it's the wrong one.
-						// First edge (closing the boundary loop) has the highest priority.
-						// Non-colocal vertex has the next highest.
-						if (bestNextEdge != firstEdge && (bestNextEdge == UINT32_MAX || it.vertex() == startVertex))
-							bestNextEdge = otherEdge;
-					next:
-						mapIndex = vertexToEdgeMap.getNext(mapIndex);
-					}
-				}
-				if (bestNextEdge == UINT32_MAX) {
-					numUnclosedBoundaries++;
-					if (currentEdge == firstEdge)
-						linkedEdges.set(firstEdge); // Only 1 edge in this boundary "loop".
-					break; // Can't find a next edge.
-				}
-				m_nextBoundaryEdges[currentEdge] = bestNextEdge;
-				linkedEdges.set(bestNextEdge);
-				currentEdge = bestNextEdge;
-				if (currentEdge == firstEdge) {
-					numBoundaryLoops++;
-					break; // Closed the boundary loop.
-				}
-			}
-		}
-#if XA_FIX_INTERNAL_BOUNDARY_LOOPS
-		// Find internal boundary loops and separate them.
-		// Detect by finding two edges in a boundary loop that have a colocal end vertex.
-		// Fix by swapping their next boundary edge.
-		// Need to start over after every fix since known boundary loops have changed.
-		Array<uint32_t> boundaryLoops;
-	fixInternalBoundary:
-		meshGetBoundaryLoops(*this, boundaryLoops);
-		for (uint32_t loop = 0; loop < boundaryLoops.size(); loop++) {
-			linkedEdges.zeroOutMemory();
-			for (Mesh::BoundaryLoopEdgeIterator it1(this, boundaryLoops[loop]); !it1.isDone(); it1.advance()) {
-				const uint32_t e1 = it1.edge();
-				if (linkedEdges.get(e1))
-					continue;
-				for (Mesh::BoundaryLoopEdgeIterator it2(this, boundaryLoops[loop]); !it2.isDone(); it2.advance()) {
-					const uint32_t e2 = it2.edge();
-					if (e1 == e2 || !isBoundaryEdge(e2) || linkedEdges.get(e2))
-						continue;
-					if (!areColocal(m_indices[meshEdgeIndex1(e1)], m_indices[meshEdgeIndex1(e2)]))
-						continue;
-					swap(m_nextBoundaryEdges[e1], m_nextBoundaryEdges[e2]);
-					linkedEdges.set(e1);
-					linkedEdges.set(e2);
-					goto fixInternalBoundary; // start over
-				}
-			}
-		}
-#endif
-	}
-
 	/// Find edge, test all colocals.
 	uint32_t findEdge(uint32_t vertex0, uint32_t vertex1) const
 	{
@@ -2720,29 +2623,6 @@ public:
 		}
 	}
 
-	void writeObjLinkedBoundaries(FILE *file) const
-	{
-		if (m_oppositeEdges.isEmpty() || m_nextBoundaryEdges.isEmpty())
-			return; // Boundaries haven't been created and/or linked.
-		Array<uint32_t> boundaryLoops;
-		meshGetBoundaryLoops(*this, boundaryLoops);
-		for (uint32_t i = 0; i < boundaryLoops.size(); i++) {
-			uint32_t edge = boundaryLoops[i];
-			fprintf(file, "o boundary_%04d\n", i);
-			fprintf(file, "l");
-			for (;;) {
-				const uint32_t vertex0 = m_indices[meshEdgeIndex0(edge)];
-				const uint32_t vertex1 = m_indices[meshEdgeIndex1(edge)];
-				fprintf(file, " %d", vertex0 + 1); // 1-indexed
-				edge = m_nextBoundaryEdges[edge];
-				if (edge == boundaryLoops[i] || edge == UINT32_MAX) {
-					fprintf(file, " %d\n", vertex1 + 1); // 1-indexed
-					break;
-				}
-			}
-		}
-	}
-
 	void writeObjFile(const char *filename) const
 	{
 		FILE *file;
@@ -2755,7 +2635,6 @@ public:
 		for (uint32_t i = 0; i < faceCount(); i++)
 			writeObjFace(file, i);
 		writeObjBoundaryEges(file);
-		writeObjLinkedBoundaries(file);
 		fclose(file);
 	}
 #endif
@@ -2863,19 +2742,6 @@ public:
 		return vertex;
 	}
 
-	bool areColocal(uint32_t vertex0, uint32_t vertex1) const
-	{
-		if (vertex0 == vertex1)
-			return true;
-		if (m_nextColocalVertex.isEmpty())
-			return false;
-		for (ColocalVertexIterator it(this, vertex0); !it.isDone(); it.advance()) {
-			if (it.vertex() == vertex1)
-				return true;
-		}
-		return false;
-	}
-
 	XA_INLINE float epsilon() const { return m_epsilon; }
 	XA_INLINE uint32_t edgeCount() const { return m_indices.size(); }
 	XA_INLINE uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
@@ -2915,9 +2781,6 @@ private:
 	Array<uint32_t> m_boundaryEdges;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
 
-	// Populated by linkBoundaries
-	Array<uint32_t> m_nextBoundaryEdges; // The index of the next boundary edge. UINT32_MAX if the edge is not a boundary edge.
-
 	struct EdgeKey
 	{
 		EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
@@ -2936,39 +2799,6 @@ private:
 	HashMap<EdgeKey, EdgeHash> m_edgeMap;
 
 public:
-	class BoundaryLoopEdgeIterator
-	{
-	public:
-		BoundaryLoopEdgeIterator(const Mesh *mesh, uint32_t edge) : m_mesh(mesh), m_first(UINT32_MAX), m_current(edge) {}
-
-		void advance()
-		{
-			if (m_first == UINT32_MAX)
-				m_first = m_current;
-			m_current = m_mesh->m_nextBoundaryEdges[m_current];
-		}
-
-		bool isDone() const
-		{
-			return m_first == m_current || m_current == UINT32_MAX;
-		}
-
-		uint32_t edge() const
-		{
-			return m_current;
-		}
-
-		uint32_t nextEdge() const
-		{
-			return m_mesh->m_nextBoundaryEdges[m_current];
-		}
-
-	private:
-		const Mesh *m_mesh;
-		uint32_t m_first;
-		uint32_t m_current;
-	};
-
 	class ColocalVertexIterator
 	{
 	public:
@@ -3308,23 +3138,6 @@ static int meshCheckTJunctions(const Mesh &inputMesh)
 	return count;
 }
 #endif
-
-// boundaryLoops are the first edges for each boundary loop.
-static void meshGetBoundaryLoops(const Mesh &mesh, Array<uint32_t> &boundaryLoops)
-{
-	const uint32_t edgeCount = mesh.edgeCount();
-	BitArray bitFlags(edgeCount);
-	bitFlags.zeroOutMemory();
-	boundaryLoops.clear();
-	// Search for boundary edges. Mark all the edges that belong to the same boundary.
-	for (uint32_t e = 0; e < edgeCount; e++) {
-		if (bitFlags.get(e) || !mesh.isBoundaryEdge(e))
-			continue;
-		for (Mesh::BoundaryLoopEdgeIterator it(&mesh, e); !it.isDone(); it.advance())
-			bitFlags.set(it.edge());
-		boundaryLoops.push_back(e);
-	}
-}
 
 // References invalid faces and vertices in a mesh.
 struct InvalidMeshGeometry
@@ -7337,7 +7150,6 @@ struct ChartCtorBuffers
 {
 	Array<uint32_t> chartMeshIndices;
 	Array<uint32_t> unifiedMeshIndices;
-	Array<uint32_t> boundaryLoops;
 };
 
 class Chart
@@ -7797,7 +7609,6 @@ public:
 					mesh->writeObjFace(file, faces[f]);
 			}
 			mesh->writeObjBoundaryEges(file);
-			mesh->writeObjLinkedBoundaries(file);
 			fclose(file);
 		}
 #endif
@@ -9802,7 +9613,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 									mesh->writeObjFace(file, chart->paramFlippedFaces()[f]);
 							}
 							mesh->writeObjBoundaryEges(file);
-							mesh->writeObjLinkedBoundaries(file);
 							fclose(file);
 						}
 #endif
