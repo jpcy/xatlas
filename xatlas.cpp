@@ -8140,16 +8140,18 @@ public:
 #if XA_DEBUG_SINGLE_CHART
 		XA_UNUSED(options);
 		XA_UNUSED(atlas);
-		// Destroy mesh.
-		const uint32_t faceCount = mesh->faceCount();
-		mesh->~Mesh();
-		XA_FREE(mesh);
 		m_chartBasis.resize(1);
 		Fit::computeBasis(&mesh->position(0), mesh->vertexCount(), &m_chartBasis[0]);
 		m_chartFaces.resize(1 + mesh->faceCount());
 		m_chartFaces[0] = mesh->faceCount();
 		for (uint32_t i = 0; i < m_chartFaces.size() - 1; i++)
 			m_chartFaces[i + 1] = m_faceToSourceFaceMap[i];
+		m_chartIsPlanar.resize(1);
+		m_chartIsPlanar.zeroOutMemory();
+		// Destroy mesh.
+		const uint32_t faceCount = mesh->faceCount();
+		mesh->~Mesh();
+		XA_FREE(mesh);
 #else
 		XA_PROFILE_START(buildAtlas)
 		atlas.reset(mesh, options);
