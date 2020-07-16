@@ -964,15 +964,20 @@ struct ArrayBase
 
 	void copyFrom(const uint8_t *data, uint32_t length)
 	{
+		XA_DEBUG_ASSERT(data);
+		XA_DEBUG_ASSERT(length > 0);
 		resize(length, true);
-		memcpy(buffer, data, length * elementSize);
+		if (buffer && data && length > 0)
+			memcpy(buffer, data, length * elementSize);
 	}
 
 	void copyTo(ArrayBase &other) const
 	{
 		XA_DEBUG_ASSERT(elementSize == other.elementSize);
+		XA_DEBUG_ASSERT(size > 0);
 		other.resize(size, true);
-		memcpy(other.buffer, buffer, size * elementSize);
+		if (other.buffer && buffer && size > 0)
+			memcpy(other.buffer, buffer, size * elementSize);
 	}
 
 	void destroy()
@@ -988,10 +993,13 @@ struct ArrayBase
 	void insertAt(uint32_t index, const uint8_t *value)
 	{
 		XA_DEBUG_ASSERT(index >= 0 && index <= size);
+		XA_DEBUG_ASSERT(value);
 		resize(size + 1, false);
-		if (index < size - 1)
+		XA_DEBUG_ASSERT(buffer);
+		if (buffer && index < size - 1)
 			memmove(buffer + elementSize * (index + 1), buffer + elementSize * index, elementSize * (size - 1 - index));
-		memcpy(&buffer[index * elementSize], value, elementSize);
+		if (buffer && value)
+			memcpy(&buffer[index * elementSize], value, elementSize);
 	}
 
 	void moveTo(ArrayBase &other)
@@ -1018,36 +1026,49 @@ struct ArrayBase
 	void push_back(const uint8_t *value)
 	{
 		XA_DEBUG_ASSERT(value < buffer || value >= buffer + size);
+		XA_DEBUG_ASSERT(value);
 		resize(size + 1, false);
-		memcpy(&buffer[(size - 1) * elementSize], value, elementSize);
+		XA_DEBUG_ASSERT(buffer);
+		if (buffer && value)
+			memcpy(&buffer[(size - 1) * elementSize], value, elementSize);
 	}
 
 	void push_back(const ArrayBase &other)
 	{
 		XA_DEBUG_ASSERT(elementSize == other.elementSize);
-		if (other.size == 0)
-			return;
-		const uint32_t oldSize = size;
-		resize(size + other.size, false);
-		memcpy(buffer + oldSize * elementSize, other.buffer, other.size * other.elementSize);
+		if (other.size > 0) {
+			const uint32_t oldSize = size;
+			resize(size + other.size, false);
+			XA_DEBUG_ASSERT(buffer);
+			if (buffer)
+				memcpy(buffer + oldSize * elementSize, other.buffer, other.size * other.elementSize);
+		}
 	}
 
 	// Remove the element at the given index. This is an expensive operation!
 	void removeAt(uint32_t index)
 	{
 		XA_DEBUG_ASSERT(index >= 0 && index < size);
-		if (size != 1)
-			memmove(buffer + elementSize * index, buffer + elementSize * (index + 1), elementSize * (size - 1 - index));
-		size--;
+		XA_DEBUG_ASSERT(buffer);
+		if (buffer) {
+			if (size > 1)
+				memmove(buffer + elementSize * index, buffer + elementSize * (index + 1), elementSize * (size - 1 - index));
+			if (size > 0)
+				size--;
+		}
 	}
 
 	// Element at index is swapped with the last element, then the array length is decremented.
 	void removeAtFast(uint32_t index)
 	{
 		XA_DEBUG_ASSERT(index >= 0 && index < size);
-		if (size != 1 && index != size - 1)
-			memcpy(buffer + elementSize * index, buffer + elementSize * (size - 1), elementSize);
-		size--;
+		XA_DEBUG_ASSERT(buffer);
+		if (buffer) {
+			if (size > 1 && index != size - 1)
+				memcpy(buffer + elementSize * index, buffer + elementSize * (size - 1), elementSize);
+			if (size > 0)
+				size--;
+		}
 	}
 
 	void reserve(uint32_t desiredSize)
@@ -1117,12 +1138,14 @@ public:
 	XA_INLINE const T &operator[](uint32_t index) const
 	{
 		XA_DEBUG_ASSERT(index < m_base.size);
+		XA_DEBUG_ASSERT(m_base.buffer);
 		return ((const T *)m_base.buffer)[index];
 	}
 
 	XA_INLINE T &operator[](uint32_t index)
 	{
 		XA_DEBUG_ASSERT(index < m_base.size);
+		XA_DEBUG_ASSERT(m_base.buffer);
 		return ((T *)m_base.buffer)[index];
 	}
 
@@ -1182,7 +1205,8 @@ public:
 
 	void fillBytes(uint8_t value)
 	{
-		memset(m_base.buffer, (int)value, m_base.size * m_base.elementSize);
+		if (m_base.buffer && m_base.size > 0)
+			memset(m_base.buffer, (int)value, m_base.size * m_base.elementSize);
 	}
 
 #if XA_DEBUG_HEAP
@@ -1190,7 +1214,12 @@ public:
 #endif
 
 	XA_INLINE uint32_t size() const { return m_base.size; }
-	XA_INLINE void zeroOutMemory() { memset(m_base.buffer, 0, m_base.elementSize * m_base.size); }
+
+	XA_INLINE void zeroOutMemory()
+	{
+		if (m_base.buffer && m_base.size > 0)
+			memset(m_base.buffer, 0, m_base.elementSize * m_base.size);
+	}
 
 private:
 	ArrayBase m_base;
@@ -2088,7 +2117,7 @@ public:
 private:
 	uint32_t *m_ranks, *m_ranks2;
 	Array<uint32_t> m_buffer1, m_buffer2;
-	bool m_validRanks;
+	bool m_validRanks = false;
 
 	void floatFlip(uint32_t &f)
 	{
@@ -4818,7 +4847,7 @@ typedef bool (*SamplingCallback)(void *param, int x, int y);
 /// A triangle for rasterization.
 struct Triangle
 {
-	Triangle(const Vector2 &_v0, const Vector2 &_v1, const Vector2 &_v2) : v1(_v0), v2(_v2), v3(_v1)
+	Triangle(const Vector2 &_v0, const Vector2 &_v1, const Vector2 &_v2) : v1(_v0), v2(_v2), v3(_v1), n1(0.0f), n2(0.0f), n3(0.0f)
 	{
 		// make sure every triangle is front facing.
 		flipBackface();
@@ -8650,14 +8679,17 @@ struct Atlas
 			int best_r = 0;
 			for (;;)
 			{
+#if XA_DEBUG
 				bool firstChartInBitImage = false;
-				XA_UNUSED(firstChartInBitImage);
+#endif
 				if (currentAtlas + 1 > m_bitImages.size()) {
 					// Chart doesn't fit in the current bitImage, create a new one.
 					BitImage *bi = XA_NEW_ARGS(MemTag::Default, BitImage, resolution, resolution);
 					m_bitImages.push_back(bi);
 					atlasSizes.push_back(Vector2i(0, 0));
+#if XA_DEBUG
 					firstChartInBitImage = true;
+#endif
 					if (createImage)
 						m_atlasImages.push_back(XA_NEW_ARGS(MemTag::Default, AtlasImage, resolution, resolution));
 					// Start positions are per-atlas, so create a new one of those too.
