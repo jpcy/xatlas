@@ -623,22 +623,21 @@ static bool isNormalized(const Vector2 &v, float epsilon = kNormalEpsilon)
 }
 #endif
 
-static Vector2 normalize(const Vector2 &v, float epsilon)
+static Vector2 normalize(const Vector2 &v)
 {
-	float l = length(v);
-	XA_DEBUG_ASSERT(!isZero(l, epsilon));
-	XA_UNUSED(epsilon);
-	Vector2 n = v * (1.0f / l);
+	const float l = length(v);
+	XA_DEBUG_ASSERT(l > 0.0f); // Never negative.
+	const Vector2 n = v * (1.0f / l);
 	XA_DEBUG_ASSERT(isNormalized(n));
 	return n;
 }
 
-static Vector2 normalizeSafe(const Vector2 &v, const Vector2 &fallback, float epsilon)
+static Vector2 normalizeSafe(const Vector2 &v, const Vector2 &fallback)
 {
-	float l = length(v);
-	if (isZero(l, epsilon))
-		return fallback;
-	return v * (1.0f / l);
+	const float l = length(v);
+	if (l > 0.0f) // Never negative.
+		return v * (1.0f / l);
+	return fallback;
 }
 
 static bool equal(const Vector2 &v1, const Vector2 &v2, float epsilon)
@@ -810,26 +809,24 @@ static float length(const Vector3 &v)
 
 static bool isNormalized(const Vector3 &v, float epsilon = kNormalEpsilon)
 {
-	return equal(length(v), 1, epsilon);
+	return equal(length(v), 1.0f, epsilon);
 }
 
-static Vector3 normalize(const Vector3 &v, float epsilon)
+static Vector3 normalize(const Vector3 &v)
 {
-	float l = length(v);
-	XA_DEBUG_ASSERT(!isZero(l, epsilon));
-	XA_UNUSED(epsilon);
-	Vector3 n = v * (1.0f / l);
+	const float l = length(v);
+	XA_DEBUG_ASSERT(l > 0.0f); // Never negative.
+	const Vector3 n = v * (1.0f / l);
 	XA_DEBUG_ASSERT(isNormalized(n));
 	return n;
 }
 
-static Vector3 normalizeSafe(const Vector3 &v, const Vector3 &fallback, float epsilon)
+static Vector3 normalizeSafe(const Vector3 &v, const Vector3 &fallback)
 {
-	float l = length(v);
-	if (isZero(l, epsilon)) {
-		return fallback;
-	}
-	return v * (1.0f / l);
+	const float l = length(v);
+	if (l > 0.0f) // Never negative.
+		return v * (1.0f / l);
+	return fallback;
 }
 
 static bool equal(const Vector3 &v0, const Vector3 &v1, float epsilon)
@@ -1265,7 +1262,7 @@ struct Basis
 			tangent = Vector3(0, 0, 1);
 		// Ortogonalize
 		tangent -= normal * dot(normal, tangent);
-		tangent = normalize(tangent, kEpsilon);
+		tangent = normalize(tangent);
 		return tangent;
 	}
 
@@ -1614,7 +1611,7 @@ private:
 	{
 		XA_DEBUG_ASSERT(pointsCount >= 3);
 		if (pointsCount == 3) {
-			*normal = normalize(cross(points[2] - points[0], points[1] - points[0]), kEpsilon);
+			*normal = normalize(cross(points[2] - points[0], points[1] - points[0]));
 			return true;
 		}
 		const float invN = 1.0f / float(pointsCount);
@@ -1699,9 +1696,9 @@ private:
 		Vector3 eigenVectors[3];
 		if (!eigenSolveSymmetric3(matrix, eigenValues, eigenVectors))
 			return false;
-		basis->normal = normalize(eigenVectors[2], kEpsilon);
-		basis->tangent = normalize(eigenVectors[0], kEpsilon);
-		basis->bitangent = normalize(eigenVectors[1], kEpsilon);
+		basis->normal = normalize(eigenVectors[2]);
+		basis->tangent = normalize(eigenVectors[0]);
+		basis->bitangent = normalize(eigenVectors[1]);
 		return true;
 	}
 
@@ -2270,7 +2267,7 @@ public:
 		for (uint32_t i = 0, j = hullCount - 1; i < hullCount; j = i, i++) {
 			if (equal(m_hull[i], m_hull[j], kEpsilon))
 				continue;
-			Vector2 axis = normalize(m_hull[i] - m_hull[j], 0.0f);
+			Vector2 axis = normalize(m_hull[i] - m_hull[j]);
 			XA_DEBUG_ASSERT(isFinite(axis));
 			// Compute bounding box.
 			Vector2 box_min(FLT_MAX, FLT_MAX);
@@ -2726,7 +2723,7 @@ public:
 		const Vector3 e0 = p2 - p0;
 		const Vector3 e1 = p1 - p0;
 		const Vector3 normalAreaScaled = cross(e0, e1);
-		return normalizeSafe(normalAreaScaled, Vector3(0, 0, 1), 0.0f);
+		return normalizeSafe(normalAreaScaled, Vector3(0, 0, 1));
 	}
 
 	float computeFaceParametricArea(uint32_t face) const
@@ -3823,7 +3820,7 @@ private:
 	void traverse(Vector2 p1, Vector2 p2)
 	{
 		const Vector2 dir = p2 - p1;
-		const Vector2 normal = normalizeSafe(dir, Vector2(0.0f), kEpsilon);
+		const Vector2 normal = normalizeSafe(dir, Vector2(0.0f));
 		const int stepX = dir.x >= 0 ? 1 : -1;
 		const int stepY = dir.y >= 0 ? 1 : -1;
 		const uint32_t firstCell[2] = { cellX(p1.x), cellY(p1.y) };
@@ -5808,7 +5805,7 @@ private:
 			// Use the first face normal.
 			// Use any edge as the tangent vector.
 			basis.normal = m_data.faceNormals[face];
-			basis.tangent = normalize(m_data.mesh->position(m_data.mesh->vertexAt(face * 3 + 0)) - m_data.mesh->position(m_data.mesh->vertexAt(face * 3 + 1)), kEpsilon);
+			basis.tangent = normalize(m_data.mesh->position(m_data.mesh->vertexAt(face * 3 + 0)) - m_data.mesh->position(m_data.mesh->vertexAt(face * 3 + 1)));
 			basis.bitangent = cross(basis.normal, basis.tangent);
 		} else {
 			// Use best fit normal.
@@ -6436,10 +6433,10 @@ static bool findApproximateDiameterVertices(Mesh *mesh, uint32_t *a, uint32_t *b
 
 // From OpenNL LSCM example.
 // Computes the coordinates of the vertices of a triangle in a local 2D orthonormal basis of the triangle's plane.
-static void projectTriangle(Vector3 p0, Vector3 p1, Vector3 p2, Vector2 *z0, Vector2 *z1, Vector2 *z2, float epsilon)
+static void projectTriangle(Vector3 p0, Vector3 p1, Vector3 p2, Vector2 *z0, Vector2 *z1, Vector2 *z2)
 {
-	Vector3 X = normalize(p1 - p0, epsilon);
-	Vector3 Z = normalize(cross(X, p2 - p0), epsilon);
+	Vector3 X = normalize(p1 - p0);
+	Vector3 Z = normalize(cross(X, p2 - p0));
 	Vector3 Y = cross(Z, X);
 	Vector3 &O = p0;
 	*z0 = Vector2(0, 0);
@@ -6558,7 +6555,7 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 		const uint32_t v2 = indices[f * 3 + 2];
 		if (!setup_abf_relations(context, v0, v1, v2, positions[v0], positions[v1], positions[v2])) {
 			Vector2 z0, z1, z2;
-			projectTriangle(positions[v0], positions[v1], positions[v2], &z0, &z1, &z2, mesh->epsilon());
+			projectTriangle(positions[v0], positions[v1], positions[v2], &z0, &z1, &z2);
 			double a = z1.x - z0.x;
 			double b = z1.y - z0.y;
 			double c = z2.x - z0.x;
@@ -6970,7 +6967,7 @@ private:
 	void orthoProjectFace(uint32_t face, Vector2 *texcoords) const
 	{
 		const Vector3 normal = -m_mesh->computeFaceNormal(face);
-		const Vector3 tangent = normalize(m_mesh->position(m_mesh->vertexAt(face * 3 + 1)) - m_mesh->position(m_mesh->vertexAt(face * 3 + 0)), kEpsilon);
+		const Vector3 tangent = normalize(m_mesh->position(m_mesh->vertexAt(face * 3 + 1)) - m_mesh->position(m_mesh->vertexAt(face * 3 + 0)));
 		const Vector3 bitangent = cross(normal, tangent);
 		for (uint32_t i = 0; i < 3; i++) {
 			const Vector3 &pos = m_mesh->position(m_mesh->vertexAt(face * 3 + i));
