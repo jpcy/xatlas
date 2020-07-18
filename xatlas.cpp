@@ -2369,6 +2369,21 @@ private:
 	RadixSort m_radix;
 };
 
+struct EdgeKey
+{
+	EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
+	EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
+	bool operator==(const EdgeKey &k) const { return v0 == k.v0 && v1 == k.v1; }
+
+	uint32_t v0;
+	uint32_t v1;
+};
+
+struct EdgeHash
+{
+	uint32_t operator()(const EdgeKey &k) const { return k.v0 * 32768u + k.v1; }
+};
+
 static uint32_t meshEdgeFace(uint32_t edge) { return edge / 3; }
 static uint32_t meshEdgeIndex0(uint32_t edge) { return edge; }
 
@@ -2609,7 +2624,7 @@ public:
 
 	// Edge map can be destroyed when no longer used to reduce memory usage. It's used by:
 	//   * Mesh::createBoundaries()
-	//   * Mesh::ColocalEdgeIterator (used by MeshFaceGroups)
+	//   * Mesh::edgeMap() (used by MeshFaceGroups)
 	void destroyEdgeMap()
 	{
 		m_edgeMap.destroy();
@@ -2787,6 +2802,7 @@ public:
 	XA_INLINE const uint32_t *indices() const { return m_indices.data(); }
 	XA_INLINE uint32_t indexCount() const { return m_indices.size(); }
 	XA_INLINE bool isFaceIgnored(uint32_t face) const { return (m_flags & MeshFlags::HasIgnoredFaces) && m_faceIgnore[face]; }
+	XA_INLINE const HashMap<EdgeKey, EdgeHash> &edgeMap() const { return m_edgeMap; }
 
 private:
 
@@ -2806,21 +2822,6 @@ private:
 	BitArray m_isBoundaryVertex;
 	Array<uint32_t> m_boundaryEdges;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
-
-	struct EdgeKey
-	{
-		EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
-		EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
-		bool operator==(const EdgeKey &k) const { return v0 == k.v0 && v1 == k.v1; }
-
-		uint32_t v0;
-		uint32_t v1;
-	};
-
-	struct EdgeHash
-	{
-		uint32_t operator()(const EdgeKey &k) const { return k.v0 * 32768u + k.v1; }
-	};
 
 	HashMap<EdgeKey, EdgeHash> m_edgeMap;
 
@@ -2857,93 +2858,6 @@ public:
 		const Mesh *m_mesh;
 		uint32_t m_first;
 		uint32_t m_current;
-	};
-
-	class ColocalEdgeIterator
-	{
-	public:
-		ColocalEdgeIterator(const Mesh *mesh, uint32_t vertex0, uint32_t vertex1) : m_mesh(mesh), m_vertex0It(mesh, vertex0), m_vertex1It(mesh, vertex1), m_vertex1(vertex1)
-		{
-			do {
-				if (!resetElement()) {
-					advanceVertex1();
-				}
-				else {
-					break;
-				}
-			} while (!isDone());
-		}
-
-		void advance()
-		{
-			advanceElement();
-		}
-
-		bool isDone() const
-		{
-			return m_vertex0It.isDone() && m_vertex1It.isDone() && m_edge == UINT32_MAX;
-		}
-
-		uint32_t edge() const
-		{
-			return m_edge;
-		}
-
-	private:
-		bool resetElement()
-		{
-			m_edge = m_mesh->m_edgeMap.get(Mesh::EdgeKey(m_vertex0It.vertex(), m_vertex1It.vertex()));
-			while (m_edge != UINT32_MAX) {
-				if (!isIgnoredFace())
-					break;
-				m_edge = m_mesh->m_edgeMap.getNext(m_edge);
-			}
-			if (m_edge == UINT32_MAX) {
-				return false;
-			}
-			return true;
-		}
-
-		void advanceElement()
-		{
-			for (;;) {
-				m_edge = m_mesh->m_edgeMap.getNext(m_edge);
-				if (m_edge == UINT32_MAX)
-					break;
-				if (!isIgnoredFace())
-					break;
-			}
-			if (m_edge == UINT32_MAX)
-				advanceVertex1();
-		}
-
-		void advanceVertex1()
-		{
-			auto successful = false;
-			while (!successful)	{
-				m_vertex1It.advance();
-				if (m_vertex1It.isDone()) {
-					if (!m_vertex0It.isDone()) {
-						m_vertex0It.advance();
-						m_vertex1It = ColocalVertexIterator(m_mesh, m_vertex1);
-					}
-					else {
-						return;
-					}
-				}
-				successful = resetElement();
-			}
-		}
-
-		bool isIgnoredFace() const
-		{
-			return m_mesh->m_faceIgnore[meshEdgeFace(m_edge)];
-		}
-
-		const Mesh *m_mesh;
-		ColocalVertexIterator m_vertex0It, m_vertex1It;
-		const uint32_t m_vertex1;
-		uint32_t m_edge;
 	};
 
 	class FaceEdgeIterator 
@@ -3104,9 +3018,17 @@ private:
 	bool faceDuplicatesGroupEdge(Handle group, uint32_t face) const
 	{
 		for (Mesh::FaceEdgeIterator edgeIt(m_mesh, face); !edgeIt.isDone(); edgeIt.advance()) {
-			for (Mesh::ColocalEdgeIterator colocalEdgeIt(m_mesh, edgeIt.vertex0(), edgeIt.vertex1()); !colocalEdgeIt.isDone(); colocalEdgeIt.advance()) {
-				if (m_groups[meshEdgeFace(colocalEdgeIt.edge())] == group)
-					return true;
+			for (Mesh::ColocalVertexIterator it0(m_mesh, edgeIt.vertex0()); !it0.isDone(); it0.advance()) {
+				for (Mesh::ColocalVertexIterator it1(m_mesh, edgeIt.vertex1()); !it1.isDone(); it1.advance()) {
+					EdgeKey key(it0.vertex(), it1.vertex());
+					uint32_t foundEdge = m_mesh->edgeMap().get(key);
+					while (foundEdge != UINT32_MAX) {
+						const uint32_t foundFace = meshEdgeFace(foundEdge);
+						if (!m_mesh->isFaceIgnored(foundFace) && m_groups[foundFace] == group)
+							return true;
+						foundEdge = m_mesh->edgeMap().getNext(foundEdge);
+					}
+				}
 			}
 		}
 		return false;
@@ -9369,17 +9291,6 @@ void AddMeshJoin(Atlas *atlas)
 #endif
 	}
 }
-
-struct EdgeKey
-{
-	EdgeKey() {}
-	EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
-	EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
-	bool operator==(const EdgeKey &k) const { return v0 == k.v0 && v1 == k.v1; }
-
-	uint32_t v0;
-	uint32_t v1;
-};
 
 AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 {
