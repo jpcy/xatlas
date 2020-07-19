@@ -2428,16 +2428,7 @@ public:
 		m_texcoords.push_back(texcoord);
 	}
 
-	struct AddFaceResult
-	{
-		enum Enum
-		{
-			OK,
-			DuplicateEdge = 1
-		};
-	};
-
-	AddFaceResult::Enum addFace(uint32_t v0, uint32_t v1, uint32_t v2, bool ignore = false)
+	void addFace(uint32_t v0, uint32_t v1, uint32_t v2, bool ignore = false)
 	{
 		uint32_t indexArray[3];
 		indexArray[0] = v0;
@@ -2446,9 +2437,8 @@ public:
 		return addFace(indexArray, ignore);
 	}
 
-	AddFaceResult::Enum addFace(const uint32_t *indices, bool ignore = false)
+	void addFace(const uint32_t *indices, bool ignore = false)
 	{
-		AddFaceResult::Enum result = AddFaceResult::OK;
 		if (m_flags & MeshFlags::HasIgnoredFaces)
 			m_faceIgnore.push_back(ignore);
 		const uint32_t firstIndex = m_indices.size();
@@ -2457,12 +2447,8 @@ public:
 		for (uint32_t i = 0; i < 3; i++) {
 			const uint32_t vertex0 = m_indices[firstIndex + i];
 			const uint32_t vertex1 = m_indices[firstIndex + (i + 1) % 3];
-			const EdgeKey key(vertex0, vertex1);
-			if (m_edgeMap.get(key) != UINT32_MAX)
-				result = AddFaceResult::DuplicateEdge;
-			m_edgeMap.add(key);
+			m_edgeMap.add(EdgeKey(vertex0, vertex1));
 		}
-		return result;
 	}
 
 	void createColocalsBVH()
@@ -2578,26 +2564,16 @@ public:
 	/// Find edge, test all colocals.
 	uint32_t findEdge(uint32_t vertex0, uint32_t vertex1) const
 	{
-		uint32_t result = UINT32_MAX;
 		// Try to find exact vertex match first.
 		{
 			EdgeKey key(vertex0, vertex1);
 			uint32_t edge = m_edgeMap.get(key);
 			while (edge != UINT32_MAX) {
 				// Don't find edges of ignored faces.
-				if (!isFaceIgnored(meshEdgeFace(edge))) {
-					//XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
-					result = edge;
-#if !XA_DEBUG
-					return result;
-#endif
-				}
+				if (!isFaceIgnored(meshEdgeFace(edge)))
+					return edge;
 				edge = m_edgeMap.getNext(edge);
 			}
-#if XA_DEBUG
-			if (result != UINT32_MAX)
-				return result;
-#endif
 		}
 		// If colocals were created, try every permutation.
 		if (!m_nextColocalVertex.isEmpty()) {
@@ -2607,19 +2583,14 @@ public:
 					uint32_t edge = m_edgeMap.get(key);
 					while (edge != UINT32_MAX) {
 						// Don't find edges of ignored faces.
-						if (!isFaceIgnored(meshEdgeFace(edge))) {
-							XA_DEBUG_ASSERT(m_id != UINT32_MAX || (m_id == UINT32_MAX && result == UINT32_MAX)); // duplicate edge - ignore on initial meshes
-							result = edge;
-#if !XA_DEBUG
-							return result;
-#endif
-						}
+						if (!isFaceIgnored(meshEdgeFace(edge)))
+							return edge;
 						edge = m_edgeMap.getNext(edge);
 					}
 				}
 			}
 		}
-		return result;
+		return UINT32_MAX;
 	}
 
 	// Edge map can be destroyed when no longer used to reduce memory usage. It's used by:
@@ -2967,8 +2938,6 @@ struct MeshFaceGroups
 						continue; // Don't add ignored faces to group.
 					if (m_groups[oppositeFace] != kInvalid)
 						continue; // Connected face is already assigned to another group.
-					if (faceDuplicatesGroupEdge(group, oppositeFace))
-						continue; // Don't want duplicate edges in a group.
 					m_groups[oppositeFace] = group;
 					m_nextFace[oppositeFace] = UINT32_MAX;
 					if (prevFace != UINT32_MAX)
@@ -3014,26 +2983,6 @@ struct MeshFaceGroups
 	};
 
 private:
-	// Check if the face duplicates any edges of any face already in the group.
-	bool faceDuplicatesGroupEdge(Handle group, uint32_t face) const
-	{
-		for (Mesh::FaceEdgeIterator edgeIt(m_mesh, face); !edgeIt.isDone(); edgeIt.advance()) {
-			for (Mesh::ColocalVertexIterator it0(m_mesh, edgeIt.vertex0()); !it0.isDone(); it0.advance()) {
-				for (Mesh::ColocalVertexIterator it1(m_mesh, edgeIt.vertex1()); !it1.isDone(); it1.advance()) {
-					EdgeKey key(it0.vertex(), it1.vertex());
-					uint32_t foundEdge = m_mesh->edgeMap().get(key);
-					while (foundEdge != UINT32_MAX) {
-						const uint32_t foundFace = meshEdgeFace(foundEdge);
-						if (!m_mesh->isFaceIgnored(foundFace) && m_groups[foundFace] == group)
-							return true;
-						foundEdge = m_mesh->edgeMap().getNext(foundEdge);
-					}
-				}
-			}
-		}
-		return false;
-	}
-
 	const Mesh *m_mesh;
 	Array<Handle> m_groups;
 	Array<uint32_t> m_firstFace;
@@ -5892,7 +5841,6 @@ private:
 				break;
 		}
 #if 1
-		XA_DEBUG_ASSERT(l_in != 0.0f); // Candidate face must be adjacent to chart. @@ This is not true if the input mesh has zero-length edges.
 		float ratio = (l_out - l_in) / (l_out + l_in);
 		return min(ratio, 0.0f); // Only use the straightness metric to close gaps.
 #else
@@ -7142,9 +7090,7 @@ public:
 				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
 				XA_DEBUG_ASSERT(unifiedIndices[i] != UINT32_MAX);
 			}
-			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
-			XA_UNUSED(result);
-			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
+			m_mesh->addFace(indices);
 #if XA_DEBUG
 			// Unifying colocals may create degenerate edges. e.g. if two triangle vertices are colocal.
 			for (int i = 0; i < 3; i++) {
@@ -7153,9 +7099,7 @@ public:
 				XA_DEBUG_ASSERT(index1 != index2);
 			}
 #endif
-			result = m_unifiedMesh->addFace(unifiedIndices);
-			XA_UNUSED(result);
-			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
+			m_unifiedMesh->addFace(unifiedIndices);
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
@@ -7226,11 +7170,9 @@ public:
 				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(unifiedVertex);
 #endif
 			}
-			Mesh::AddFaceResult::Enum result = m_mesh->addFace(indices);
-			XA_UNUSED(result);
-			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
+			m_mesh->addFace(indices);
 #if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-			result = m_unifiedMesh->addFace(unifiedIndices);
+			m_unifiedMesh->addFace(unifiedIndices);
 #endif
 		}
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
@@ -7708,9 +7650,7 @@ private:
 				XA_DEBUG_ASSERT(indices[i] != UINT32_MAX);
 			}
 			// Don't copy flags - ignored faces aren't used by chart groups, they are handled by InvalidMeshGeometry.
-			Mesh::AddFaceResult::Enum result = mesh->addFace(indices);
-			XA_UNUSED(result);
-			XA_DEBUG_ASSERT(result == Mesh::AddFaceResult::OK);
+			mesh->addFace(indices);
 		}
 		XA_PROFILE_START(createChartGroupMeshColocals)
 		mesh->createColocals();
