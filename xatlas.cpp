@@ -1895,32 +1895,68 @@ private:
 	}
 };
 
-static uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h = 5381)
+static XA_INLINE uint32_t murmur_32_scramble(uint32_t k)
+{
+	k *= 0xcc9e2d51;
+	k = (k << 15) | (k >> 17);
+	k *= 0x1b873593;
+	return k;
+}
+
+static uint32_t murmur3_32(const uint8_t* key, size_t len, uint32_t seed)
+{
+	uint32_t h = seed;
+	uint32_t k;
+	/* Read in groups of 4. */
+	for (size_t i = len >> 2; i; i--) {
+		// Here is a source of differing results across endiannesses.
+		// A swap here has no effects on hash properties though.
+		memcpy(&k, key, sizeof(uint32_t));
+		key += sizeof(uint32_t);
+		h ^= murmur_32_scramble(k);
+		h = (h << 13) | (h >> 19);
+		h = h * 5 + 0xe6546b64;
+	}
+	/* Read the rest. */
+	k = 0;
+	for (size_t i = len & 3; i; i--) {
+		k <<= 8;
+		k |= key[i - 1];
+	}
+	// A swap is *not* necessary here because the preceding loop already
+	// places the low bytes in the low places according to whatever endianness
+	// we use. Swaps only apply when the memory is copied in a chunk.
+	h ^= murmur_32_scramble(k);
+	/* Finalize. */
+	h ^= len;
+	h ^= h >> 16;
+	h *= 0x85ebca6b;
+	h ^= h >> 13;
+	h *= 0xc2b2ae35;
+	h ^= h >> 16;
+	return h;
+}
+
+static uint32_t sdbmHash(const void *data_in, uint32_t size, uint32_t h)
 {
 	const uint8_t *data = (const uint8_t *) data_in;
 	uint32_t i = 0;
-	while (i < size) {
+	while (i < size)
 		h = (h << 16) + (h << 6) - h + (uint32_t ) data[i++];
-	}
 	return h;
 }
 
 template <typename T>
 static uint32_t hash(const T &t, uint32_t h = 5381)
 {
-	return sdbmHash(&t, sizeof(T), h);
+	return murmur3_32((const uint8_t *)&t, sizeof(T), h);
+	//return sdbmHash(&t, sizeof(T), h);
 }
 
 template <typename Key>
 struct Hash
 {
 	uint32_t operator()(const Key &k) const { return hash(k); }
-};
-
-template <typename Key>
-struct PassthroughHash
-{
-	uint32_t operator()(const Key &k) const { return (uint32_t)k; }
 };
 
 template <typename Key>
@@ -1933,9 +1969,7 @@ template<typename Key, typename H = Hash<Key>, typename E = Equal<Key> >
 class HashMap
 {
 public:
-	HashMap(int memTag, uint32_t size) : m_memTag(memTag), m_size(size), m_numSlots(0), m_slots(nullptr), m_keys(memTag), m_next(memTag)
-	{
-	}
+	HashMap(int memTag, uint32_t size) : m_memTag(memTag), m_size(size), m_numSlots(0), m_slots(nullptr), m_keys(memTag) {}
 
 	~HashMap()
 	{
@@ -1950,7 +1984,6 @@ public:
 			m_slots = nullptr;
 		}
 		m_keys.destroy();
-		m_next.destroy();
 	}
 
 	uint32_t add(const Key &key)
@@ -1959,9 +1992,21 @@ public:
 			alloc();
 		const uint32_t hash = computeHash(key);
 		m_keys.push_back(key);
-		m_next.push_back(m_slots[hash]);
-		m_slots[hash] = m_next.size() - 1;
+		uint32_t slot = hash;
+		while (m_slots[slot] != UINT32_MAX) {
+			const bool ok = advanceSlot(&slot, hash);
+			XA_DEBUG_ASSERT(ok); // No empty slots.
+			if (!ok)
+				return UINT32_MAX;
+		}
+		m_slots[slot] = m_keys.size() - 1;
 		return m_keys.size() - 1;
+	}
+
+	bool exists(const Key &key) const
+	{
+		uint32_t slot;
+		return get(key, &slot) != UINT32_MAX;
 	}
 
 	uint32_t get(const Key &key) const
@@ -1969,41 +2014,53 @@ public:
 		if (!m_slots)
 			return UINT32_MAX;
 		const uint32_t hash = computeHash(key);
-		uint32_t i = m_slots[hash];
-		E equal;
-		while (i != UINT32_MAX) {
-			if (equal(m_keys[i], key))
-				return i;
-			i = m_next[i];
-		}
-		return UINT32_MAX;
+		uint32_t slot = hash;
+		return findNext(key, hash, &slot);
 	}
 
-	uint32_t getNext(uint32_t current) const
+	struct Iterator
 	{
-		uint32_t i = m_next[current];
-		E equal;
-		while (i != UINT32_MAX) {
-			if (equal(m_keys[i], m_keys[current]))
-				return i;
-			i = m_next[i];
+		Iterator(const HashMap<Key, H, E> &hashMap, const Key &key) : m_hashMap(hashMap), m_key(key)
+		{
+			m_hash = hashMap.computeHash(m_key);
+			m_current = m_hashMap.get(m_key, m_hash, &m_slot);
 		}
-		return UINT32_MAX;
-	}
+
+		uint32_t current() const { return m_current; }
+		bool isDone() const { return m_current == UINT32_MAX; }
+		void advance() { m_current = m_hashMap.getNext(m_key, m_hash, &m_slot); }
+
+	private:
+		const HashMap<Key, H, E> &m_hashMap;
+		const Key m_key;
+		uint32_t m_hash;
+		uint32_t m_current, m_slot;
+	};
 
 private:
 	void alloc()
 	{
 		XA_DEBUG_ASSERT(m_size > 0);
 		m_numSlots = nextPowerOfTwo(m_size);
-		auto minNumSlots = uint32_t(m_size * 1.3);
+		auto minNumSlots = uint32_t(m_size * 2.0);
 		if (m_numSlots < minNumSlots)
 			m_numSlots = nextPowerOfTwo(minNumSlots);
 		m_slots = XA_ALLOC_ARRAY(m_memTag, uint32_t, m_numSlots);
 		for (uint32_t i = 0; i < m_numSlots; i++)
 			m_slots[i] = UINT32_MAX;
 		m_keys.reserve(m_size);
-		m_next.reserve(m_size);
+	}
+
+	bool advanceSlot(uint32_t *slot, uint32_t start) const
+	{
+		(*slot)++;
+		if (*slot == m_numSlots)
+			*slot = 0;
+		if (*slot == start) {
+			*slot = UINT32_MAX;
+			return false;
+		}
+		return true;
 	}
 
 	uint32_t computeHash(const Key &key) const
@@ -2012,12 +2069,46 @@ private:
 		return hash(key) & (m_numSlots - 1);
 	}
 
+	uint32_t get(const Key &key, uint32_t hash, uint32_t *slot) const
+	{
+		if (!m_slots)
+			return UINT32_MAX;
+		*slot = hash;
+		return findNext(key, hash, slot);
+	}
+
+	uint32_t getNext(const Key &key, uint32_t hash, uint32_t *slot) const
+	{
+		if (*slot == UINT32_MAX)
+			return UINT32_MAX;
+		if (!advanceSlot(slot, hash)) {
+			*slot = UINT32_MAX;
+			return UINT32_MAX;
+		}
+		return findNext(key, hash, slot);
+	}
+
+	// Starting at the given slot.
+	uint32_t findNext(const Key &key, uint32_t hash, uint32_t *slot) const
+	{
+		uint32_t i = m_slots[*slot];
+		E equal;
+		while (i != UINT32_MAX) {
+			if (equal(m_keys[i], key))
+				return i;
+			if (!advanceSlot(slot, hash))
+				break;
+			i = m_slots[*slot];
+		}
+		*slot = UINT32_MAX;
+		return UINT32_MAX;
+	}
+
 	int m_memTag;
 	uint32_t m_size;
 	uint32_t m_numSlots;
 	uint32_t *m_slots;
 	Array<Key> m_keys;
-	Array<uint32_t> m_next;
 };
 
 template<typename T>
@@ -2379,11 +2470,6 @@ struct EdgeKey
 	uint32_t v1;
 };
 
-struct EdgeHash
-{
-	uint32_t operator()(const EdgeKey &k) const { return k.v0 * 32768u + k.v1; }
-};
-
 static uint32_t meshEdgeFace(uint32_t edge) { return edge / 3; }
 static uint32_t meshEdgeIndex0(uint32_t edge) { return edge; }
 
@@ -2503,11 +2589,10 @@ public:
 			// Find other vertices colocal to this one.
 			colocals.clear();
 			colocals.push_back(i); // Always add this vertex.
-			uint32_t otherVertex = positionToVertexMap.get(m_positions[i]);
-			while (otherVertex != UINT32_MAX) {
+			for (HashMap<Vector3>::Iterator it(positionToVertexMap, m_positions[i]); !it.isDone(); it.advance()) {
+				const uint32_t otherVertex = it.current();
 				if (otherVertex != i && equal(m_positions[i], m_positions[otherVertex], m_epsilon) && m_nextColocalVertex[otherVertex] == UINT32_MAX)
 					colocals.push_back(otherVertex);
-				otherVertex = positionToVertexMap.getNext(otherVertex);
 			}
 			if (colocals.size() == 1) {
 				// No colocals for this vertex.
@@ -2565,27 +2650,21 @@ public:
 	uint32_t findEdge(uint32_t vertex0, uint32_t vertex1) const
 	{
 		// Try to find exact vertex match first.
-		{
-			EdgeKey key(vertex0, vertex1);
-			uint32_t edge = m_edgeMap.get(key);
-			while (edge != UINT32_MAX) {
-				// Don't find edges of ignored faces.
-				if (!isFaceIgnored(meshEdgeFace(edge)))
-					return edge;
-				edge = m_edgeMap.getNext(edge);
-			}
+		for (EdgeMap::Iterator it(m_edgeMap, EdgeKey(vertex0, vertex1)); !it.isDone(); it.advance()) {
+			const uint32_t edge = it.current();
+			// Don't find edges of ignored faces.
+			if (!isFaceIgnored(meshEdgeFace(edge)))
+				return edge;
 		}
 		// If colocals were created, try every permutation.
 		if (!m_nextColocalVertex.isEmpty()) {
 			for (ColocalVertexIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
 				for (ColocalVertexIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
-					EdgeKey key(it0.vertex(), it1.vertex());
-					uint32_t edge = m_edgeMap.get(key);
-					while (edge != UINT32_MAX) {
+					for (EdgeMap::Iterator edgeIt(m_edgeMap, EdgeKey(it0.vertex(), it1.vertex())); !edgeIt.isDone(); edgeIt.advance()) {
+						const uint32_t edge = edgeIt.current();
 						// Don't find edges of ignored faces.
 						if (!isFaceIgnored(meshEdgeFace(edge)))
 							return edge;
-						edge = m_edgeMap.getNext(edge);
 					}
 				}
 			}
@@ -2754,6 +2833,8 @@ public:
 		return vertex;
 	}
 
+	typedef HashMap<EdgeKey> EdgeMap;
+
 	XA_INLINE float epsilon() const { return m_epsilon; }
 	XA_INLINE uint32_t edgeCount() const { return m_indices.size(); }
 	XA_INLINE uint32_t oppositeEdge(uint32_t edge) const { return m_oppositeEdges[edge]; }
@@ -2773,10 +2854,9 @@ public:
 	XA_INLINE const uint32_t *indices() const { return m_indices.data(); }
 	XA_INLINE uint32_t indexCount() const { return m_indices.size(); }
 	XA_INLINE bool isFaceIgnored(uint32_t face) const { return (m_flags & MeshFlags::HasIgnoredFaces) && m_faceIgnore[face]; }
-	XA_INLINE const HashMap<EdgeKey, EdgeHash> &edgeMap() const { return m_edgeMap; }
+	XA_INLINE const EdgeMap &edgeMap() const { return m_edgeMap; }
 
 private:
-
 	float m_epsilon;
 	uint32_t m_flags;
 	uint32_t m_id;
@@ -2794,7 +2874,7 @@ private:
 	Array<uint32_t> m_boundaryEdges;
 	Array<uint32_t> m_oppositeEdges; // In: edge index. Out: the index of the opposite edge (i.e. wound the opposite direction). UINT32_MAX if the input edge is a boundary edge.
 
-	HashMap<EdgeKey, EdgeHash> m_edgeMap;
+	EdgeMap m_edgeMap;
 
 public:
 	class ColocalVertexIterator
@@ -3056,7 +3136,7 @@ struct InvalidMeshGeometry
 		const uint32_t approxVertexCount = min(faceCount * 3, mesh->vertexCount());
 		m_vertexToSourceVertexMap.clear();
 		m_vertexToSourceVertexMap.reserve(approxVertexCount);
-		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToVertexMap(MemTag::Mesh, approxVertexCount);
+		HashMap<uint32_t> sourceVertexToVertexMap(MemTag::Mesh, approxVertexCount);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const uint32_t face = m_faces[f];
 			for (uint32_t i = 0; i < 3; i++) {
@@ -6154,14 +6234,13 @@ struct ComputeUvMeshChartsTask
 					const uint32_t face = chart->faces[f2];
 					for (uint32_t i = 0; i < 3; i++) {
 						// Add any valid faces with colocal UVs to the chart.
-						uint32_t edge = m_uvToEdgeMap.get(m_mesh->texcoords[m_mesh->indices[face * 3 + i]]);
-						while (edge != UINT32_MAX) {
+						for (HashMap<Vector2>::Iterator edgeIt(m_uvToEdgeMap, m_mesh->texcoords[m_mesh->indices[face * 3 + i]]); !edgeIt.isDone(); edgeIt.advance()) {
+							const uint32_t edge = edgeIt.current();
 							const uint32_t newFace = edge / 3;
 							if (canAddFaceToChart(chartIndex, newFace)) {
 								addFaceToChart(chartIndex, newFace);
 								newFaceAssigned = true;
 							}
-							edge = m_uvToEdgeMap.getNext(edge);
 						}
 					}
 				}
@@ -7059,7 +7138,7 @@ public:
 		const uint32_t approxVertexCount = min(faces.length * 3, sourceMesh->vertexCount());
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faces.length);
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faces.length);
-		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToUnifiedVertexMap(MemTag::Mesh, approxVertexCount), sourceVertexToChartVertexMap(MemTag::Mesh, approxVertexCount);
+		HashMap<uint32_t> sourceVertexToUnifiedVertexMap(MemTag::Mesh, approxVertexCount), sourceVertexToChartVertexMap(MemTag::Mesh, approxVertexCount);
 		// Add vertices.
 		const uint32_t faceCount = faces.length;
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -7134,7 +7213,7 @@ public:
 		chartMeshIndices.fillBytes(0xff);
 #if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), m_faceToSourceFaceMap.size() * 3, m_faceToSourceFaceMap.size());
-		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToUnifiedVertexMap(MemTag::Mesh, m_faceToSourceFaceMap.size() * 3);
+		HashMap<uint32_t> sourceVertexToUnifiedVertexMap(MemTag::Mesh, m_faceToSourceFaceMap.size() * 3);
 #endif
 		// Add vertices.
 		for (uint32_t f = 0; f < faceCount; f++) {
@@ -7625,7 +7704,7 @@ private:
 		XA_DEBUG_ASSERT(faceCount > 0);
 		const uint32_t approxVertexCount = min(faceCount * 3, m_sourceMesh->vertexCount());
 		Mesh *mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, m_sourceMesh->epsilon(), approxVertexCount, faceCount, m_sourceMesh->flags() & MeshFlags::HasNormals);
-		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToVertexMap(MemTag::Mesh, approxVertexCount);
+		HashMap<uint32_t> sourceVertexToVertexMap(MemTag::Mesh, approxVertexCount);
 		for (uint32_t f = 0; f < faceCount; f++) {
 			const uint32_t face = m_faceToSourceFaceMap[f];
 			for (uint32_t i = 0; i < 3; i++) {
