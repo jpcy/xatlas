@@ -1968,27 +1968,12 @@ public:
 	{
 		if (!m_slots)
 			return UINT32_MAX;
-		const uint32_t hash = computeHash(key);
-		uint32_t i = m_slots[hash];
-		E equal;
-		while (i != UINT32_MAX) {
-			if (equal(m_keys[i], key))
-				return i;
-			i = m_next[i];
-		}
-		return UINT32_MAX;
+		return find(key, m_slots[computeHash(key)]);
 	}
 
-	uint32_t getNext(uint32_t current) const
+	uint32_t getNext(const Key &key, uint32_t current) const
 	{
-		uint32_t i = m_next[current];
-		E equal;
-		while (i != UINT32_MAX) {
-			if (equal(m_keys[i], m_keys[current]))
-				return i;
-			i = m_next[i];
-		}
-		return UINT32_MAX;
+		return find(key, m_next[current]);
 	}
 
 private:
@@ -2010,6 +1995,17 @@ private:
 	{
 		H hash;
 		return hash(key) & (m_numSlots - 1);
+	}
+
+	uint32_t find(const Key &key, uint32_t current) const
+	{
+		E equal;
+		while (current != UINT32_MAX) {
+			if (equal(m_keys[current], key))
+				return current;
+			current = m_next[current];
+		}
+		return current;
 	}
 
 	int m_memTag;
@@ -2507,7 +2503,7 @@ public:
 			while (otherVertex != UINT32_MAX) {
 				if (otherVertex != i && equal(m_positions[i], m_positions[otherVertex], m_epsilon) && m_nextColocalVertex[otherVertex] == UINT32_MAX)
 					colocals.push_back(otherVertex);
-				otherVertex = positionToVertexMap.getNext(otherVertex);
+				otherVertex = positionToVertexMap.getNext(m_positions[i], otherVertex);
 			}
 			if (colocals.size() == 1) {
 				// No colocals for this vertex.
@@ -2572,7 +2568,7 @@ public:
 				// Don't find edges of ignored faces.
 				if (!isFaceIgnored(meshEdgeFace(edge)))
 					return edge;
-				edge = m_edgeMap.getNext(edge);
+				edge = m_edgeMap.getNext(key, edge);
 			}
 		}
 		// If colocals were created, try every permutation.
@@ -2585,7 +2581,7 @@ public:
 						// Don't find edges of ignored faces.
 						if (!isFaceIgnored(meshEdgeFace(edge)))
 							return edge;
-						edge = m_edgeMap.getNext(edge);
+						edge = m_edgeMap.getNext(key, edge);
 					}
 				}
 			}
@@ -6154,14 +6150,15 @@ struct ComputeUvMeshChartsTask
 					const uint32_t face = chart->faces[f2];
 					for (uint32_t i = 0; i < 3; i++) {
 						// Add any valid faces with colocal UVs to the chart.
-						uint32_t edge = m_uvToEdgeMap.get(m_mesh->texcoords[m_mesh->indices[face * 3 + i]]);
+						const Vector2 &uv = m_mesh->texcoords[m_mesh->indices[face * 3 + i]];
+						uint32_t edge = m_uvToEdgeMap.get(uv);
 						while (edge != UINT32_MAX) {
 							const uint32_t newFace = edge / 3;
 							if (canAddFaceToChart(chartIndex, newFace)) {
 								addFaceToChart(chartIndex, newFace);
 								newFaceAssigned = true;
 							}
-							edge = m_uvToEdgeMap.getNext(edge);
+							edge = m_uvToEdgeMap.getNext(uv, edge);
 						}
 					}
 				}
