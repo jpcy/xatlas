@@ -204,9 +204,10 @@ struct ProfileData
 	std::atomic<Duration> clusteredChartsMerge;
 	std::atomic<Duration> clusteredChartsFillHoles;
 	std::atomic<Duration> copyChartFaces;
-	Duration parameterizeChartsReal;
-	std::atomic<Duration> parameterizeChartsThread;
+	std::atomic<Duration> createChartMeshAndParameterizeReal;
+	std::atomic<Duration> createChartMeshAndParameterizeThread;
 	std::atomic<Duration> createChartMesh;
+	std::atomic<Duration> parameterizeCharts;
 	std::atomic<Duration> parameterizeChartsOrthogonal;
 	std::atomic<Duration> parameterizeChartsLSCM;
 	std::atomic<Duration> parameterizeChartsRecompute;
@@ -7371,14 +7372,19 @@ struct CreateAndParameterizeChartTaskArgs
 
 static void runCreateAndParameterizeChartTask(void *userData)
 {
+	XA_PROFILE_START(createChartMeshAndParameterizeThread)
 	auto args = (CreateAndParameterizeChartTaskArgs *)userData;
 	XA_PROFILE_START(createChartMesh)
 	args->chart = XA_NEW_ARGS(MemTag::Default, Chart, *args->basis, args->faces, args->isPlanar, args->mesh, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMesh)
+	XA_PROFILE_START(parameterizeCharts)
 	args->chart->parameterize(*args->options, args->boundaryGrid->get());
+	XA_PROFILE_END(parameterizeCharts)
 #if XA_RECOMPUTE_CHARTS
-	if (!args->chart->isInvalid())
+	if (!args->chart->isInvalid()) {
+		XA_PROFILE_END(createChartMeshAndParameterizeThread)
 		return;
+	}
 	// Recompute charts with invalid parameterizations.
 	XA_PROFILE_START(parameterizeChartsRecompute)
 	Chart *invalidChart = args->chart;
@@ -7429,6 +7435,7 @@ static void runCreateAndParameterizeChartTask(void *userData)
 #endif
 	XA_PROFILE_END(parameterizeChartsRecompute)
 #endif // XA_RECOMPUTE_CHARTS
+	XA_PROFILE_END(createChartMeshAndParameterizeThread)
 }
 
 // Set of charts corresponding to mesh faces in the same face group.
@@ -7460,6 +7467,11 @@ public:
 	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers)
 #endif
 	{
+		// This function may be called multiple times, so destroy existing charts.
+		for (uint32_t i = 0; i < m_charts.size(); i++) {
+			m_charts[i]->~Chart();
+			XA_FREE(m_charts[i]);
+		}
 		// Create mesh from source mesh, using only the faces in this face group.
 		XA_PROFILE_START(createChartGroupMesh)
 		Mesh *mesh = createMesh();
@@ -7532,11 +7544,7 @@ public:
 		}
 		XA_PROFILE_END(copyChartFaces)
 #endif
-		// This function may be called multiple times, so destroy existing charts.
-		for (uint32_t i = 0; i < m_charts.size(); i++) {
-			m_charts[i]->~Chart();
-			XA_FREE(m_charts[i]);
-		}
+		XA_PROFILE_START(createChartMeshAndParameterizeReal)
 		m_paramAddedChartsCount = 0;
 		Array<CreateAndParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
@@ -7566,6 +7574,7 @@ public:
 			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
+		XA_PROFILE_END(createChartMeshAndParameterizeReal)
 #if XA_RECOMPUTE_CHARTS
 		// Count charts. Skip invalid ones and include new ones added by recomputing.
 		uint32_t newChartCount = 0;
@@ -9470,15 +9479,16 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		XA_PROFILE_PRINT_AND_RESET("               Merge: ", clusteredChartsMerge)
 		XA_PROFILE_PRINT_AND_RESET("               Fill holes: ", clusteredChartsFillHoles)
 		XA_PROFILE_PRINT_AND_RESET("         Copy chart faces: ", copyChartFaces)
-		XA_PROFILE_PRINT_AND_RESET("   Parameterize charts total (real): ", parameterizeChartsReal)
-		XA_PROFILE_PRINT_AND_RESET("   Parameterize charts total (thread): ", parameterizeChartsThread)
-		XA_PROFILE_PRINT_AND_RESET("      Create chart mesh: ", createChartMesh)
-		XA_PROFILE_PRINT_AND_RESET("      Orthogonal: ", parameterizeChartsOrthogonal)
-		XA_PROFILE_PRINT_AND_RESET("      LSCM: ", parameterizeChartsLSCM)
-		XA_PROFILE_PRINT_AND_RESET("      Recompute: ", parameterizeChartsRecompute)
-		XA_PROFILE_PRINT_AND_RESET("         Piecewise: ", parameterizeChartsPiecewise)
-		XA_PROFILE_PRINT_AND_RESET("            Boundary intersection: ", parameterizeChartsPiecewiseBoundaryIntersection)
-		XA_PROFILE_PRINT_AND_RESET("      Evaluate quality: ", parameterizeChartsEvaluateQuality)
+		XA_PROFILE_PRINT_AND_RESET("      Create chart mesh and parameterize (real): ", createChartMeshAndParameterizeReal)
+		XA_PROFILE_PRINT_AND_RESET("      Create chart mesh and parameterize (thread): ", createChartMeshAndParameterizeThread)
+		XA_PROFILE_PRINT_AND_RESET("         Create chart mesh: ", createChartMesh)
+		XA_PROFILE_PRINT_AND_RESET("         Parameterize charts: ", parameterizeCharts)
+		XA_PROFILE_PRINT_AND_RESET("            Orthogonal: ", parameterizeChartsOrthogonal)
+		XA_PROFILE_PRINT_AND_RESET("            LSCM: ", parameterizeChartsLSCM)
+		XA_PROFILE_PRINT_AND_RESET("            Recompute: ", parameterizeChartsRecompute)
+		XA_PROFILE_PRINT_AND_RESET("               Piecewise: ", parameterizeChartsPiecewise)
+		XA_PROFILE_PRINT_AND_RESET("                  Boundary intersection: ", parameterizeChartsPiecewiseBoundaryIntersection)
+		XA_PROFILE_PRINT_AND_RESET("            Evaluate quality: ", parameterizeChartsEvaluateQuality)
 #if XA_PROFILE_ALLOC
 		XA_PROFILE_PRINT_AND_RESET("   Alloc: ", alloc)
 #endif
