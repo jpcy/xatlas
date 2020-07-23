@@ -7454,7 +7454,7 @@ public:
 	uint32_t paramAddedChartsCount() const { return m_paramAddedChartsCount; }
 	uint32_t paramDeletedChartsCount() const { return m_paramDeletedChartsCount; }
 
-	void computeChartFaces(const ChartOptions &options, segment::Atlas &atlas)
+	void computeCharts(const ChartOptions &options, segment::Atlas &atlas)
 	{
 		// Create mesh from source mesh, using only the faces in this face group.
 		XA_PROFILE_START(createChartGroupMesh)
@@ -7678,7 +7678,7 @@ private:
 	uint32_t m_paramDeletedChartsCount; // Number of charts with invalid parameterizations that were deleted, after charts were recomputed.
 };
 
-struct ChartGroupComputeChartFacesTaskArgs
+struct ChartGroupComputeChartsTaskArgs
 {
 	ThreadLocal<segment::Atlas> *atlas;
 	ChartGroup *chartGroup;
@@ -7686,17 +7686,17 @@ struct ChartGroupComputeChartFacesTaskArgs
 	Progress *progress;
 };
 
-static void runChartGroupComputeChartFacesJob(void *userData)
+static void runChartGroupComputeChartsJob(void *userData)
 {
-	auto args = (ChartGroupComputeChartFacesTaskArgs *)userData;
+	auto args = (ChartGroupComputeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(chartGroupComputeChartsThread)
-	args->chartGroup->computeChartFaces(*args->options, args->atlas->get());
+	args->chartGroup->computeCharts(*args->options, args->atlas->get());
 	XA_PROFILE_END(chartGroupComputeChartsThread)
 }
 
-struct MeshComputeChartFacesTaskArgs
+struct MeshComputeChartsTaskArgs
 {
 	Array<ChartGroup *> *chartGroups; // output
 	InvalidMeshGeometry *invalidMeshGeometry; // output
@@ -7711,9 +7711,9 @@ struct MeshComputeChartFacesTaskArgs
 static uint32_t s_faceGroupsCurrentVertex = 0;
 #endif
 
-static void runMeshComputeChartFacesJob(void *userData)
+static void runMeshComputeChartsJob(void *userData)
 {
-	auto args = (MeshComputeChartFacesTaskArgs *)userData;
+	auto args = (MeshComputeChartsTaskArgs *)userData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(computeChartsThread)
@@ -7775,7 +7775,7 @@ static void runMeshComputeChartFacesJob(void *userData)
 	// One task for each chart group - compute chart faces.
 	{
 		XA_PROFILE_START(chartGroupComputeChartsReal)
-		Array<ChartGroupComputeChartFacesTaskArgs> taskArgs;
+		Array<ChartGroupComputeChartsTaskArgs> taskArgs;
 		taskArgs.resize(chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			taskArgs[i].atlas = args->atlas;
@@ -7787,7 +7787,7 @@ static void runMeshComputeChartFacesJob(void *userData)
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			Task task;
 			task.userData = &taskArgs[i];
-			task.func = runChartGroupComputeChartFacesJob;
+			task.func = runChartGroupComputeChartsJob;
 			args->taskScheduler->run(taskGroup, task);
 		}
 		args->taskScheduler->wait(&taskGroup);
@@ -7836,7 +7836,7 @@ static void runParameterizeChartsJob(void *userData)
 class Atlas
 {
 public:
-	Atlas() : m_chartsComputed(false), m_chartsParameterized(false) {}
+	Atlas() : m_chartsComputed(false) {}
 
 	~Atlas()
 	{
@@ -7853,7 +7853,6 @@ public:
 	uint32_t meshCount() const { return m_meshes.size(); }
 	const InvalidMeshGeometry &invalidMeshGeometry(uint32_t meshIndex) const { return m_invalidMeshGeometry[meshIndex]; }
 	bool chartsComputed() const { return m_chartsComputed; }
-	bool chartsParameterized() const { return m_chartsParameterized; }
 	uint32_t chartGroupCount(uint32_t mesh) const { return m_meshChartGroups[mesh].size(); }
 	const ChartGroup *chartGroupAt(uint32_t mesh, uint32_t group) const { return m_meshChartGroups[mesh][group]; }
 
@@ -7864,11 +7863,11 @@ public:
 
 	bool computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
 	{
+		XA_PROFILE_START(computeChartsReal)
 #if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
 		segment::s_planarRegionsCurrentRegion = segment::s_planarRegionsCurrentVertex = 0;
 #endif
 		m_chartsComputed = false;
-		m_chartsParameterized = false;
 		// Clear chart groups, since this function may be called multiple times.
 		if (!m_meshChartGroups.isEmpty()) {
 			for (uint32_t i = 0; i < m_meshChartGroups.size(); i++) {
@@ -7888,10 +7887,10 @@ public:
 		const uint32_t meshCount = m_meshes.size();
 		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, meshCount);
 		ThreadLocal<segment::Atlas> atlas;
-		Array<MeshComputeChartFacesTaskArgs> taskArgs;
+		Array<MeshComputeChartsTaskArgs> taskArgs;
 		taskArgs.resize(meshCount);
 		for (uint32_t i = 0; i < meshCount; i++) {
-			MeshComputeChartFacesTaskArgs &args = taskArgs[i];
+			MeshComputeChartsTaskArgs &args = taskArgs[i];
 			args.atlas = &atlas;
 			args.chartGroups = &m_meshChartGroups[i];
 			args.invalidMeshGeometry = &m_invalidMeshGeometry[i];
@@ -7912,36 +7911,31 @@ public:
 		for (uint32_t i = 0; i < meshCount; i++) {
 			Task task;
 			task.userData = &taskArgs[meshSort.ranks()[meshCount - i - 1]];
-			task.func = runMeshComputeChartFacesJob;
+			task.func = runMeshComputeChartsJob;
 			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
+		XA_PROFILE_END(computeChartsReal)
 		if (progress.cancel)
 			return false;
-		m_chartsComputed = true;
-		return true;
-	}
-
-	bool parameterizeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ProgressFunc progressFunc, void *progressUserData)
-	{
-		m_chartsParameterized = false;
+		XA_PROFILE_START(parameterizeChartsReal)
 		uint32_t chartGroupCount = 0;
 		for (uint32_t i = 0; i < m_meshChartGroups.size(); i++)
 			chartGroupCount += m_meshChartGroups[i].size();
-		Progress progress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
+		Progress paramProgress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
 		ThreadLocal<UniformGrid2> boundaryGrid; // For Quality boundary intersection.
 		ThreadLocal<ChartCtorBuffers> chartBuffers;
 #if XA_RECOMPUTE_CHARTS
 		ThreadLocal<PiecewiseParam> piecewiseParam;
 #endif
-		Array<ParameterizeChartsTaskArgs> taskArgs;
-		taskArgs.resize(chartGroupCount);
+		Array<ParameterizeChartsTaskArgs> paramTaskArgs;
+		paramTaskArgs.resize(chartGroupCount);
 		{
 			uint32_t k = 0;
 			for (uint32_t i = 0; i < m_meshChartGroups.size(); i++) {
 				const uint32_t count = m_meshChartGroups[i].size();
 				for (uint32_t j = 0; j < count; j++) {
-					ParameterizeChartsTaskArgs &args = taskArgs[k];
+					ParameterizeChartsTaskArgs &args = paramTaskArgs[k];
 					args.taskScheduler = taskScheduler;
 					args.chartGroup = m_meshChartGroups[i][j];
 					args.options = &options;
@@ -7950,7 +7944,7 @@ public:
 #if XA_RECOMPUTE_CHARTS
 					args.piecewiseParam = &piecewiseParam;
 #endif
-					args.progress = &progress;
+					args.progress = &paramProgress;
 					k++;
 				}
 			}
@@ -7970,17 +7964,18 @@ public:
 		RadixSort chartGroupSort;
 		chartGroupSort.sort(chartGroupSortData);
 		// Larger chart groups are added first to reduce the chance of thread starvation.
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartGroupCount);
+		TaskGroupHandle paramTaskGroup = taskScheduler->createTaskGroup(chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			Task task;
-			task.userData = &taskArgs[chartGroupSort.ranks()[chartGroupCount - i - 1]];
+			task.userData = &paramTaskArgs[chartGroupSort.ranks()[chartGroupCount - i - 1]];
 			task.func = runParameterizeChartsJob;
-			taskScheduler->run(taskGroup, task);
+			taskScheduler->run(paramTaskGroup, task);
 		}
-		taskScheduler->wait(&taskGroup);
-		if (progress.cancel)
+		taskScheduler->wait(&paramTaskGroup);
+		if (paramProgress.cancel)
 			return false;
-		m_chartsParameterized = true;
+		m_chartsComputed = true;
+		XA_PROFILE_END(parameterizeChartsReal)
 		return true;
 	}
 
@@ -7989,7 +7984,6 @@ private:
 	Array<InvalidMeshGeometry> m_invalidMeshGeometry; // 1 per mesh.
 	Array<Array<ChartGroup *> > m_meshChartGroups;
 	bool m_chartsComputed;
-	bool m_chartsParameterized;
 };
 
 } // namespace param
@@ -9352,65 +9346,13 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 	memset(&ctx->atlas, 0, sizeof(Atlas));
 	XA_PRINT("Computing charts\n");
 	if (!ctx->meshes.isEmpty()) {
-		XA_PROFILE_START(computeChartsReal)
 		if (!ctx->paramAtlas.computeCharts(ctx->taskScheduler, options, ctx->progressFunc, ctx->progressUserData)) {
 			XA_PRINT("   Cancelled by user\n");
 			return;
 		}
-		XA_PROFILE_END(computeChartsReal)
-		// Count charts.
+		uint32_t chartsWithTJunctionsCount = 0, tJunctionCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
 		uint32_t chartCount = 0;
 		const uint32_t meshCount = ctx->meshes.size();
-		for (uint32_t i = 0; i < meshCount; i++) {
-			for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
-				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
-				chartCount += chartGroup->segmentChartCount();
-			}
-		}
-		XA_PRINT("   %u charts\n", chartCount);
-#if XA_PROFILE
-		XA_PRINT("   Chart groups\n");
-		uint32_t chartGroupCount = 0;
-		for (uint32_t i = 0; i < meshCount; i++) {
-			XA_PRINT("      Mesh %u: %u chart groups\n", i, ctx->paramAtlas.chartGroupCount(i));
-			chartGroupCount += ctx->paramAtlas.chartGroupCount(i);
-		}
-		XA_PRINT("      %u total\n", chartGroupCount);
-#endif
-		XA_PROFILE_PRINT_AND_RESET("   Total (real): ", computeChartsReal)
-		XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", computeChartsThread)
-		XA_PROFILE_PRINT_AND_RESET("      Create face groups: ", createFaceGroups)
-		XA_PROFILE_PRINT_AND_RESET("      Extract invalid mesh geometry: ", extractInvalidMeshGeometry)
-		XA_PROFILE_PRINT_AND_RESET("      Chart group compute charts (real): ", chartGroupComputeChartsReal)
-		XA_PROFILE_PRINT_AND_RESET("      Chart group compute charts (thread): ", chartGroupComputeChartsThread)
-		XA_PROFILE_PRINT_AND_RESET("         Create chart group mesh: ", createChartGroupMesh)
-		XA_PROFILE_PRINT_AND_RESET("            Create colocals: ", createChartGroupMeshColocals)
-		XA_PROFILE_PRINT_AND_RESET("            Create boundaries: ", createChartGroupMeshBoundaries)
-		XA_PROFILE_PRINT_AND_RESET("         Build atlas: ", buildAtlas)
-		XA_PROFILE_PRINT_AND_RESET("            Init: ", buildAtlasInit)
-		XA_PROFILE_PRINT_AND_RESET("            Planar charts: ", planarCharts)
-#if XA_USE_ORIGINAL_UV_CHARTS
-		XA_PROFILE_PRINT_AND_RESET("            Original UV charts: ", originalUvCharts)
-#endif
-		XA_PROFILE_PRINT_AND_RESET("            Clustered charts: ", clusteredCharts)
-		XA_PROFILE_PRINT_AND_RESET("               Place seeds: ", clusteredChartsPlaceSeeds)
-		XA_PROFILE_PRINT_AND_RESET("                  Boundary intersection: ", clusteredChartsPlaceSeedsBoundaryIntersection)
-		XA_PROFILE_PRINT_AND_RESET("               Relocate seeds: ", clusteredChartsRelocateSeeds)
-		XA_PROFILE_PRINT_AND_RESET("               Reset: ", clusteredChartsReset)
-		XA_PROFILE_PRINT_AND_RESET("               Grow: ", clusteredChartsGrow)
-		XA_PROFILE_PRINT_AND_RESET("                  Boundary intersection: ", clusteredChartsGrowBoundaryIntersection)
-		XA_PROFILE_PRINT_AND_RESET("               Merge: ", clusteredChartsMerge)
-		XA_PROFILE_PRINT_AND_RESET("               Fill holes: ", clusteredChartsFillHoles)
-		XA_PROFILE_PRINT_AND_RESET("         Copy chart faces: ", copyChartFaces)
-		XA_PRINT("Parameterizing charts\n");
-		XA_PROFILE_START(parameterizeChartsReal)
-		if (!ctx->paramAtlas.parameterizeCharts(ctx->taskScheduler, options, ctx->progressFunc, ctx->progressUserData)) {
-			XA_PRINT("   Cancelled by user\n");
-			return;
-		}
-		XA_PROFILE_END(parameterizeChartsReal)
-		uint32_t chartsWithTJunctionsCount = 0, tJunctionCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
-		chartCount = 0;
 		for (uint32_t i = 0; i < meshCount; i++) {
 			for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
 				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, j);
@@ -9500,8 +9442,44 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		}
 		if (invalidParamCount > 0)
 			XA_PRINT_WARNING("   %u charts with invalid parameterizations\n", invalidParamCount);
-		XA_PROFILE_PRINT_AND_RESET("   Total (real): ", parameterizeChartsReal)
-		XA_PROFILE_PRINT_AND_RESET("   Total (thread): ", parameterizeChartsThread)
+#if XA_PROFILE
+		XA_PRINT("   Chart groups\n");
+		uint32_t chartGroupCount = 0;
+		for (uint32_t i = 0; i < meshCount; i++) {
+#if 0
+			XA_PRINT("      Mesh %u: %u chart groups\n", i, ctx->paramAtlas.chartGroupCount(i));
+#endif
+			chartGroupCount += ctx->paramAtlas.chartGroupCount(i);
+		}
+		XA_PRINT("      %u total\n", chartGroupCount);
+#endif
+		XA_PROFILE_PRINT_AND_RESET("   Compute charts total (real): ", computeChartsReal)
+		XA_PROFILE_PRINT_AND_RESET("   Compute charts total (thread): ", computeChartsThread)
+		XA_PROFILE_PRINT_AND_RESET("      Create face groups: ", createFaceGroups)
+		XA_PROFILE_PRINT_AND_RESET("      Extract invalid mesh geometry: ", extractInvalidMeshGeometry)
+		XA_PROFILE_PRINT_AND_RESET("      Chart group compute charts (real): ", chartGroupComputeChartsReal)
+		XA_PROFILE_PRINT_AND_RESET("      Chart group compute charts (thread): ", chartGroupComputeChartsThread)
+		XA_PROFILE_PRINT_AND_RESET("         Create chart group mesh: ", createChartGroupMesh)
+		XA_PROFILE_PRINT_AND_RESET("            Create colocals: ", createChartGroupMeshColocals)
+		XA_PROFILE_PRINT_AND_RESET("            Create boundaries: ", createChartGroupMeshBoundaries)
+		XA_PROFILE_PRINT_AND_RESET("         Build atlas: ", buildAtlas)
+		XA_PROFILE_PRINT_AND_RESET("            Init: ", buildAtlasInit)
+		XA_PROFILE_PRINT_AND_RESET("            Planar charts: ", planarCharts)
+#if XA_USE_ORIGINAL_UV_CHARTS
+		XA_PROFILE_PRINT_AND_RESET("            Original UV charts: ", originalUvCharts)
+#endif
+		XA_PROFILE_PRINT_AND_RESET("            Clustered charts: ", clusteredCharts)
+		XA_PROFILE_PRINT_AND_RESET("               Place seeds: ", clusteredChartsPlaceSeeds)
+		XA_PROFILE_PRINT_AND_RESET("                  Boundary intersection: ", clusteredChartsPlaceSeedsBoundaryIntersection)
+		XA_PROFILE_PRINT_AND_RESET("               Relocate seeds: ", clusteredChartsRelocateSeeds)
+		XA_PROFILE_PRINT_AND_RESET("               Reset: ", clusteredChartsReset)
+		XA_PROFILE_PRINT_AND_RESET("               Grow: ", clusteredChartsGrow)
+		XA_PROFILE_PRINT_AND_RESET("                  Boundary intersection: ", clusteredChartsGrowBoundaryIntersection)
+		XA_PROFILE_PRINT_AND_RESET("               Merge: ", clusteredChartsMerge)
+		XA_PROFILE_PRINT_AND_RESET("               Fill holes: ", clusteredChartsFillHoles)
+		XA_PROFILE_PRINT_AND_RESET("         Copy chart faces: ", copyChartFaces)
+		XA_PROFILE_PRINT_AND_RESET("   Parameterize charts total (real): ", parameterizeChartsReal)
+		XA_PROFILE_PRINT_AND_RESET("   Parameterize charts total (thread): ", parameterizeChartsThread)
 		XA_PROFILE_PRINT_AND_RESET("      Create chart mesh: ", createChartMesh)
 		XA_PROFILE_PRINT_AND_RESET("      Orthogonal: ", parameterizeChartsOrthogonal)
 		XA_PROFILE_PRINT_AND_RESET("      LSCM: ", parameterizeChartsLSCM)
@@ -9549,7 +9527,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		return;
 	}
 	if (ctx->uvMeshInstances.isEmpty()) {
-		if (!ctx->paramAtlas.chartsComputed() || !ctx->paramAtlas.chartsParameterized()) {
+		if (!ctx->paramAtlas.chartsComputed()) {
 			XA_PRINT_WARNING("PackCharts: ComputeCharts must be called first.\n");
 			return;
 		}
