@@ -7454,7 +7454,11 @@ public:
 	uint32_t paramAddedChartsCount() const { return m_paramAddedChartsCount; }
 	uint32_t paramDeletedChartsCount() const { return m_paramDeletedChartsCount; }
 
-	void computeCharts(const ChartOptions &options, segment::Atlas &atlas)
+#if XA_RECOMPUTE_CHARTS
+	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
+#else
+	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers)
+#endif
 	{
 		// Create mesh from source mesh, using only the faces in this face group.
 		XA_PROFILE_START(createChartGroupMesh)
@@ -7528,26 +7532,17 @@ public:
 		}
 		XA_PROFILE_END(copyChartFaces)
 #endif
-	}
-
-#if XA_RECOMPUTE_CHARTS
-	void parameterizeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
-#else
-	void parameterizeCharts(TaskScheduler* taskScheduler, const ParameterizeOptions &options, ThreadLocal<UniformGrid2>* boundaryGrid, ThreadLocal<ChartCtorBuffers>* chartBuffers)
-#endif
-	{
 		// This function may be called multiple times, so destroy existing charts.
 		for (uint32_t i = 0; i < m_charts.size(); i++) {
 			m_charts[i]->~Chart();
 			XA_FREE(m_charts[i]);
 		}
 		m_paramAddedChartsCount = 0;
-		const uint32_t chartCount = m_chartBasis.size();
 		Array<CreateAndParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
 		taskArgs.runCtors(); // Has Array member.
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
-		uint32_t offset = 0;
+		offset = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			CreateAndParameterizeChartTaskArgs &args = taskArgs[i];
 			args.basis = &m_chartBasis[i];
@@ -7556,9 +7551,9 @@ public:
 			args.chartGroupId = m_id;
 			args.chartId = i;
 			args.chartBuffers = chartBuffers;
-			const uint32_t faceCount = m_chartFaces[offset++];
-			args.faces = ConstArrayView<uint32_t>(&m_chartFaces[offset], faceCount);
-			offset += faceCount;
+			const uint32_t chartFaceCount = m_chartFaces[offset++];
+			args.faces = ConstArrayView<uint32_t>(&m_chartFaces[offset], chartFaceCount);
+			offset += chartFaceCount;
 			args.isPlanar = m_chartIsPlanar.get(i);
 			args.mesh = m_sourceMesh;
 			args.options = &options;
@@ -7698,11 +7693,10 @@ static void runChartGroupComputeChartsJob(void *userData)
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(chartGroupComputeChartsThread)
-	args->chartGroup->computeCharts(*args->options, args->atlas->get());
 #if XA_RECOMPUTE_CHARTS
-	args->chartGroup->parameterizeCharts(args->taskScheduler, *args->options, args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
+	args->chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
 #else
-	args->chartGroup->parameterizeCharts(args->taskScheduler, *args->options, args->boundaryGrid, args->chartBuffers);
+	args->chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->boundaryGrid, args->chartBuffers);
 #endif
 	XA_PROFILE_END(chartGroupComputeChartsThread)
 }
