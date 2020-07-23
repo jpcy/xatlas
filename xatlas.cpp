@@ -7684,6 +7684,12 @@ struct ChartGroupComputeChartsTaskArgs
 	ChartGroup *chartGroup;
 	const ChartOptions *options;
 	Progress *progress;
+	TaskScheduler *taskScheduler;
+	ThreadLocal<UniformGrid2> *boundaryGrid;
+	ThreadLocal<ChartCtorBuffers> *chartBuffers;
+#if XA_RECOMPUTE_CHARTS
+	ThreadLocal<PiecewiseParam> *piecewiseParam;
+#endif
 };
 
 static void runChartGroupComputeChartsJob(void *userData)
@@ -7693,6 +7699,11 @@ static void runChartGroupComputeChartsJob(void *userData)
 		return;
 	XA_PROFILE_START(chartGroupComputeChartsThread)
 	args->chartGroup->computeCharts(*args->options, args->atlas->get());
+#if XA_RECOMPUTE_CHARTS
+	args->chartGroup->parameterizeCharts(args->taskScheduler, *args->options, args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
+#else
+	args->chartGroup->parameterizeCharts(args->taskScheduler, *args->options, args->boundaryGrid, args->chartBuffers);
+#endif
 	XA_PROFILE_END(chartGroupComputeChartsThread)
 }
 
@@ -7705,6 +7716,11 @@ struct MeshComputeChartsTaskArgs
 	Progress *progress;
 	const Mesh *sourceMesh;
 	TaskScheduler *taskScheduler;
+	ThreadLocal<UniformGrid2> *boundaryGrid;
+	ThreadLocal<ChartCtorBuffers> *chartBuffers;
+#if XA_RECOMPUTE_CHARTS
+	ThreadLocal<PiecewiseParam> *piecewiseParam;
+#endif
 };
 
 #if XA_DEBUG_EXPORT_OBJ_FACE_GROUPS
@@ -7772,16 +7788,23 @@ static void runMeshComputeChartsJob(void *userData)
 		args->invalidMeshGeometry->extract(args->sourceMesh, meshFaceGroups);
 		XA_PROFILE_END(extractInvalidMeshGeometry)
 	}
-	// One task for each chart group - compute chart faces.
+	// One task for each chart group - compute charts.
 	{
 		XA_PROFILE_START(chartGroupComputeChartsReal)
 		Array<ChartGroupComputeChartsTaskArgs> taskArgs;
 		taskArgs.resize(chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
-			taskArgs[i].atlas = args->atlas;
-			taskArgs[i].chartGroup = (*args->chartGroups)[i];
-			taskArgs[i].options = args->options;
-			taskArgs[i].progress = args->progress;
+			ChartGroupComputeChartsTaskArgs &targs = taskArgs[i];
+			targs.atlas = args->atlas;
+			targs.chartGroup = (*args->chartGroups)[i];
+			targs.options = args->options;
+			targs.progress = args->progress;
+			targs.taskScheduler = args->taskScheduler;
+			targs.boundaryGrid = args->boundaryGrid;
+			targs.chartBuffers = args->chartBuffers;
+#if XA_RECOMPUTE_CHARTS
+			targs.piecewiseParam = args->piecewiseParam;
+#endif
 		}
 		TaskGroupHandle taskGroup = args->taskScheduler->createTaskGroup(chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
@@ -7801,35 +7824,6 @@ cleanup:
 		meshFaceGroups->~MeshFaceGroups();
 		XA_FREE(meshFaceGroups);
 	}
-}
-
-struct ParameterizeChartsTaskArgs
-{
-	TaskScheduler *taskScheduler;
-	ChartGroup *chartGroup;
-	const ChartOptions *options;
-	ThreadLocal<UniformGrid2> *boundaryGrid;
-	ThreadLocal<ChartCtorBuffers> *chartBuffers;
-#if XA_RECOMPUTE_CHARTS
-	ThreadLocal<PiecewiseParam> *piecewiseParam;
-#endif
-	Progress *progress;
-};
-
-static void runParameterizeChartsJob(void *userData)
-{
-	auto args = (ParameterizeChartsTaskArgs *)userData;
-	if (args->progress->cancel)
-		return;
-	XA_PROFILE_START(parameterizeChartsThread)
-#if XA_RECOMPUTE_CHARTS
-	args->chartGroup->parameterizeCharts(args->taskScheduler, *args->options, args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
-#else
-	args->chartGroup->parameterizeCharts(args->taskScheduler, *args->options, args->boundaryGrid, args->chartBuffers);
-#endif
-	XA_PROFILE_END(parameterizeChartsThread)
-	args->progress->value++;
-	args->progress->update();
 }
 
 /// An atlas is a set of chart groups.
@@ -7887,6 +7881,11 @@ public:
 		const uint32_t meshCount = m_meshes.size();
 		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, meshCount);
 		ThreadLocal<segment::Atlas> atlas;
+		ThreadLocal<UniformGrid2> boundaryGrid; // For Quality boundary intersection.
+		ThreadLocal<ChartCtorBuffers> chartBuffers;
+#if XA_RECOMPUTE_CHARTS
+		ThreadLocal<PiecewiseParam> piecewiseParam;
+#endif
 		Array<MeshComputeChartsTaskArgs> taskArgs;
 		taskArgs.resize(meshCount);
 		for (uint32_t i = 0; i < meshCount; i++) {
@@ -7898,6 +7897,11 @@ public:
 			args.progress = &progress;
 			args.sourceMesh = m_meshes[i];
 			args.taskScheduler = taskScheduler;
+			args.boundaryGrid = &boundaryGrid;
+			args.chartBuffers = &chartBuffers;
+#if XA_RECOMPUTE_CHARTS
+			args.piecewiseParam = &piecewiseParam;
+#endif
 		}
 		// Sort meshes by indexCount.
 		Array<float> meshSortData;
@@ -7918,16 +7922,11 @@ public:
 		XA_PROFILE_END(computeChartsReal)
 		if (progress.cancel)
 			return false;
-		XA_PROFILE_START(parameterizeChartsReal)
+		/*XA_PROFILE_START(parameterizeChartsReal)
 		uint32_t chartGroupCount = 0;
 		for (uint32_t i = 0; i < m_meshChartGroups.size(); i++)
 			chartGroupCount += m_meshChartGroups[i].size();
 		Progress paramProgress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
-		ThreadLocal<UniformGrid2> boundaryGrid; // For Quality boundary intersection.
-		ThreadLocal<ChartCtorBuffers> chartBuffers;
-#if XA_RECOMPUTE_CHARTS
-		ThreadLocal<PiecewiseParam> piecewiseParam;
-#endif
 		Array<ParameterizeChartsTaskArgs> paramTaskArgs;
 		paramTaskArgs.resize(chartGroupCount);
 		{
@@ -7973,9 +7972,8 @@ public:
 		}
 		taskScheduler->wait(&paramTaskGroup);
 		if (paramProgress.cancel)
-			return false;
+			return false;*/
 		m_chartsComputed = true;
-		XA_PROFILE_END(parameterizeChartsReal)
 		return true;
 	}
 
