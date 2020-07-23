@@ -499,6 +499,14 @@ static const T *gltfGetBufferData(const cgltf_accessor *accessor)
 	return (const T *)&buffer[offset];
 }
 
+#define GLTF_COPY_INDICES(type)                                                     \
+	const type *meshIndices = gltfGetBufferData<type>(aindices);                    \
+	for (uint32_t ii = 0; ii < (uint32_t)aindices->count; ii++) {                   \
+		assert(ii + firstMeshIndex < model->numIndices);                            \
+		indices[ii + firstMeshIndex] = firstMeshVertex + (uint32_t)meshIndices[ii]; \
+		assert(indices[ii + firstMeshIndex] < model->numVertices);                  \
+	}
+
 static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *firstMaterial, objzModel *model, uint32_t &currentObject, uint32_t &currentMesh, uint32_t &firstMeshIndex, uint32_t &firstMeshVertex, bool &hasTexcoords)
 {
 	const cgltf_mesh *sourceMesh = node->mesh;
@@ -550,18 +558,14 @@ static void gltfPopulateMeshData(const cgltf_node *node, const cgltf_material *f
 			}
 			// Copy indices.
 			auto indices = (uint32_t *)model->indices;
-			if (aindices->component_type == cgltf_component_type_r_16u) {
-				const uint16_t *meshIndices = gltfGetBufferData<uint16_t>(aindices);
-				for (uint32_t ii = 0; ii < (uint32_t)aindices->count; ii++) {
-					assert(ii + firstMeshIndex < model->numIndices);
-					indices[ii + firstMeshIndex] = firstMeshVertex + (uint32_t)meshIndices[ii];
-				}
-			} else  if (aindices->component_type == cgltf_component_type_r_32u) {
-				const uint32_t *meshIndices = gltfGetBufferData<uint32_t>(aindices);
-				for (uint32_t ii = 0; ii < (uint32_t)aindices->count; ii++) {
-					assert(ii + firstMeshIndex < model->numIndices);
-					indices[ii + firstMeshIndex] = firstMeshVertex + meshIndices[ii];
-				}
+			if (aindices->component_type == cgltf_component_type_r_8u) {
+				GLTF_COPY_INDICES(uint8_t)
+			} else if (aindices->component_type == cgltf_component_type_r_16u) {
+				GLTF_COPY_INDICES(uint16_t)
+			} else if (aindices->component_type == cgltf_component_type_r_32u) {
+				GLTF_COPY_INDICES(uint32_t)
+			} else {
+				assert (false);
 			}
 #if ONE_GLTF_OBJECT_PER_MESH
 			// Create object.
