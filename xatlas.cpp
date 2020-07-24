@@ -56,7 +56,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #endif
 
 #ifndef XA_PROFILE
-#define XA_PROFILE 0
+#define XA_PROFILE 1
 #endif
 #if XA_PROFILE
 #include <chrono>
@@ -7809,10 +7809,18 @@ static void runMeshComputeChartsJob(void *userData)
 			targs.piecewiseParam = args->piecewiseParam;
 #endif
 		}
+		// Sort chart groups by face count.
+		Array<float> chartGroupSortData;
+		chartGroupSortData.resize(chartGroupCount);
+		for (uint32_t i = 0; i < chartGroupCount; i++)
+			chartGroupSortData[i] = (float)(*args->chartGroups)[i]->faceCount();
+		RadixSort chartGroupSort;
+		chartGroupSort.sort(chartGroupSortData);
+		// Larger chart groups are added first to reduce the chance of thread starvation.
 		TaskGroupHandle taskGroup = args->taskScheduler->createTaskGroup(chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			Task task;
-			task.userData = &taskArgs[i];
+			task.userData = &taskArgs[chartGroupCount - i - 1];
 			task.func = runChartGroupComputeChartsJob;
 			args->taskScheduler->run(taskGroup, task);
 		}
@@ -7925,57 +7933,6 @@ public:
 		XA_PROFILE_END(computeChartsReal)
 		if (progress.cancel)
 			return false;
-		/*XA_PROFILE_START(parameterizeChartsReal)
-		uint32_t chartGroupCount = 0;
-		for (uint32_t i = 0; i < m_meshChartGroups.size(); i++)
-			chartGroupCount += m_meshChartGroups[i].size();
-		Progress paramProgress(ProgressCategory::ParameterizeCharts, progressFunc, progressUserData, chartGroupCount);
-		Array<ParameterizeChartsTaskArgs> paramTaskArgs;
-		paramTaskArgs.resize(chartGroupCount);
-		{
-			uint32_t k = 0;
-			for (uint32_t i = 0; i < m_meshChartGroups.size(); i++) {
-				const uint32_t count = m_meshChartGroups[i].size();
-				for (uint32_t j = 0; j < count; j++) {
-					ParameterizeChartsTaskArgs &args = paramTaskArgs[k];
-					args.taskScheduler = taskScheduler;
-					args.chartGroup = m_meshChartGroups[i][j];
-					args.options = &options;
-					args.boundaryGrid = &boundaryGrid;
-					args.chartBuffers = &chartBuffers;
-#if XA_RECOMPUTE_CHARTS
-					args.piecewiseParam = &piecewiseParam;
-#endif
-					args.progress = &paramProgress;
-					k++;
-				}
-			}
-		}
-		// Sort chart groups by face count.
-		Array<float> chartGroupSortData;
-		chartGroupSortData.resize(chartGroupCount);
-		{
-			uint32_t k = 0;
-			for (uint32_t i = 0; i < m_meshChartGroups.size(); i++) {
-				const uint32_t count = m_meshChartGroups[i].size();
-				for (uint32_t j = 0; j < count; j++) {
-					chartGroupSortData[k++] = (float)m_meshChartGroups[i][j]->faceCount();
-				}
-			}
-		}
-		RadixSort chartGroupSort;
-		chartGroupSort.sort(chartGroupSortData);
-		// Larger chart groups are added first to reduce the chance of thread starvation.
-		TaskGroupHandle paramTaskGroup = taskScheduler->createTaskGroup(chartGroupCount);
-		for (uint32_t i = 0; i < chartGroupCount; i++) {
-			Task task;
-			task.userData = &paramTaskArgs[chartGroupSort.ranks()[chartGroupCount - i - 1]];
-			task.func = runParameterizeChartsJob;
-			taskScheduler->run(paramTaskGroup, task);
-		}
-		taskScheduler->wait(&paramTaskGroup);
-		if (paramProgress.cancel)
-			return false;*/
 		m_chartsComputed = true;
 		return true;
 	}
