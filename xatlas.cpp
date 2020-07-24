@@ -7479,14 +7479,15 @@ public:
 #if XA_DEBUG_SINGLE_CHART
 		XA_UNUSED(options);
 		XA_UNUSED(atlas);
-		m_chartBasis.resize(1);
-		Fit::computeBasis(&mesh->position(0), mesh->vertexCount(), &m_chartBasis[0]);
-		m_chartFaces.resize(1 + mesh->faceCount());
-		m_chartFaces[0] = mesh->faceCount();
-		for (uint32_t i = 0; i < m_chartFaces.size() - 1; i++)
-			m_chartFaces[i + 1] = m_faceToSourceFaceMap[i];
-		m_chartIsPlanar.resize(1);
-		m_chartIsPlanar.zeroOutMemory();
+		const uint32_t chartCount = 1;
+		uint32_t offset;
+		Basis chartBasis;
+		Fit::computeBasis(&mesh->position(0), mesh->vertexCount(), &chartBasis);
+		Array<uint32_t> chartFaces;
+		chartFaces.resize(1 + mesh->faceCount());
+		chartFaces[0] = mesh->faceCount();
+		for (uint32_t i = 0; i < chartFaces.size() - 1; i++)
+			chartFaces[i + 1] = m_faceToSourceFaceMap[i];
 		// Destroy mesh.
 		const uint32_t faceCount = mesh->faceCount();
 		mesh->~Mesh();
@@ -7519,27 +7520,17 @@ public:
 		mesh->~Mesh();
 		XA_FREE(mesh);
 		XA_PROFILE_START(copyChartFaces)
-		// Copy basis.
-		const uint32_t chartCount = atlas.chartCount();
-		m_chartBasis.resize(chartCount);
-		for (uint32_t i = 0; i < chartCount; i++)
-			m_chartBasis[i] = atlas.chartBasis(i);
-		// Copy whether chart is planar.
-		m_chartIsPlanar.resize(chartCount);
-		m_chartIsPlanar.zeroOutMemory();
-		for (uint32_t i = 0; i < chartCount; i++) {
-			if (atlas.chartIsPlanar(i))
-				m_chartIsPlanar.set(i);
-		}
 		// Copy faces from segment::Atlas to m_chartFaces array with <chart 0 face count> <face 0> <face n> <chart 1 face count> etc. encoding.
 		// segment::Atlas faces refer to the chart group mesh. Map them to the input mesh instead.
-		m_chartFaces.resize(chartCount + faceCount);
+		const uint32_t chartCount = atlas.chartCount();
+		Array<uint32_t> chartFaces;
+		chartFaces.resize(chartCount + faceCount);
 		uint32_t offset = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			ConstArrayView<uint32_t> faces = atlas.chartFaces(i);
-			m_chartFaces[offset++] = faces.length;
+			chartFaces[offset++] = faces.length;
 			for (uint32_t j = 0; j < faces.length; j++)
-				m_chartFaces[offset++] = m_faceToSourceFaceMap[faces[j]];
+				chartFaces[offset++] = m_faceToSourceFaceMap[faces[j]];
 		}
 		XA_PROFILE_END(copyChartFaces)
 #endif
@@ -7556,14 +7547,19 @@ public:
 		offset = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			CreateAndParameterizeChartTaskArgs &args = taskArgs[i];
-			args.basis = &m_chartBasis[i];
+#if XA_DEBUG_SINGLE_CHART
+			args.basis = &chartBasis;
+			args.isPlanar = false;
+#else
+			args.basis = &atlas.chartBasis(i);
+			args.isPlanar = atlas.chartIsPlanar(i);
+#endif
 			args.chart = nullptr;
 			args.chartGroupId = m_id;
 			args.chartId = i;
-			const uint32_t chartFaceCount = m_chartFaces[offset++];
-			args.faces = ConstArrayView<uint32_t>(&m_chartFaces[offset], chartFaceCount);
+			const uint32_t chartFaceCount = chartFaces[offset++];
+			args.faces = ConstArrayView<uint32_t>(&chartFaces[offset], chartFaceCount);
 			offset += chartFaceCount;
-			args.isPlanar = m_chartIsPlanar.get(i);
 			args.mesh = m_sourceMesh;
 			Task task;
 			task.userData = &args;
@@ -7667,9 +7663,6 @@ private:
 	const MeshFaceGroups * const m_sourceMeshFaceGroups;
 	const MeshFaceGroups::Handle m_faceGroup;
 	Array<uint32_t> m_faceToSourceFaceMap; // List of faces of the source mesh that belong to this chart group.
-	Array<Basis> m_chartBasis; // Copied from segment::Atlas.
-	BitArray m_chartIsPlanar; // Copied from segment::Atlas.
-	Array<uint32_t> m_chartFaces; // Copied from segment::Atlas. Encoding: <chart 0 face count> <face 0> <face n> <chart 1 face count> etc.
 	Array<Chart *> m_charts;
 	uint32_t m_faceCount; // Set by createMesh(). Used for sorting.
 };
