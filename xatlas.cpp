@@ -8933,32 +8933,25 @@ void Destroy(Atlas *atlas)
 #endif
 }
 
-struct AddMeshTaskArgs
-{
-	Context *ctx;
-	internal::Mesh *mesh;
-};
-
-static void runAddMeshTask(void * /*groupUserData*/, void *taskUserData)
+static void runAddMeshTask(void *groupUserData, void *taskUserData)
 {
 	XA_PROFILE_START(addMeshThread)
-	auto args = (AddMeshTaskArgs *)taskUserData; // Responsible for freeing this.
-	internal::Mesh *mesh = args->mesh;
-	internal::Progress *progress = args->ctx->addMeshProgress;
-	if (progress->cancel)
-		goto cleanup;
-	{
-		XA_PROFILE_START(addMeshCreateColocals)
-		mesh->createColocals();
-		XA_PROFILE_END(addMeshCreateColocals)
+	auto ctx = (Context *)groupUserData;
+	auto mesh = (internal::Mesh *)taskUserData;
+	internal::Progress *progress = ctx->addMeshProgress;
+	if (progress->cancel) {
+		XA_PROFILE_END(addMeshThread)
+			return;
 	}
-	if (progress->cancel)
-		goto cleanup;
+	XA_PROFILE_START(addMeshCreateColocals)
+	mesh->createColocals();
+	XA_PROFILE_END(addMeshCreateColocals)
+	if (progress->cancel) {
+		XA_PROFILE_END(addMeshThread)
+		return;
+	}
 	progress->value++;
 	progress->update();
-cleanup:
-	args->~AddMeshTaskArgs();
-	XA_FREE(args);
 	XA_PROFILE_END(addMeshThread)
 }
 
@@ -9124,12 +9117,9 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	ctx->meshes.push_back(mesh);
 	ctx->paramAtlas.addMesh(mesh);
 	if (ctx->addMeshTaskGroup.value == UINT32_MAX)
-		ctx->addMeshTaskGroup = ctx->taskScheduler->createTaskGroup();
-	AddMeshTaskArgs *taskArgs = XA_NEW(internal::MemTag::Default, AddMeshTaskArgs); // The task frees this.
-	taskArgs->ctx = ctx;
-	taskArgs->mesh = mesh;
+		ctx->addMeshTaskGroup = ctx->taskScheduler->createTaskGroup(ctx);
 	internal::Task task;
-	task.userData = taskArgs;
+	task.userData = mesh;
 	task.func = runAddMeshTask;
 	ctx->taskScheduler->run(ctx->addMeshTaskGroup, task);
 	return AddMeshError::Success;
