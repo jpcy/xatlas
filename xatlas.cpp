@@ -7359,33 +7359,38 @@ private:
 	bool m_isInvalid;
 };
 
-struct CreateAndParameterizeChartTaskArgs
+struct CreateAndParameterizeChartTaskGroupArgs
 {
-	const Basis *basis;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
-	Chart *chart; // output
-	Array<Chart *> charts; // output (if more than one chart)
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
-	bool isPlanar;
-	const Mesh *mesh;
 	const ChartOptions *options;
 #if XA_RECOMPUTE_CHARTS
 	ThreadLocal<PiecewiseParam> *pp;
 #endif
+};
+
+struct CreateAndParameterizeChartTaskArgs
+{
+	const Basis *basis;
+	Chart *chart; // output
+	Array<Chart *> charts; // output (if more than one chart)
+	bool isPlanar;
+	const Mesh *mesh;
 	ConstArrayView<uint32_t> faces;
 	uint32_t chartGroupId;
 	uint32_t chartId;
 };
 
-static void runCreateAndParameterizeChartTask(void * /*groupUserData*/, void *taskUserData)
+static void runCreateAndParameterizeChartTask(void *groupUserData, void *taskUserData)
 {
 	XA_PROFILE_START(createChartMeshAndParameterizeThread)
+	auto groupArgs = (CreateAndParameterizeChartTaskGroupArgs *)groupUserData;
 	auto args = (CreateAndParameterizeChartTaskArgs *)taskUserData;
 	XA_PROFILE_START(createChartMesh)
 	args->chart = XA_NEW_ARGS(MemTag::Default, Chart, *args->basis, args->faces, args->isPlanar, args->mesh, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMesh)
 	XA_PROFILE_START(parameterizeCharts)
-	args->chart->parameterize(*args->options, args->boundaryGrid->get());
+	args->chart->parameterize(*groupArgs->options, groupArgs->boundaryGrid->get());
 	XA_PROFILE_END(parameterizeCharts)
 #if XA_RECOMPUTE_CHARTS
 	if (!args->chart->isInvalid()) {
@@ -7396,7 +7401,7 @@ static void runCreateAndParameterizeChartTask(void * /*groupUserData*/, void *ta
 	XA_PROFILE_START(parameterizeChartsRecompute)
 	Chart *invalidChart = args->chart;
 	const Mesh *invalidMesh = invalidChart->unifiedMesh();
-	PiecewiseParam &pp = args->pp->get();
+	PiecewiseParam &pp = groupArgs->pp->get();
 	pp.reset(invalidMesh);
 #if XA_DEBUG_EXPORT_OBJ_RECOMPUTED_CHARTS
 	char filename[256];
@@ -7411,7 +7416,7 @@ static void runCreateAndParameterizeChartTask(void * /*groupUserData*/, void *ta
 		XA_PROFILE_END(parameterizeChartsPiecewise)
 		if (!facesRemaining)
 			break;
-		Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, args->chartBuffers->get(), invalidChart, invalidMesh, pp.chartFaces(), pp.texcoords(), args->mesh);
+		Chart *chart = XA_NEW_ARGS(MemTag::Default, Chart, groupArgs->chartBuffers->get(), invalidChart, invalidMesh, pp.chartFaces(), pp.texcoords(), args->mesh);
 #if XA_CHECK_PIECEWISE_CHART_QUALITY
 		chart->evaluateQuality(args->boundaryGrid->get());
 #endif
@@ -7549,28 +7554,29 @@ public:
 		XA_PROFILE_END(copyChartFaces)
 #endif
 		XA_PROFILE_START(createChartMeshAndParameterizeReal)
+		CreateAndParameterizeChartTaskGroupArgs groupArgs;
+		groupArgs.boundaryGrid = boundaryGrid;
+		groupArgs.chartBuffers = chartBuffers;
+		groupArgs.options = &options;
+#if XA_RECOMPUTE_CHARTS
+		groupArgs.pp = piecewiseParam;
+#endif
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(&groupArgs, chartCount);
 		Array<CreateAndParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
 		taskArgs.runCtors(); // Has Array member.
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(nullptr, chartCount);
 		offset = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			CreateAndParameterizeChartTaskArgs &args = taskArgs[i];
 			args.basis = &m_chartBasis[i];
-			args.boundaryGrid = boundaryGrid;
 			args.chart = nullptr;
 			args.chartGroupId = m_id;
 			args.chartId = i;
-			args.chartBuffers = chartBuffers;
 			const uint32_t chartFaceCount = m_chartFaces[offset++];
 			args.faces = ConstArrayView<uint32_t>(&m_chartFaces[offset], chartFaceCount);
 			offset += chartFaceCount;
 			args.isPlanar = m_chartIsPlanar.get(i);
 			args.mesh = m_sourceMesh;
-			args.options = &options;
-#if XA_RECOMPUTE_CHARTS
-			args.pp = piecewiseParam;
-#endif
 			Task task;
 			task.userData = &args;
 			task.func = runCreateAndParameterizeChartTask;
