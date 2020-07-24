@@ -7448,7 +7448,7 @@ static void runCreateAndParameterizeChartTask(void *groupUserData, void *taskUse
 class ChartGroup
 {
 public:
-	ChartGroup(uint32_t id, const Mesh *sourceMesh, const MeshFaceGroups *sourceMeshFaceGroups, MeshFaceGroups::Handle faceGroup) : m_id(id), m_sourceMesh(sourceMesh), m_sourceMeshFaceGroups(sourceMeshFaceGroups), m_faceGroup(faceGroup), m_faceCount(0)
+	ChartGroup(uint32_t id, const Mesh *sourceMesh, const MeshFaceGroups *sourceMeshFaceGroups, MeshFaceGroups::Handle faceGroup) : m_id(id), m_sourceMesh(sourceMesh), m_sourceMeshFaceGroups(sourceMeshFaceGroups), m_faceGroup(faceGroup)
 	{
 	}
 
@@ -7462,7 +7462,7 @@ public:
 
 	uint32_t chartCount() const { return m_charts.size(); }
 	Chart *chartAt(uint32_t i) const { return m_charts[i]; }
-	uint32_t faceCount() const { return m_faceCount; }
+	uint32_t faceCount() const { return m_sourceMeshFaceGroups->faceCount(m_faceGroup); }
 
 	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
 	{
@@ -7612,7 +7612,7 @@ private:
 		for (MeshFaceGroups::Iterator it(m_sourceMeshFaceGroups, m_faceGroup); !it.isDone(); it.advance())
 			m_faceToSourceFaceMap.push_back(it.face());
 		// Only initial meshes has ignored faces. The only flag we care about is HasNormals.
-		const uint32_t faceCount = m_faceCount = m_faceToSourceFaceMap.size();
+		const uint32_t faceCount = m_faceToSourceFaceMap.size();
 		XA_DEBUG_ASSERT(faceCount > 0);
 		const uint32_t approxVertexCount = min(faceCount * 3, m_sourceMesh->vertexCount());
 		Mesh *mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, m_sourceMesh->epsilon(), approxVertexCount, faceCount, m_sourceMesh->flags() & MeshFlags::HasNormals);
@@ -7664,7 +7664,6 @@ private:
 	const MeshFaceGroups::Handle m_faceGroup;
 	Array<uint32_t> m_faceToSourceFaceMap; // List of faces of the source mesh that belong to this chart group.
 	Array<Chart *> m_charts;
-	uint32_t m_faceCount; // Set by createMesh(). Used for sorting.
 };
 
 struct ChartGroupComputeChartsTaskGroupArgs
