@@ -240,7 +240,6 @@ struct ProgressCategory
 	{
 		AddMesh,
 		ComputeCharts,
-		ParameterizeCharts,
 		PackCharts,
 		BuildOutputMeshes
 	};

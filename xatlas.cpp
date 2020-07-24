@@ -56,7 +56,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #endif
 
 #ifndef XA_PROFILE
-#define XA_PROFILE 1
+#define XA_PROFILE 0
 #endif
 #if XA_PROFILE
 #include <chrono>
@@ -3079,7 +3079,7 @@ private:
 
 struct Progress
 {
-	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : value(0), cancel(false), m_category(category), m_func(func), m_userData(userData), m_maxValue(maxValue), m_progress(0)
+	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : cancel(false), m_category(category), m_func(func), m_userData(userData), m_value(0), m_maxValue(maxValue), m_percent(0)
 	{
 		if (m_func) {
 			if (!m_func(category, 0, userData))
@@ -3095,37 +3095,39 @@ struct Progress
 		}
 	}
 
-	void update()
+	void increment(uint32_t value)
 	{
-		if (!m_func)
-			return;
-		m_mutex.lock();
-		const uint32_t newProgress = uint32_t(ceilf(value.load() / (float)m_maxValue * 100.0f));
-		if (newProgress != m_progress && newProgress < 100) {
-			m_progress = newProgress;
-			if (!m_func(m_category, m_progress, m_userData))
-				cancel = true;
-		}
-		m_mutex.unlock();
+		m_value += value;
+		update();
 	}
 
 	void setMaxValue(uint32_t maxValue)
 	{
-		m_mutex.lock();
 		m_maxValue = maxValue;
-		m_mutex.unlock();
+		update();
 	}
 
-	std::atomic<uint32_t> value;
 	std::atomic<bool> cancel;
 
 private:
+	void update()
+	{
+		if (!m_func)
+			return;
+		const uint32_t newPercent = uint32_t(ceilf(m_value.load() / (float)m_maxValue.load() * 100.0f));
+		if (newPercent != m_percent) {
+			// Atomic max.
+			uint32_t oldPercent = m_percent;
+			while (oldPercent < newPercent && !m_percent.compare_exchange_weak(oldPercent, newPercent)) {}
+			if (!m_func(m_category, m_percent, m_userData))
+				cancel = true;
+		}
+	}
+
 	ProgressCategory::Enum m_category;
 	ProgressFunc m_func;
 	void *m_userData;
-	uint32_t m_maxValue;
-	uint32_t m_progress;
-	std::mutex m_mutex;
+	std::atomic<uint32_t> m_value, m_maxValue, m_percent;
 };
 
 struct Spinlock
@@ -6138,8 +6140,7 @@ struct ComputeUvMeshChartsTask
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_progress->cancel)
 				return;
-			m_progress->value++;
-			m_progress->update();
+			m_progress->increment(1);
 			// Found an unassigned face, see if it can be added.
 			const uint32_t chartIndex = m_mesh->charts.size();
 			if (!canAddFaceToChart(chartIndex, f))
@@ -7357,6 +7358,7 @@ private:
 
 struct CreateAndParameterizeChartTaskGroupArgs
 {
+	Progress *progress;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 	const ChartOptions *options;
@@ -7442,6 +7444,8 @@ static void runCreateAndParameterizeChartTask(void *groupUserData, void *taskUse
 	XA_PROFILE_END(parameterizeChartsRecompute)
 #endif // XA_RECOMPUTE_CHARTS
 	XA_PROFILE_END(createChartMeshAndParameterizeThread)
+	// Update progress.
+	groupArgs->progress->increment(args->faces.length);
 }
 
 // Set of charts corresponding to mesh faces in the same face group.
@@ -7464,7 +7468,7 @@ public:
 	Chart *chartAt(uint32_t i) const { return m_charts[i]; }
 	uint32_t faceCount() const { return m_sourceMeshFaceGroups->faceCount(m_faceGroup); }
 
-	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
+	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, Progress *progress, segment::Atlas &atlas, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
 	{
 		// This function may be called multiple times, so destroy existing charts.
 		for (uint32_t i = 0; i < m_charts.size(); i++) {
@@ -7497,6 +7501,8 @@ public:
 		atlas.reset(mesh, options);
 		atlas.compute();
 		XA_PROFILE_END(buildAtlas)
+		// Update progress.
+		progress->increment(faceCount());
 #if XA_DEBUG_EXPORT_OBJ_CHARTS
 		char filename[256];
 		XA_SPRINTF(filename, sizeof(filename), "debug_mesh_%03u_chartgroup_%03u_charts.obj", m_sourceMesh->id(), m_id);
@@ -7520,6 +7526,8 @@ public:
 		mesh->~Mesh();
 		XA_FREE(mesh);
 		XA_PROFILE_START(copyChartFaces)
+		if (progress->cancel)
+			return;
 		// Copy faces from segment::Atlas to m_chartFaces array with <chart 0 face count> <face 0> <face n> <chart 1 face count> etc. encoding.
 		// segment::Atlas faces refer to the chart group mesh. Map them to the input mesh instead.
 		const uint32_t chartCount = atlas.chartCount();
@@ -7536,6 +7544,7 @@ public:
 #endif
 		XA_PROFILE_START(createChartMeshAndParameterizeReal)
 		CreateAndParameterizeChartTaskGroupArgs groupArgs;
+		groupArgs.progress = progress;
 		groupArgs.boundaryGrid = boundaryGrid;
 		groupArgs.chartBuffers = chartBuffers;
 		groupArgs.options = &options;
@@ -7684,7 +7693,7 @@ static void runChartGroupComputeChartsTask(void *groupUserData, void *taskUserDa
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(chartGroupComputeChartsThread)
-	chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
+	chartGroup->computeCharts(args->taskScheduler, *args->options, args->progress, args->atlas->get(), args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
 	XA_PROFILE_END(chartGroupComputeChartsThread)
 }
 
@@ -7802,8 +7811,6 @@ static void runMeshComputeChartsTask(void *groupUserData, void *taskUserData)
 		XA_PROFILE_END(chartGroupComputeChartsReal)
 	}
 	XA_PROFILE_END(computeChartsThread)
-	groupArgs->progress->value++;
-	groupArgs->progress->update();
 cleanup:
 	if (meshFaceGroups) {
 		meshFaceGroups->~MeshFaceGroups();
@@ -7846,8 +7853,12 @@ public:
 #if XA_DEBUG_EXPORT_OBJ_PLANAR_REGIONS
 		segment::s_planarRegionsCurrentRegion = segment::s_planarRegionsCurrentVertex = 0;
 #endif
+		// Progress is per-face x 2 (1 for chart faces, 1 for parameterized chart faces).
 		const uint32_t meshCount = m_meshes.size();
-		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, meshCount);
+		uint32_t totalFaceCount = 0;
+		for (uint32_t i = 0; i < meshCount; i++)
+			totalFaceCount += m_meshes[i]->faceCount();
+		Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, totalFaceCount * 2);
 		m_chartsComputed = false;
 		// Clear chart groups, since this function may be called multiple times.
 		if (!m_meshChartGroups.isEmpty()) {
@@ -8922,8 +8933,7 @@ static void runAddMeshTask(void *groupUserData, void *taskUserData)
 		XA_PROFILE_END(addMeshThread)
 		return;
 	}
-	progress->value++;
-	progress->update();
+	progress->increment(1);
 	XA_PROFILE_END(addMeshThread)
 }
 
@@ -9757,8 +9767,6 @@ const char *StringForEnum(ProgressCategory::Enum category)
 		return "Adding mesh(es)";
 	if (category == ProgressCategory::ComputeCharts)
 		return "Computing charts";
-	if (category == ProgressCategory::ParameterizeCharts)
-		return "Parameterizing charts";
 	if (category == ProgressCategory::PackCharts)
 		return "Packing charts";
 	if (category == ProgressCategory::BuildOutputMeshes)
