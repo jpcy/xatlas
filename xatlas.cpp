@@ -8068,14 +8068,14 @@ struct Chart
 
 struct AddChartTaskArgs
 {
-	ThreadLocal<BoundingBox2D> *boundingBox;
 	param::Chart *paramChart;
 	Chart *chart; // out
 };
 
-static void runAddChartTask(void * /*groupUserData*/, void *taskUserData)
+static void runAddChartTask(void *groupUserData, void *taskUserData)
 {
 	XA_PROFILE_START(packChartsAddChartsThread)
+	auto boundingBox = (ThreadLocal<BoundingBox2D> *)groupUserData;
 	auto args = (AddChartTaskArgs *)taskUserData;
 	param::Chart *paramChart = args->paramChart;
 	XA_PROFILE_START(packChartsAddChartsRestoreTexcoords)
@@ -8098,7 +8098,7 @@ static void runAddChartTask(void * /*groupUserData*/, void *taskUserData)
 	chart->vertexCount = mesh->vertexCount();
 	chart->boundaryEdges = &mesh->boundaryEdges();
 	// Compute bounding box of chart.
-	BoundingBox2D &bb = args->boundingBox->get();
+	BoundingBox2D &bb = boundingBox->get();
 	bb.clear();
 	for (uint32_t v = 0; v < chart->vertexCount; v++) {
 		if (mesh->isBoundaryVertex(v))
@@ -8153,11 +8153,11 @@ struct Atlas
 		if (chartCount == 0)
 			return;
 		// Run one task per chart.
+		ThreadLocal<BoundingBox2D> boundingBox;
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(&boundingBox, chartCount);
 		Array<AddChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(nullptr, chartCount);
 		uint32_t chartIndex = 0;
-		ThreadLocal<BoundingBox2D> boundingBox;
 		for (uint32_t i = 0; i < paramAtlas->meshCount(); i++) {
 			const uint32_t chartGroupsCount = paramAtlas->chartGroupCount(i);
 			for (uint32_t j = 0; j < chartGroupsCount; j++) {
@@ -8165,7 +8165,6 @@ struct Atlas
 				const uint32_t count = chartGroup->chartCount();
 				for (uint32_t k = 0; k < count; k++) {
 					AddChartTaskArgs &args = taskArgs[chartIndex];
-					args.boundingBox = &boundingBox;
 					args.paramChart = chartGroup->chartAt(k);
 					Task task;
 					task.userData = &taskArgs[chartIndex];
