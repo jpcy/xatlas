@@ -3144,8 +3144,8 @@ struct TaskGroupHandle
 
 struct Task
 {
-	void (*func)(void *userData);
-	void *userData;
+	void (*func)(void *groupUserData, void *taskUserData);
+	void *userData; // Passed to func as taskUserData.
 };
 
 #if XA_MULTITHREADED
@@ -3162,6 +3162,7 @@ public:
 			new (&m_groups[i]) TaskGroup();
 			m_groups[i].free = true;
 			m_groups[i].ref = 0;
+			m_groups[i].userData = nullptr;
 		}
 		m_workers.resize(std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1);
 		for (uint32_t i = 0; i < m_workers.size(); i++) {
@@ -3195,7 +3196,8 @@ public:
 		return max(1u, std::thread::hardware_concurrency()); // Including the main thread.
 	}
 
-	TaskGroupHandle createTaskGroup(uint32_t reserveSize = 0)
+	// userData is passed to Task::func as groupUserData.
+	TaskGroupHandle createTaskGroup(void *userData = nullptr, uint32_t reserveSize = 0)
 	{
 		// Claim the first free group.
 		for (uint32_t i = 0; i < m_maxGroups; i++) {
@@ -3208,6 +3210,8 @@ public:
 			group.queue.clear();
 			group.queue.reserve(reserveSize);
 			group.queueLock.unlock();
+			group.userData = userData;
+			group.ref = 0;
 			TaskGroupHandle handle;
 			handle.value = i;
 			return handle;
@@ -3249,7 +3253,7 @@ public:
 			group.queueLock.unlock();
 			if (!task)
 				break;
-			task->func(task->userData);
+			task->func(group.userData, task->userData);
 			group.ref--;
 		}
 		// Even though the task queue is empty, workers can still be running tasks.
@@ -3269,6 +3273,7 @@ private:
 		uint32_t queueHead = 0;
 		Spinlock queueLock;
 		std::atomic<uint32_t> ref; // Increment when a task is enqueued, decrement when a task finishes.
+		void *userData;
 	};
 
 	struct Worker
@@ -3312,7 +3317,7 @@ private:
 				}
 				if (!task)
 					break;
-				task->func(task->userData);
+				task->func(group->userData, task->userData);
 				group->ref--;
 			}
 		}
@@ -3335,10 +3340,11 @@ public:
 		return 1;
 	}
 
-	TaskGroupHandle createTaskGroup(uint32_t reserveSize = 0)
+	TaskGroupHandle createTaskGroup(void *userData = nullptr, uint32_t reserveSize = 0)
 	{
 		TaskGroup *group = XA_NEW(MemTag::Default, TaskGroup);
 		group->queue.reserve(reserveSize);
+		group->userData = userData;
 		m_groups.push_back(group);
 		TaskGroupHandle handle;
 		handle.value = m_groups.size() - 1;
@@ -3358,7 +3364,7 @@ public:
 		}
 		TaskGroup *group = m_groups[handle->value];
 		for (uint32_t i = 0; i < group->queue.size(); i++)
-			group->queue[i].func(group->queue[i].userData);
+			group->queue[i].func(group->userData, group->queue[i].userData);
 		group->queue.clear();
 		destroyGroup(*handle);
 		handle->value = UINT32_MAX;
@@ -3380,6 +3386,7 @@ private:
 	struct TaskGroup
 	{
 		Array<Task> queue;
+		void *userData;
 	};
 
 	Array<TaskGroup *> m_groups;
@@ -6207,10 +6214,10 @@ private:
 	BitArray m_faceAssigned;
 };
 
-static void runComputeUvMeshChartsTask(void *userData)
+static void runComputeUvMeshChartsTask(void * /*groupUserData*/, void *taskUserData)
 {
 	XA_PROFILE_START(computeChartsThread)
-	ComputeUvMeshChartsTask task((ComputeUvMeshChartsTaskArgs *)userData);
+	ComputeUvMeshChartsTask task((ComputeUvMeshChartsTaskArgs *)taskUserData);
 	task.run();
 	XA_PROFILE_END(computeChartsThread)
 }
@@ -6221,7 +6228,7 @@ static bool computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *
 	for (uint32_t i = 0; i < meshes.length; i++)
 		totalFaceCount += meshes[i]->indices.size() / 3;
 	Progress progress(ProgressCategory::ComputeCharts, progressFunc, progressUserData, totalFaceCount);
-	TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(meshes.length);
+	TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(nullptr, meshes.length);
 	Array<ComputeUvMeshChartsTaskArgs> taskArgs;
 	taskArgs.resize(meshes.length);
 	for (uint32_t i = 0; i < meshes.length; i++)
@@ -7370,10 +7377,10 @@ struct CreateAndParameterizeChartTaskArgs
 	uint32_t chartId;
 };
 
-static void runCreateAndParameterizeChartTask(void *userData)
+static void runCreateAndParameterizeChartTask(void * /*groupUserData*/, void *taskUserData)
 {
 	XA_PROFILE_START(createChartMeshAndParameterizeThread)
-	auto args = (CreateAndParameterizeChartTaskArgs *)userData;
+	auto args = (CreateAndParameterizeChartTaskArgs *)taskUserData;
 	XA_PROFILE_START(createChartMesh)
 	args->chart = XA_NEW_ARGS(MemTag::Default, Chart, *args->basis, args->faces, args->isPlanar, args->mesh, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMesh)
@@ -7545,7 +7552,7 @@ public:
 		Array<CreateAndParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
 		taskArgs.runCtors(); // Has Array member.
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(nullptr, chartCount);
 		offset = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			CreateAndParameterizeChartTaskArgs &args = taskArgs[i];
@@ -7687,9 +7694,9 @@ struct ChartGroupComputeChartsTaskArgs
 #endif
 };
 
-static void runChartGroupComputeChartsJob(void *userData)
+static void runChartGroupComputeChartsTask(void * /*groupUserData*/, void *taskUserData)
 {
-	auto args = (ChartGroupComputeChartsTaskArgs *)userData;
+	auto args = (ChartGroupComputeChartsTaskArgs *)taskUserData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(chartGroupComputeChartsThread)
@@ -7721,9 +7728,9 @@ struct MeshComputeChartsTaskArgs
 static uint32_t s_faceGroupsCurrentVertex = 0;
 #endif
 
-static void runMeshComputeChartsJob(void *userData)
+static void runMeshComputeChartsTask(void * /*groupUserData*/, void *taskUserData)
 {
-	auto args = (MeshComputeChartsTaskArgs *)userData;
+	auto args = (MeshComputeChartsTaskArgs *)taskUserData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(computeChartsThread)
@@ -7808,11 +7815,11 @@ static void runMeshComputeChartsJob(void *userData)
 		RadixSort chartGroupSort;
 		chartGroupSort.sort(chartGroupSortData);
 		// Larger chart groups are added first to reduce the chance of thread starvation.
-		TaskGroupHandle taskGroup = args->taskScheduler->createTaskGroup(chartGroupCount);
+		TaskGroupHandle taskGroup = args->taskScheduler->createTaskGroup(nullptr, chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			Task task;
 			task.userData = &taskArgs[chartGroupCount - i - 1];
-			task.func = runChartGroupComputeChartsJob;
+			task.func = runChartGroupComputeChartsTask;
 			args->taskScheduler->run(taskGroup, task);
 		}
 		args->taskScheduler->wait(&taskGroup);
@@ -7913,11 +7920,11 @@ public:
 		RadixSort meshSort;
 		meshSort.sort(meshSortData);
 		// Larger meshes are added first to reduce the chance of thread starvation.
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(meshCount);
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(nullptr, meshCount);
 		for (uint32_t i = 0; i < meshCount; i++) {
 			Task task;
 			task.userData = &taskArgs[meshSort.ranks()[meshCount - i - 1]];
-			task.func = runMeshComputeChartsJob;
+			task.func = runMeshComputeChartsTask;
 			taskScheduler->run(taskGroup, task);
 		}
 		taskScheduler->wait(&taskGroup);
@@ -8066,10 +8073,10 @@ struct AddChartTaskArgs
 	Chart *chart; // out
 };
 
-static void runAddChartTask(void *userData)
+static void runAddChartTask(void * /*groupUserData*/, void *taskUserData)
 {
 	XA_PROFILE_START(packChartsAddChartsThread)
-	auto args = (AddChartTaskArgs *)userData;
+	auto args = (AddChartTaskArgs *)taskUserData;
 	param::Chart *paramChart = args->paramChart;
 	XA_PROFILE_START(packChartsAddChartsRestoreTexcoords)
 	paramChart->restoreTexcoords();
@@ -8148,7 +8155,7 @@ struct Atlas
 		// Run one task per chart.
 		Array<AddChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
-		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(chartCount);
+		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(nullptr, chartCount);
 		uint32_t chartIndex = 0;
 		ThreadLocal<BoundingBox2D> boundingBox;
 		for (uint32_t i = 0; i < paramAtlas->meshCount(); i++) {
@@ -8932,10 +8939,10 @@ struct AddMeshTaskArgs
 	internal::Mesh *mesh;
 };
 
-static void runAddMeshTask(void *userData)
+static void runAddMeshTask(void * /*groupUserData*/, void *taskUserData)
 {
 	XA_PROFILE_START(addMeshThread)
-	auto args = (AddMeshTaskArgs *)userData; // Responsible for freeing this.
+	auto args = (AddMeshTaskArgs *)taskUserData; // Responsible for freeing this.
 	internal::Mesh *mesh = args->mesh;
 	internal::Progress *progress = args->ctx->addMeshProgress;
 	if (progress->cancel)
