@@ -6480,7 +6480,6 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 	return true;
 }
 
-#if XA_RECOMPUTE_CHARTS
 struct PiecewiseParam
 {
 	void reset(const Mesh *mesh)
@@ -6878,7 +6877,6 @@ private:
 		return (edgeVertex0.x - point.x) * (edgeVertex1.y - point.y) - (edgeVertex0.y - point.y) * (edgeVertex1.x - point.x);
 	}
 };
-#endif
 
 // Estimate quality of existing parameterization.
 struct Quality
@@ -7125,7 +7123,6 @@ public:
 #endif
 	}
 
-#if XA_RECOMPUTE_CHARTS
 	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_type(ChartType::Piecewise), m_tjunctionCount(0), m_isInvalid(false)
 	{
 		const uint32_t faceCount = faces.length;
@@ -7188,7 +7185,6 @@ public:
 		// Need to store texcoords for backup/restore so packing can be run multiple times.
 		backupTexcoords();
 	}
-#endif
 
 	~Chart()
 	{
@@ -7364,9 +7360,7 @@ struct CreateAndParameterizeChartTaskGroupArgs
 	ThreadLocal<UniformGrid2> *boundaryGrid;
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
 	const ChartOptions *options;
-#if XA_RECOMPUTE_CHARTS
 	ThreadLocal<PiecewiseParam> *pp;
-#endif
 };
 
 struct CreateAndParameterizeChartTaskArgs
@@ -7470,11 +7464,7 @@ public:
 	Chart *chartAt(uint32_t i) const { return m_charts[i]; }
 	uint32_t faceCount() const { return m_faceCount; }
 
-#if XA_RECOMPUTE_CHARTS
 	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
-#else
-	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers)
-#endif
 	{
 		// This function may be called multiple times, so destroy existing charts.
 		for (uint32_t i = 0; i < m_charts.size(); i++) {
@@ -7558,9 +7548,7 @@ public:
 		groupArgs.boundaryGrid = boundaryGrid;
 		groupArgs.chartBuffers = chartBuffers;
 		groupArgs.options = &options;
-#if XA_RECOMPUTE_CHARTS
 		groupArgs.pp = piecewiseParam;
-#endif
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(&groupArgs, chartCount);
 		Array<CreateAndParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
@@ -7694,9 +7682,7 @@ struct ChartGroupComputeChartsTaskGroupArgs
 	TaskScheduler *taskScheduler;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
-#if XA_RECOMPUTE_CHARTS
 	ThreadLocal<PiecewiseParam> *piecewiseParam;
-#endif
 };
 
 static void runChartGroupComputeChartsTask(void *groupUserData, void *taskUserData)
@@ -7706,11 +7692,7 @@ static void runChartGroupComputeChartsTask(void *groupUserData, void *taskUserDa
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(chartGroupComputeChartsThread)
-#if XA_RECOMPUTE_CHARTS
 	chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
-#else
-	chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->boundaryGrid, args->chartBuffers);
-#endif
 	XA_PROFILE_END(chartGroupComputeChartsThread)
 }
 
@@ -7722,9 +7704,7 @@ struct MeshComputeChartsTaskGroupArgs
 	TaskScheduler *taskScheduler;
 	ThreadLocal<UniformGrid2> *boundaryGrid;
 	ThreadLocal<ChartCtorBuffers> *chartBuffers;
-#if XA_RECOMPUTE_CHARTS
 	ThreadLocal<PiecewiseParam> *piecewiseParam;
-#endif
 };
 
 struct MeshComputeChartsTaskArgs
@@ -7818,9 +7798,7 @@ static void runMeshComputeChartsTask(void *groupUserData, void *taskUserData)
 		taskGroupArgs.taskScheduler = groupArgs->taskScheduler;
 		taskGroupArgs.boundaryGrid = groupArgs->boundaryGrid;
 		taskGroupArgs.chartBuffers = groupArgs->chartBuffers;
-#if XA_RECOMPUTE_CHARTS
 		taskGroupArgs.piecewiseParam = groupArgs->piecewiseParam;
-#endif
 		TaskGroupHandle taskGroup = groupArgs->taskScheduler->createTaskGroup(&taskGroupArgs, chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			Task task;
@@ -7914,9 +7892,7 @@ public:
 		ThreadLocal<segment::Atlas> atlas;
 		ThreadLocal<UniformGrid2> boundaryGrid; // For Quality boundary intersection.
 		ThreadLocal<ChartCtorBuffers> chartBuffers;
-#if XA_RECOMPUTE_CHARTS
 		ThreadLocal<PiecewiseParam> piecewiseParam;
-#endif
 		MeshComputeChartsTaskGroupArgs taskGroupArgs;
 		taskGroupArgs.atlas = &atlas;
 		taskGroupArgs.options = &options;
@@ -7924,9 +7900,7 @@ public:
 		taskGroupArgs.taskScheduler = taskScheduler;
 		taskGroupArgs.boundaryGrid = &boundaryGrid;
 		taskGroupArgs.chartBuffers = &chartBuffers;
-#if XA_RECOMPUTE_CHARTS
 		taskGroupArgs.piecewiseParam = &piecewiseParam;
-#endif
 		TaskGroupHandle taskGroup = taskScheduler->createTaskGroup(&taskGroupArgs, meshCount);
 		for (uint32_t i = 0; i < meshCount; i++) {
 			Task task;
