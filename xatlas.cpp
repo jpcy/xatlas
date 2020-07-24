@@ -7680,10 +7680,9 @@ private:
 	uint32_t m_faceCount; // Set by createMesh(). Used for sorting.
 };
 
-struct ChartGroupComputeChartsTaskArgs
+struct ChartGroupComputeChartsTaskGroupArgs
 {
 	ThreadLocal<segment::Atlas> *atlas;
-	ChartGroup *chartGroup;
 	const ChartOptions *options;
 	Progress *progress;
 	TaskScheduler *taskScheduler;
@@ -7694,16 +7693,17 @@ struct ChartGroupComputeChartsTaskArgs
 #endif
 };
 
-static void runChartGroupComputeChartsTask(void * /*groupUserData*/, void *taskUserData)
+static void runChartGroupComputeChartsTask(void *groupUserData, void *taskUserData)
 {
-	auto args = (ChartGroupComputeChartsTaskArgs *)taskUserData;
+	auto args = (ChartGroupComputeChartsTaskGroupArgs *)groupUserData;
+	auto chartGroup = (ChartGroup *)taskUserData;
 	if (args->progress->cancel)
 		return;
 	XA_PROFILE_START(chartGroupComputeChartsThread)
 #if XA_RECOMPUTE_CHARTS
-	args->chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
+	chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->boundaryGrid, args->chartBuffers, args->piecewiseParam);
 #else
-	args->chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->boundaryGrid, args->chartBuffers);
+	chartGroup->computeCharts(args->taskScheduler, *args->options, args->atlas->get(), args->boundaryGrid, args->chartBuffers);
 #endif
 	XA_PROFILE_END(chartGroupComputeChartsThread)
 }
@@ -7797,21 +7797,6 @@ static void runMeshComputeChartsTask(void *groupUserData, void *taskUserData)
 	// One task for each chart group - compute charts.
 	{
 		XA_PROFILE_START(chartGroupComputeChartsReal)
-		Array<ChartGroupComputeChartsTaskArgs> taskArgs;
-		taskArgs.resize(chartGroupCount);
-		for (uint32_t i = 0; i < chartGroupCount; i++) {
-			ChartGroupComputeChartsTaskArgs &targs = taskArgs[i];
-			targs.atlas = groupArgs->atlas;
-			targs.chartGroup = (*args->chartGroups)[i];
-			targs.options = groupArgs->options;
-			targs.progress = groupArgs->progress;
-			targs.taskScheduler = groupArgs->taskScheduler;
-			targs.boundaryGrid = groupArgs->boundaryGrid;
-			targs.chartBuffers = groupArgs->chartBuffers;
-#if XA_RECOMPUTE_CHARTS
-			targs.piecewiseParam = groupArgs->piecewiseParam;
-#endif
-		}
 		// Sort chart groups by face count.
 		Array<float> chartGroupSortData;
 		chartGroupSortData.resize(chartGroupCount);
@@ -7820,10 +7805,20 @@ static void runMeshComputeChartsTask(void *groupUserData, void *taskUserData)
 		RadixSort chartGroupSort;
 		chartGroupSort.sort(chartGroupSortData);
 		// Larger chart groups are added first to reduce the chance of thread starvation.
-		TaskGroupHandle taskGroup = groupArgs->taskScheduler->createTaskGroup(nullptr, chartGroupCount);
+		ChartGroupComputeChartsTaskGroupArgs taskGroupArgs;
+		taskGroupArgs.atlas = groupArgs->atlas;
+		taskGroupArgs.options = groupArgs->options;
+		taskGroupArgs.progress = groupArgs->progress;
+		taskGroupArgs.taskScheduler = groupArgs->taskScheduler;
+		taskGroupArgs.boundaryGrid = groupArgs->boundaryGrid;
+		taskGroupArgs.chartBuffers = groupArgs->chartBuffers;
+#if XA_RECOMPUTE_CHARTS
+		taskGroupArgs.piecewiseParam = groupArgs->piecewiseParam;
+#endif
+		TaskGroupHandle taskGroup = groupArgs->taskScheduler->createTaskGroup(&taskGroupArgs, chartGroupCount);
 		for (uint32_t i = 0; i < chartGroupCount; i++) {
 			Task task;
-			task.userData = &taskArgs[chartGroupCount - i - 1];
+			task.userData = (*args->chartGroups)[chartGroupCount - i - 1];
 			task.func = runChartGroupComputeChartsTask;
 			groupArgs->taskScheduler->run(taskGroup, task);
 		}
