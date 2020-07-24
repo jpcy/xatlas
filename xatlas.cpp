@@ -7442,7 +7442,7 @@ static void runCreateAndParameterizeChartTask(void *userData)
 class ChartGroup
 {
 public:
-	ChartGroup(uint32_t id, const Mesh *sourceMesh, const MeshFaceGroups *sourceMeshFaceGroups, MeshFaceGroups::Handle faceGroup) : m_id(id), m_sourceMesh(sourceMesh), m_sourceMeshFaceGroups(sourceMeshFaceGroups), m_faceGroup(faceGroup), m_faceCount(0), m_paramAddedChartsCount(0), m_paramDeletedChartsCount(0)
+	ChartGroup(uint32_t id, const Mesh *sourceMesh, const MeshFaceGroups *sourceMeshFaceGroups, MeshFaceGroups::Handle faceGroup) : m_id(id), m_sourceMesh(sourceMesh), m_sourceMeshFaceGroups(sourceMeshFaceGroups), m_faceGroup(faceGroup), m_faceCount(0)
 	{
 	}
 
@@ -7454,12 +7454,9 @@ public:
 		}
 	}
 
-	uint32_t segmentChartCount() const { return m_chartBasis.size(); }
 	uint32_t chartCount() const { return m_charts.size(); }
 	Chart *chartAt(uint32_t i) const { return m_charts[i]; }
 	uint32_t faceCount() const { return m_faceCount; }
-	uint32_t paramAddedChartsCount() const { return m_paramAddedChartsCount; }
-	uint32_t paramDeletedChartsCount() const { return m_paramDeletedChartsCount; }
 
 #if XA_RECOMPUTE_CHARTS
 	void computeCharts(TaskScheduler *taskScheduler, const ChartOptions &options, segment::Atlas &atlas, ThreadLocal<UniformGrid2> *boundaryGrid, ThreadLocal<ChartCtorBuffers> *chartBuffers, ThreadLocal<PiecewiseParam> *piecewiseParam)
@@ -7545,7 +7542,6 @@ public:
 		XA_PROFILE_END(copyChartFaces)
 #endif
 		XA_PROFILE_START(createChartMeshAndParameterizeReal)
-		m_paramAddedChartsCount = 0;
 		Array<CreateAndParameterizeChartTaskArgs> taskArgs;
 		taskArgs.resize(chartCount);
 		taskArgs.runCtors(); // Has Array member.
@@ -7592,7 +7588,6 @@ public:
 			if (chart->isInvalid()) {
 				chart->~Chart();
 				XA_FREE(chart);
-				m_paramDeletedChartsCount++;
 				continue;
 			}
 			m_charts[current++] = chart;
@@ -7600,10 +7595,8 @@ public:
 		// Now add new charts.
 		for (uint32_t i = 0; i < chartCount; i++) {
 			CreateAndParameterizeChartTaskArgs &args = taskArgs[i];
-			for (uint32_t j = 0; j < args.charts.size(); j++) {
+			for (uint32_t j = 0; j < args.charts.size(); j++)
 				m_charts[current++] = args.charts[j];
-				m_paramAddedChartsCount++;
-			}
 		}
 #else // XA_RECOMPUTE_CHARTS
 		m_charts.resize(chartCount);
@@ -7678,8 +7671,6 @@ private:
 	Array<uint32_t> m_chartFaces; // Copied from segment::Atlas. Encoding: <chart 0 face count> <face 0> <face n> <chart 1 face count> etc.
 	Array<Chart *> m_charts;
 	uint32_t m_faceCount; // Set by createMesh(). Used for sorting.
-	uint32_t m_paramAddedChartsCount; // Number of new charts added by recomputing charts with invalid parameterizations.
-	uint32_t m_paramDeletedChartsCount; // Number of charts with invalid parameterizations that were deleted, after charts were recomputed.
 };
 
 struct ChartGroupComputeChartsTaskArgs
@@ -9308,7 +9299,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 			XA_PRINT("   Cancelled by user\n");
 			return;
 		}
-		uint32_t chartsWithTJunctionsCount = 0, tJunctionCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, chartsAddedCount = 0, chartsDeletedCount = 0;
+		uint32_t chartsWithTJunctionsCount = 0, tJunctionCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0;
 		uint32_t chartCount = 0;
 		const uint32_t meshCount = ctx->meshes.size();
 		for (uint32_t i = 0; i < meshCount; i++) {
@@ -9329,17 +9320,12 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 						piecewiseChartsCount++;
 				}
 				chartCount += chartGroup->chartCount();
-				chartsAddedCount += chartGroup->paramAddedChartsCount();
-				chartsDeletedCount += chartGroup->paramDeletedChartsCount();
 			}
 		}
 		if (tJunctionCount > 0)
 			XA_PRINT("   %u t-junctions found in %u charts\n", tJunctionCount, chartsWithTJunctionsCount);
-		XA_PRINT("   %u planar charts, %u ortho charts, %u LSCM charts, %u piecewise charts\n", planarChartsCount, orthoChartsCount, lscmChartsCount, piecewiseChartsCount);
-		if (chartsDeletedCount > 0) {
-			XA_PRINT("   %u charts with invalid parameterizations replaced with %u new charts\n", chartsDeletedCount, chartsAddedCount);
-			XA_PRINT("   %u charts\n", chartCount);
-		}
+		XA_PRINT("   %u charts\n", chartCount);
+		XA_PRINT("      %u planar, %u ortho, %u LSCM, %u piecewise\n", planarChartsCount, orthoChartsCount, lscmChartsCount, piecewiseChartsCount);
 		uint32_t chartIndex = 0, invalidParamCount = 0;
 		for (uint32_t i = 0; i < meshCount; i++) {
 			for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
