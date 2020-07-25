@@ -2402,7 +2402,7 @@ struct MeshFlags
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_nextColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_nextColocalVertex(MemTag::MeshColocals), m_firstColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -2460,6 +2460,8 @@ public:
 		Array<uint32_t> potential(MemTag::MeshColocals);
 		m_nextColocalVertex.resize(vertexCount);
 		m_nextColocalVertex.fillBytes(0xff);
+		m_firstColocalVertex.resize(vertexCount);
+		m_firstColocalVertex.fillBytes(0xff);
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			if (m_nextColocalVertex[i] != UINT32_MAX)
 				continue; // Already linked.
@@ -2475,12 +2477,15 @@ public:
 			if (colocals.size() == 1) {
 				// No colocals for this vertex.
 				m_nextColocalVertex[i] = i;
+				m_firstColocalVertex[i] = i;
 				continue; 
 			}
 			// Link in ascending order.
 			insertionSort(colocals.data(), colocals.size());
-			for (uint32_t j = 0; j < colocals.size(); j++)
+			for (uint32_t j = 0; j < colocals.size(); j++) {
 				m_nextColocalVertex[colocals[j]] = colocals[(j + 1) % colocals.size()];
+				m_firstColocalVertex[colocals[j]] = colocals[0];
+			}
 			XA_DEBUG_ASSERT(m_nextColocalVertex[i] != UINT32_MAX);
 		}
 	}
@@ -2494,6 +2499,8 @@ public:
 		Array<uint32_t> colocals(MemTag::MeshColocals);
 		m_nextColocalVertex.resize(vertexCount);
 		m_nextColocalVertex.fillBytes(0xff);
+		m_firstColocalVertex.resize(vertexCount);
+		m_firstColocalVertex.fillBytes(0xff);
 		for (uint32_t i = 0; i < vertexCount; i++) {
 			if (m_nextColocalVertex[i] != UINT32_MAX)
 				continue; // Already linked.
@@ -2509,12 +2516,15 @@ public:
 			if (colocals.size() == 1) {
 				// No colocals for this vertex.
 				m_nextColocalVertex[i] = i;
+				m_firstColocalVertex[i] = i;
 				continue; 
 			}
 			// Link in ascending order.
 			insertionSort(colocals.data(), colocals.size());
-			for (uint32_t j = 0; j < colocals.size(); j++)
+			for (uint32_t j = 0; j < colocals.size(); j++) {
 				m_nextColocalVertex[colocals[j]] = colocals[(j + 1) % colocals.size()];
+				m_firstColocalVertex[colocals[j]] = colocals[0];
+			}
 			XA_DEBUG_ASSERT(m_nextColocalVertex[i] != UINT32_MAX);
 		}
 	}
@@ -2574,9 +2584,11 @@ public:
 		}
 		// If colocals were created, try every permutation.
 		if (!m_nextColocalVertex.isEmpty()) {
-			for (ColocalVertexIterator it0(this, vertex0); !it0.isDone(); it0.advance()) {
-				for (ColocalVertexIterator it1(this, vertex1); !it1.isDone(); it1.advance()) {
-					EdgeKey key(it0.vertex(), it1.vertex());
+			uint32_t colocalVertex0 = vertex0;
+			for (;;) {
+				uint32_t colocalVertex1 = vertex1;
+				for (;;) {
+					EdgeKey key(colocalVertex0, colocalVertex1);
 					uint32_t edge = m_edgeMap.get(key);
 					while (edge != UINT32_MAX) {
 						// Don't find edges of ignored faces.
@@ -2584,7 +2596,13 @@ public:
 							return edge;
 						edge = m_edgeMap.getNext(key, edge);
 					}
+					colocalVertex1 = m_nextColocalVertex[colocalVertex1];
+					if (colocalVertex1 == vertex1)
+						break; // Back to start.
 				}
+				colocalVertex0 = m_nextColocalVertex[colocalVertex0];
+				if (colocalVertex0 == vertex0)
+					break; // Back to start.
 			}
 		}
 		return UINT32_MAX;
@@ -2742,13 +2760,10 @@ public:
 		return m_texcoords[m_indices[e0]] != m_texcoords[m_indices[oe1]] || m_texcoords[m_indices[e1]] != m_texcoords[m_indices[oe0]];
 	}
 
-	uint32_t firstColocal(uint32_t vertex) const
+	uint32_t firstColocalVertex(uint32_t vertex) const
 	{
-		for (ColocalVertexIterator it(this, vertex); !it.isDone(); it.advance()) {
-			if (it.vertex() < vertex)
-				vertex = it.vertex();
-		}
-		return vertex;
+		XA_DEBUG_ASSERT(m_firstColocalVertex.size() == m_positions.size());
+		return m_firstColocalVertex[vertex];
 	}
 
 	XA_INLINE float epsilon() const { return m_epsilon; }
@@ -2785,6 +2800,7 @@ private:
 
 	// Populated by createColocals
 	Array<uint32_t> m_nextColocalVertex; // In: vertex index. Out: the vertex index of the next colocal position.
+	Array<uint32_t> m_firstColocalVertex;
 
 	// Populated by createBoundaries
 	BitArray m_isBoundaryVertex;
@@ -2794,40 +2810,6 @@ private:
 	HashMap<EdgeKey, EdgeHash> m_edgeMap;
 
 public:
-	class ColocalVertexIterator
-	{
-	public:
-		ColocalVertexIterator(const Mesh *mesh, uint32_t v) : m_mesh(mesh), m_first(UINT32_MAX), m_current(v) {}
-
-		void advance()
-		{
-			if (m_first == UINT32_MAX)
-				m_first = m_current;
-			if (!m_mesh->m_nextColocalVertex.isEmpty())
-				m_current = m_mesh->m_nextColocalVertex[m_current];
-		}
-
-		bool isDone() const
-		{
-			return m_first == m_current;
-		}
-
-		uint32_t vertex() const
-		{
-			return m_current;
-		}
-
-		const Vector3 *pos() const
-		{
-			return &m_mesh->m_positions[m_current];
-		}
-
-	private:
-		const Mesh *m_mesh;
-		uint32_t m_first;
-		uint32_t m_current;
-	};
-
 	class FaceEdgeIterator 
 	{
 	public:
@@ -7069,7 +7051,7 @@ public:
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t sourceVertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
-				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocal(sourceVertex);
+				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocalVertex(sourceVertex);
 				uint32_t unifiedVertex = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
 				if (unifiedVertex == UINT32_MAX) {
 					unifiedVertex = sourceVertexToUnifiedVertexMap.add(sourceUnifiedVertex);
@@ -7088,7 +7070,7 @@ public:
 			uint32_t indices[3], unifiedIndices[3];
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t sourceVertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
-				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocal(sourceVertex);
+				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocalVertex(sourceVertex);
 				indices[i] = sourceVertexToChartVertexMap.get(sourceVertex);
 				XA_DEBUG_ASSERT(indices[i] != UINT32_MAX);
 				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
@@ -7150,7 +7132,7 @@ public:
 					m_mesh->addVertex(sourceMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
 				}
 #if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocal(vertex);
+				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocalVertex(vertex);
 				uint32_t unifiedVertex = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
 				if (unifiedVertex == UINT32_MAX) {
 					unifiedVertex = sourceVertexToUnifiedVertexMap.add(sourceUnifiedVertex);
@@ -7169,7 +7151,7 @@ public:
 				const uint32_t vertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
 				indices[i] = chartMeshIndices[vertex];
 #if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-				const uint32_t unifiedVertex = sourceMesh->firstColocal(vertex);
+				const uint32_t unifiedVertex = sourceMesh->firstColocalVertex(vertex);
 				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(unifiedVertex);
 #endif
 			}
