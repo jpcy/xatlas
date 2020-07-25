@@ -203,7 +203,8 @@ struct
 	bgfx::VertexLayout atlasVertexLayout;
 	bgfx::VertexLayout blitVertexLayout;
 	bgfx::VertexLayout wireVertexLayout;
-	bgfx::TextureHandle faceColorsTexture, faceStretchTexture;
+	bgfx::TextureHandle faceColorsTexture = BGFX_INVALID_HANDLE;
+	bgfx::TextureHandle faceStretchTexture = BGFX_INVALID_HANDLE;
 	std::vector<float> faceColorsTextureData, faceStretchTextureData;
 	uint16_t faceDataTextureSize[2];
 	// Blit.
