@@ -2395,14 +2395,15 @@ struct MeshFlags
 	enum
 	{
 		HasIgnoredFaces = 1<<0,
-		HasNormals = 1<<1
+		HasNormals = 1<<1,
+		HasMaterials = 1<<2
 	};
 };
 
 class Mesh
 {
 public:
-	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_nextColocalVertex(MemTag::MeshColocals), m_firstColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
+	Mesh(float epsilon, uint32_t approxVertexCount, uint32_t approxFaceCount, uint32_t flags = 0, uint32_t id = UINT32_MAX) : m_epsilon(epsilon), m_flags(flags), m_id(id), m_faceIgnore(MemTag::Mesh), m_faceMaterials(MemTag::Mesh), m_indices(MemTag::MeshIndices), m_positions(MemTag::MeshPositions), m_normals(MemTag::MeshNormals), m_texcoords(MemTag::MeshTexcoords), m_nextColocalVertex(MemTag::MeshColocals), m_firstColocalVertex(MemTag::MeshColocals), m_boundaryEdges(MemTag::MeshBoundaries), m_oppositeEdges(MemTag::MeshBoundaries), m_edgeMap(MemTag::MeshEdgeMap, approxFaceCount * 3)
 	{
 		m_indices.reserve(approxFaceCount * 3);
 		m_positions.reserve(approxVertexCount);
@@ -2411,6 +2412,8 @@ public:
 			m_faceIgnore.reserve(approxFaceCount);
 		if (m_flags & MeshFlags::HasNormals)
 			m_normals.reserve(approxVertexCount);
+		if (m_flags & MeshFlags::HasMaterials)
+			m_faceMaterials.reserve(approxFaceCount);
 	}
 
 	uint32_t flags() const { return m_flags; }
@@ -2425,19 +2428,21 @@ public:
 		m_texcoords.push_back(texcoord);
 	}
 
-	void addFace(uint32_t v0, uint32_t v1, uint32_t v2, bool ignore = false)
+	void addFace(uint32_t v0, uint32_t v1, uint32_t v2, bool ignore = false, uint32_t material = UINT32_MAX)
 	{
 		uint32_t indexArray[3];
 		indexArray[0] = v0;
 		indexArray[1] = v1;
 		indexArray[2] = v2;
-		return addFace(indexArray, ignore);
+		return addFace(indexArray, ignore, material);
 	}
 
-	void addFace(const uint32_t *indices, bool ignore = false)
+	void addFace(const uint32_t *indices, bool ignore = false, uint32_t material = UINT32_MAX)
 	{
 		if (m_flags & MeshFlags::HasIgnoredFaces)
 			m_faceIgnore.push_back(ignore);
+		if (m_flags & MeshFlags::HasMaterials)
+			m_faceMaterials.push_back(material);
 		const uint32_t firstIndex = m_indices.size();
 		for (uint32_t i = 0; i < 3; i++)
 			m_indices.push_back(indices[i]);
@@ -2785,6 +2790,7 @@ public:
 	XA_INLINE const uint32_t *indices() const { return m_indices.data(); }
 	XA_INLINE uint32_t indexCount() const { return m_indices.size(); }
 	XA_INLINE bool isFaceIgnored(uint32_t face) const { return (m_flags & MeshFlags::HasIgnoredFaces) && m_faceIgnore[face]; }
+	XA_INLINE uint32_t faceMaterial(uint32_t face) const { return (m_flags & MeshFlags::HasMaterials) ? m_faceMaterials[face] : UINT32_MAX; }
 	XA_INLINE const HashMap<EdgeKey, EdgeHash> &edgeMap() const { return m_edgeMap; }
 
 private:
@@ -2793,6 +2799,7 @@ private:
 	uint32_t m_flags;
 	uint32_t m_id;
 	Array<bool> m_faceIgnore;
+	Array<uint32_t> m_faceMaterials;
 	Array<uint32_t> m_indices;
 	Array<Vector3> m_positions;
 	Array<Vector3> m_normals;
@@ -2908,6 +2915,7 @@ struct MeshFaceGroups
 					break;
 				const uint32_t f = growFaces.back();
 				growFaces.pop_back();
+				const uint32_t material = m_mesh->faceMaterial(f);
 				for (Mesh::FaceEdgeIterator edgeIt(m_mesh, f); !edgeIt.isDone(); edgeIt.advance()) {
 					const uint32_t oppositeEdge = m_mesh->findEdge(edgeIt.vertex1(), edgeIt.vertex0());
 					if (oppositeEdge == UINT32_MAX)
@@ -2915,6 +2923,8 @@ struct MeshFaceGroups
 					const uint32_t oppositeFace = meshEdgeFace(oppositeEdge);
 					if (m_mesh->isFaceIgnored(oppositeFace))
 						continue; // Don't add ignored faces to group.
+					if (m_mesh->faceMaterial(oppositeFace) != material)
+						continue; // Different material.
 					if (m_groups[oppositeFace] != kInvalid)
 						continue; // Connected face is already assigned to another group.
 					m_groups[oppositeFace] = group;
@@ -8981,6 +8991,8 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	uint32_t meshFlags = internal::MeshFlags::HasIgnoredFaces;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
+	if (meshDecl.faceMaterialData)
+		meshFlags |= internal::MeshFlags::HasMaterials;
 	internal::Mesh *mesh = XA_NEW_ARGS(internal::MemTag::Mesh, internal::Mesh, meshDecl.epsilon, meshDecl.vertexCount, indexCount / 3, meshFlags, ctx->meshes.size());
 	for (uint32_t i = 0; i < meshDecl.vertexCount; i++) {
 		internal::Vector3 normal(0.0f);
@@ -9073,7 +9085,10 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 		}
 		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
 			ignore = true;
-		mesh->addFace(tri[0], tri[1], tri[2], ignore);
+		uint32_t material = UINT32_MAX;
+		if (meshDecl.faceMaterialData)
+			material = meshDecl.faceMaterialData[i];
+		mesh->addFace(tri[0], tri[1], tri[2], ignore, material);
 	}
 	if (warningCount > kMaxWarnings)
 		XA_PRINT("   %u additional warnings truncated\n", warningCount - kMaxWarnings);

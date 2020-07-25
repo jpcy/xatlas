@@ -118,9 +118,13 @@ struct MeshDecl
 	const void *vertexUvData = nullptr; // optional. The input UVs are provided as a hint to the chart generator.
 	const void *indexData = nullptr; // optional
 	
-	// Optional. indexCount / 3 (triangle count) in length.
+	// Optional. Must be indexCount / 3 in length.
 	// Don't atlas faces set to true. Ignored faces still exist in the output meshes, Vertex uv is set to (0, 0) and Vertex atlasIndex to -1.
 	const bool *faceIgnoreData = nullptr;
+
+	// Optional. Must be indexCount / 3 in length.
+	// Only faces with the same material will be assigned to the same chart.
+	const uint32_t *faceMaterialData = nullptr;
 
 	uint32_t vertexCount = 0;
 	uint32_t vertexPositionStride = 0;

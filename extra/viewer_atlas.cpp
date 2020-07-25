@@ -63,6 +63,8 @@ SOFTWARE.
 #include "shaders/shared.h"
 #include "viewer.h"
 
+#define USE_MESH_DECL_FACE_MATERIAL 0
+
 namespace std { typedef std::lock_guard<std::mutex> mutex_lock; }
 
 namespace bgfx
@@ -465,6 +467,15 @@ static void atlasGenerateThread()
 				meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
 				meshDecl.indexOffset = -(int32_t)object.firstVertex;
 				meshDecl.faceIgnoreData = (const bool *)ignoreFaces.data();
+#if USE_MESH_DECL_FACE_MATERIAL
+				faceMaterials.resize(object.numIndices / 3);
+				for (uint32_t j = 0; j < object.numMeshes; j++) {
+					const objzMesh &mesh = model->meshes[object.firstMesh + j];
+					for (uint32_t k = 0; k < mesh.numIndices / 3; k++)
+						faceMaterials[(mesh.firstIndex - object.firstIndex) / 3 + k] = (uint32_t)mesh.materialIndex;
+				}
+				meshDecl.faceMaterialData = faceMaterials.data();
+#endif
 				error = xatlas::AddMesh(s_atlas.data, meshDecl, model->numObjects);
 			}
 			if (error != xatlas::AddMeshError::Success) {
