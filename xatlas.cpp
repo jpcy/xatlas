@@ -4982,7 +4982,6 @@ struct OriginalUvCharts
 	OriginalUvCharts(AtlasData &data) : m_data(data) {}
 	uint32_t chartCount() const { return m_charts.size(); }
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartBasis[chartIndex]; }
-	bool chartIsPlanar(uint32_t /*chartIndex*/) const { return false; }
 
 	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const
 	{
@@ -5077,7 +5076,6 @@ struct PlanarCharts
 {
 	PlanarCharts(AtlasData &data) : m_data(data), m_nextRegionFace(MemTag::SegmentAtlasPlanarRegions), m_faceToRegionId(MemTag::SegmentAtlasPlanarRegions) {}
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartBasis[chartIndex]; }
-	bool chartIsPlanar(uint32_t /*chartIndex*/) const { return true; }
 	uint32_t chartCount() const { return m_charts.size(); }
 	
 	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const
@@ -5253,7 +5251,6 @@ struct ClusteredCharts
 	uint32_t chartCount() const { return m_charts.size(); }
 	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const { return m_charts[chartIndex]->faces; }
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_charts[chartIndex]->basis; }
-	bool chartIsPlanar(uint32_t /*chartIndex*/) const { return false; }
 
 	void compute()
 	{
@@ -6032,6 +6029,17 @@ private:
 	bool m_placingSeeds;
 };
 
+struct ChartGeneratorType
+{
+	enum Enum
+	{
+		OriginalUv,
+		Planar,
+		Clustered,
+		Piecewise
+	};
+};
+
 struct Atlas
 {
 	Atlas() : m_originalUvCharts(m_data), m_planarCharts(m_data), m_clusteredCharts(m_data, m_planarCharts) {}
@@ -6063,15 +6071,14 @@ struct Atlas
 		return m_clusteredCharts.chartBasis(chartIndex);
 	}
 
-	bool chartIsPlanar(uint32_t chartIndex) const
+	ChartGeneratorType::Enum chartGeneratorType(uint32_t chartIndex) const
 	{
 		if (chartIndex < m_originalUvCharts.chartCount())
-			return m_originalUvCharts.chartIsPlanar(chartIndex);
+			return ChartGeneratorType::OriginalUv;
 		chartIndex -= m_originalUvCharts.chartCount();
 		if (chartIndex < m_planarCharts.chartCount())
-			return m_planarCharts.chartIsPlanar(chartIndex);
-		chartIndex -= m_planarCharts.chartCount();
-		return m_clusteredCharts.chartIsPlanar(chartIndex);
+			return ChartGeneratorType::Planar;
+		return ChartGeneratorType::Clustered;
 	}
 
 	void reset(const Mesh *mesh, const ChartOptions &options)
@@ -7047,7 +7054,7 @@ struct ChartCtorBuffers
 class Chart
 {
 public:
-	Chart(const Basis &basis, ConstArrayView<uint32_t> faces, bool isPlanar, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_type(ChartType::LSCM), m_tjunctionCount(0), m_isInvalid(false)
+	Chart(const Basis &basis, segment::ChartGeneratorType::Enum generatorType, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_type(ChartType::LSCM), m_generatorType(generatorType), m_tjunctionCount(0), m_isInvalid(false)
 	{
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
@@ -7100,7 +7107,7 @@ public:
 		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
 		m_mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
 		m_unifiedMesh->createBoundaries();
-		if (isPlanar) {
+		if (m_generatorType == segment::ChartGeneratorType::Planar) {
 			m_type = ChartType::Planar;
 			return;
 		}
@@ -7116,7 +7123,7 @@ public:
 #endif
 	}
 
-	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_type(ChartType::Piecewise), m_tjunctionCount(0), m_isInvalid(false)
+	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_type(ChartType::Piecewise), m_generatorType(segment::ChartGeneratorType::Piecewise), m_tjunctionCount(0), m_isInvalid(false)
 	{
 		const uint32_t faceCount = faces.length;
 		m_faceToSourceFaceMap.resize(faceCount);
@@ -7190,6 +7197,7 @@ public:
 
 	bool isInvalid() const { return m_isInvalid; }
 	ChartType::Enum type() const { return m_type; }
+	segment::ChartGeneratorType::Enum generatorType() const { return m_generatorType; }
 	uint32_t tjunctionCount() const { return m_tjunctionCount; }
 	const Quality &quality() const { return m_quality; }
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
@@ -7203,42 +7211,45 @@ public:
 
 	void parameterize(const ChartOptions &options, UniformGrid2 &boundaryGrid)
 	{
-		XA_PROFILE_START(parameterizeChartsOrthogonal)
-		// Project vertices to plane.
 		const uint32_t unifiedVertexCount = m_unifiedMesh->vertexCount();
-		for (uint32_t i = 0; i < unifiedVertexCount; i++)
-			m_unifiedMesh->texcoord(i) = Vector2(dot(m_basis.tangent, m_unifiedMesh->position(i)), dot(m_basis.bitangent, m_unifiedMesh->position(i)));
-		XA_PROFILE_END(parameterizeChartsOrthogonal)
-		// Computing charts checks for flipped triangles and boundary intersection. Don't need to do that again here if chart is planar.
-		if (m_type != ChartType::Planar) {
-			XA_PROFILE_START(parameterizeChartsEvaluateQuality)
-			m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
-			m_quality.computeFlippedFaces(m_unifiedMesh, nullptr);
-			m_quality.computeMetrics(m_unifiedMesh);
-			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
-			// Use orthogonal parameterization if quality is acceptable.
-			if (!m_quality.boundaryIntersection && m_quality.flippedTriangleCount == 0 && m_quality.zeroAreaTriangleCount == 0 && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
-				m_type = ChartType::Ortho;
-		}
-		if (m_type == ChartType::LSCM) {
-			XA_PROFILE_START(parameterizeChartsLSCM)
-			if (options.paramFunc) {
-				options.paramFunc(&m_unifiedMesh->position(0).x, &m_unifiedMesh->texcoord(0).x, m_unifiedMesh->vertexCount(), m_unifiedMesh->indices(), m_unifiedMesh->indexCount());
+		if (m_generatorType == segment::ChartGeneratorType::OriginalUv) {
+		} else {
+			// Project vertices to plane.
+			XA_PROFILE_START(parameterizeChartsOrthogonal)
+			for (uint32_t i = 0; i < unifiedVertexCount; i++)
+				m_unifiedMesh->texcoord(i) = Vector2(dot(m_basis.tangent, m_unifiedMesh->position(i)), dot(m_basis.bitangent, m_unifiedMesh->position(i)));
+			XA_PROFILE_END(parameterizeChartsOrthogonal)
+			// Computing charts checks for flipped triangles and boundary intersection. Don't need to do that again here if chart is planar.
+			if (m_type != ChartType::Planar && m_generatorType != segment::ChartGeneratorType::OriginalUv) {
+				XA_PROFILE_START(parameterizeChartsEvaluateQuality)
+				m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
+				m_quality.computeFlippedFaces(m_unifiedMesh, nullptr);
+				m_quality.computeMetrics(m_unifiedMesh);
+				XA_PROFILE_END(parameterizeChartsEvaluateQuality)
+				// Use orthogonal parameterization if quality is acceptable.
+				if (!m_quality.boundaryIntersection && m_quality.flippedTriangleCount == 0 && m_quality.zeroAreaTriangleCount == 0 && m_quality.totalGeometricArea > 0.0f && m_quality.stretchMetric <= 1.1f && m_quality.maxStretchMetric <= 1.25f)
+					m_type = ChartType::Ortho;
 			}
-			else
-				computeLeastSquaresConformalMap(m_unifiedMesh);
-			XA_PROFILE_END(parameterizeChartsLSCM)
-			XA_PROFILE_START(parameterizeChartsEvaluateQuality)
-			m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
+			if (m_type == ChartType::LSCM) {
+				XA_PROFILE_START(parameterizeChartsLSCM)
+				if (options.paramFunc) {
+					options.paramFunc(&m_unifiedMesh->position(0).x, &m_unifiedMesh->texcoord(0).x, m_unifiedMesh->vertexCount(), m_unifiedMesh->indices(), m_unifiedMesh->indexCount());
+				}
+				else
+					computeLeastSquaresConformalMap(m_unifiedMesh);
+				XA_PROFILE_END(parameterizeChartsLSCM)
+				XA_PROFILE_START(parameterizeChartsEvaluateQuality)
+				m_quality.computeBoundaryIntersection(m_unifiedMesh, boundaryGrid);
 #if XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-			m_quality.computeFlippedFaces(m_unifiedMesh, &m_paramFlippedFaces);
+				m_quality.computeFlippedFaces(m_unifiedMesh, &m_paramFlippedFaces);
 #else
-			m_quality.computeFlippedFaces(m_unifiedMesh, nullptr);
+				m_quality.computeFlippedFaces(m_unifiedMesh, nullptr);
 #endif
-			// Don't need to call computeMetrics here, that's only used in evaluateOrthoQuality to determine if quality is acceptable enough to use ortho projection.
-			if (m_quality.boundaryIntersection || m_quality.flippedTriangleCount > 0 || m_quality.zeroAreaTriangleCount > 0)
-				m_isInvalid = true;
-			XA_PROFILE_END(parameterizeChartsEvaluateQuality)
+				// Don't need to call computeMetrics here, that's only used in evaluateOrthoQuality to determine if quality is acceptable enough to use ortho projection.
+				if (m_quality.boundaryIntersection || m_quality.flippedTriangleCount > 0 || m_quality.zeroAreaTriangleCount > 0)
+					m_isInvalid = true;
+				XA_PROFILE_END(parameterizeChartsEvaluateQuality)
+			}
 		}
 		if (options.fixWinding && m_unifiedMesh->computeFaceParametricArea(0) < 0.0f) {
 			for (uint32_t i = 0; i < unifiedVertexCount; i++)
@@ -7329,6 +7340,7 @@ private:
 	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
 	ChartType::Enum m_type;
+	segment::ChartGeneratorType::Enum m_generatorType;
 	uint32_t m_tjunctionCount;
 
 	// List of faces of the source mesh that belong to this chart.
@@ -7362,7 +7374,7 @@ struct CreateAndParameterizeChartTaskArgs
 	const Basis *basis;
 	Chart *chart; // output
 	Array<Chart *> charts; // output (if more than one chart)
-	bool isPlanar;
+	segment::ChartGeneratorType::Enum chartGeneratorType;
 	const Mesh *mesh;
 	ConstArrayView<uint32_t> faces;
 	uint32_t chartGroupId;
@@ -7375,7 +7387,7 @@ static void runCreateAndParameterizeChartTask(void *groupUserData, void *taskUse
 	auto groupArgs = (CreateAndParameterizeChartTaskGroupArgs *)groupUserData;
 	auto args = (CreateAndParameterizeChartTaskArgs *)taskUserData;
 	XA_PROFILE_START(createChartMesh)
-	args->chart = XA_NEW_ARGS(MemTag::Default, Chart, *args->basis, args->faces, args->isPlanar, args->mesh, args->chartGroupId, args->chartId);
+	args->chart = XA_NEW_ARGS(MemTag::Default, Chart, *args->basis, args->chartGeneratorType, args->faces, args->mesh, args->chartGroupId, args->chartId);
 	XA_PROFILE_END(createChartMesh)
 	XA_PROFILE_START(parameterizeCharts)
 	args->chart->parameterize(*groupArgs->options, groupArgs->boundaryGrid->get());
@@ -7553,7 +7565,7 @@ public:
 			args.isPlanar = false;
 #else
 			args.basis = &atlas.chartBasis(i);
-			args.isPlanar = atlas.chartIsPlanar(i);
+			args.chartGeneratorType = atlas.chartGeneratorType(i);
 #endif
 			args.chart = nullptr;
 			args.chartGroupId = m_id;
@@ -9275,7 +9287,7 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 			XA_PRINT("   Cancelled by user\n");
 			return;
 		}
-		uint32_t chartsWithTJunctionsCount = 0, tJunctionCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0;
+		uint32_t chartsWithTJunctionsCount = 0, tJunctionCount = 0, orthoChartsCount = 0, planarChartsCount = 0, lscmChartsCount = 0, piecewiseChartsCount = 0, originalUvChartsCount = 0;
 		uint32_t chartCount = 0;
 		const uint32_t meshCount = ctx->meshes.size();
 		for (uint32_t i = 0; i < meshCount; i++) {
@@ -9294,6 +9306,8 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 						lscmChartsCount++;
 					else if (chart->type() == ChartType::Piecewise)
 						piecewiseChartsCount++;
+					if (chart->generatorType() == internal::segment::ChartGeneratorType::OriginalUv)
+						originalUvChartsCount++;
 				}
 				chartCount += chartGroup->chartCount();
 			}
@@ -9302,6 +9316,8 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 			XA_PRINT("   %u t-junctions found in %u charts\n", tJunctionCount, chartsWithTJunctionsCount);
 		XA_PRINT("   %u charts\n", chartCount);
 		XA_PRINT("      %u planar, %u ortho, %u LSCM, %u piecewise\n", planarChartsCount, orthoChartsCount, lscmChartsCount, piecewiseChartsCount);
+		if (originalUvChartsCount > 0)
+			XA_PRINT("      %u with original UVs\n", originalUvChartsCount);
 		uint32_t chartIndex = 0, invalidParamCount = 0;
 		for (uint32_t i = 0; i < meshCount; i++) {
 			for (uint32_t j = 0; j < ctx->paramAtlas.chartGroupCount(i); j++) {
