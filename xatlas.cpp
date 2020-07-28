@@ -4927,7 +4927,7 @@ struct AtlasData
 	Array<float> edgeDihedralAngles;
 	Array<float> edgeLengths;
 	Array<float> faceAreas;
-	Array<float> faceUvAreas;
+	Array<float> faceUvAreas; // Can be negative.
 	Array<Vector3> faceNormals;
 	BitArray isFaceInChart;
 
@@ -4998,7 +4998,7 @@ struct OriginalUvCharts
 		for (uint32_t f = 0; f < faceCount; f++) {
 			if (m_data.isFaceInChart.get(f))
 				continue;
-			if (m_data.faceUvAreas[f] <= 0.0f)
+			if (isZero(m_data.faceUvAreas[f], kAreaEpsilon))
 				continue; // Face must have valid UVs.
 			// Found an unassigned face, create a new chart.
 			Chart chart;
@@ -5032,6 +5032,7 @@ private:
 
 	void floodfillFaces(Chart &chart)
 	{
+		const bool isFaceAreaNegative = m_data.faceUvAreas[m_chartFaces[chart.firstFace]] < 0.0f;
 		for (;;) {
 			bool newFaceAdded = false;
 			const uint32_t faceCount = chart.faceCount;
@@ -5043,11 +5044,15 @@ private:
 						continue; // Boundary edge.
 					if (m_data.isFaceInChart.get(face))
 						continue; // Already assigned to a chart.
+					if (isZero(m_data.faceUvAreas[face], kAreaEpsilon))
+						continue; // Face must have valid UVs.
+					if ((m_data.faceUvAreas[face] < 0.0f) != isFaceAreaNegative)
+						continue; // Face winding is opposite of the first chart face.
 					const Vector2 &uv0 = m_data.mesh->texcoord(edgeIt.vertex0());
 					const Vector2 &uv1 = m_data.mesh->texcoord(edgeIt.vertex1());
 					const Vector2 &ouv0 = m_data.mesh->texcoord(m_data.mesh->vertexAt(meshEdgeIndex0(edgeIt.oppositeEdge())));
 					const Vector2 &ouv1 = m_data.mesh->texcoord(m_data.mesh->vertexAt(meshEdgeIndex1(edgeIt.oppositeEdge())));
-					if (uv0 != ouv1 || uv1 != ouv0)
+					if (!equal(uv0, ouv1, m_data.mesh->epsilon()) || !equal(uv1, ouv0, m_data.mesh->epsilon()))
 						continue; // UVs must match exactly.
 					m_chartFaces.push_back(face);
 					chart.faceCount++;
@@ -7063,16 +7068,22 @@ public:
 		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faces.length);
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faces.length);
 		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToUnifiedVertexMap(MemTag::Mesh, approxVertexCount), sourceVertexToChartVertexMap(MemTag::Mesh, approxVertexCount);
-		// Add vertices.
+		// Add geometry.
 		const uint32_t faceCount = faces.length;
 		for (uint32_t f = 0; f < faceCount; f++) {
+			uint32_t indices[3], unifiedIndices[3];
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t sourceVertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
-				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocalVertex(sourceVertex);
+				uint32_t sourceUnifiedVertex = sourceMesh->firstColocalVertex(sourceVertex);
+				if (m_generatorType == segment::ChartGeneratorType::OriginalUv && sourceVertex != sourceUnifiedVertex) {
+					// Original UVs: don't unify vertices with different UVs; we want to preserve UVs.
+					if (!equal(sourceMesh->texcoord(sourceVertex), sourceMesh->texcoord(sourceUnifiedVertex), sourceMesh->epsilon()))
+						sourceUnifiedVertex = sourceVertex;
+				}
 				uint32_t unifiedVertex = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
 				if (unifiedVertex == UINT32_MAX) {
 					unifiedVertex = sourceVertexToUnifiedVertexMap.add(sourceUnifiedVertex);
-					m_unifiedMesh->addVertex(sourceMesh->position(sourceVertex));
+					m_unifiedMesh->addVertex(sourceMesh->position(sourceVertex), Vector3(0.0f), sourceMesh->texcoord(sourceVertex));
 				}
 				if (sourceVertexToChartVertexMap.get(sourceVertex) == UINT32_MAX) {
 					sourceVertexToChartVertexMap.add(sourceVertex);
@@ -7080,14 +7091,6 @@ public:
 					m_chartVertexToUnifiedVertexMap.push_back(unifiedVertex);
 					m_mesh->addVertex(sourceMesh->position(sourceVertex), Vector3(0.0f), sourceMesh->texcoord(sourceVertex));
 				}
-			}
-		}
-		// Add faces.
-		for (uint32_t f = 0; f < faceCount; f++) {
-			uint32_t indices[3], unifiedIndices[3];
-			for (uint32_t i = 0; i < 3; i++) {
-				const uint32_t sourceVertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
-				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocalVertex(sourceVertex);
 				indices[i] = sourceVertexToChartVertexMap.get(sourceVertex);
 				XA_DEBUG_ASSERT(indices[i] != UINT32_MAX);
 				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
