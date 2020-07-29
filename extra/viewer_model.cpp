@@ -906,7 +906,8 @@ void modelFinalize()
 		s_model.scale = 16.0f / radius;
 	s_model.vb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.data->vertices, s_model.data->numVertices * sizeof(ModelVertex)), ModelVertex::layout);
 	s_model.ib = bgfx::createIndexBuffer(bgfx::makeRef(s_model.data->indices, s_model.data->numIndices * sizeof(uint32_t)), BGFX_BUFFER_INDEX32);
-	s_model.wireframeVb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.wireframeVertices.data(), uint32_t(s_model.wireframeVertices.size() * sizeof(WireframeVertex))), WireframeVertex::layout);
+	if (!s_model.wireframeVertices.empty())
+		s_model.wireframeVb = bgfx::createVertexBuffer(bgfx::makeRef(s_model.wireframeVertices.data(), uint32_t(s_model.wireframeVertices.size() * sizeof(WireframeVertex))), WireframeVertex::layout);
 	resetCamera();
 	g_options.shadeMode = ShadeMode::FlatMaterial;
 	g_options.overlayMode = OverlayMode::None;
@@ -971,10 +972,12 @@ void modelDestroy()
 	if (bgfx::isValid(s_model.vb)) {
 		bgfx::destroy(s_model.vb);
 		bgfx::destroy(s_model.ib);
-		bgfx::destroy(s_model.wireframeVb);
+		if (bgfx::isValid(s_model.wireframeVb)) {
+			bgfx::destroy(s_model.wireframeVb);
+			s_model.wireframeVb = BGFX_INVALID_HANDLE;
+		}
 		s_model.vb = BGFX_INVALID_HANDLE;
 		s_model.ib = BGFX_INVALID_HANDLE;
-		s_model.wireframeVb = BGFX_INVALID_HANDLE;
 	}
 	glfwSetWindowTitle(g_window, WINDOW_TITLE);
 	s_model.status = ModelStatus::NotLoaded;
@@ -1100,13 +1103,15 @@ void modelRender(const float *view, const float *projection)
 	}
 	if (g_options.wireframe) {
 		if (g_options.wireframeMode == WireframeMode::Triangles) {
-			const float color[] = { 0.0f, 0.0f, 0.0f, 0.75f };
-			bgfx::setUniform(s_model.u_color, color);
-			setWireframeThicknessUniform(1.5f);
-			bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LEQUAL | BGFX_STATE_CULL_CW | BGFX_STATE_BLEND_ALPHA | BGFX_STATE_MSAA);
-			bgfx::setTransform(modelMatrix);
-			bgfx::setVertexBuffer(0, s_model.wireframeVb);
-			bgfx::submit(kModelView, getWireframeProgram(), 1);
+			if (bgfx::isValid(s_model.wireframeVb)) {
+				const float color[] = { 0.0f, 0.0f, 0.0f, 0.75f };
+				bgfx::setUniform(s_model.u_color, color);
+				setWireframeThicknessUniform(1.5f);
+				bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LEQUAL | BGFX_STATE_CULL_CW | BGFX_STATE_BLEND_ALPHA | BGFX_STATE_MSAA);
+				bgfx::setTransform(modelMatrix);
+				bgfx::setVertexBuffer(0, s_model.wireframeVb);
+				bgfx::submit(kModelView, getWireframeProgram(), 1);
+			}
 		} else {
 			atlasRenderChartsWireframe(modelMatrix);
 		}

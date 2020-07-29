@@ -451,6 +451,7 @@ struct BgfxCallback : public bgfx::CallbackI
 	void fatal(const char* /*_filePath*/, uint16_t /*_line*/, bgfx::Fatal::Enum /*_code*/, const char* _str) override
 	{
 		fprintf(stderr, "%s\n", _str);
+		bx::debugBreak();
 		exit(EXIT_FAILURE);
 	}
 
