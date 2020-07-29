@@ -937,10 +937,10 @@ void atlasShowGuiOptions()
 		atlasGenerate();
 	if (modelGetData()->flags & OBJZ_FLAG_TEXCOORDS) {
 		ImGui::SameLine();
-		ImGui::Checkbox("Use existing mesh UVs", &s_atlas.options.useUvMesh);
+		ImGui::Checkbox("Use input mesh UVs", &s_atlas.options.useUvMesh);
 		if (ImGui::IsItemHovered()) {
 			ImGui::BeginTooltip();
-			ImGui::Text("Compute and pack charts from the existing mesh texture coordinates, rather than generating new ones.");
+			ImGui::Text("Pack the input mesh texture coordinates unmodified. Otherwise, generate new textures coordinates and pack those.\n\nThis uses the xatlas::AddUvMesh API instead of xatlas::AddMesh.");
 			ImGui::EndTooltip();
 		}
 	} else {
