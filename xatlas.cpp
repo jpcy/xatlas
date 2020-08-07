@@ -7059,19 +7059,19 @@ struct ChartCtorBuffers
 class Chart
 {
 public:
-	Chart(const Basis &basis, segment::ChartGeneratorType::Enum generatorType, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_mesh(nullptr), m_unifiedMesh(nullptr), m_type(ChartType::LSCM), m_generatorType(generatorType), m_tjunctionCount(0), m_isInvalid(false)
+	Chart(const Basis &basis, segment::ChartGeneratorType::Enum generatorType, ConstArrayView<uint32_t> faces, const Mesh *sourceMesh, uint32_t chartGroupId, uint32_t chartId) : m_basis(basis), m_unifiedMesh(nullptr), m_type(ChartType::LSCM), m_generatorType(generatorType), m_tjunctionCount(0), m_originalVertexCount(0), m_isInvalid(false)
 	{
 		XA_UNUSED(chartGroupId);
 		XA_UNUSED(chartId);
 		m_faceToSourceFaceMap.copyFrom(faces.data, faces.length);
 		const uint32_t approxVertexCount = min(faces.length * 3, sourceMesh->vertexCount());
-		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faces.length);
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), approxVertexCount, faces.length);
 		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToUnifiedVertexMap(MemTag::Mesh, approxVertexCount), sourceVertexToChartVertexMap(MemTag::Mesh, approxVertexCount);
+		m_originalIndices.resize(faces.length * 3);
 		// Add geometry.
 		const uint32_t faceCount = faces.length;
 		for (uint32_t f = 0; f < faceCount; f++) {
-			uint32_t indices[3], unifiedIndices[3];
+			uint32_t unifiedIndices[3];
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t sourceVertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
 				uint32_t sourceUnifiedVertex = sourceMesh->firstColocalVertex(sourceVertex);
@@ -7089,26 +7089,15 @@ public:
 					sourceVertexToChartVertexMap.add(sourceVertex);
 					m_vertexToSourceVertexMap.push_back(sourceVertex);
 					m_chartVertexToUnifiedVertexMap.push_back(unifiedVertex);
-					m_mesh->addVertex(sourceMesh->position(sourceVertex), Vector3(0.0f), sourceMesh->texcoord(sourceVertex));
+					m_originalVertexCount++;
 				}
-				indices[i] = sourceVertexToChartVertexMap.get(sourceVertex);
-				XA_DEBUG_ASSERT(indices[i] != UINT32_MAX);
+				m_originalIndices[f * 3 + i] = sourceVertexToChartVertexMap.get(sourceVertex);;
+				XA_DEBUG_ASSERT(m_originalIndices[f * 3 + i] != UINT32_MAX);
 				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
 				XA_DEBUG_ASSERT(unifiedIndices[i] != UINT32_MAX);
 			}
-			m_mesh->addFace(indices);
-#if XA_DEBUG
-			// Unifying colocals may create degenerate edges. e.g. if two triangle vertices are colocal.
-			for (int i = 0; i < 3; i++) {
-				const uint32_t index1 = unifiedIndices[i];
-				const uint32_t index2 = unifiedIndices[(i + 1) % 3];
-				XA_DEBUG_ASSERT(index1 != index2);
-			}
-#endif
 			m_unifiedMesh->addFace(unifiedIndices);
 		}
-		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
-		m_mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
 		m_unifiedMesh->createBoundaries();
 		if (m_generatorType == segment::ChartGeneratorType::Planar) {
 			m_type = ChartType::Planar;
@@ -7126,76 +7115,61 @@ public:
 #endif
 	}
 
-	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_mesh(nullptr), m_unifiedMesh(nullptr), m_type(ChartType::Piecewise), m_generatorType(segment::ChartGeneratorType::Piecewise), m_tjunctionCount(0), m_isInvalid(false)
+	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_unifiedMesh(nullptr), m_type(ChartType::Piecewise), m_generatorType(segment::ChartGeneratorType::Piecewise), m_tjunctionCount(0), m_originalVertexCount(0), m_isInvalid(false)
 	{
 		const uint32_t faceCount = faces.length;
 		m_faceToSourceFaceMap.resize(faceCount);
 		for (uint32_t i = 0; i < faceCount; i++)
 			m_faceToSourceFaceMap[i] = parent->m_faceToSourceFaceMap[faces[i]]; // Map faces to parent chart source mesh.
 		// Copy face indices.
-		m_mesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), m_faceToSourceFaceMap.size() * 3, m_faceToSourceFaceMap.size());
 		Array<uint32_t> &chartMeshIndices = buffers.chartMeshIndices;
 		chartMeshIndices.resize(sourceMesh->vertexCount());
 		chartMeshIndices.fillBytes(0xff);
-#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 		m_unifiedMesh = XA_NEW_ARGS(MemTag::Mesh, Mesh, sourceMesh->epsilon(), m_faceToSourceFaceMap.size() * 3, m_faceToSourceFaceMap.size());
 		HashMap<uint32_t, PassthroughHash<uint32_t>> sourceVertexToUnifiedVertexMap(MemTag::Mesh, m_faceToSourceFaceMap.size() * 3);
-#endif
 		// Add vertices.
 		for (uint32_t f = 0; f < faceCount; f++) {
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
-				const uint32_t parentVertex = parentMesh->vertexAt(faces[f] * 3 + i);
-				if (chartMeshIndices[vertex] == (uint32_t)~0) {
-					chartMeshIndices[vertex] = m_mesh->vertexCount();
-					m_vertexToSourceVertexMap.push_back(vertex);
-					m_mesh->addVertex(sourceMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
-				}
-#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 				const uint32_t sourceUnifiedVertex = sourceMesh->firstColocalVertex(vertex);
+				const uint32_t parentVertex = parentMesh->vertexAt(faces[f] * 3 + i);
 				uint32_t unifiedVertex = sourceVertexToUnifiedVertexMap.get(sourceUnifiedVertex);
 				if (unifiedVertex == UINT32_MAX) {
 					unifiedVertex = sourceVertexToUnifiedVertexMap.add(sourceUnifiedVertex);
 					m_unifiedMesh->addVertex(sourceMesh->position(vertex), Vector3(0.0f), texcoords[parentVertex]);
 				}
-#endif
+				if (chartMeshIndices[vertex] == UINT32_MAX) {
+					chartMeshIndices[vertex] = m_originalVertexCount;
+					m_originalVertexCount++;
+					m_vertexToSourceVertexMap.push_back(vertex);
+					m_chartVertexToUnifiedVertexMap.push_back(unifiedVertex);
+				}
 			}
 		}
 		// Add faces.
+		m_originalIndices.resize(faceCount * 3);
 		for (uint32_t f = 0; f < faceCount; f++) {
-			uint32_t indices[3];
-#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 			uint32_t unifiedIndices[3];
-#endif
 			for (uint32_t i = 0; i < 3; i++) {
 				const uint32_t vertex = sourceMesh->vertexAt(m_faceToSourceFaceMap[f] * 3 + i);
-				indices[i] = chartMeshIndices[vertex];
-#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
+				m_originalIndices[f * 3 + i] = chartMeshIndices[vertex];
 				const uint32_t unifiedVertex = sourceMesh->firstColocalVertex(vertex);
 				unifiedIndices[i] = sourceVertexToUnifiedVertexMap.get(unifiedVertex);
-#endif
 			}
-			m_mesh->addFace(indices);
-#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 			m_unifiedMesh->addFace(unifiedIndices);
-#endif
 		}
-		m_mesh->createBoundaries(); // For AtlasPacker::computeBoundingBox
-		m_mesh->destroyEdgeMap(); // Only needed it for createBoundaries.
-#if XA_CHECK_PIECEWISE_CHART_QUALITY || XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
 		m_unifiedMesh->createBoundaries();
-#endif
 		// Need to store texcoords for backup/restore so packing can be run multiple times.
 		backupTexcoords();
 	}
 
 	~Chart()
 	{
-		if (m_mesh) {
-			m_mesh->~Mesh();
-			XA_FREE(m_mesh);
+		if (m_unifiedMesh) {
+			m_unifiedMesh->~Mesh();
+			XA_FREE(m_unifiedMesh);
+			m_unifiedMesh = nullptr;
 		}
-		destroyUnifiedMesh();
 	}
 
 	bool isInvalid() const { return m_isInvalid; }
@@ -7208,9 +7182,15 @@ public:
 #endif
 	uint32_t mapFaceToSourceFace(uint32_t i) const { return m_faceToSourceFaceMap[i]; }
 	uint32_t mapChartVertexToSourceVertex(uint32_t i) const { return m_vertexToSourceVertexMap[i]; }
-	const Mesh *mesh() const { return m_mesh; }
-	Mesh *mesh() { return m_mesh; }
 	const Mesh *unifiedMesh() const { return m_unifiedMesh; }
+	Mesh *unifiedMesh() { return m_unifiedMesh; }
+
+	// Vertex count of the chart mesh before unifying vertices.
+	uint32_t originalVertexCount() const { return m_originalVertexCount; }
+
+	uint32_t originalVertexToUnifiedVertex(uint32_t v) const { return m_chartVertexToUnifiedVertexMap[v]; }
+
+	const uint32_t *originalVertices() const { return m_originalIndices.data(); }
 
 	void parameterize(const ChartOptions &options, UniformGrid2 &boundaryGrid)
 	{
@@ -7276,16 +7256,6 @@ public:
 #if XA_DEBUG_ALL_CHARTS_INVALID
 		m_isInvalid = true;
 #endif
-		// Transfer parameterization from unified mesh to chart mesh.
-		const uint32_t vertexCount = m_mesh->vertexCount();
-		for (uint32_t v = 0; v < vertexCount; v++)
-			m_mesh->texcoord(v) = m_unifiedMesh->texcoord(m_chartVertexToUnifiedVertexMap[v]);
-		// Can destroy unified mesh now.
-		// But not if the parameterization is invalid, the unified mesh will be needed for PiecewiseParameterization.
-#if !XA_DEBUG_EXPORT_OBJ_INVALID_PARAMETERIZATION
-		if (!m_isInvalid)
-			destroyUnifiedMesh();
-#endif
 		// Need to store texcoords for backup/restore so packing can be run multiple times.
 		backupTexcoords();
 	}
@@ -7294,10 +7264,10 @@ public:
 	{
 		Vector2 minCorner(FLT_MAX, FLT_MAX);
 		Vector2 maxCorner(-FLT_MAX, -FLT_MAX);
-		const uint32_t vertexCount = m_mesh->vertexCount();
+		const uint32_t vertexCount = m_unifiedMesh->vertexCount();
 		for (uint32_t v = 0; v < vertexCount; v++) {
-			minCorner = min(minCorner, m_mesh->texcoord(v));
-			maxCorner = max(maxCorner, m_mesh->texcoord(v));
+			minCorner = min(minCorner, m_unifiedMesh->texcoord(v));
+			maxCorner = max(maxCorner, m_unifiedMesh->texcoord(v));
 		}
 		return (maxCorner - minCorner) * 0.5f;
 	}
@@ -7318,33 +7288,24 @@ public:
 
 	void restoreTexcoords()
 	{
-		memcpy(m_mesh->texcoords(), m_backupTexcoords.data(), m_mesh->vertexCount() * sizeof(Vector2));
+		memcpy(m_unifiedMesh->texcoords(), m_backupTexcoords.data(), m_unifiedMesh->vertexCount() * sizeof(Vector2));
 	}
 
 private:
 	void backupTexcoords()
 	{
-		m_backupTexcoords.resize(m_mesh->vertexCount());
-		memcpy(m_backupTexcoords.data(), m_mesh->texcoords(), m_mesh->vertexCount() * sizeof(Vector2));
-	}
-
-	void destroyUnifiedMesh()
-	{
-		if (m_unifiedMesh) {
-			m_unifiedMesh->~Mesh();
-			XA_FREE(m_unifiedMesh);
-			m_unifiedMesh = nullptr;
-		}
-		// Don't need this when unified meshes are destroyed.
-		m_chartVertexToUnifiedVertexMap.destroy();
+		m_backupTexcoords.resize(m_unifiedMesh->vertexCount());
+		memcpy(m_backupTexcoords.data(), m_unifiedMesh->texcoords(), m_unifiedMesh->vertexCount() * sizeof(Vector2));
 	}
 
 	Basis m_basis;
-	Mesh *m_mesh;
 	Mesh *m_unifiedMesh;
 	ChartType::Enum m_type;
 	segment::ChartGeneratorType::Enum m_generatorType;
 	uint32_t m_tjunctionCount;
+
+	uint32_t m_originalVertexCount;
+	Array<uint32_t> m_originalIndices;
 
 	// List of faces of the source mesh that belong to this chart.
 	Array<uint32_t> m_faceToSourceFaceMap;
@@ -8072,7 +8033,7 @@ static void runAddChartTask(void *groupUserData, void *taskUserData)
 	XA_PROFILE_START(packChartsAddChartsRestoreTexcoords)
 	paramChart->restoreTexcoords();
 	XA_PROFILE_END(packChartsAddChartsRestoreTexcoords)
-	Mesh *mesh = paramChart->mesh();
+	Mesh *mesh = paramChart->unifiedMesh();
 	Chart *chart = args->chart = XA_NEW(MemTag::Default, Chart);
 	chart->atlasIndex = -1;
 	chart->material = 0;
@@ -9557,8 +9518,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
 				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
-					outputMesh.vertexCount += chart->mesh()->vertexCount();
-					outputMesh.indexCount += chart->mesh()->faceCount() * 3;
+					outputMesh.vertexCount += chart->originalVertexCount();
+					outputMesh.indexCount += chart->unifiedMesh()->faceCount() * 3;
 					outputMesh.chartCount++;
 				}
 			}
@@ -9594,8 +9555,9 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
 				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
-					const internal::Mesh *mesh = chart->mesh();
-					const uint32_t faceCount = mesh->faceCount();
+					//const internal::Mesh *mesh = chart->mesh();
+					const internal::Mesh *unifiedMesh = chart->unifiedMesh();
+					const uint32_t faceCount = unifiedMesh->faceCount();
 #if XA_CHECK_PARAM_WINDING
 					uint32_t flippedCount = 0;
 					for (uint32_t f = 0; f < faceCount; f++) {
@@ -9619,12 +9581,12 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 					}
 #endif
 					// Vertices.
-					for (uint32_t v = 0; v < mesh->vertexCount(); v++) {
+					for (uint32_t v = 0; v < chart->originalVertexCount(); v++) {
 						Vertex &vertex = outputMesh.vertexArray[firstVertex + v];
 						vertex.atlasIndex = packAtlas.getChart(chartIndex)->atlasIndex;
 						XA_DEBUG_ASSERT(vertex.atlasIndex >= 0);
 						vertex.chartIndex = (int32_t)chartIndex;
-						const internal::Vector2 &uv = mesh->texcoord(v);
+						const internal::Vector2 &uv = unifiedMesh->texcoord(chart->originalVertexToUnifiedVertex(v));
 						vertex.uv[0] = internal::max(0.0f, uv.x);
 						vertex.uv[1] = internal::max(0.0f, uv.y);
 						vertex.xref = chart->mapChartVertexToSourceVertex(v);
@@ -9633,7 +9595,8 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 					for (uint32_t f = 0; f < faceCount; f++) {
 						const uint32_t indexOffset = chart->mapFaceToSourceFace(f) * 3;
 						for (uint32_t j = 0; j < 3; j++)
-							outputMesh.indexArray[indexOffset + j] = firstVertex + mesh->vertexAt(f * 3 + j);
+							outputMesh.indexArray[indexOffset + j] = firstVertex + chart->originalVertices()[f * 3 + j];
+							//outputMesh.indexArray[indexOffset + j] = firstVertex + chart->mesh()->vertexAt(f * 3 + j);
 					}
 					// Charts.
 					Chart *outputChart = &outputMesh.chartArray[meshChartIndex];
@@ -9648,7 +9611,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 					outputChart->material = 0;
 					meshChartIndex++;
 					chartIndex++;
-					firstVertex += mesh->vertexCount();
+					firstVertex += chart->originalVertexCount();
 				}
 			}
 			XA_DEBUG_ASSERT(outputMesh.vertexCount == firstVertex);
