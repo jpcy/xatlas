@@ -174,6 +174,8 @@ typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint3
 
 struct ChartOptions
 {
+	bool useInputMeshUvs = false; // Use MeshDecl::vertexUvData for charts.
+
 	float maxChartArea = 0.0f; // Don't grow charts to be larger than this. 0 means no limit.
 	float maxBoundaryLength = 0.0f; // Don't grow charts to have a longer boundary than this. 0 means no limit.
 

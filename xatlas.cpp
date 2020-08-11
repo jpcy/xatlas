@@ -116,7 +116,6 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_MERGE_CHARTS 1
 #define XA_MERGE_CHARTS_MIN_NORMAL_DEVIATION 0.5f
 #define XA_RECOMPUTE_CHARTS 1
-#define XA_USE_ORIGINAL_UV_CHARTS 0
 #define XA_CHECK_PARAM_WINDING 0
 #define XA_CHECK_PIECEWISE_CHART_QUALITY 0
 #define XA_CHECK_T_JUNCTIONS 0
@@ -4940,9 +4939,8 @@ struct AtlasData
 		edgeDihedralAngles.resize(edgeCount);
 		edgeLengths.resize(edgeCount);
 		faceAreas.resize(faceCount);
-#if XA_USE_ORIGINAL_UV_CHARTS
-		faceUvAreas.resize(faceCount);
-#endif
+		if (options.useInputMeshUvs)
+			faceUvAreas.resize(faceCount);
 		faceNormals.resize(faceCount);
 		isFaceInChart.resize(faceCount);
 		isFaceInChart.zeroOutMemory();
@@ -4956,9 +4954,8 @@ struct AtlasData
 			}
 			faceAreas[f] = mesh->computeFaceArea(f);
 			XA_DEBUG_ASSERT(faceAreas[f] > 0.0f);
-#if XA_USE_ORIGINAL_UV_CHARTS
-			faceUvAreas[f] = mesh->computeFaceParametricArea(f);
-#endif
+			if (options.useInputMeshUvs)
+				faceUvAreas[f] = mesh->computeFaceParametricArea(f);
 			faceNormals[f] = mesh->computeFaceNormal(f);
 		}
 		for (uint32_t face = 0; face < faceCount; face++) {
@@ -6097,11 +6094,11 @@ struct Atlas
 
 	void compute()
 	{
-#if XA_USE_ORIGINAL_UV_CHARTS
-		XA_PROFILE_START(originalUvCharts)
-		m_originalUvCharts.compute();
-		XA_PROFILE_END(originalUvCharts)
-#endif
+		if (m_data.options.useInputMeshUvs) {
+			XA_PROFILE_START(originalUvCharts)
+			m_originalUvCharts.compute();
+			XA_PROFILE_END(originalUvCharts)
+		}
 		XA_PROFILE_START(planarCharts)
 		m_planarCharts.compute();
 		XA_PROFILE_END(planarCharts)
@@ -9365,9 +9362,9 @@ void ComputeCharts(Atlas *atlas, ChartOptions options)
 		XA_PROFILE_PRINT_AND_RESET("         Build atlas: ", buildAtlas)
 		XA_PROFILE_PRINT_AND_RESET("            Init: ", buildAtlasInit)
 		XA_PROFILE_PRINT_AND_RESET("            Planar charts: ", planarCharts)
-#if XA_USE_ORIGINAL_UV_CHARTS
-		XA_PROFILE_PRINT_AND_RESET("            Original UV charts: ", originalUvCharts)
-#endif
+		if (options.useInputMeshUvs) {
+			XA_PROFILE_PRINT_AND_RESET("            Original UV charts: ", originalUvCharts)
+		}
 		XA_PROFILE_PRINT_AND_RESET("            Clustered charts: ", clusteredCharts)
 		XA_PROFILE_PRINT_AND_RESET("               Place seeds: ", clusteredChartsPlaceSeeds)
 		XA_PROFILE_PRINT_AND_RESET("                  Boundary intersection: ", clusteredChartsPlaceSeedsBoundaryIntersection)

@@ -937,7 +937,7 @@ void atlasShowGuiOptions()
 		atlasGenerate();
 	if (modelGetData()->flags & OBJZ_FLAG_TEXCOORDS) {
 		ImGui::SameLine();
-		ImGui::Checkbox("Use input mesh UVs", &s_atlas.options.useUvMesh);
+		ImGui::Checkbox("Pack input mesh UVs", &s_atlas.options.useUvMesh);
 		if (ImGui::IsItemHovered()) {
 			ImGui::BeginTooltip();
 			ImGui::Text("Pack the input mesh texture coordinates unmodified. Otherwise, generate new textures coordinates and pack those.\n\nThis uses the xatlas::AddUvMesh API instead of xatlas::AddMesh.");
@@ -951,6 +951,13 @@ void atlasShowGuiOptions()
 	if (!s_atlas.options.useUvMesh && ImGui::CollapsingHeader("Chart options", ImGuiTreeNodeFlags_DefaultOpen)) {
 		ImGui::Indent(indent);
 		bool changed = false;
+		if (ImGui::Checkbox("Use input mesh UVs", &s_atlas.options.chart.useInputMeshUvs))
+			changed = true;
+		if (ImGui::IsItemHovered()) {
+			ImGui::BeginTooltip();
+			ImGui::Text("Use the input mesh texture coordinates as charts, if available.");
+			ImGui::EndTooltip();
+		}
 		ImGui::Columns(2, nullptr, false);
 		changed |= guiColumnInputFloat("Normal deviation weight", "##chartOption1", &s_atlas.options.chart.normalDeviationWeight);
 		changed |= guiColumnInputFloat("Roundness weight", "##chartOption2", &s_atlas.options.chart.roundnessWeight);
