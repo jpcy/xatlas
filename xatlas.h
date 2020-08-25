@@ -118,13 +118,17 @@ struct MeshDecl
 	const void *vertexUvData = nullptr; // optional. The input UVs are provided as a hint to the chart generator.
 	const void *indexData = nullptr; // optional
 	
-	// Optional. Must be indexCount / 3 in length.
+	// Optional. Must be faceCount in length.
 	// Don't atlas faces set to true. Ignored faces still exist in the output meshes, Vertex uv is set to (0, 0) and Vertex atlasIndex to -1.
 	const bool *faceIgnoreData = nullptr;
 
-	// Optional. Must be indexCount / 3 in length.
+	// Optional. Must be faceCount in length.
 	// Only faces with the same material will be assigned to the same chart.
 	const uint32_t *faceMaterialData = nullptr;
+
+	// Optional. Must be faceCount in length.
+	// Polygon / n-gon support. Faces are assumed to be triangles if this is null.
+	const uint8_t *faceVertexCount = nullptr;
 
 	uint32_t vertexCount = 0;
 	uint32_t vertexPositionStride = 0;
@@ -132,6 +136,7 @@ struct MeshDecl
 	uint32_t vertexUvStride = 0; // optional
 	uint32_t indexCount = 0;
 	int32_t indexOffset = 0; // optional. Add this offset to all indices.
+	uint32_t faceCount = 0; // Optional if faceVertexCount is null. Otherwise assumed to be indexCount / 3.
 	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
 
 	// Vertex positions within epsilon distance of each other are considered colocal.
@@ -145,6 +150,7 @@ struct AddMeshError
 		Success, // No error.
 		Error, // Unspecified error.
 		IndexOutOfRange, // An index is >= MeshDecl vertexCount.
+		InvalidFaceVertexCount, // Must be >= 3.
 		InvalidIndexCount // Not evenly divisible by 3 - expecting triangles.
 	};
 };

@@ -428,6 +428,7 @@ static void *Realloc(void *ptr, size_t size, int /*tag*/, const char * /*file*/,
 #endif
 
 static constexpr float kPi = 3.14159265358979323846f;
+static constexpr float kPi2 = 6.28318530717958647692f;
 static constexpr float kEpsilon = 0.0001f;
 static constexpr float kAreaEpsilon = FLT_EPSILON;
 static constexpr float kNormalEpsilon = 0.001f;
@@ -2427,15 +2428,6 @@ public:
 		m_texcoords.push_back(texcoord);
 	}
 
-	void addFace(uint32_t v0, uint32_t v1, uint32_t v2, bool ignore = false, uint32_t material = UINT32_MAX)
-	{
-		uint32_t indexArray[3];
-		indexArray[0] = v0;
-		indexArray[1] = v1;
-		indexArray[2] = v2;
-		return addFace(indexArray, ignore, material);
-	}
-
 	void addFace(const uint32_t *indices, bool ignore = false, uint32_t material = UINT32_MAX)
 	{
 		if (m_flags & MeshFlags::HasIgnoredFaces)
@@ -3470,6 +3462,104 @@ public:
 
 private:
 	T *m_array;
+};
+
+// Implemented as a struct so the temporary arrays can be reused.
+struct Triangulator
+{
+	// This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
+	// also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
+	void triangulatePolygon(ConstArrayView<Vector3> vertices, uint32_t *inputIndices, uint32_t inputIndexCount, Array<uint32_t> &outputIndices)
+	{
+		m_polygonVertices.clear();
+		m_polygonVertices.reserve(inputIndexCount);
+		outputIndices.clear();
+		if (inputIndexCount == 3) {
+			// Simple case for triangles.
+			outputIndices.push_back(inputIndices[0]);
+			outputIndices.push_back(inputIndices[1]);
+			outputIndices.push_back(inputIndices[2]);
+		}
+		else {
+			// Build 2D polygon projecting vertices onto normal plane.
+			// Faces are not necesarily planar, this is for example the case, when the face comes from filling a hole. In such cases
+			// it's much better to use the best fit plane.
+			Basis basis;
+			basis.normal = normalize(cross(vertices[inputIndices[1]] - vertices[inputIndices[0]], vertices[inputIndices[2]] - vertices[inputIndices[1]]));
+			basis.tangent = basis.computeTangent(basis.normal);
+			basis.bitangent = basis.computeBitangent(basis.normal, basis.tangent);
+			const uint32_t edgeCount = inputIndexCount;
+			m_polygonPoints.clear();
+			m_polygonPoints.reserve(edgeCount);
+			m_polygonAngles.clear();
+			m_polygonAngles.reserve(edgeCount);
+			for (uint32_t i = 0; i < inputIndexCount; i++) {
+				m_polygonVertices.push_back(inputIndices[i]);
+				const Vector3 &pos = vertices[inputIndices[i]];
+				m_polygonPoints.push_back(Vector2(dot(basis.tangent, pos), dot(basis.bitangent, pos)));
+			}
+			m_polygonAngles.resize(edgeCount);
+			while (m_polygonVertices.size() > 2) {
+				const uint32_t size = m_polygonVertices.size();
+				// Update polygon angles. @@ Update only those that have changed.
+				float minAngle = kPi2;
+				uint32_t bestEar = 0; // Use first one if none of them is valid.
+				bool bestIsValid = false;
+				for (uint32_t i = 0; i < size; i++) {
+					uint32_t i0 = i;
+					uint32_t i1 = (i + 1) % size; // Use Sean's polygon interation trick.
+					uint32_t i2 = (i + 2) % size;
+					Vector2 p0 = m_polygonPoints[i0];
+					Vector2 p1 = m_polygonPoints[i1];
+					Vector2 p2 = m_polygonPoints[i2];
+					float d = clamp(dot(p0 - p1, p2 - p1) / (length(p0 - p1) * length(p2 - p1)), -1.0f, 1.0f);
+					float angle = acosf(d);
+					float area = triangleArea(p0, p1, p2);
+					if (area < 0.0f)
+						angle = kPi2 - angle;
+					m_polygonAngles[i1] = angle;
+					if (angle < minAngle || !bestIsValid) {
+						// Make sure this is a valid ear, if not, skip this point.
+						bool valid = true;
+						for (uint32_t j = 0; j < size; j++) {
+							if (j == i0 || j == i1 || j == i2)
+								continue;
+							Vector2 p = m_polygonPoints[j];
+							if (pointInTriangle(p, p0, p1, p2)) {
+								valid = false;
+								break;
+							}
+						}
+						if (valid || !bestIsValid) {
+							minAngle = angle;
+							bestEar = i1;
+							bestIsValid = valid;
+						}
+					}
+				}
+				// Clip best ear:
+				const uint32_t i0 = (bestEar + size - 1) % size;
+				const uint32_t i1 = (bestEar + 0) % size;
+				const uint32_t i2 = (bestEar + 1) % size;
+				outputIndices.push_back(m_polygonVertices[i0]);
+				outputIndices.push_back(m_polygonVertices[i1]);
+				outputIndices.push_back(m_polygonVertices[i2]);
+				m_polygonVertices.removeAt(i1);
+				m_polygonPoints.removeAt(i1);
+				m_polygonAngles.removeAt(i1);
+			}
+		}
+	}
+
+private:
+	static bool pointInTriangle(const Vector2 &p, const Vector2 &a, const Vector2 &b, const Vector2 &c)
+	{
+		return triangleArea(a, b, p) >= kAreaEpsilon && triangleArea(b, c, p) >= kAreaEpsilon && triangleArea(c, a, p) >= kAreaEpsilon; 
+	}
+
+	Array<int> m_polygonVertices;
+	Array<float> m_polygonAngles;
+	Array<Vector2> m_polygonPoints;
 };
 
 class UniformGrid2
@@ -8795,6 +8885,14 @@ private:
 } // namespace pack
 } // namespace internal
 
+// Used to map triangulated polygons back to polygons.
+struct MeshPolygonMapping
+{
+	internal::Array<uint8_t> faceVertexCount; // Copied from MeshDecl::faceVertexCount.
+	internal::Array<uint32_t> triangleToPolygonMap; // Triangle index (mesh face index) to polygon index.
+	internal::Array<uint32_t> triangleToPolygonIndicesMap; // Triangle indices to polygon indices.
+};
+
 struct Context
 {
 	Atlas atlas;
@@ -8805,6 +8903,7 @@ struct Context
 	void *progressUserData = nullptr;
 	internal::TaskScheduler *taskScheduler;
 	internal::Array<internal::Mesh *> meshes;
+	internal::Array<MeshPolygonMapping *> meshPolygonMappings;
 	internal::Array<internal::UvMesh *> uvMeshes;
 	internal::Array<internal::UvMeshInstance *> uvMeshInstances;
 	bool uvMeshChartsComputed = false;
@@ -8859,6 +8958,13 @@ void Destroy(Atlas *atlas)
 		internal::Mesh *mesh = ctx->meshes[i];
 		mesh->~Mesh();
 		XA_FREE(mesh);
+	}
+	for (uint32_t i = 0; i < ctx->meshPolygonMappings.size(); i++) {
+		MeshPolygonMapping *mapping = ctx->meshPolygonMappings[i];
+		if (mapping) {
+			mapping->~MeshPolygonMapping();
+			XA_FREE(mapping);
+		}
 	}
 	for (uint32_t i = 0; i < ctx->uvMeshes.size(); i++) {
 		internal::UvMesh *mesh = ctx->uvMeshes[i];
@@ -8957,10 +9063,20 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	XA_PROFILE_START(addMeshCopyData)
 	const bool hasIndices = meshDecl.indexCount > 0;
 	const uint32_t indexCount = hasIndices ? meshDecl.indexCount : meshDecl.vertexCount;
-	XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", ctx->meshes.size(), meshDecl.vertexCount, indexCount / 3);
-	// Expecting triangle faces.
-	if ((indexCount % 3) != 0)
-		return AddMeshError::InvalidIndexCount;
+	uint32_t faceCount = indexCount / 3;
+	if (meshDecl.faceVertexCount) {
+		faceCount = meshDecl.faceCount;
+		XA_PRINT("Adding mesh %d: %u vertices, %u polygons\n", ctx->meshes.size(), meshDecl.vertexCount, faceCount);
+		for (uint32_t f = 0; f < faceCount; f++) {
+			if (meshDecl.faceVertexCount[f] < 3)
+				return AddMeshError::InvalidFaceVertexCount;
+		}
+	} else {
+		XA_PRINT("Adding mesh %d: %u vertices, %u triangles\n", ctx->meshes.size(), meshDecl.vertexCount, faceCount);
+		// Expecting triangle faces unless otherwise specified.
+		if ((indexCount % 3) != 0)
+			return AddMeshError::InvalidIndexCount;
+	}
 	uint32_t meshFlags = internal::MeshFlags::HasIgnoredFaces;
 	if (meshDecl.vertexNormalData)
 		meshFlags |= internal::MeshFlags::HasNormals;
@@ -8976,28 +9092,42 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			texcoord = DecodeUv(meshDecl, i);
 		mesh->addVertex(DecodePosition(meshDecl, i), normal, texcoord);
 	}
+	MeshPolygonMapping *meshPolygonMapping = nullptr;
+	if (meshDecl.faceVertexCount) {
+		meshPolygonMapping = XA_NEW(internal::MemTag::Default, MeshPolygonMapping);
+		// Copy MeshDecl::faceVertexCount so it can be used later when building output meshes.
+		meshPolygonMapping->faceVertexCount.copyFrom(meshDecl.faceVertexCount, meshDecl.faceCount);
+		// There should be at least as many triangles as polygons.
+		meshPolygonMapping->triangleToPolygonMap.reserve(meshDecl.faceCount);
+		meshPolygonMapping->triangleToPolygonIndicesMap.reserve(meshDecl.indexCount);
+	}
 	const uint32_t kMaxWarnings = 50;
 	uint32_t warningCount = 0;
-	for (uint32_t i = 0; i < indexCount / 3; i++) {
-		uint32_t tri[3];
-		for (int j = 0; j < 3; j++) {
+	internal::Array<uint32_t> triIndices;
+	uint32_t firstFaceIndex = 0;
+	internal::Triangulator triangulator;
+	for (uint32_t face = 0; face < faceCount; face++) {
+		// Decode face indices.
+		const uint32_t faceVertexCount = meshDecl.faceVertexCount ? (uint32_t)meshDecl.faceVertexCount[face] : 3;
+		uint32_t polygon[UINT8_MAX];
+		for (uint32_t i = 0; i < faceVertexCount; i++) {
 			if (hasIndices) {
-				tri[j] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, i * 3 + j);
+				polygon[i] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, face * faceVertexCount + i);
 				// Check if any index is out of range.
-				if (tri[j] >= meshDecl.vertexCount) {
+				if (polygon[i] >= meshDecl.vertexCount) {
 					mesh->~Mesh();
 					XA_FREE(mesh);
 					return AddMeshError::IndexOutOfRange;
 				}
 			} else {
-				tri[j] = i * 3 + j;
+				polygon[i] = face * faceVertexCount + i;
 			}
 		}
+		// Ignore faces with degenerate or zero length edges.
 		bool ignore = false;
-		// Check for degenerate or zero length edges.
-		for (int j = 0; j < 3; j++) {
-			const uint32_t index1 = tri[j];
-			const uint32_t index2 = tri[(j + 1) % 3];
+		for (uint32_t i = 0; i < faceVertexCount; i++) {
+			const uint32_t index1 = polygon[i];
+			const uint32_t index2 = polygon[(i + 1) % 3];
 			if (index1 == index2) {
 				ignore = true;
 				if (++warningCount <= kMaxWarnings)
@@ -9015,58 +9145,82 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 		}
 		// Ignore faces with any nan vertex attributes.
 		if (!ignore) {
-			for (int j = 0; j < 3; j++) {
-				const internal::Vector3 &pos = mesh->position(tri[j]);
+			for (uint32_t i = 0; i < faceVertexCount; i++) {
+				const internal::Vector3 &pos = mesh->position(polygon[i]);
 				if (internal::isNan(pos.x) || internal::isNan(pos.y) || internal::isNan(pos.z)) {
 					if (++warningCount <= kMaxWarnings)
-						XA_PRINT("   NAN position in face: %d\n", i);
+						XA_PRINT("   NAN position in face: %d\n", face);
 					ignore = true;
 					break;
 				}
 				if (meshDecl.vertexNormalData) {
-					const internal::Vector3 &normal = mesh->normal(tri[j]);
+					const internal::Vector3 &normal = mesh->normal(polygon[i]);
 					if (internal::isNan(normal.x) || internal::isNan(normal.y) || internal::isNan(normal.z)) {
 						if (++warningCount <= kMaxWarnings)
-							XA_PRINT("   NAN normal in face: %d\n", i);
+							XA_PRINT("   NAN normal in face: %d\n", face);
 						ignore = true;
 						break;
 					}
 				}
 				if (meshDecl.vertexUvData) {
-					const internal::Vector2 &uv = mesh->texcoord(tri[j]);
+					const internal::Vector2 &uv = mesh->texcoord(polygon[i]);
 					if (internal::isNan(uv.x) || internal::isNan(uv.y)) {
 						if (++warningCount <= kMaxWarnings)
-							XA_PRINT("   NAN texture coordinate in face: %d\n", i);
+							XA_PRINT("   NAN texture coordinate in face: %d\n", face);
 						ignore = true;
 						break;
 					}
 				}
 			}
 		}
-		const internal::Vector3 &a = mesh->position(tri[0]);
-		const internal::Vector3 &b = mesh->position(tri[1]);
-		const internal::Vector3 &c = mesh->position(tri[2]);
+		// Triangulate if necessary.
+		triIndices.clear();
+		if (faceVertexCount == 3) {
+			triIndices.push_back(polygon[0]);
+			triIndices.push_back(polygon[1]);
+			triIndices.push_back(polygon[2]);
+		} else {
+			triangulator.triangulatePolygon(internal::ConstArrayView<internal::Vector3>(mesh->positions(), mesh->vertexCount()), polygon, faceVertexCount, triIndices);
+		}
 		// Check for zero area faces.
-		float area = 0.0f;
 		if (!ignore) {
-			area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
-			if (area <= internal::kAreaEpsilon) {
-				ignore = true;
-				if (++warningCount <= kMaxWarnings)
-					XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", i, tri[0], tri[1], tri[2], area);
+			for (uint32_t i = 0; i < triIndices.size(); i += 3) {
+				const internal::Vector3 &a = mesh->position(triIndices[i + 0]);
+				const internal::Vector3 &b = mesh->position(triIndices[i + 1]);
+				const internal::Vector3 &c = mesh->position(triIndices[i + 2]);
+				const float area = internal::length(internal::cross(b - a, c - a)) * 0.5f;
+				if (area <= internal::kAreaEpsilon) {
+					ignore = true;
+					if (++warningCount <= kMaxWarnings)
+						XA_PRINT("   Zero area face: %d, area is %f\n", face, area);
+					break;
+				}
 			}
 		}
-		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[i])
+		// User face ignore.
+		if (meshDecl.faceIgnoreData && meshDecl.faceIgnoreData[face])
 			ignore = true;
+		// User material.
 		uint32_t material = UINT32_MAX;
 		if (meshDecl.faceMaterialData)
-			material = meshDecl.faceMaterialData[i];
-		mesh->addFace(tri[0], tri[1], tri[2], ignore, material);
+			material = meshDecl.faceMaterialData[face];
+		// Add the face(s).
+		for (uint32_t i = 0; i < triIndices.size(); i += 3) {
+			mesh->addFace(&triIndices[i], ignore, material);
+			if (meshPolygonMapping)
+				meshPolygonMapping->triangleToPolygonMap.push_back(face);
+		}
+		if (meshPolygonMapping) {
+			for (uint32_t i = 0; i < triIndices.size(); i++)
+				meshPolygonMapping->triangleToPolygonIndicesMap.push_back(triIndices[i]);
+		}
+		firstFaceIndex += faceVertexCount;
 	}
 	if (warningCount > kMaxWarnings)
 		XA_PRINT("   %u additional warnings truncated\n", warningCount - kMaxWarnings);
 	XA_PROFILE_END(addMeshCopyData)
 	ctx->meshes.push_back(mesh);
+	ctx->meshPolygonMappings.push_back(meshPolygonMapping);
 	ctx->paramAtlas.addMesh(mesh);
 	if (ctx->addMeshTaskGroup.value == UINT32_MAX)
 		ctx->addMeshTaskGroup = ctx->taskScheduler->createTaskGroup(ctx);
@@ -9507,6 +9661,13 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		uint32_t chartIndex = 0;
 		for (uint32_t i = 0; i < atlas->meshCount; i++) {
 			Mesh &outputMesh = atlas->meshes[i];
+			MeshPolygonMapping *meshPolygonMapping = ctx->meshPolygonMappings[i];
+			// One polygon can have many triangles. Don't want to process the same polygon more than once when counting indices, building chart faces etc.
+			internal::BitArray polygonTouched;
+			if (meshPolygonMapping) {
+				polygonTouched.resize(meshPolygonMapping->faceVertexCount.size());
+				polygonTouched.zeroOutMemory();
+			}
 			// Count and alloc arrays.
 			const internal::InvalidMeshGeometry &invalid = ctx->paramAtlas.invalidMeshGeometry(i);
 			outputMesh.vertexCount += invalid.vertices().length;
@@ -9516,7 +9677,19 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
 					outputMesh.vertexCount += chart->originalVertexCount();
-					outputMesh.indexCount += chart->unifiedMesh()->faceCount() * 3;
+					const uint32_t faceCount = chart->unifiedMesh()->faceCount();
+					if (meshPolygonMapping) {
+						// Map triangles back to polygons and count the polygon vertices.
+						for (uint32_t f = 0; f < faceCount; f++) {
+							const uint32_t polygon = meshPolygonMapping->triangleToPolygonMap[chart->mapFaceToSourceFace(f)];
+							if (!polygonTouched.get(polygon)) {
+								polygonTouched.set(polygon);
+								outputMesh.indexCount += meshPolygonMapping->faceVertexCount[polygon];
+							}
+						}
+					} else {
+						outputMesh.indexCount += faceCount * 3;
+					}
 					outputMesh.chartCount++;
 				}
 			}
@@ -9552,7 +9725,6 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				const internal::param::ChartGroup *chartGroup = ctx->paramAtlas.chartGroupAt(i, cg);
 				for (uint32_t c = 0; c < chartGroup->chartCount(); c++) {
 					const internal::param::Chart *chart = chartGroup->chartAt(c);
-					//const internal::Mesh *mesh = chart->mesh();
 					const internal::Mesh *unifiedMesh = chart->unifiedMesh();
 					const uint32_t faceCount = unifiedMesh->faceCount();
 #if XA_CHECK_PARAM_WINDING
@@ -9591,9 +9763,12 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 					// Indices.
 					for (uint32_t f = 0; f < faceCount; f++) {
 						const uint32_t indexOffset = chart->mapFaceToSourceFace(f) * 3;
-						for (uint32_t j = 0; j < 3; j++)
-							outputMesh.indexArray[indexOffset + j] = firstVertex + chart->originalVertices()[f * 3 + j];
-							//outputMesh.indexArray[indexOffset + j] = firstVertex + chart->mesh()->vertexAt(f * 3 + j);
+						for (uint32_t j = 0; j < 3; j++) {
+							uint32_t outIndex = indexOffset + j;
+							if (meshPolygonMapping)
+								outIndex = meshPolygonMapping->triangleToPolygonIndicesMap[outIndex];
+							outputMesh.indexArray[outIndex] = firstVertex + chart->originalVertices()[f * 3 + j];
+						}
 					}
 					// Charts.
 					Chart *outputChart = &outputMesh.chartArray[meshChartIndex];
@@ -9601,10 +9776,34 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 					XA_DEBUG_ASSERT(atlasIndex >= 0);
 					outputChart->atlasIndex = (uint32_t)atlasIndex;
 					outputChart->type = chart->isInvalid() ? ChartType::Invalid : chart->type();
-					outputChart->faceCount = faceCount;
-					outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
-					for (uint32_t f = 0; f < outputChart->faceCount; f++)
-						outputChart->faceArray[f] = chart->mapFaceToSourceFace(f);
+					if (meshPolygonMapping) {
+						// Count polygons.
+						polygonTouched.zeroOutMemory();
+						outputChart->faceCount = 0;
+						for (uint32_t f = 0; f < faceCount; f++) {
+							const uint32_t polygon = meshPolygonMapping->triangleToPolygonMap[chart->mapFaceToSourceFace(f)];
+							if (!polygonTouched.get(polygon)) {
+								polygonTouched.set(polygon);
+								outputChart->faceCount++;
+							}
+						}
+						// Write polygons.
+						outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
+						polygonTouched.zeroOutMemory();
+						uint32_t of = 0;
+						for (uint32_t f = 0; f < faceCount; f++) {
+							const uint32_t polygon = meshPolygonMapping->triangleToPolygonMap[chart->mapFaceToSourceFace(f)];
+							if (!polygonTouched.get(polygon)) {
+								polygonTouched.set(polygon);
+								outputChart->faceArray[of++] = polygon;
+							}
+						}
+					} else {
+						outputChart->faceCount = faceCount;
+						outputChart->faceArray = XA_ALLOC_ARRAY(internal::MemTag::Default, uint32_t, outputChart->faceCount);
+						for (uint32_t f = 0; f < outputChart->faceCount; f++)
+							outputChart->faceArray[f] = chart->mapFaceToSourceFace(f);
+					}
 					outputChart->material = 0;
 					meshChartIndex++;
 					chartIndex++;
@@ -9732,6 +9931,8 @@ const char *StringForEnum(AddMeshError::Enum error)
 		return "Unspecified error";
 	if (error == AddMeshError::IndexOutOfRange)
 		return "Index out of range";
+	if (error == AddMeshError::InvalidFaceVertexCount)
+		return "Invalid face vertex count";
 	if (error == AddMeshError::InvalidIndexCount)
 		return "Invalid index count";
 	return "Success";
