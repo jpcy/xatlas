@@ -117,7 +117,7 @@ struct MeshDecl
 	const void *vertexNormalData = nullptr; // optional
 	const void *vertexUvData = nullptr; // optional. The input UVs are provided as a hint to the chart generator.
 	const void *indexData = nullptr; // optional
-	
+
 	// Optional. Must be faceCount in length.
 	// Don't atlas faces set to true. Ignored faces still exist in the output meshes, Vertex uv is set to (0, 0) and Vertex atlasIndex to -1.
 	const bool *faceIgnoreData = nullptr;
