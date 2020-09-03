@@ -21,6 +21,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
+/*
+example_uvmesh
+
+This example uses the xatlas::AddUvMesh API to pack 10 copies of a model's existing texture coordinates into a single atlas.
+
+The input model must have texture coordinates.
+
+Output is the atlas texture coordinates rasterized to images, colored by chart (example_uvmesh_charts*.tga) and by triangle (example_uvmesh_tris*.tga).
+*/
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -197,11 +206,12 @@ int main(int argc, char *argv[])
 	Stopwatch globalStopwatch, stopwatch;
 	xatlas::SetProgressCallback(atlas, ProgressCallback, &stopwatch);
 	// Add meshes to atlas.
+	// Add 10 copies of the same model.
 	int progress = 0;
 	PrintProgress("Adding meshes", "", "   ", 0, &stopwatch);
 	uint32_t totalVertices = 0, totalFaces = 0;
 	const int n = 10;
-	for (int i = 0; i < 10; i++) {
+	for (int i = 0; i < n; i++) {
 		for (int s = 0; s < (int)shapes.size(); s++) {
 			tinyobj::mesh_t &objMesh = shapes[s].mesh;
 			xatlas::UvMeshDecl meshDecl;
