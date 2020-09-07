@@ -30,6 +30,7 @@ Input: a .obj model file. It must have texture coordinates.
 
 Output: the atlas texture coordinates rasterized to images, colored by chart (example_uvmesh_charts*.tga) and by triangle (example_uvmesh_tris*.tga).
 */
+#include <mutex>
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -79,10 +80,13 @@ static int Print(const char *format, ...)
 	return result;
 }
 
+// May be called from any thread.
 static void PrintProgress(const char *name, const char *indent1, const char *indent2, int progress, Stopwatch *stopwatch)
 {
 	if (s_verbose)
 		return;
+	static std::mutex progressMutex;
+	std::unique_lock<std::mutex> lock(progressMutex);
 	if (progress == 0)
 		stopwatch->reset();
 	printf("\r%s%s [", indent1, name);
