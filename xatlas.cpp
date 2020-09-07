@@ -1231,6 +1231,7 @@ struct ArrayView
 	ArrayView(T *data, uint32_t length) : data(data), length(length) {}
 	ArrayView &operator=(Array<T> &a) { data = a.data(); length = a.size(); return *this; }
 	XA_INLINE const T &operator[](uint32_t index) const { XA_DEBUG_ASSERT(index < length); return data[index]; }
+	XA_INLINE T &operator[](uint32_t index) { XA_DEBUG_ASSERT(index < length); return data[index]; }
 	T *data;
 	uint32_t length;
 };
@@ -2771,14 +2772,14 @@ public:
 	XA_INLINE uint32_t vertexCount() const { return m_positions.size(); }
 	XA_INLINE uint32_t vertexAt(uint32_t i) const { return m_indices[i]; }
 	XA_INLINE const Vector3 &position(uint32_t vertex) const { return m_positions[vertex]; }
-	XA_INLINE const Vector3 *positions() const { return m_positions.data(); }
+	XA_INLINE ConstArrayView<Vector3> positions() const { return m_positions; }
 	XA_INLINE const Vector3 &normal(uint32_t vertex) const { XA_DEBUG_ASSERT(m_flags & MeshFlags::HasNormals); return m_normals[vertex]; }
 	XA_INLINE const Vector2 &texcoord(uint32_t vertex) const { return m_texcoords[vertex]; }
 	XA_INLINE Vector2 &texcoord(uint32_t vertex) { return m_texcoords[vertex]; }
-	XA_INLINE const Vector2 *texcoords() const { return m_texcoords.data(); }
-	XA_INLINE Vector2 *texcoords() { return m_texcoords.data(); }
+	XA_INLINE const ConstArrayView<Vector2> texcoords() const { return m_texcoords; }
+	XA_INLINE ArrayView<Vector2> texcoords() { return m_texcoords; }
 	XA_INLINE uint32_t faceCount() const { return m_indices.size() / 3; }
-	XA_INLINE const uint32_t *indices() const { return m_indices.data(); }
+	XA_INLINE ConstArrayView<uint32_t> indices() const { return m_indices; }
 	XA_INLINE uint32_t indexCount() const { return m_indices.size(); }
 	XA_INLINE bool isFaceIgnored(uint32_t face) const { return (m_flags & MeshFlags::HasIgnoredFaces) && m_faceIgnore[face]; }
 	XA_INLINE uint32_t faceMaterial(uint32_t face) const { return (m_flags & MeshFlags::HasMaterials) ? m_faceMaterials[face] : UINT32_MAX; }
@@ -6503,7 +6504,7 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 	opennl::nlSolverParameteri(context, NL_NB_VARIABLES, int(2 * vertexCount));
 	opennl::nlSolverParameteri(context, NL_MAX_ITERATIONS, int(5 * vertexCount));
 	opennl::nlBegin(context, NL_SYSTEM);
-	const Vector2 *texcoords = mesh->texcoords();
+	ArrayView<Vector2> texcoords = mesh->texcoords();
 	for (uint32_t i = 0; i < vertexCount; i++) {
 		opennl::nlSetVariable(context, 2 * i, texcoords[i].x);
 		opennl::nlSetVariable(context, 2 * i + 1, texcoords[i].y);
@@ -6514,8 +6515,8 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 	}
 	opennl::nlBegin(context, NL_MATRIX);
 	const uint32_t faceCount = mesh->faceCount();
-	const Vector3 *positions = mesh->positions();
-	const uint32_t *indices = mesh->indices();
+	ConstArrayView<Vector3> positions = mesh->positions();
+	ConstArrayView<uint32_t> indices = mesh->indices();
 	for (uint32_t f = 0; f < faceCount; f++) {
 		const uint32_t v0 = indices[f * 3 + 0];
 		const uint32_t v1 = indices[f * 3 + 1];
@@ -6564,7 +6565,7 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 	for (uint32_t i = 0; i < vertexCount; i++) {
 		const double u = opennl::nlGetVariable(context, 2 * i);
 		const double v = opennl::nlGetVariable(context, 2 * i + 1);
-		mesh->texcoord(i) = Vector2((float)u, (float)v);
+		texcoords[i] = Vector2((float)u, (float)v);
 		XA_DEBUG_ASSERT(!isNan(mesh->texcoord(i).x));
 		XA_DEBUG_ASSERT(!isNan(mesh->texcoord(i).y));
 	}
@@ -6619,7 +6620,7 @@ struct PiecewiseParam
 			}
 			addFaceToPatch(seed);
 			// Initialize the boundary grid.
-			m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices());
+			m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices().data);
 			for (Mesh::FaceEdgeIterator it(m_mesh, seed); !it.isDone(); it.advance())
 				m_boundaryGrid.append(it.edge());
 			break;
@@ -6708,7 +6709,7 @@ struct PiecewiseParam
 				removeLinkedCandidates(bestCandidate);
 				// Reset the grid with all edges on the patch boundary.
 				XA_PROFILE_START(parameterizeChartsPiecewiseBoundaryIntersection)
-				m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices());
+				m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices().data);
 				for (uint32_t i = 0; i < m_patch.size(); i++) {
 					for (Mesh::FaceEdgeIterator it(m_mesh, m_patch[i]); !it.isDone(); it.advance()) {
 						const uint32_t oface = it.oppositeFace();
@@ -6993,7 +6994,7 @@ struct Quality
 	{
 		const Array<uint32_t> &boundaryEdges = mesh->boundaryEdges();
 		const uint32_t boundaryEdgeCount = boundaryEdges.size();
-		boundaryGrid.reset(mesh->texcoords(), mesh->indices(), boundaryEdgeCount);
+		boundaryGrid.reset(mesh->texcoords().data, mesh->indices().data, boundaryEdgeCount);
 		for (uint32_t i = 0; i < boundaryEdgeCount; i++)
 			boundaryGrid.append(boundaryEdges[i]);
 		boundaryIntersection = boundaryGrid.intersect(mesh->epsilon());
@@ -7303,7 +7304,7 @@ public:
 			if (m_type == ChartType::LSCM) {
 				XA_PROFILE_START(parameterizeChartsLSCM)
 				if (options.paramFunc) {
-					options.paramFunc(&m_unifiedMesh->position(0).x, &m_unifiedMesh->texcoord(0).x, m_unifiedMesh->vertexCount(), m_unifiedMesh->indices(), m_unifiedMesh->indexCount());
+					options.paramFunc(&m_unifiedMesh->position(0).x, &m_unifiedMesh->texcoord(0).x, m_unifiedMesh->vertexCount(), m_unifiedMesh->indices().data, m_unifiedMesh->indexCount());
 				}
 				else
 					computeLeastSquaresConformalMap(m_unifiedMesh);
@@ -7375,14 +7376,14 @@ public:
 
 	void restoreTexcoords()
 	{
-		memcpy(m_unifiedMesh->texcoords(), m_backupTexcoords.data(), m_unifiedMesh->vertexCount() * sizeof(Vector2));
+		memcpy(m_unifiedMesh->texcoords().data, m_backupTexcoords.data(), m_unifiedMesh->vertexCount() * sizeof(Vector2));
 	}
 
 private:
 	void backupTexcoords()
 	{
 		m_backupTexcoords.resize(m_unifiedMesh->vertexCount());
-		memcpy(m_backupTexcoords.data(), m_unifiedMesh->texcoords(), m_unifiedMesh->vertexCount() * sizeof(Vector2));
+		memcpy(m_backupTexcoords.data(), m_unifiedMesh->texcoords().data, m_unifiedMesh->vertexCount() * sizeof(Vector2));
 	}
 
 	Basis m_basis;
@@ -8125,7 +8126,7 @@ static void runAddChartTask(void *groupUserData, void *taskUserData)
 	chart->atlasIndex = -1;
 	chart->material = 0;
 	chart->indexCount = mesh->indexCount();
-	chart->indices = mesh->indices();
+	chart->indices = mesh->indices().data;
 	chart->parametricArea = mesh->computeParametricArea();
 	if (chart->parametricArea < kAreaEpsilon) {
 		// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
@@ -8133,7 +8134,7 @@ static void runAddChartTask(void *groupUserData, void *taskUserData)
 		chart->parametricArea = bounds.x * bounds.y;
 	}
 	chart->surfaceArea = mesh->computeSurfaceArea();
-	chart->vertices = mesh->texcoords();
+	chart->vertices = mesh->texcoords().data;
 	chart->vertexCount = mesh->vertexCount();
 	chart->boundaryEdges = &mesh->boundaryEdges();
 	// Compute bounding box of chart.
@@ -8143,7 +8144,7 @@ static void runAddChartTask(void *groupUserData, void *taskUserData)
 		if (mesh->isBoundaryVertex(v))
 			bb.appendBoundaryVertex(mesh->texcoord(v));
 	}
-	bb.compute(mesh->texcoords(), mesh->vertexCount());
+	bb.compute(mesh->texcoords().data, mesh->vertexCount());
 	chart->majorAxis = bb.majorAxis;
 	chart->minorAxis = bb.minorAxis;
 	chart->minCorner = bb.minCorner;
@@ -9180,7 +9181,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 			triIndices.push_back(polygon[1]);
 			triIndices.push_back(polygon[2]);
 		} else {
-			triangulator.triangulatePolygon(internal::ConstArrayView<internal::Vector3>(mesh->positions(), mesh->vertexCount()), polygon, faceVertexCount, triIndices);
+			triangulator.triangulatePolygon(mesh->positions(), polygon, faceVertexCount, triIndices);
 		}
 		// Check for zero area faces.
 		if (!ignore) {
