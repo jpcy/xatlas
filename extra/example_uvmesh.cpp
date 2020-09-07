@@ -26,9 +26,9 @@ example_uvmesh
 
 This example uses the xatlas::AddUvMesh API to pack 10 copies of a model's existing texture coordinates into a single atlas.
 
-The input model must have texture coordinates.
+Input: a .obj model file. It must have texture coordinates.
 
-Output is the atlas texture coordinates rasterized to images, colored by chart (example_uvmesh_charts*.tga) and by triangle (example_uvmesh_tris*.tga).
+Output: the atlas texture coordinates rasterized to images, colored by chart (example_uvmesh_charts*.tga) and by triangle (example_uvmesh_tris*.tga).
 */
 #include <assert.h>
 #include <stdarg.h>
