@@ -35,6 +35,8 @@ Note: change the build configuration to "Release". The default - "Debug" - sever
 
 #### Linux
 
+Required packages: `libgl1-mesa-dev libgtk-3-dev xorg-dev`.
+
 Install premake5. Run `premake5 gmake`, `cd build/gmake`, `make`.
 
 ### Generate an atlas (simple API)
