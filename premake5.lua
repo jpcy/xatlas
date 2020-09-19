@@ -93,6 +93,7 @@ project "xatlas"
 	exceptionhandling "Off"
 	rtti "Off"
 	warnings "Extra"
+	enablewarnings { "shadow" }
 	files { "xatlas.cpp", "xatlas.h" }
 	sanitizer()
 	

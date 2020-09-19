@@ -543,7 +543,7 @@ class Vector2
 public:
 	Vector2() {}
 	explicit Vector2(float f) : x(f), y(f) {}
-	Vector2(float x, float y): x(x), y(y) {}
+	Vector2(float _x, float _y): x(_x), y(_y) {}
 
 	Vector2 operator-() const
 	{
@@ -694,7 +694,7 @@ static bool linesIntersect(const Vector2 &a1, const Vector2 &a2, const Vector2 &
 struct Vector2i
 {
 	Vector2i() {}
-	Vector2i(int32_t x, int32_t y) : x(x), y(y) {}
+	Vector2i(int32_t _x, int32_t _y) : x(_x), y(_y) {}
 
 	int32_t x, y;
 };
@@ -704,8 +704,8 @@ class Vector3
 public:
 	Vector3() {}
 	explicit Vector3(float f) : x(f), y(f), z(f) {}
-	Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
-	Vector3(const Vector2 &v, float z) : x(v.x), y(v.y), z(z) {}
+	Vector3(float _x, float _y, float _z) : x(_x), y(_y), z(_z) {}
+	Vector3(const Vector2 &v, float _z) : x(v.x), y(v.y), z(_z) {}
 
 	Vector2 xy() const
 	{
@@ -891,7 +891,7 @@ struct Extents2
 struct AABB
 {
 	AABB() : min(FLT_MAX, FLT_MAX, FLT_MAX), max(-FLT_MAX, -FLT_MAX, -FLT_MAX) {}
-	AABB(const Vector3 &min, const Vector3 &max) : min(min), max(max) { }
+	AABB(const Vector3 &_min, const Vector3 &_max) : min(_min), max(_max) { }
 	AABB(const Vector3 &p, float radius = 0.0f) : min(p), max(p) { if (radius > 0.0f) expand(radius); }
 
 	bool intersect(const AABB &other) const
@@ -941,7 +941,7 @@ struct AABB
 
 struct ArrayBase
 {
-	ArrayBase(uint32_t elementSize, int memTag = MemTag::Default) : buffer(nullptr), elementSize(elementSize), size(0), capacity(0)
+	ArrayBase(uint32_t _elementSize, int memTag = MemTag::Default) : buffer(nullptr), elementSize(_elementSize), size(0), capacity(0)
 	{
 #if XA_DEBUG_HEAP
 		this->memTag = memTag;
@@ -1228,7 +1228,7 @@ struct ArrayView
 {
 	ArrayView() : data(nullptr), length(0) {}
 	ArrayView(Array<T> &a) : data(a.data()), length(a.size()) {}
-	ArrayView(T *data, uint32_t length) : data(data), length(length) {}
+	ArrayView(T *_data, uint32_t _length) : data(_data), length(_length) {}
 	ArrayView &operator=(Array<T> &a) { data = a.data(); length = a.size(); return *this; }
 	XA_INLINE const T &operator[](uint32_t index) const { XA_DEBUG_ASSERT(index < length); return data[index]; }
 	XA_INLINE T &operator[](uint32_t index) { XA_DEBUG_ASSERT(index < length); return data[index]; }
@@ -1241,7 +1241,7 @@ struct ConstArrayView
 {
 	ConstArrayView() : data(nullptr), length(0) {}
 	ConstArrayView(const Array<T> &a) : data(a.data()), length(a.size()) {}
-	ConstArrayView(const T *data, uint32_t length) : data(data), length(length) {}
+	ConstArrayView(const T *_data, uint32_t _length) : data(_data), length(_length) {}
 	ConstArrayView &operator=(const Array<T> &a) { data = a.data(); length = a.size(); return *this; }
 	XA_INLINE const T &operator[](uint32_t index) const { XA_DEBUG_ASSERT(index < length); return data[index]; }
 	const T *data;
@@ -2370,7 +2370,7 @@ private:
 struct EdgeKey
 {
 	EdgeKey(const EdgeKey &k) : v0(k.v0), v1(k.v1) {}
-	EdgeKey(uint32_t v0, uint32_t v1) : v0(v0), v1(v1) {}
+	EdgeKey(uint32_t _v0, uint32_t _v1) : v0(_v0), v1(_v1) {}
 	bool operator==(const EdgeKey &k) const { return v0 == k.v0 && v1 == k.v1; }
 
 	uint32_t v0;
