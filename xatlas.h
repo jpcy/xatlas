@@ -35,16 +35,13 @@ Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
 
 namespace xatlas {
 
-struct ChartType
+enum class ChartType
 {
-	enum Enum
-	{
-		Planar,
-		Ortho,
-		LSCM,
-		Piecewise,
-		Invalid
-	};
+	Planar,
+	Ortho,
+	LSCM,
+	Piecewise,
+	Invalid
 };
 
 // A group of connected faces, belonging to a single atlas.
@@ -53,7 +50,7 @@ struct Chart
 	uint32_t *faceArray;
 	uint32_t atlasIndex; // Sub-atlas index.
 	uint32_t faceCount;
-	ChartType::Enum type;
+	ChartType type;
 	uint32_t material;
 };
 
@@ -101,13 +98,10 @@ Atlas *Create();
 
 void Destroy(Atlas *atlas);
 
-struct IndexFormat
+enum class IndexFormat
 {
-	enum Enum
-	{
-		UInt16,
-		UInt32
-	};
+	UInt16,
+	UInt32
 };
 
 // Input mesh declaration.
@@ -137,26 +131,23 @@ struct MeshDecl
 	uint32_t indexCount = 0;
 	int32_t indexOffset = 0; // optional. Add this offset to all indices.
 	uint32_t faceCount = 0; // Optional if faceVertexCount is null. Otherwise assumed to be indexCount / 3.
-	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
+	IndexFormat indexFormat = IndexFormat::UInt16;
 
 	// Vertex positions within epsilon distance of each other are considered colocal.
 	float epsilon = 1.192092896e-07F;
 };
 
-struct AddMeshError
+enum class AddMeshError
 {
-	enum Enum
-	{
-		Success, // No error.
-		Error, // Unspecified error.
-		IndexOutOfRange, // An index is >= MeshDecl vertexCount.
-		InvalidFaceVertexCount, // Must be >= 3.
-		InvalidIndexCount // Not evenly divisible by 3 - expecting triangles.
-	};
+	Success, // No error.
+	Error, // Unspecified error.
+	IndexOutOfRange, // An index is >= MeshDecl vertexCount.
+	InvalidFaceVertexCount, // Must be >= 3.
+	InvalidIndexCount // Not evenly divisible by 3 - expecting triangles.
 };
 
 // Add a mesh to the atlas. MeshDecl data is copied, so it can be freed after AddMesh returns.
-AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountHint = 0);
+AddMeshError AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountHint = 0);
 
 // Wait for AddMesh async processing to finish. ComputeCharts / Generate call this internally.
 void AddMeshJoin(Atlas *atlas);
@@ -170,10 +161,10 @@ struct UvMeshDecl
 	uint32_t vertexStride = 0;
 	uint32_t indexCount = 0;
 	int32_t indexOffset = 0; // optional. Add this offset to all indices.
-	IndexFormat::Enum indexFormat = IndexFormat::UInt16;
+	IndexFormat indexFormat = IndexFormat::UInt16;
 };
 
-AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl);
+AddMeshError AddUvMesh(Atlas *atlas, const UvMeshDecl &decl);
 
 // Custom parameterization function. texcoords initial values are an orthogonal parameterization.
 typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint32_t vertexCount, const uint32_t *indices, uint32_t indexCount);
@@ -246,19 +237,16 @@ void PackCharts(Atlas *atlas, PackOptions packOptions = PackOptions());
 void Generate(Atlas *atlas, ChartOptions chartOptions = ChartOptions(), PackOptions packOptions = PackOptions());
 
 // Progress tracking.
-struct ProgressCategory
+enum class ProgressCategory
 {
-	enum Enum
-	{
-		AddMesh,
-		ComputeCharts,
-		PackCharts,
-		BuildOutputMeshes
-	};
+	AddMesh,
+	ComputeCharts,
+	PackCharts,
+	BuildOutputMeshes
 };
 
 // May be called from any thread. Return false to cancel.
-typedef bool (*ProgressFunc)(ProgressCategory::Enum category, int progress, void *userData);
+typedef bool (*ProgressFunc)(ProgressCategory category, int progress, void *userData);
 
 void SetProgressCallback(Atlas *atlas, ProgressFunc progressFunc = nullptr, void *progressUserData = nullptr);
 
@@ -272,8 +260,8 @@ typedef int (*PrintFunc)(const char *, ...);
 void SetPrint(PrintFunc print, bool verbose);
 
 // Helper functions for error messages.
-const char *StringForEnum(AddMeshError::Enum error);
-const char *StringForEnum(ProgressCategory::Enum category);
+const char *StringForEnum(AddMeshError error);
+const char *StringForEnum(ProgressCategory category);
 
 } // namespace xatlas
 

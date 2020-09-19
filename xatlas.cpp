@@ -3063,7 +3063,7 @@ private:
 
 struct Progress
 {
-	Progress(ProgressCategory::Enum category, ProgressFunc func, void *userData, uint32_t maxValue) : cancel(false), m_category(category), m_func(func), m_userData(userData), m_value(0), m_maxValue(maxValue), m_percent(0)
+	Progress(ProgressCategory category, ProgressFunc func, void *userData, uint32_t maxValue) : cancel(false), m_category(category), m_func(func), m_userData(userData), m_value(0), m_maxValue(maxValue), m_percent(0)
 	{
 		if (m_func) {
 			if (!m_func(category, 0, userData))
@@ -3108,7 +3108,7 @@ private:
 		}
 	}
 
-	ProgressCategory::Enum m_category;
+	ProgressCategory m_category;
 	ProgressFunc m_func;
 	void *m_userData;
 	std::atomic<uint32_t> m_value, m_maxValue, m_percent;
@@ -7261,7 +7261,7 @@ public:
 	}
 
 	bool isInvalid() const { return m_isInvalid; }
-	ChartType::Enum type() const { return m_type; }
+	ChartType type() const { return m_type; }
 	segment::ChartGeneratorType::Enum generatorType() const { return m_generatorType; }
 	uint32_t tjunctionCount() const { return m_tjunctionCount; }
 	const Quality &quality() const { return m_quality; }
@@ -7388,7 +7388,7 @@ private:
 
 	Basis m_basis;
 	Mesh *m_unifiedMesh;
-	ChartType::Enum m_type;
+	ChartType m_type;
 	segment::ChartGeneratorType::Enum m_generatorType;
 	uint32_t m_tjunctionCount;
 
@@ -9030,7 +9030,7 @@ static internal::Vector2 DecodeUv(const MeshDecl &meshDecl, uint32_t index)
 	return *((const internal::Vector2 *)&((const uint8_t *)meshDecl.vertexUvData)[meshDecl.vertexUvStride * index]);
 }
 
-static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, int32_t offset, uint32_t i)
+static uint32_t DecodeIndex(IndexFormat format, const void *indexData, int32_t offset, uint32_t i)
 {
 	XA_DEBUG_ASSERT(indexData);
 	if (format == IndexFormat::UInt16)
@@ -9038,7 +9038,7 @@ static uint32_t DecodeIndex(IndexFormat::Enum format, const void *indexData, int
 	return uint32_t((int32_t)((const uint32_t *)indexData)[i] + offset);
 }
 
-AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountHint)
+AddMeshError AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountHint)
 {
 	XA_DEBUG_ASSERT(atlas);
 	if (!atlas) {
@@ -9276,7 +9276,7 @@ void AddMeshJoin(Atlas *atlas)
 	}
 }
 
-AddMeshError::Enum AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
+AddMeshError AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 {
 	XA_DEBUG_ASSERT(atlas);
 	if (!atlas) {
@@ -9926,7 +9926,7 @@ void SetPrint(PrintFunc print, bool verbose)
 	internal::s_printVerbose = verbose;
 }
 
-const char *StringForEnum(AddMeshError::Enum error)
+const char *StringForEnum(AddMeshError error)
 {
 	if (error == AddMeshError::Error)
 		return "Unspecified error";
@@ -9939,7 +9939,7 @@ const char *StringForEnum(AddMeshError::Enum error)
 	return "Success";
 }
 
-const char *StringForEnum(ProgressCategory::Enum category)
+const char *StringForEnum(ProgressCategory category)
 {
 	if (category == ProgressCategory::AddMesh)
 		return "Adding mesh(es)";

@@ -102,7 +102,7 @@ static void PrintProgress(const char *name, const char *indent1, const char *ind
 		printf("\n%s%.2f seconds (%g ms) elapsed\n", indent2, stopwatch->elapsed() / 1000.0, stopwatch->elapsed());
 }
 
-static bool ProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void *userData)
+static bool ProgressCallback(xatlas::ProgressCategory category, int progress, void *userData)
 {
 	Stopwatch *stopwatch = (Stopwatch *)userData;
 	PrintProgress(xatlas::StringForEnum(category), "   ", "      ", progress, stopwatch);
@@ -285,7 +285,7 @@ int main(int argc, char *argv[])
 			meshDecl.faceCount = (uint32_t)objMesh.num_vertices.size();
 		}
 #endif
-		xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, meshDecl, (uint32_t)shapes.size());
+		xatlas::AddMeshError error = xatlas::AddMesh(atlas, meshDecl, (uint32_t)shapes.size());
 		if (error != xatlas::AddMeshError::Success) {
 			xatlas::Destroy(atlas);
 			printf("\rError adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));

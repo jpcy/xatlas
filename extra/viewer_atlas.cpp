@@ -109,14 +109,14 @@ struct AtlasStatus
 		m_value = value;
 	}
 
-	void getProgress(xatlas::ProgressCategory::Enum *category, int *progress)
+	void getProgress(xatlas::ProgressCategory *category, int *progress)
 	{
 		std::mutex_lock lock(m_lock);
 		*category = m_category;
 		*progress = m_progress;
 	}
 
-	void setProgress(xatlas::ProgressCategory::Enum category, int progress)
+	void setProgress(xatlas::ProgressCategory category, int progress)
 	{
 		std::mutex_lock lock(m_lock);
 		m_category = category;
@@ -139,7 +139,7 @@ private:
 	std::mutex m_lock;
 	Enum m_value = NotGenerated;
 	bool m_cancel = false;
-	xatlas::ProgressCategory::Enum m_category = xatlas::ProgressCategory::AddMesh;
+	xatlas::ProgressCategory m_category = xatlas::ProgressCategory::AddMesh;
 	int m_progress = 0;
 };
 
@@ -278,7 +278,7 @@ void atlasDestroy()
 	s_atlas.status.set(AtlasStatus::NotGenerated);
 }
 
-static bool atlasProgressCallback(xatlas::ProgressCategory::Enum category, int progress, void * /*userData*/)
+static bool atlasProgressCallback(xatlas::ProgressCategory category, int progress, void * /*userData*/)
 {
 	s_atlas.status.setProgress(category, progress);
 	if (s_atlas.status.getCancel())
@@ -431,7 +431,7 @@ static void atlasGenerateThread()
 						ignoreFaces[(mesh.firstIndex - object.firstIndex) / 3 + k] = true;
 				}
 			}
-			xatlas::AddMeshError::Enum error;
+			xatlas::AddMeshError error;
 			if (s_atlas.useUvMesh)
 			{
 				// Set face materials so charts are detected correctly with overlapping UVs.
@@ -921,7 +921,7 @@ void atlasShowGuiOptions()
 	const ImVec2 resetButtonSize(ImVec2(ImGui::GetContentRegionAvailWidth() * 0.45f, 0.0f));
 	if (s_atlas.status.get() == AtlasStatus::Generating) {
 		int progress;
-		xatlas::ProgressCategory::Enum category;
+		xatlas::ProgressCategory category;
 		s_atlas.status.getProgress(&category, &progress);
 		ImGui::AlignTextToFramePadding();
 		ImGui::Text("%s", xatlas::StringForEnum(category));

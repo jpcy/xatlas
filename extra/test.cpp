@@ -97,7 +97,7 @@ bool generateAtlas(const char *filename, bool useUvMesh, AtlasResult *result)
 			} else {
 				missingUvsCount++;
 			}
-			xatlas::AddMeshError::Enum error = xatlas::AddUvMesh(atlas, decl);
+			xatlas::AddMeshError error = xatlas::AddUvMesh(atlas, decl);
 			if (error != xatlas::AddMeshError::Success) {
 				xatlas::Destroy(atlas);
 				logf("   [FAILED]: Error adding UV mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
@@ -119,7 +119,7 @@ bool generateAtlas(const char *filename, bool useUvMesh, AtlasResult *result)
 			decl.indexCount = (int)objMesh.indices.size();
 			decl.indexData = objMesh.indices.data();
 			decl.indexFormat = xatlas::IndexFormat::UInt32;
-			xatlas::AddMeshError::Enum error = xatlas::AddMesh(atlas, decl);
+			xatlas::AddMeshError error = xatlas::AddMesh(atlas, decl);
 			if (error != xatlas::AddMeshError::Success) {
 				xatlas::Destroy(atlas);
 				logf("   [FAILED]: Error adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
