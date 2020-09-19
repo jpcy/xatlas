@@ -2090,7 +2090,7 @@ public:
 			for (uint32_t i = 0; i < count; i++) {
 				floatFlip((uint32_t &)input[i]);
 			}
-			radixSort<uint32_t>((const uint32_t *)input, count);
+			radixSort((const uint32_t *)input, count);
 			for (uint32_t i = 0; i < count; i++) {
 				ifloatFlip((uint32_t &)input[i]);
 			}
@@ -2126,36 +2126,26 @@ private:
 		f ^= mask;
 	}
 
-	template<typename T>
-	void createHistograms(const T *buffer, uint32_t count, uint32_t *histogram)
+	void createHistograms(const uint32_t *buffer, uint32_t count, uint32_t *histogram)
 	{
-		const uint32_t bucketCount = sizeof(T); // (8 * sizeof(T)) / log2(radix)
+		const uint32_t bucketCount = sizeof(uint32_t);
 		// Init bucket pointers.
 		uint32_t *h[bucketCount];
 		for (uint32_t i = 0; i < bucketCount; i++) {
 			h[i] = histogram + 256 * i;
 		}
 		// Clear histograms.
-		memset(histogram, 0, 256 * bucketCount * sizeof(uint32_t ));
+		memset(histogram, 0, 256 * bucketCount * sizeof(uint32_t));
 		// @@ Add support for signed integers.
 		// Build histograms.
 		const uint8_t *p = (const uint8_t *)buffer;  // @@ Does this break aliasing rules?
-		const uint8_t *pe = p + count * sizeof(T);
+		const uint8_t *pe = p + count * sizeof(uint32_t);
 		while (p != pe) {
 			h[0][*p++]++, h[1][*p++]++, h[2][*p++]++, h[3][*p++]++;
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4127)
-#endif
-			if (bucketCount == 8) h[4][*p++]++, h[5][*p++]++, h[6][*p++]++, h[7][*p++]++;
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
 		}
 	}
 
-	template <typename T>
-	void insertionSort(const T *input, uint32_t count)
+	void insertionSort(const float *input, uint32_t count)
 	{
 		if (!m_validRanks) {
 			m_ranks[0] = 0;
@@ -2186,10 +2176,9 @@ private:
 		}
 	}
 
-	template <typename T>
-	void radixSort(const T *input, uint32_t count)
+	void radixSort(const uint32_t *input, uint32_t count)
 	{
-		const uint32_t P = sizeof(T); // pass count
+		const uint32_t P = sizeof(uint32_t); // pass count
 		// Allocate histograms & offsets on the stack
 		uint32_t histogram[256 * P];
 		uint32_t *link[256];
@@ -2198,7 +2187,7 @@ private:
 		for (uint32_t j = 0; j < P; j++) {
 			// Pointer to this bucket.
 			const uint32_t *h = &histogram[j * 256];
-			const uint8_t *inputBytes = (const uint8_t *)input; // @@ Is this aliasing legal?
+			auto inputBytes = (const uint8_t *)input; // @@ Is this aliasing legal?
 			inputBytes += j;
 			if (h[inputBytes[0]] == count) {
 				// Skip this pass, all values are the same.
