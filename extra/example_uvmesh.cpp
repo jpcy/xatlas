@@ -257,14 +257,19 @@ int main(int argc, char *argv[])
 			const uint8_t white[] = { 255, 255, 255 };
 			for (uint32_t j = 0; j < mesh.indexCount; j += 3) {
 				int32_t atlasIndex = -1;
+				bool skip = false;
 				int verts[3][2];
 				for (int k = 0; k < 3; k++) {
 					const xatlas::Vertex &v = mesh.vertexArray[mesh.indexArray[j + k]];
-					atlasIndex = v.atlasIndex; // The same for every vertex in the triangle.
+					if (v.atlasIndex == -1) {
+						skip = true;
+						break;
+					}
+					atlasIndex = v.atlasIndex;
 					verts[k][0] = int(v.uv[0]);
 					verts[k][1] = int(v.uv[1]);
 				}
-				if (atlasIndex < 0)
+				if (skip)
 					continue; // Skip triangles that weren't atlased.
 				uint8_t color[3];
 				RandomColor(color);
