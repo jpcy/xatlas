@@ -78,34 +78,30 @@ static int Print(const char *format, ...)
 {
 	va_list arg;
 	va_start(arg, format);
-	printf("\r"); // Clear progress text (PrintProgress).
+	printf("\r"); // Clear progress text.
 	const int result = vprintf(format, arg);
 	va_end(arg);
 	return result;
 }
 
 // May be called from any thread.
-static void PrintProgress(const char *name, const char *indent1, const char *indent2, int progress, Stopwatch *stopwatch)
+static bool ProgressCallback(xatlas::ProgressCategory category, int progress, void *userData)
 {
+	// Don't interupt verbose printing.
 	if (s_verbose)
-		return;
+		return true;
+	Stopwatch *stopwatch = (Stopwatch *)userData;
 	static std::mutex progressMutex;
 	std::unique_lock<std::mutex> lock(progressMutex);
 	if (progress == 0)
 		stopwatch->reset();
-	printf("\r%s%s [", indent1, name);
+	printf("\r   %s [", xatlas::StringForEnum(category));
 	for (int i = 0; i < 10; i++)
 		printf(progress / ((i + 1) * 10) ? "*" : " ");
 	printf("] %d%%", progress);
 	fflush(stdout);
 	if (progress == 100)
-		printf("\n%s%.2f seconds (%g ms) elapsed\n", indent2, stopwatch->elapsed() / 1000.0, stopwatch->elapsed());
-}
-
-static bool ProgressCallback(xatlas::ProgressCategory category, int progress, void *userData)
-{
-	Stopwatch *stopwatch = (Stopwatch *)userData;
-	PrintProgress(xatlas::StringForEnum(category), "   ", "      ", progress, stopwatch);
+		printf("\n      %.2f seconds (%g ms) elapsed\n", stopwatch->elapsed() / 1000.0, stopwatch->elapsed());
 	return true;
 }
 

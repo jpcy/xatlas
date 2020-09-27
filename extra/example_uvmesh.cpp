@@ -74,34 +74,30 @@ static int Print(const char *format, ...)
 {
 	va_list arg;
 	va_start(arg, format);
-	printf("\r"); // Clear progress text (PrintProgress).
+	printf("\r"); // Clear progress text.
 	const int result = vprintf(format, arg);
 	va_end(arg);
 	return result;
 }
 
 // May be called from any thread.
-static void PrintProgress(const char *name, const char *indent1, const char *indent2, int progress, Stopwatch *stopwatch)
+static bool ProgressCallback(xatlas::ProgressCategory category, int progress, void *userData)
 {
+	// Don't interupt verbose printing.
 	if (s_verbose)
-		return;
+		return true;
+	Stopwatch *stopwatch = (Stopwatch *)userData;
 	static std::mutex progressMutex;
 	std::unique_lock<std::mutex> lock(progressMutex);
 	if (progress == 0)
 		stopwatch->reset();
-	printf("\r%s%s [", indent1, name);
+	printf("\r   %s [", xatlas::StringForEnum(category));
 	for (int i = 0; i < 10; i++)
 		printf(progress / ((i + 1) * 10) ? "*" : " ");
 	printf("] %d%%", progress);
 	fflush(stdout);
 	if (progress == 100)
-		printf("\n%s%.2f seconds (%g ms) elapsed\n", indent2, stopwatch->elapsed() / 1000.0, stopwatch->elapsed());
-}
-
-static bool ProgressCallback(xatlas::ProgressCategory category, int progress, void *userData)
-{
-	Stopwatch *stopwatch = (Stopwatch *)userData;
-	PrintProgress(xatlas::StringForEnum(category), "   ", "      ", progress, stopwatch);
+		printf("\n      %.2f seconds (%g ms) elapsed\n", stopwatch->elapsed() / 1000.0, stopwatch->elapsed());
 	return true;
 }
 
@@ -211,8 +207,6 @@ int main(int argc, char *argv[])
 	xatlas::SetProgressCallback(atlas, ProgressCallback, &stopwatch);
 	// Add meshes to atlas.
 	// Add 10 copies of the same model.
-	int progress = 0;
-	PrintProgress("Adding meshes", "", "   ", 0, &stopwatch);
 	uint32_t totalVertices = 0, totalFaces = 0;
 	const int n = 10;
 	for (int i = 0; i < n; i++) {
@@ -234,16 +228,8 @@ int main(int argc, char *argv[])
 			}
 			totalVertices += meshDecl.vertexCount;
 			totalFaces += meshDecl.indexCount / 3;
-			const int newProgress = int(((i + 1) / (float)n) * ((s + 1) / (float)shapes.size()) * 100.0f);
-			if (newProgress != progress)
-			{
-				progress = newProgress;
-				PrintProgress("Adding meshes", "", "   ", progress, &stopwatch);
-			}
 		}
 	}
-	if (progress != 100)
-		PrintProgress("Adding meshes", "", "   ", 100, &stopwatch);
 	printf("   %u total vertices\n", totalVertices);
 	printf("   %u total triangles\n", totalFaces);
 	// Compute charts.
