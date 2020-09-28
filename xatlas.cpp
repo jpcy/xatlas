@@ -2237,13 +2237,11 @@ public:
 	}
 
 	// This should compute convex hull and use rotating calipers to find the best box. Currently it uses a brute force method.
-	// If vertices is null or vertexCount is 0, the boundary vertices are used.
-	void compute(const Vector2 *vertices = nullptr, uint32_t vertexCount = 0)
+	// If vertices are empty, the boundary vertices are used.
+	void compute(ConstArrayView<Vector2> vertices = ConstArrayView<Vector2>())
 	{
-		if (!vertices || vertexCount == 0) {
-			vertices = m_boundaryVertices.data();
-			vertexCount = m_boundaryVertices.size();
-		}
+		if (vertices.length == 0)
+			vertices = m_boundaryVertices;
 		convexHull(m_boundaryVertices.data(), m_boundaryVertices.size(), m_hull, 0.00001f);
 		// @@ Ideally I should use rotating calipers to find the best box. Using brute force for now.
 		float best_area = FLT_MAX;
@@ -2260,7 +2258,7 @@ public:
 			Vector2 box_min(FLT_MAX, FLT_MAX);
 			Vector2 box_max(-FLT_MAX, -FLT_MAX);
 			// Consider all points, not only boundary points, in case the input chart is malformed.
-			for (uint32_t v = 0; v < vertexCount; v++) {
+			for (uint32_t v = 0; v < vertices.length; v++) {
 				const Vector2 &point = vertices[v];
 				const float x = dot(axis, point);
 				const float y = dot(Vector2(-axis.y, axis.x), point);
@@ -8134,7 +8132,7 @@ static void runAddChartTask(void *groupUserData, void *taskUserData)
 		if (mesh->isBoundaryVertex(v))
 			bb.appendBoundaryVertex(mesh->texcoord(v));
 	}
-	bb.compute(mesh->texcoords().data, mesh->vertexCount());
+	bb.compute(((const Mesh *)mesh)->texcoords());
 	chart->majorAxis = bb.majorAxis;
 	chart->minorAxis = bb.minorAxis;
 	chart->minCorner = bb.minCorner;
