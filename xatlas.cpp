@@ -1241,6 +1241,7 @@ struct ConstArrayView
 {
 	ConstArrayView() : data(nullptr), length(0) {}
 	ConstArrayView(const Array<T> &a) : data(a.data()), length(a.size()) {}
+	ConstArrayView(ArrayView<T> av) : data(av.data), length(av.length) {}
 	ConstArrayView(const T *_data, uint32_t _length) : data(_data), length(_length) {}
 	ConstArrayView &operator=(const Array<T> &a) { data = a.data(); length = a.size(); return *this; }
 	XA_INLINE const T &operator[](uint32_t index) const { XA_DEBUG_ASSERT(index < length); return data[index]; }
@@ -8076,12 +8077,10 @@ struct Chart
 {
 	int32_t atlasIndex;
 	uint32_t material;
-	uint32_t indexCount;
-	const uint32_t *indices;
+	ConstArrayView<uint32_t> indices;
 	float parametricArea;
 	float surfaceArea;
-	Vector2 *vertices;
-	uint32_t vertexCount;
+	ArrayView<Vector2> vertices;
 	Array<uint32_t> uniqueVertices;
 	// bounding box
 	Vector2 majorAxis, minorAxis, minCorner, maxCorner;
@@ -8091,7 +8090,7 @@ struct Chart
 	Array<uint32_t> faces;
 
 	Vector2 &uniqueVertexAt(uint32_t v) { return uniqueVertices.isEmpty() ? vertices[v] : vertices[uniqueVertices[v]]; }
-	uint32_t uniqueVertexCount() const { return uniqueVertices.isEmpty() ? vertexCount : uniqueVertices.size(); }
+	uint32_t uniqueVertexCount() const { return uniqueVertices.isEmpty() ? vertices.length : uniqueVertices.size(); }
 };
 
 struct AddChartTaskArgs
@@ -8113,8 +8112,7 @@ static void runAddChartTask(void *groupUserData, void *taskUserData)
 	Chart *chart = args->chart = XA_NEW(MemTag::Default, Chart);
 	chart->atlasIndex = -1;
 	chart->material = 0;
-	chart->indexCount = mesh->indexCount();
-	chart->indices = mesh->indices().data;
+	chart->indices = mesh->indices();
 	chart->parametricArea = mesh->computeParametricArea();
 	if (chart->parametricArea < kAreaEpsilon) {
 		// When the parametric area is too small we use a rough approximation to prevent divisions by very small numbers.
@@ -8122,17 +8120,16 @@ static void runAddChartTask(void *groupUserData, void *taskUserData)
 		chart->parametricArea = bounds.x * bounds.y;
 	}
 	chart->surfaceArea = mesh->computeSurfaceArea();
-	chart->vertices = mesh->texcoords().data;
-	chart->vertexCount = mesh->vertexCount();
+	chart->vertices = mesh->texcoords();
 	chart->boundaryEdges = &mesh->boundaryEdges();
 	// Compute bounding box of chart.
 	BoundingBox2D &bb = boundingBox->get();
 	bb.clear();
-	for (uint32_t v = 0; v < chart->vertexCount; v++) {
+	for (uint32_t v = 0; v < chart->vertices.length; v++) {
 		if (mesh->isBoundaryVertex(v))
 			bb.appendBoundaryVertex(mesh->texcoord(v));
 	}
-	bb.compute(((const Mesh *)mesh)->texcoords());
+	bb.compute(mesh->texcoords());
 	chart->majorAxis = bb.majorAxis;
 	chart->minorAxis = bb.minorAxis;
 	chart->minCorner = bb.minCorner;
@@ -8221,16 +8218,14 @@ struct Atlas
 			Chart *chart = XA_NEW(MemTag::Default, Chart);
 			chart->atlasIndex = -1;
 			chart->material = uvChart->material;
-			chart->indexCount = uvChart->indices.size();
-			chart->indices = uvChart->indices.data();
-			chart->vertices = mesh->texcoords.data();
-			chart->vertexCount = mesh->texcoords.size();
+			chart->indices = uvChart->indices;
+			chart->vertices = mesh->texcoords;
 			chart->boundaryEdges = nullptr;
 			chart->faces.resize(uvChart->faces.size());
 			memcpy(chart->faces.data(), uvChart->faces.data(), sizeof(uint32_t) * uvChart->faces.size());
 			// Find unique vertices.
 			vertexUsed.zeroOutMemory();
-			for (uint32_t i = 0; i < chart->indexCount; i++) {
+			for (uint32_t i = 0; i < chart->indices.length; i++) {
 				const uint32_t vertex = chart->indices[i];
 				if (!vertexUsed.get(vertex)) {
 					vertexUsed.set(vertex);
@@ -8239,7 +8234,7 @@ struct Atlas
 			}
 			// Compute parametric and surface areas.
 			chart->parametricArea = 0.0f;
-			for (uint32_t f = 0; f < chart->indexCount / 3; f++) {
+			for (uint32_t f = 0; f < chart->indices.length / 3; f++) {
 				const Vector2 &v1 = chart->vertices[chart->indices[f * 3 + 0]];
 				const Vector2 &v2 = chart->vertices[chart->indices[f * 3 + 1]];
 				const Vector2 &v3 = chart->vertices[chart->indices[f * 3 + 2]];
@@ -8453,7 +8448,7 @@ struct Atlas
 					chartImageBilinearRotated.resize(chartImage.height(), chartImage.width(), true);
 			}
 			// Rasterize chart faces.
-			const uint32_t faceCount = chart->indexCount / 3;
+			const uint32_t faceCount = chart->indices.length / 3;
 			for (uint32_t f = 0; f < faceCount; f++) {
 				Vector2 vertices[3];
 				for (uint32_t v = 0; v < 3; v++)
@@ -8792,13 +8787,13 @@ private:
 
 	void bilinearExpand(const Chart *chart, BitImage *source, BitImage *dest, BitImage *destRotated, UniformGrid2 &boundaryEdgeGrid) const
 	{
-		boundaryEdgeGrid.reset(ConstArrayView<Vector2>(chart->vertices, chart->vertexCount), ConstArrayView<uint32_t>(chart->indices, chart->indexCount));
+		boundaryEdgeGrid.reset(chart->vertices, chart->indices);
 		if (chart->boundaryEdges) {
 			const uint32_t edgeCount = chart->boundaryEdges->size();
 			for (uint32_t i = 0; i < edgeCount; i++)
 				boundaryEdgeGrid.append((*chart->boundaryEdges)[i]);
 		} else {
-			for (uint32_t i = 0; i < chart->indexCount; i++)
+			for (uint32_t i = 0; i < chart->indices.length; i++)
 				boundaryEdgeGrid.append(i);
 		}
 		const int xOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
