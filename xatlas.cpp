@@ -2243,7 +2243,7 @@ public:
 	{
 		if (vertices.length == 0)
 			vertices = m_boundaryVertices;
-		convexHull(m_boundaryVertices.data(), m_boundaryVertices.size(), m_hull, 0.00001f);
+		convexHull(m_boundaryVertices, m_hull, 0.00001f);
 		// @@ Ideally I should use rotating calipers to find the best box. Using brute force for now.
 		float best_area = FLT_MAX;
 		Vector2 best_min(0);
@@ -2286,28 +2286,28 @@ public:
 
 private:
 	// Compute the convex hull using Graham Scan.
-	void convexHull(const Vector2 *input, uint32_t inputCount, Array<Vector2> &output, float epsilon)
+	void convexHull(ConstArrayView<Vector2> input, Array<Vector2> &output, float epsilon)
 	{
-		m_coords.resize(inputCount);
-		for (uint32_t i = 0; i < inputCount; i++)
+		m_coords.resize(input.length);
+		for (uint32_t i = 0; i < input.length; i++)
 			m_coords[i] = input[i].x;
 		m_radix.sort(m_coords);
 		const uint32_t *ranks = m_radix.ranks();
 		m_top.clear();
 		m_bottom.clear();
-		m_top.reserve(inputCount);
-		m_bottom.reserve(inputCount);
+		m_top.reserve(input.length);
+		m_bottom.reserve(input.length);
 		Vector2 P = input[ranks[0]];
-		Vector2 Q = input[ranks[inputCount - 1]];
+		Vector2 Q = input[ranks[input.length - 1]];
 		float topy = max(P.y, Q.y);
 		float boty = min(P.y, Q.y);
-		for (uint32_t i = 0; i < inputCount; i++) {
+		for (uint32_t i = 0; i < input.length; i++) {
 			Vector2 p = input[ranks[i]];
 			if (p.y >= boty)
 				m_top.push_back(p);
 		}
-		for (uint32_t i = 0; i < inputCount; i++) {
-			Vector2 p = input[ranks[inputCount - 1 - i]];
+		for (uint32_t i = 0; i < input.length; i++) {
+			Vector2 p = input[ranks[input.length - 1 - i]];
 			if (p.y <= topy)
 				m_bottom.push_back(p);
 		}
@@ -3458,12 +3458,12 @@ struct Triangulator
 {
 	// This is doing a simple ear-clipping algorithm that skips invalid triangles. Ideally, we should
 	// also sort the ears by angle, start with the ones that have the smallest angle and proceed in order.
-	void triangulatePolygon(ConstArrayView<Vector3> vertices, uint32_t *inputIndices, uint32_t inputIndexCount, Array<uint32_t> &outputIndices)
+	void triangulatePolygon(ConstArrayView<Vector3> vertices, ConstArrayView<uint32_t> inputIndices, Array<uint32_t> &outputIndices)
 	{
 		m_polygonVertices.clear();
-		m_polygonVertices.reserve(inputIndexCount);
+		m_polygonVertices.reserve(inputIndices.length);
 		outputIndices.clear();
-		if (inputIndexCount == 3) {
+		if (inputIndices.length == 3) {
 			// Simple case for triangles.
 			outputIndices.push_back(inputIndices[0]);
 			outputIndices.push_back(inputIndices[1]);
@@ -3477,12 +3477,12 @@ struct Triangulator
 			basis.normal = normalize(cross(vertices[inputIndices[1]] - vertices[inputIndices[0]], vertices[inputIndices[2]] - vertices[inputIndices[1]]));
 			basis.tangent = basis.computeTangent(basis.normal);
 			basis.bitangent = basis.computeBitangent(basis.normal, basis.tangent);
-			const uint32_t edgeCount = inputIndexCount;
+			const uint32_t edgeCount = inputIndices.length;
 			m_polygonPoints.clear();
 			m_polygonPoints.reserve(edgeCount);
 			m_polygonAngles.clear();
 			m_polygonAngles.reserve(edgeCount);
-			for (uint32_t i = 0; i < inputIndexCount; i++) {
+			for (uint32_t i = 0; i < inputIndices.length; i++) {
 				m_polygonVertices.push_back(inputIndices[i]);
 				const Vector3 &pos = vertices[inputIndices[i]];
 				m_polygonPoints.push_back(Vector2(dot(basis.tangent, pos), dot(basis.bitangent, pos)));
@@ -6581,7 +6581,7 @@ struct PiecewiseParam
 	}
 
 	ConstArrayView<uint32_t> chartFaces() const { return m_patch; }
-	const Vector2 *texcoords() const { return m_texcoords.data(); }
+	ConstArrayView<Vector2> texcoords() const { return m_texcoords; }
 
 	bool computeChart()
 	{
@@ -7192,7 +7192,7 @@ public:
 #endif
 	}
 
-	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, const Vector2 *texcoords, const Mesh *sourceMesh) : m_unifiedMesh(nullptr), m_type(ChartType::Piecewise), m_generatorType(segment::ChartGeneratorType::Piecewise), m_tjunctionCount(0), m_originalVertexCount(0), m_isInvalid(false)
+	Chart(ChartCtorBuffers &buffers, const Chart *parent, const Mesh *parentMesh, ConstArrayView<uint32_t> faces, ConstArrayView<Vector2> texcoords, const Mesh *sourceMesh) : m_unifiedMesh(nullptr), m_type(ChartType::Piecewise), m_generatorType(segment::ChartGeneratorType::Piecewise), m_tjunctionCount(0), m_originalVertexCount(0), m_isInvalid(false)
 	{
 		const uint32_t faceCount = faces.length;
 		m_faceToSourceFaceMap.resize(faceCount);
@@ -7267,7 +7267,7 @@ public:
 
 	uint32_t originalVertexToUnifiedVertex(uint32_t v) const { return m_chartVertexToUnifiedVertexMap[v]; }
 
-	const uint32_t *originalVertices() const { return m_originalIndices.data(); }
+	ConstArrayView<uint32_t> originalVertices() const { return m_originalIndices; }
 
 	void parameterize(const ChartOptions &options, UniformGrid2 &boundaryGrid)
 	{
@@ -9164,7 +9164,7 @@ AddMeshError AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountH
 			triIndices.push_back(polygon[1]);
 			triIndices.push_back(polygon[2]);
 		} else {
-			triangulator.triangulatePolygon(mesh->positions(), polygon, faceVertexCount, triIndices);
+			triangulator.triangulatePolygon(mesh->positions(), internal::ConstArrayView<uint32_t>(polygon, faceVertexCount), triIndices);
 		}
 		// Check for zero area faces.
 		if (!ignore) {
