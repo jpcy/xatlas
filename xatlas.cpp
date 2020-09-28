@@ -3555,7 +3555,8 @@ private:
 class UniformGrid2
 {
 public:
-	void reset(const Vector2 *positions, const uint32_t *indices = nullptr, uint32_t reserveEdgeCount = 0)
+	// indices are optional.
+	void reset(ConstArrayView<Vector2> positions, ConstArrayView<uint32_t> indices = ConstArrayView<uint32_t>(), uint32_t reserveEdgeCount = 0)
 	{
 		m_edges.clear();
 		if (reserveEdgeCount > 0)
@@ -3843,12 +3844,12 @@ private:
 
 	uint32_t vertexAt(uint32_t index) const
 	{
-		return m_indices ? m_indices[index] : index;
+		return m_indices.length > 0 ? m_indices[index] : index;
 	}
 
 	Array<uint32_t> m_edges;
-	const Vector2 *m_positions;
-	const uint32_t *m_indices; // Optional
+	ConstArrayView<Vector2> m_positions;
+	ConstArrayView<uint32_t> m_indices; // Optional. Empty if unused.
 	float m_cellSize;
 	Vector2 m_gridOrigin;
 	uint32_t m_gridWidth, m_gridHeight; // in cells
@@ -5712,7 +5713,7 @@ private:
 		// Check for boundary intersection in the parameterization.
 		XA_PROFILE_START(clusteredChartsPlaceSeedsBoundaryIntersection)
 		XA_PROFILE_START(clusteredChartsGrowBoundaryIntersection)
-		m_boundaryGrid.reset(m_texcoords.data());
+		m_boundaryGrid.reset(m_texcoords);
 		for (uint32_t i = 0; i < faceCount; i++) {
 			const uint32_t f = chart->faces[i];
 			for (uint32_t j = 0; j < 3; j++) {
@@ -6609,7 +6610,7 @@ struct PiecewiseParam
 			}
 			addFaceToPatch(seed);
 			// Initialize the boundary grid.
-			m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices().data);
+			m_boundaryGrid.reset(m_texcoords, m_mesh->indices());
 			for (Mesh::FaceEdgeIterator it(m_mesh, seed); !it.isDone(); it.advance())
 				m_boundaryGrid.append(it.edge());
 			break;
@@ -6698,7 +6699,7 @@ struct PiecewiseParam
 				removeLinkedCandidates(bestCandidate);
 				// Reset the grid with all edges on the patch boundary.
 				XA_PROFILE_START(parameterizeChartsPiecewiseBoundaryIntersection)
-				m_boundaryGrid.reset(m_texcoords.data(), m_mesh->indices().data);
+				m_boundaryGrid.reset(m_texcoords, m_mesh->indices());
 				for (uint32_t i = 0; i < m_patch.size(); i++) {
 					for (Mesh::FaceEdgeIterator it(m_mesh, m_patch[i]); !it.isDone(); it.advance()) {
 						const uint32_t oface = it.oppositeFace();
@@ -6983,7 +6984,7 @@ struct Quality
 	{
 		const Array<uint32_t> &boundaryEdges = mesh->boundaryEdges();
 		const uint32_t boundaryEdgeCount = boundaryEdges.size();
-		boundaryGrid.reset(mesh->texcoords().data, mesh->indices().data, boundaryEdgeCount);
+		boundaryGrid.reset(mesh->texcoords(), mesh->indices(), boundaryEdgeCount);
 		for (uint32_t i = 0; i < boundaryEdgeCount; i++)
 			boundaryGrid.append(boundaryEdges[i]);
 		boundaryIntersection = boundaryGrid.intersect(mesh->epsilon());
@@ -8793,7 +8794,7 @@ private:
 
 	void bilinearExpand(const Chart *chart, BitImage *source, BitImage *dest, BitImage *destRotated, UniformGrid2 &boundaryEdgeGrid) const
 	{
-		boundaryEdgeGrid.reset(chart->vertices, chart->indices);
+		boundaryEdgeGrid.reset(ConstArrayView<Vector2>(chart->vertices, chart->vertexCount), ConstArrayView<uint32_t>(chart->indices, chart->indexCount));
 		if (chart->boundaryEdges) {
 			const uint32_t edgeCount = chart->boundaryEdges->size();
 			for (uint32_t i = 0; i < edgeCount; i++)
