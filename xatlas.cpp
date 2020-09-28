@@ -1595,14 +1595,14 @@ private:
 
 struct Fit
 {
-	static bool computeBasis(const Vector3 *points, uint32_t pointsCount, Basis *basis)
+	static bool computeBasis(ConstArrayView<Vector3> points, Basis *basis)
 	{
-		if (computeLeastSquaresNormal(points, pointsCount, &basis->normal)) {
+		if (computeLeastSquaresNormal(points, &basis->normal)) {
 			basis->tangent = Basis::computeTangent(basis->normal);
 			basis->bitangent = Basis::computeBitangent(basis->normal, basis->tangent);
 			return true;
 		}
-		return computeEigen(points, pointsCount, basis);
+		return computeEigen(points, basis);
 	}
 
 private:
@@ -1610,21 +1610,21 @@ private:
 	// Fast, and accurate to within a few degrees.
 	// Returns None if the points do not span a plane.
 	// https://www.ilikebigbits.com/2015_03_04_plane_from_points.html
-	static bool computeLeastSquaresNormal(const Vector3 *points, uint32_t pointsCount, Vector3 *normal)
+	static bool computeLeastSquaresNormal(ConstArrayView<Vector3> points, Vector3 *normal)
 	{
-		XA_DEBUG_ASSERT(pointsCount >= 3);
-		if (pointsCount == 3) {
+		XA_DEBUG_ASSERT(points.length >= 3);
+		if (points.length == 3) {
 			*normal = normalize(cross(points[2] - points[0], points[1] - points[0]));
 			return true;
 		}
-		const float invN = 1.0f / float(pointsCount);
+		const float invN = 1.0f / float(points.length);
 		Vector3 centroid(0.0f);
-		for (uint32_t i = 0; i < pointsCount; i++)
+		for (uint32_t i = 0; i < points.length; i++)
 			centroid += points[i];
 		centroid *= invN;
 		// Calculate full 3x3 covariance matrix, excluding symmetries:
 		float xx = 0.0f, xy = 0.0f, xz = 0.0f, yy = 0.0f, yz = 0.0f, zz = 0.0f;
-		for (uint32_t i = 0; i < pointsCount; i++) {
+		for (uint32_t i = 0; i < points.length; i++) {
 			Vector3 r = points[i] - centroid;
 			xx += r.x * r.x;
 			xy += r.x * r.y;
@@ -1689,10 +1689,10 @@ private:
 		return isNormalized(*normal);
 	}
 
-	static bool computeEigen(const Vector3 *points, uint32_t pointsCount, Basis *basis)
+	static bool computeEigen(ConstArrayView<Vector3> points, Basis *basis)
 	{
 		float matrix[6];
-		computeCovariance(pointsCount, points, matrix);
+		computeCovariance(points, matrix);
 		if (matrix[0] == 0 && matrix[3] == 0 && matrix[5] == 0)
 			return false;
 		float eigenValues[3];
@@ -1705,25 +1705,24 @@ private:
 		return true;
 	}
 
-	static Vector3 computeCentroid(int n, const Vector3 * points)
+	static Vector3 computeCentroid(ConstArrayView<Vector3> points)
 	{
 		Vector3 centroid(0.0f);
-		for (int i = 0; i < n; i++) {
+		for (uint32_t i = 0; i < points.length; i++)
 			centroid += points[i];
-		}
-		centroid /= float(n);
+		centroid /= float(points.length);
 		return centroid;
 	}
 
-	static Vector3 computeCovariance(int n, const Vector3 * points, float * covariance)
+	static Vector3 computeCovariance(ConstArrayView<Vector3> points, float * covariance)
 	{
 		// compute the centroid
-		Vector3 centroid = computeCentroid(n, points);
+		Vector3 centroid = computeCentroid(points);
 		// compute covariance matrix
 		for (int i = 0; i < 6; i++) {
 			covariance[i] = 0.0f;
 		}
-		for (int i = 0; i < n; i++) {
+		for (uint32_t i = 0; i < points.length; i++) {
 			Vector3 v = points[i] - centroid;
 			covariance[0] += v.x * v.x;
 			covariance[1] += v.x * v.y;
@@ -5097,7 +5096,7 @@ struct OriginalUvCharts
 				for (uint32_t i = 0; i < 3; i++)
 					m_tempPoints[f * 3 + i] = m_data.mesh->position(m_data.mesh->vertexAt(face * 3 + i));
 			}
-			Fit::computeBasis(m_tempPoints.data(), m_tempPoints.size(), &m_chartBasis[c]);
+			Fit::computeBasis(m_tempPoints, &m_chartBasis[c]);
 		}
 	}
 
@@ -5672,7 +5671,7 @@ private:
 			for (uint32_t j = 0; j < 3; j++)
 				m_tempPoints[i * 3 + j] = m_data.mesh->position(m_data.mesh->vertexAt(f * 3 + j));
 		}
-		return Fit::computeBasis(m_tempPoints.data(), m_tempPoints.size(), basis);
+		return Fit::computeBasis(m_tempPoints, basis);
 	}
 
 	bool isFaceFlipped(uint32_t face) const
