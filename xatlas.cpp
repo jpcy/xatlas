@@ -2068,9 +2068,9 @@ private:
 class RadixSort
 {
 public:
-	void sort(const float *input, uint32_t count)
+	void sort(ConstArrayView<float> input)
 	{
-		if (input == nullptr || count == 0) {
+		if (input.length == 0) {
 			m_buffer1.clear();
 			m_buffer2.clear();
 			m_ranks = m_buffer1.data();
@@ -2078,28 +2078,23 @@ public:
 			return;
 		}
 		// Resize lists if needed
-		m_buffer1.resize(count);
-		m_buffer2.resize(count);
+		m_buffer1.resize(input.length);
+		m_buffer2.resize(input.length);
 		m_ranks = m_buffer1.data();
 		m_ranks2 = m_buffer2.data();
 		m_validRanks = false;
-		if (count < 32)
-			insertionSort(input, count);
+		if (input.length < 32)
+			insertionSort(input);
 		else {
 			// @@ Avoid touching the input multiple times.
-			for (uint32_t i = 0; i < count; i++) {
+			for (uint32_t i = 0; i < input.length; i++) {
 				floatFlip((uint32_t &)input[i]);
 			}
-			radixSort((const uint32_t *)input, count);
-			for (uint32_t i = 0; i < count; i++) {
+			radixSort(ConstArrayView<uint32_t>((const uint32_t *)input.data, input.length));
+			for (uint32_t i = 0; i < input.length; i++) {
 				ifloatFlip((uint32_t &)input[i]);
 			}
 		}
-	}
-
-	void sort(const Array<float> &input)
-	{
-		sort(input.data(), input.size());
 	}
 
 	// Access to results. m_ranks is a list of indices in sorted order, i.e. in the order you may further process your data
@@ -2126,7 +2121,7 @@ private:
 		f ^= mask;
 	}
 
-	void createHistograms(const uint32_t *buffer, uint32_t count, uint32_t *histogram)
+	void createHistograms(ConstArrayView<uint32_t> input, uint32_t *histogram)
 	{
 		const uint32_t bucketCount = sizeof(uint32_t);
 		// Init bucket pointers.
@@ -2138,18 +2133,18 @@ private:
 		memset(histogram, 0, 256 * bucketCount * sizeof(uint32_t));
 		// @@ Add support for signed integers.
 		// Build histograms.
-		const uint8_t *p = (const uint8_t *)buffer;  // @@ Does this break aliasing rules?
-		const uint8_t *pe = p + count * sizeof(uint32_t);
+		const uint8_t *p = (const uint8_t *)input.data;  // @@ Does this break aliasing rules?
+		const uint8_t *pe = p + input.length * sizeof(uint32_t);
 		while (p != pe) {
 			h[0][*p++]++, h[1][*p++]++, h[2][*p++]++, h[3][*p++]++;
 		}
 	}
 
-	void insertionSort(const float *input, uint32_t count)
+	void insertionSort(ConstArrayView<float> input)
 	{
 		if (!m_validRanks) {
 			m_ranks[0] = 0;
-			for (uint32_t i = 1; i != count; ++i) {
+			for (uint32_t i = 1; i != input.length; ++i) {
 				int rank = m_ranks[i] = i;
 				uint32_t j = i;
 				while (j != 0 && input[rank] < input[m_ranks[j - 1]]) {
@@ -2162,7 +2157,7 @@ private:
 			}
 			m_validRanks = true;
 		} else {
-			for (uint32_t i = 1; i != count; ++i) {
+			for (uint32_t i = 1; i != input.length; ++i) {
 				int rank = m_ranks[i];
 				uint32_t j = i;
 				while (j != 0 && input[rank] < input[m_ranks[j - 1]]) {
@@ -2176,20 +2171,20 @@ private:
 		}
 	}
 
-	void radixSort(const uint32_t *input, uint32_t count)
+	void radixSort(ConstArrayView<uint32_t> input)
 	{
 		const uint32_t P = sizeof(uint32_t); // pass count
 		// Allocate histograms & offsets on the stack
 		uint32_t histogram[256 * P];
 		uint32_t *link[256];
-		createHistograms(input, count, histogram);
+		createHistograms(input, histogram);
 		// Radix sort, j is the pass number (0=LSB, P=MSB)
 		for (uint32_t j = 0; j < P; j++) {
 			// Pointer to this bucket.
 			const uint32_t *h = &histogram[j * 256];
-			auto inputBytes = (const uint8_t *)input; // @@ Is this aliasing legal?
+			auto inputBytes = (const uint8_t *)input.data; // @@ Is this aliasing legal?
 			inputBytes += j;
-			if (h[inputBytes[0]] == count) {
+			if (h[inputBytes[0]] == input.length) {
 				// Skip this pass, all values are the same.
 				continue;
 			}
@@ -2198,12 +2193,12 @@ private:
 			for (uint32_t i = 1; i < 256; i++) link[i] = link[i - 1] + h[i - 1];
 			// Perform Radix Sort
 			if (!m_validRanks) {
-				for (uint32_t i = 0; i < count; i++) {
+				for (uint32_t i = 0; i < input.length; i++) {
 					*link[inputBytes[i * P]]++ = i;
 				}
 				m_validRanks = true;
 			} else {
-				for (uint32_t i = 0; i < count; i++) {
+				for (uint32_t i = 0; i < input.length; i++) {
 					const uint32_t idx = m_ranks[i];
 					*link[inputBytes[idx * P]]++ = idx;
 				}
@@ -2213,7 +2208,7 @@ private:
 		}
 		// All values were equal, generate linear ranks.
 		if (!m_validRanks) {
-			for (uint32_t i = 0; i < count; i++)
+			for (uint32_t i = 0; i < input.length; i++)
 				m_ranks[i] = i;
 			m_validRanks = true;
 		}
