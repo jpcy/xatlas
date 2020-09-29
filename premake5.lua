@@ -94,7 +94,7 @@ project "xatlas"
 	rtti "Off"
 	warnings "Extra"
 	enablewarnings { "shadow" }
-	files { "xatlas.cpp", "xatlas.h" }
+	files { "xatlas.cpp", "xatlas.h", "xatlas_c.h" }
 	sanitizer()
 	
 dofile("extra/projects.lua")

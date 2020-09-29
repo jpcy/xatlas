@@ -34,6 +34,7 @@ MIT License
 Copyright (c) 2012 Brandon Pelfrey
 */
 #include "xatlas.h"
+#include "xatlas_c.h"
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
@@ -9931,3 +9932,113 @@ const char *StringForEnum(ProgressCategory category)
 }
 
 } // namespace xatlas
+
+// C99 API
+
+static_assert(sizeof(xatlas::Chart) == sizeof(xatlasChart), "xatlasChart size mismatch");
+static_assert(sizeof(xatlas::Vertex) == sizeof(xatlasVertex), "xatlasVertex size mismatch");
+static_assert(sizeof(xatlas::Mesh) == sizeof(xatlasMesh), "xatlasMesh size mismatch");
+static_assert(sizeof(xatlas::Atlas) == sizeof(xatlasAtlas), "xatlasAtlas size mismatch");
+static_assert(sizeof(xatlas::MeshDecl) == sizeof(xatlasMeshDecl), "xatlasMeshDecl size mismatch");
+static_assert(sizeof(xatlas::UvMeshDecl) == sizeof(xatlasUvMeshDecl), "xatlasUvMeshDecl size mismatch");
+static_assert(sizeof(xatlas::ChartOptions) == sizeof(xatlasChartOptions), "xatlasChartOptions size mismatch");
+static_assert(sizeof(xatlas::PackOptions) == sizeof(xatlasPackOptions), "xatlasPackOptions size mismatch");
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+xatlasAtlas *xatlasCreate()
+{
+	return (xatlasAtlas *)xatlas::Create();
+}
+
+void xatlasDestroy(xatlasAtlas *atlas)
+{
+	xatlas::Destroy((xatlas::Atlas *)atlas);
+}
+
+xatlasAddMeshError xatlasAddMesh(xatlasAtlas *atlas, const xatlasMeshDecl *meshDecl, uint32_t meshCountHint)
+{
+	return (xatlasAddMeshError)xatlas::AddMesh((xatlas::Atlas *)atlas, *(const xatlas::MeshDecl *)meshDecl, meshCountHint);
+}
+
+void xatlasAddMeshJoin(xatlasAtlas *atlas)
+{
+	xatlas::AddMeshJoin((xatlas::Atlas *)atlas);
+}
+
+xatlasAddMeshError xatlasAddUvMesh(xatlasAtlas *atlas, const xatlasUvMeshDecl *decl)
+{
+	return (xatlasAddMeshError)xatlas::AddUvMesh((xatlas::Atlas *)atlas, *(const xatlas::UvMeshDecl *)decl);
+}
+
+void xatlasComputeCharts(xatlasAtlas *atlas, const xatlasChartOptions *chartOptions)
+{
+	xatlas::ComputeCharts((xatlas::Atlas *)atlas, chartOptions ? *(xatlas::ChartOptions *)chartOptions : xatlas::ChartOptions());
+}
+
+void xatlasPackCharts(xatlasAtlas *atlas, const xatlasPackOptions *packOptions)
+{
+	xatlas::PackCharts((xatlas::Atlas *)atlas, packOptions ? *(xatlas::PackOptions *)packOptions : xatlas::PackOptions());
+}
+
+void xatlasGenerate(xatlasAtlas *atlas, const xatlasChartOptions *chartOptions, const xatlasPackOptions *packOptions)
+{
+	xatlas::Generate((xatlas::Atlas *)atlas, chartOptions ? *(xatlas::ChartOptions *)chartOptions : xatlas::ChartOptions(), packOptions ? *(xatlas::PackOptions *)packOptions : xatlas::PackOptions());
+}
+
+void xatlasSetProgressCallback(xatlasAtlas *atlas, xatlasProgressFunc progressFunc, void *progressUserData)
+{
+	xatlas::ProgressFunc pf;
+	*(void **)&pf = (void *)progressFunc;
+	xatlas::SetProgressCallback((xatlas::Atlas *)atlas, pf, progressUserData);
+}
+
+void xatlasSetAlloc(xatlasReallocFunc reallocFunc, xatlasFreeFunc freeFunc)
+{
+	xatlas::SetAlloc((xatlas::ReallocFunc)reallocFunc, (xatlas::FreeFunc)freeFunc);
+}
+
+void xatlasSetPrint(xatlasPrintFunc print, bool verbose)
+{
+	xatlas::SetPrint((xatlas::PrintFunc)print, verbose);
+}
+
+const char *xatlasAddMeshErrorString(xatlasAddMeshError error)
+{
+	return xatlas::StringForEnum((xatlas::AddMeshError)error);
+}
+
+const char *xatlasProgressCategoryString(xatlasProgressCategory category)
+{
+	return xatlas::StringForEnum((xatlas::ProgressCategory)category);
+}
+
+void xatlasMeshDeclInit(xatlasMeshDecl *meshDecl)
+{
+	xatlas::MeshDecl init;
+	memcpy(meshDecl, &init, sizeof(init));
+}
+
+void xatlasUvMeshDeclInit(xatlasUvMeshDecl *uvMeshDecl)
+{
+	xatlas::UvMeshDecl init;
+	memcpy(uvMeshDecl, &init, sizeof(init));
+}
+
+void xatlasChartOptionsInit(xatlasChartOptions *chartOptions)
+{
+	xatlas::ChartOptions init;
+	memcpy(chartOptions, &init, sizeof(init));
+}
+
+void xatlasPackOptionsInit(xatlasPackOptions *packOptions)
+{
+	xatlas::PackOptions init;
+	memcpy(packOptions, &init, sizeof(init));
+}
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
