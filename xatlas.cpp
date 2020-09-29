@@ -2235,6 +2235,7 @@ public:
 	// If vertices are empty, the boundary vertices are used.
 	void compute(ConstArrayView<Vector2> vertices = ConstArrayView<Vector2>())
 	{
+		XA_DEBUG_ASSERT(!m_boundaryVertices.isEmpty());
 		if (vertices.length == 0)
 			vertices = m_boundaryVertices;
 		convexHull(m_boundaryVertices, m_hull, 0.00001f);
