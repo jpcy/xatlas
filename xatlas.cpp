@@ -33,6 +33,7 @@ https://github.com/brandonpelfrey/Fast-BVH
 MIT License
 Copyright (c) 2012 Brandon Pelfrey
 */
+#include "xatlas.h"
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
@@ -45,7 +46,6 @@ Copyright (c) 2012 Brandon Pelfrey
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include "xatlas.h"
 
 #ifndef XA_DEBUG
 #ifdef NDEBUG
