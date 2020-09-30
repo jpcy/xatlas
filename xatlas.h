@@ -31,6 +31,7 @@ Copyright NVIDIA Corporation 2006 -- Ignacio Castano <icastano@nvidia.com>
 #pragma once
 #ifndef XATLAS_H
 #define XATLAS_H
+#include <stddef.h>
 #include <stdint.h>
 
 namespace xatlas {
