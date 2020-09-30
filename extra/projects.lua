@@ -22,7 +22,21 @@ project "example"
 	sanitizer()
 	files "example.cpp"
 	includedirs(THIRDPARTY_DIR)
-	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
+	links { "stb_image_write", "tiny_obj_loader", "xatlas_static" }
+	filter "action:vs*"
+		files "xatlas.natvis"
+	filter "system:linux"
+		links { "pthread" }
+		
+project "example_c99"
+	kind "ConsoleApp"
+	language "C"
+	cdialect "C99"
+	warnings "Extra"
+	sanitizer()
+	files "example_c99.c"
+	includedirs(THIRDPARTY_DIR)
+	links { "objzero", "xatlas" }
 	filter "action:vs*"
 		files "xatlas.natvis"
 	filter "system:linux"
@@ -38,7 +52,7 @@ project "example_uvmesh"
 	sanitizer()
 	files "example_uvmesh.cpp"
 	includedirs(THIRDPARTY_DIR)
-	links { "stb_image_write", "tiny_obj_loader", "xatlas" }
+	links { "stb_image_write", "tiny_obj_loader", "xatlas_static" }
 	filter "action:vs*"
 		files "xatlas.natvis"
 	filter "system:linux"
@@ -54,7 +68,7 @@ project "test"
 	sanitizer()
 	includedirs(THIRDPARTY_DIR)
 	files "test.cpp"
-	links { "tiny_obj_loader", "xatlas" }
+	links { "tiny_obj_loader", "xatlas_static" }
 	filter "action:vs*"
 		files "xatlas.natvis"
 	filter "system:linux"
@@ -84,7 +98,7 @@ project "viewer"
 		path.join(OIDN_DIR, "include"),
 		OPENFBX_DIR
 	}
-	links { "bgfx", "bimg", "bx", "cgltf", "enkiTS", "glfw", "imgui", "mimalloc", "nativefiledialog", "objzero", "OpenFBX", "stb_image", "stb_image_resize", "xatlas" }
+	links { "bgfx", "bimg", "bx", "cgltf", "enkiTS", "glfw", "imgui", "mimalloc", "nativefiledialog", "objzero", "OpenFBX", "stb_image", "stb_image_resize", "xatlas_static" }
 	filter "system:windows"
 		links { "bcrypt", "gdi32", "ole32", "psapi", "uuid"}
 	filter "system:linux"

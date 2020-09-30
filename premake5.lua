@@ -86,7 +86,7 @@ solution "xatlas"
 	end
 	sanitizer()
 		
-project "xatlas"
+project "xatlas_static"
 	kind "StaticLib"
 	language "C++"
 	cppdialect "C++11"
@@ -94,6 +94,18 @@ project "xatlas"
 	rtti "Off"
 	warnings "Extra"
 	enablewarnings { "shadow" }
+	files { "xatlas.cpp", "xatlas.h", "xatlas_c.h" }
+	sanitizer()
+	
+project "xatlas"
+	kind "SharedLib"
+	language "C++"
+	cppdialect "C++11"
+	exceptionhandling "Off"
+	rtti "Off"
+	warnings "Extra"
+	enablewarnings { "shadow" }
+	defines { "XATLAS_EXPORT_API=1" }
 	files { "xatlas.cpp", "xatlas.h", "xatlas_c.h" }
 	sanitizer()
 	
