@@ -45,11 +45,15 @@ extern "C" {
 
 #ifndef XATLAS_API
 #if XATLAS_EXPORT_API
+#ifdef _MSC_VER
 #define XATLAS_API __declspec(dllexport)
-#else
+#else // _MSC_VER
+#define XATLAS_API __attribute__((visibility("default")))
+#endif // _MSC_VER
+#else // XATLAS_EXPORT_API
 #define XATLAS_API
-#endif
-#endif
+#endif // XATLAS_EXPORT_API
+#endif // XATLAS_API
 
 typedef enum
 {
