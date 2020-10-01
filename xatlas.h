@@ -85,12 +85,12 @@ struct Atlas
 {
 	uint32_t *image;
 	Mesh *meshes; // The output meshes, corresponding to each AddMesh call.
+	float *utilization; // Normalized atlas texel utilization array. E.g. a value of 0.8 means 20% empty space. atlasCount in length.
 	uint32_t width; // Atlas width in texels.
 	uint32_t height; // Atlas height in texels.
 	uint32_t atlasCount; // Number of sub-atlases. Equal to 0 unless PackOptions resolution is changed from default (0).
 	uint32_t chartCount; // Total number of charts in all meshes.
 	uint32_t meshCount; // Number of output meshes. Equal to the number of times AddMesh was called.
-	float *utilization; // Normalized atlas texel utilization array. E.g. a value of 0.8 means 20% empty space. atlasCount in length.
 	float texelsPerUnit; // Equal to PackOptions texelsPerUnit if texelsPerUnit > 0, otherwise an estimated value to match PackOptions resolution.
 };
 
@@ -172,7 +172,7 @@ typedef void (*ParameterizeFunc)(const float *positions, float *texcoords, uint3
 
 struct ChartOptions
 {
-	bool useInputMeshUvs = false; // Use MeshDecl::vertexUvData for charts.
+	ParameterizeFunc paramFunc = nullptr;
 
 	float maxChartArea = 0.0f; // Don't grow charts to be larger than this. 0 means no limit.
 	float maxBoundaryLength = 0.0f; // Don't grow charts to have a longer boundary than this. 0 means no limit.
@@ -187,7 +187,7 @@ struct ChartOptions
 	float maxCost = 2.0f; // If total of all metrics * weights > maxCost, don't grow chart. Lower values result in more charts.
 	uint32_t maxIterations = 1; // Number of iterations of the chart growing and seeding phases. Higher values result in better charts.
 
-	ParameterizeFunc paramFunc = nullptr;
+	bool useInputMeshUvs = false; // Use MeshDecl::vertexUvData for charts.
 	bool fixWinding = false; // Enforce consistent texture coordinate winding.
 };
 
@@ -196,18 +196,6 @@ void ComputeCharts(Atlas *atlas, ChartOptions options = ChartOptions());
 
 struct PackOptions
 {
-	// Leave space around charts for texels that would be sampled by bilinear filtering.
-	bool bilinear = true;
-
-	// Align charts to 4x4 blocks. Also improves packing speed, since there are fewer possible chart locations to consider.
-	bool blockAlign = false;
-
-	// Slower, but gives the best result. If false, use random chart placement.
-	bool bruteForce = false;
-
-	// Create Atlas::image
-	bool createImage = false;
-
 	// Charts larger than this will be scaled down. 0 means no limit.
 	uint32_t maxChartSize = 0;
 
@@ -223,6 +211,18 @@ struct PackOptions
 	// If not 0, and texelsPerUnit is not 0, generate one or more atlases with that exact resolution.
 	// If not 0, and texelsPerUnit is 0, texelsPerUnit is estimated to approximately match the resolution.
 	uint32_t resolution = 0;
+
+	// Leave space around charts for texels that would be sampled by bilinear filtering.
+	bool bilinear = true;
+
+	// Align charts to 4x4 blocks. Also improves packing speed, since there are fewer possible chart locations to consider.
+	bool blockAlign = false;
+
+	// Slower, but gives the best result. If false, use random chart placement.
+	bool bruteForce = false;
+
+	// Create Atlas::image
+	bool createImage = false;
 
 	// Rotate charts to the axis of their convex hull.
 	bool rotateChartsToAxis = true;

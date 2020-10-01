@@ -114,12 +114,12 @@ typedef struct
 {
 	uint32_t *image;
 	xatlasMesh *meshes;
+	float *utilization;
 	uint32_t width;
 	uint32_t height;
 	uint32_t atlasCount;
 	uint32_t chartCount;
 	uint32_t meshCount;
-	float *utilization;
 	float texelsPerUnit;
 }
 xatlasAtlas;
@@ -139,7 +139,7 @@ typedef struct
 	const void *indexData;
 	const bool *faceIgnoreData;
 	const uint32_t *faceMaterialData;
-	const uint8_t *faceVertexCountnullptr;
+	const uint8_t *faceVertexCount;
 	uint32_t vertexCount;
 	uint32_t vertexPositionStride;
 	uint32_t vertexNormalStride;
@@ -179,7 +179,7 @@ typedef void (*xatlasParameterizeFunc)(const float *positions, float *texcoords,
 
 typedef struct
 {
-	bool useInputMeshUvs;
+	xatlasParameterizeFunc paramFunc;
 	float maxChartArea;
 	float maxBoundaryLength;
 	float normalDeviationWeight;
@@ -189,21 +189,21 @@ typedef struct
 	float textureSeamWeight;
 	float maxCost;
 	uint32_t maxIterations;
-	xatlasParameterizeFunc paramFunc;
+	bool useInputMeshUvs;
 	bool fixWinding;
 }
 xatlasChartOptions;
 
 typedef struct
 {
-	bool bilinear;
-	bool blockAlign;
-	bool bruteForce;
-	bool createImage;
 	uint32_t maxChartSize;
 	uint32_t padding;
 	float texelsPerUnit;
 	uint32_t resolution;
+	bool bilinear;
+	bool blockAlign;
+	bool bruteForce;
+	bool createImage;
 	bool rotateChartsToAxis;
 	bool rotateCharts;
 }
