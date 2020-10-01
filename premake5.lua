@@ -94,7 +94,7 @@ project "xatlas_static"
 	rtti "Off"
 	warnings "Extra"
 	enablewarnings { "shadow" }
-	files { "xatlas.cpp", "xatlas.h", "xatlas_c.h" }
+	files { "xatlas.cpp", "xatlas.h" }
 	sanitizer()
 	
 project "xatlas"
@@ -105,7 +105,7 @@ project "xatlas"
 	rtti "Off"
 	warnings "Extra"
 	enablewarnings { "shadow" }
-	defines { "XATLAS_EXPORT_API=1" }
+	defines { "XATLAS_C_API=1", "XATLAS_EXPORT_API=1" }
 	files { "xatlas.cpp", "xatlas.h", "xatlas_c.h" }
 	sanitizer()
 	

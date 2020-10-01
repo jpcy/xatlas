@@ -34,7 +34,12 @@ MIT License
 Copyright (c) 2012 Brandon Pelfrey
 */
 #include "xatlas.h"
+#ifndef XATLAS_C_API
+#define XATLAS_C_API 0
+#endif
+#if XATLAS_C_API
 #include "xatlas_c.h"
+#endif
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
@@ -9933,8 +9938,7 @@ const char *StringForEnum(ProgressCategory category)
 
 } // namespace xatlas
 
-// C99 API
-
+#if XATLAS_C_API
 static_assert(sizeof(xatlas::Chart) == sizeof(xatlasChart), "xatlasChart size mismatch");
 static_assert(sizeof(xatlas::Vertex) == sizeof(xatlasVertex), "xatlasVertex size mismatch");
 static_assert(sizeof(xatlas::Mesh) == sizeof(xatlasMesh), "xatlasMesh size mismatch");
@@ -10042,3 +10046,4 @@ void xatlasPackOptionsInit(xatlasPackOptions *packOptions)
 #ifdef __cplusplus
 } // extern "C"
 #endif
+#endif // XATLAS_C_API
