@@ -40,7 +40,7 @@ project "example_c99"
 	filter "action:vs*"
 		files "xatlas.natvis"
 	filter "system:linux"
-		links { "pthread" }
+		links { "m", "pthread" }
 		
 project "example_uvmesh"
 	kind "ConsoleApp"
