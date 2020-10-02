@@ -40,7 +40,7 @@ SOFTWARE.
 #pragma warning(pop)
 #endif
 
-#include "../xatlas.h"
+#include <xatlas.h>
 
 #define MODEL_PATH "../../models/"
 #define ASSERT(_condition) if (!(_condition)) { logf("[FAILED] '%s' %s %d\n", #_condition, __FILE__, __LINE__); assert(_condition); }

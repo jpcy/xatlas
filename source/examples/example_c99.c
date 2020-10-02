@@ -38,7 +38,7 @@ Output:
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
-#include "../xatlas_c.h"
+#include <xatlas_c.h>
 #include "objzero/objzero.h"
 
 #ifdef _MSC_VER

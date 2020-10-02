@@ -22,15 +22,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 /*
-example
+example_uvmesh
 
-This example shows how to use the xatlas API to generate a unique set of texture coordinates.
+This example uses the xatlas::AddUvMesh API to pack 10 copies of a model's existing texture coordinates into a single atlas.
 
-Input: an .obj model file.
+Input: a .obj model file. It must have texture coordinates.
 
-Output:
-	* an .obj model file (example_output.obj). This is simplistic for example purposes, it doesn't copy materials from the input .obj file.
-	* texture coordinates rasterized to images, colored by chart (example_charts*.tga) and by triangle (example_tris*.tga).
+Output: the atlas texture coordinates rasterized to images, colored by chart (example_uvmesh_charts*.tga) and by triangle (example_uvmesh_tris*.tga).
 */
 #include <mutex>
 #include <assert.h>
@@ -49,7 +47,7 @@ Output:
 #pragma warning(pop)
 #endif
 
-#include "../xatlas.h"
+#include <xatlas.h>
 
 #ifdef _MSC_VER
 #define FOPEN(_file, _filename, _mode) { if (fopen_s(&_file, _filename, _mode) != 0) _file = NULL; }
@@ -59,8 +57,6 @@ Output:
 #include <strings.h>
 #define STRICMP strcasecmp
 #endif
-
-#define OBJ_TRIANGULATE 1 // Pass tinyobj::triangulation flag to tinyobjloader and treat all geometry as triangles.
 
 static bool s_verbose = false;
 
@@ -173,63 +169,13 @@ static void RasterizeTriangle(uint8_t *dest, int destWidth, const int *t0, const
 	}
 }
 
-#if !OBJ_TRIANGULATE
-//  public-domain code by Darel Rex Finley, 2007
-// http://alienryderflex.com/polygon_fill/
-static void RasterizePolygon(uint8_t *dest, int destWidth, int vertices[][2], const int vertexCount, const uint8_t *color)
-{
-	int IMAGE_TOP = INT_MAX, IMAGE_BOT = 0, IMAGE_LEFT = INT_MAX, IMAGE_RIGHT = 0;
-	for (int i = 0; i < vertexCount; i++) {
-		const int *vertex = vertices[i];
-		IMAGE_TOP = vertex[1] < IMAGE_TOP ? vertex[1] : IMAGE_TOP;
-		IMAGE_BOT = vertex[1] > IMAGE_BOT ? vertex[1] : IMAGE_BOT;
-		IMAGE_LEFT = vertex[0] < IMAGE_LEFT ? vertex[0] : IMAGE_LEFT;
-		IMAGE_RIGHT = vertex[0] > IMAGE_RIGHT ? vertex[0] : IMAGE_RIGHT;
-	}
-	int  nodes, nodeX[255], pixelX, pixelY, i, j, swap;
-	//  Loop through the rows of the image.
-	for (pixelY=IMAGE_TOP; pixelY<IMAGE_BOT; pixelY++) {
-		//  Build a list of nodes.
-		nodes=0; j=vertexCount-1;
-		for (i=0; i<vertexCount; i++) {
-			if (vertices[i][1]<(double) pixelY && vertices[j][1]>=(double) pixelY || vertices[j][1]<(double) pixelY && vertices[i][1]>=(double) pixelY) {
-				nodeX[nodes++]=(int) (vertices[i][0]+(pixelY-vertices[i][1])/(vertices[j][1]-vertices[i][1])*(vertices[j][0]-vertices[i][0]));
-			}
-			j=i;
-		}
-		//  Sort the nodes, via a simple “Bubble” sort.
-		i=0;
-		while (i<nodes-1) {
-			if (nodeX[i]>nodeX[i+1]) {
-				swap=nodeX[i]; nodeX[i]=nodeX[i+1]; nodeX[i+1]=swap; if (i) i--; }
-			else {
-				i++;
-			}
-		}
-		//  Fill the pixels between node pairs.
-		for (i=0; i<nodes; i+=2) {
-			if (nodeX[i  ]>=IMAGE_RIGHT)
-				break;
-			if (nodeX[i+1]> IMAGE_LEFT ) {
-				if (nodeX[i  ]< IMAGE_LEFT )
-					nodeX[i  ]=IMAGE_LEFT ;
-				if (nodeX[i+1]> IMAGE_RIGHT)
-					nodeX[i+1]=IMAGE_RIGHT;
-				for (pixelX=nodeX[i]; pixelX<nodeX[i+1]; pixelX++)
-					SetPixel(dest, destWidth, pixelX, pixelY, color);
-			}
-		}
-	}
-}
-#endif
-
 int main(int argc, char *argv[])
 {
 	if (argc < 2) {
 	    printf("Usage: %s input_file.obj [options]\n", argv[0]);
 		printf("  Options:\n");
 		printf("    -verbose\n");  
-	    return 1;
+	    return EXIT_FAILURE;
 	}
 	s_verbose = (argc >= 3 && STRICMP(argv[2], "-verbose") == 0);
 	// Load object file.
@@ -237,11 +183,7 @@ int main(int argc, char *argv[])
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
 	std::string err;
-	unsigned int flags = 0;
-#if OBJ_TRIANGULATE
-	flags = tinyobj::triangulation;
-#endif
-	if (!tinyobj::LoadObj(shapes, materials, err, argv[1], NULL, flags)) {
+	if (!tinyobj::LoadObj(shapes, materials, err, argv[1], NULL, tinyobj::triangulation)) {
 		printf("Error: %s\n", err.c_str());
 		return EXIT_FAILURE;
 	}
@@ -249,115 +191,59 @@ int main(int argc, char *argv[])
 		printf("Error: no shapes in obj file\n");
 		return EXIT_FAILURE;
 	}
+	for (int i = 0; i < (int)shapes.size(); i++) {
+		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
+		if (objMesh.texcoords.empty()) {
+			printf("Error: obj file must have texture coordinates\n");
+			return EXIT_FAILURE;
+		}
+	}
 	printf("   %d shapes\n", (int)shapes.size());
-	// Create empty atlas.
+	// Create atlas.
 	xatlas::SetPrint(Print, s_verbose);
 	xatlas::Atlas *atlas = xatlas::Create();
 	// Set progress callback.
 	Stopwatch globalStopwatch, stopwatch;
 	xatlas::SetProgressCallback(atlas, ProgressCallback, &stopwatch);
 	// Add meshes to atlas.
+	// Add 10 copies of the same model.
 	uint32_t totalVertices = 0, totalFaces = 0;
-	for (int i = 0; i < (int)shapes.size(); i++) {
-		const tinyobj::mesh_t &objMesh = shapes[i].mesh;
-		xatlas::MeshDecl meshDecl;
-		meshDecl.vertexCount = (uint32_t)objMesh.positions.size() / 3;
-		meshDecl.vertexPositionData = objMesh.positions.data();
-		meshDecl.vertexPositionStride = sizeof(float) * 3;
-		if (!objMesh.normals.empty()) {
-			meshDecl.vertexNormalData = objMesh.normals.data();
-			meshDecl.vertexNormalStride = sizeof(float) * 3;
-		}
-		if (!objMesh.texcoords.empty()) {
+	const int n = 10;
+	for (int i = 0; i < n; i++) {
+		for (int s = 0; s < (int)shapes.size(); s++) {
+			tinyobj::mesh_t &objMesh = shapes[s].mesh;
+			xatlas::UvMeshDecl meshDecl;
+			meshDecl.faceMaterialData = (const uint32_t *)objMesh.material_ids.data();
+			meshDecl.vertexCount = (int)objMesh.texcoords.size() / 2;
 			meshDecl.vertexUvData = objMesh.texcoords.data();
-			meshDecl.vertexUvStride = sizeof(float) * 2;
+			meshDecl.vertexStride = sizeof(float) * 2;
+			meshDecl.indexCount = (int)objMesh.indices.size();
+			meshDecl.indexData = objMesh.indices.data();
+			meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
+			xatlas::AddMeshError error = xatlas::AddUvMesh(atlas, meshDecl);
+			if (error != xatlas::AddMeshError::Success) {
+				xatlas::Destroy(atlas);
+				printf("\rError adding mesh %d '%s': %s\n", s, shapes[i].name.c_str(), xatlas::StringForEnum(error));
+				return EXIT_FAILURE;
+			}
+			totalVertices += meshDecl.vertexCount;
+			totalFaces += meshDecl.indexCount / 3;
 		}
-		meshDecl.indexCount = (uint32_t)objMesh.indices.size();
-		meshDecl.indexData = objMesh.indices.data();
-		meshDecl.indexFormat = xatlas::IndexFormat::UInt32;
-#if !OBJ_TRIANGULATE
-		if (objMesh.num_vertices.size() != objMesh.indices.size() / 3) {
-			meshDecl.faceVertexCount = objMesh.num_vertices.data();
-			meshDecl.faceCount = (uint32_t)objMesh.num_vertices.size();
-		}
-#endif
-		xatlas::AddMeshError error = xatlas::AddMesh(atlas, meshDecl, (uint32_t)shapes.size());
-		if (error != xatlas::AddMeshError::Success) {
-			xatlas::Destroy(atlas);
-			printf("\rError adding mesh %d '%s': %s\n", i, shapes[i].name.c_str(), xatlas::StringForEnum(error));
-			return EXIT_FAILURE;
-		}
-		totalVertices += meshDecl.vertexCount;
-		if (meshDecl.faceCount > 0)
-			totalFaces += meshDecl.faceCount;
-		else
-			totalFaces += meshDecl.indexCount / 3; // Assume triangles if MeshDecl::faceCount not specified.
 	}
-	xatlas::AddMeshJoin(atlas); // Not necessary. Only called here so geometry totals are printed after the AddMesh progress indicator.
 	printf("   %u total vertices\n", totalVertices);
-	printf("   %u total faces\n", totalFaces);
-	// Generate atlas.
-	printf("Generating atlas\n");
-	xatlas::Generate(atlas);
+	printf("   %u total triangles\n", totalFaces);
+	// Compute charts.
+	printf("Computing charts\n");
+	xatlas::ComputeCharts(atlas);
+	// Pack charts.
+	printf("Packing charts\n");
+	xatlas::PackCharts(atlas);
 	printf("   %d charts\n", atlas->chartCount);
 	printf("   %d atlases\n", atlas->atlasCount);
 	for (uint32_t i = 0; i < atlas->atlasCount; i++)
 		printf("      %d: %0.2f%% utilization\n", i, atlas->utilization[i] * 100.0f);
 	printf("   %ux%u resolution\n", atlas->width, atlas->height);
-	totalVertices = 0;
-	for (uint32_t i = 0; i < atlas->meshCount; i++) {
-		const xatlas::Mesh &mesh = atlas->meshes[i];
-		totalVertices += mesh.vertexCount;
-		// Input and output index counts always match.
-		assert(mesh.indexCount == (uint32_t)shapes[i].mesh.indices.size());
-	}
-	printf("   %u total vertices\n", totalVertices);
 	printf("%.2f seconds (%g ms) elapsed total\n", globalStopwatch.elapsed() / 1000.0, globalStopwatch.elapsed());
-	// Write meshes.
-	const char *modelFilename = "example_output.obj";
-	printf("Writing '%s'...\n", modelFilename);
-	FILE *file;
-	FOPEN(file, modelFilename, "w");
-	if (file) {
-		uint32_t firstVertex = 0;
-		for (uint32_t i = 0; i < atlas->meshCount; i++) {
-			const xatlas::Mesh &mesh = atlas->meshes[i];
-			for (uint32_t v = 0; v < mesh.vertexCount; v++) {
-				const xatlas::Vertex &vertex = mesh.vertexArray[v];
-				const float *pos = &shapes[i].mesh.positions[vertex.xref * 3];
-				fprintf(file, "v %g %g %g\n", pos[0], pos[1], pos[2]);
-				if (!shapes[i].mesh.normals.empty()) {
-					const float *normal = &shapes[i].mesh.normals[vertex.xref * 3];
-					fprintf(file, "vn %g %g %g\n", normal[0], normal[1], normal[2]);
-				}
-				fprintf(file, "vt %g %g\n", vertex.uv[0] / atlas->width, vertex.uv[1] / atlas->height);
-			}
-			fprintf(file, "o %s\n", shapes[i].name.c_str());
-			fprintf(file, "s off\n");
-#if !OBJ_TRIANGULATE
-			auto faceCount = (const uint32_t)shapes[i].mesh.num_vertices.size();
-			uint32_t currentIndex = 0;
-			for (uint32_t f = 0; f < faceCount; f++) {
-				fprintf(file, "f ");
-				auto faceVertexCount = (const uint32_t)shapes[i].mesh.num_vertices[f];
-				for (uint32_t j = 0; j < faceVertexCount; j++) {
-					const uint32_t index = firstVertex + mesh.indexArray[currentIndex++] + 1; // 1-indexed
-					fprintf(file, "%d/%d/%d%c", index, index, index, j == (faceVertexCount - 1) ? '\n' : ' ');
-				}
-			}
-#else
-			for (uint32_t f = 0; f < mesh.indexCount; f += 3) {
-				fprintf(file, "f ");
-				for (uint32_t j = 0; j < 3; j++) {
-					const uint32_t index = firstVertex + mesh.indexArray[f + j] + 1; // 1-indexed
-					fprintf(file, "%d/%d/%d%c", index, index, index, j == 2 ? '\n' : ' ');
-				}
-			}
-#endif
-			firstVertex += mesh.vertexCount;
-		}
-		fclose(file);
-	}
 	if (atlas->width > 0 && atlas->height > 0) {
 		printf("Rasterizing result...\n");
 		// Dump images.
@@ -369,42 +255,29 @@ int main(int argc, char *argv[])
 			const xatlas::Mesh &mesh = atlas->meshes[i];
 			// Rasterize mesh triangles.
 			const uint8_t white[] = { 255, 255, 255 };
-#if OBJ_TRIANGULATE
-			const uint32_t faceCount = mesh.indexCount / 3;
-#else
-			auto faceCount = (const uint32_t)shapes[i].mesh.num_vertices.size();
-#endif
-			uint32_t faceFirstIndex = 0;
-			for (uint32_t f = 0; f < faceCount; f++) {
+			for (uint32_t j = 0; j < mesh.indexCount; j += 3) {
 				int32_t atlasIndex = -1;
-				int verts[255][2];
-#if OBJ_TRIANGULATE
-				const uint32_t faceVertexCount = 3;
-#else
-				const uint32_t faceVertexCount = shapes[i].mesh.num_vertices[f];
-#endif
-				for (uint32_t j = 0; j < faceVertexCount; j++) {
-					const xatlas::Vertex &v = mesh.vertexArray[mesh.indexArray[faceFirstIndex + j]];
-					atlasIndex = v.atlasIndex; // The same for every vertex in the face.
-					verts[j][0] = int(v.uv[0]);
-					verts[j][1] = int(v.uv[1]);
+				bool skip = false;
+				int verts[3][2];
+				for (int k = 0; k < 3; k++) {
+					const xatlas::Vertex &v = mesh.vertexArray[mesh.indexArray[j + k]];
+					if (v.atlasIndex == -1) {
+						skip = true;
+						break;
+					}
+					atlasIndex = v.atlasIndex;
+					verts[k][0] = int(v.uv[0]);
+					verts[k][1] = int(v.uv[1]);
 				}
-				if (atlasIndex < 0)
-					continue; // Skip faces that weren't atlased.
+				if (skip)
+					continue; // Skip triangles that weren't atlased.
 				uint8_t color[3];
 				RandomColor(color);
 				uint8_t *imageData = &outputTrisImage[atlasIndex * imageDataSize];
-#if OBJ_TRIANGULATE
 				RasterizeTriangle(imageData, atlas->width, verts[0], verts[1], verts[2], color);
-#else
-				if (faceVertexCount == 3)
-					RasterizeTriangle(imageData, atlas->width, verts[0], verts[1], verts[2], color);
-				else
-					RasterizePolygon(imageData, atlas->width, verts, (int)faceVertexCount, color);
-#endif
-				for (uint32_t j = 0; j < faceVertexCount; j++)
-					RasterizeLine(imageData, atlas->width, verts[j], verts[(j + 1) % faceVertexCount], white);
-				faceFirstIndex += faceVertexCount;
+				RasterizeLine(imageData, atlas->width, verts[0], verts[1], white);
+				RasterizeLine(imageData, atlas->width, verts[1], verts[2], white);
+				RasterizeLine(imageData, atlas->width, verts[2], verts[0], white);
 			}
 			// Rasterize mesh charts.
 			for (uint32_t j = 0; j < mesh.chartCount; j++) {
@@ -412,42 +285,26 @@ int main(int argc, char *argv[])
 				uint8_t color[3];
 				RandomColor(color);
 				for (uint32_t k = 0; k < chart->faceCount; k++) {
-					const uint32_t face = chart->faceArray[k];
-#if OBJ_TRIANGULATE
-					const uint32_t faceVertexCount = 3;
-					faceFirstIndex = face * 3;
-#else
-					const uint32_t faceVertexCount = shapes[i].mesh.num_vertices[face];
-					faceFirstIndex = 0;
-					for (uint32_t l = 0; l < face; l++)
-						faceFirstIndex += shapes[i].mesh.num_vertices[l];
-#endif
-					int verts[255][2];
-					for (uint32_t l = 0; l < faceVertexCount; l++) {
-						const xatlas::Vertex &v = mesh.vertexArray[mesh.indexArray[faceFirstIndex + l]];
+					int verts[3][2];
+					for (int l = 0; l < 3; l++) {
+						const xatlas::Vertex &v = mesh.vertexArray[mesh.indexArray[chart->faceArray[k] * 3 + l]];
 						verts[l][0] = int(v.uv[0]);
 						verts[l][1] = int(v.uv[1]);
 					}
 					uint8_t *imageData = &outputChartsImage[chart->atlasIndex * imageDataSize];
-#if OBJ_TRIANGULATE
 					RasterizeTriangle(imageData, atlas->width, verts[0], verts[1], verts[2], color);
-#else
-					if (faceVertexCount == 3)
-						RasterizeTriangle(imageData, atlas->width, verts[0], verts[1], verts[2], color);
-					else
-						RasterizePolygon(imageData, atlas->width, verts, (int)faceVertexCount, color);
-#endif
-					for (uint32_t l = 0; l < faceVertexCount; l++)
-						RasterizeLine(imageData, atlas->width, verts[l], verts[(l + 1) % faceVertexCount], white);
+					RasterizeLine(imageData, atlas->width, verts[0], verts[1], white);
+					RasterizeLine(imageData, atlas->width, verts[1], verts[2], white);
+					RasterizeLine(imageData, atlas->width, verts[2], verts[0], white);
 				}
 			}
 		}
 		for (uint32_t i = 0; i < atlas->atlasCount; i++) {
 			char filename[256];
-			snprintf(filename, sizeof(filename), "example_tris%02u.tga", i);
+			snprintf(filename, sizeof(filename), "example_uvmesh_tris%02u.tga", i);
 			printf("Writing '%s'...\n", filename);
 			stbi_write_tga(filename, atlas->width, atlas->height, 3, &outputTrisImage[i * imageDataSize]);
-			snprintf(filename, sizeof(filename), "example_charts%02u.tga", i);
+			snprintf(filename, sizeof(filename), "example_uvmesh_charts%02u.tga", i);
 			printf("Writing '%s'...\n", filename);
 			stbi_write_tga(filename, atlas->width,atlas->height, 3, &outputChartsImage[i * imageDataSize]);
 		}

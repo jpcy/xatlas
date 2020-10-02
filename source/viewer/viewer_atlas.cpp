@@ -59,7 +59,7 @@ SOFTWARE.
 #endif
 #endif
 
-#include "../xatlas.h"
+#include <xatlas.h>
 #include "shaders/shared.h"
 #include "viewer.h"
 

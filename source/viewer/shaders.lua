@@ -1,6 +1,6 @@
-local BASE_PATH = path.getabsolute("..")
-local SHADERS_DIR = path.join(BASE_PATH, "extra", "shaders")
-local SHADERS_BIN_DIR = path.join(BASE_PATH, "extra", "shaders_bin")
+local BASE_PATH = path.getabsolute("..", path.getabsolute(".."))
+local SHADERS_DIR = path.join(BASE_PATH, "source", "viewer", "shaders")
+local SHADERS_BIN_DIR = path.join(BASE_PATH, "source", "viewer", "shaders_bin")
 
 --[[
 type
@@ -85,7 +85,7 @@ newaction
 						type = shaderType,
 						renderer = renderer,
 						inputFilename = path.join(SHADERS_DIR, shader) .. ".sc",
-						includeDirs = path.join(BASE_PATH, "extra/thirdparty/bgfx/src"),
+						includeDirs = path.join(BASE_PATH, "source/thirdparty/bgfx/src"),
 						varyingFilename = path.join(SHADERS_DIR, "varying.def.sc"),
 						outputFilename = path.join(SHADERS_BIN_DIR, renderer, shader) .. ".h",
 						bin2c = true,

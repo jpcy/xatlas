@@ -35,7 +35,7 @@ SOFTWARE.
 #include <OpenImageDenoise/oidn.h>
 #include <TaskScheduler_c.h>
 #include "shaders/shared.h"
-#include "../xatlas.h"
+#include <xatlas.h>
 #include "viewer.h"
 
 static bx::Vec3 operator+(bx::Vec3 a, bx::Vec3 b) { return bx::add(a, b); }
