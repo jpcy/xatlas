@@ -25,7 +25,7 @@ It is an independent fork of [thekla_atlas](https://github.com/Thekla/thekla_atl
 
 Premake is used. For CMake support, see [here](https://github.com/cpp-pm/xatlas).
 
-Integration into an existing build is simple, only `xatlas.cpp` and `xatlas.h` are required.
+Integration into an existing build is simple, only `xatlas.cpp` and `xatlas.h` are required. They can be found in [source/xatlas](https://github.com/jpcy/xatlas/blob/master/source/xatlas)
 
 #### Windows
 
@@ -37,7 +37,7 @@ Note: change the build configuration to "Release". The default - "Debug" - sever
 
 Required packages: `libgl1-mesa-dev libgtk-3-dev xorg-dev`.
 
-Install premake5. Run `premake5 gmake`, `cd build/gmake`, `make`.
+Install Premake version 5. Run `premake5 gmake`, `cd build/gmake`, `make`.
 
 ### Generate an atlas (simple API)
 
@@ -49,7 +49,7 @@ The `xatlas::Atlas` instance created in the first step now contains the result: 
 
 Cleanup with `xatlas::Destroy`.
 
-[Example code here.](https://github.com/jpcy/xatlas/blob/master/extra/example.cpp)
+[Example code here.](https://github.com/jpcy/xatlas/blob/master/source/examples/example.cpp)
 
 ### Generate an atlas (tools/editor integration API)
 
@@ -62,7 +62,7 @@ All of these functions take a progress callback. Return false to cancel.
 
 You can call any of these functions multiple times, followed by the proceeding functions, to re-generate the atlas. E.g. calling `xatlas::PackCharts` multiple times to tweak options like unit to texel scale and resolution.
 
-See the [viewer](https://github.com/jpcy/xatlas/tree/master/extra) for example code.
+See the [viewer](https://github.com/jpcy/xatlas/tree/master/source/examples/viewer) for example code.
 
 ### Pack multiple atlases into a single atlas
 
@@ -70,7 +70,7 @@ See the [viewer](https://github.com/jpcy/xatlas/tree/master/extra) for example c
 2. Add one or more meshes with `xatlas::AddUvMesh`.
 3. Call `xatlas::PackCharts`.
 
-[Example code here.](https://github.com/jpcy/xatlas/blob/master/extra/example_uvmesh.cpp)
+[Example code here.](https://github.com/jpcy/xatlas/blob/master/source/examples/example_uvmesh.cpp)
 
 ## Technical information / related publications
 
