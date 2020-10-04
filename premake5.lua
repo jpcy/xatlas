@@ -467,3 +467,29 @@ project "tiny_obj_loader"
 	sanitizer()
 	files(path.join(THIRDPARTY_DIR, "tiny_obj_loader.*"))
 
+if not string.startswith(_ACTION, "vs") then
+	return
+end
+	
+solution "xatlas_csharp"
+	configurations { "Release", "Debug" }
+	location(path.join("build", _ACTION))
+	startproject "example_csharp"
+	filter "configurations:Debug*"
+		optimize "Debug"
+		symbols "On"
+	filter "configurations:Release"
+		optimize "Full"
+	filter {}
+	
+project "xatlas_csharp"
+	kind "SharedLib"
+	language "C#"
+	clr "Unsafe"
+	files { "source/csharp/xatlas.cs" }
+	
+project "example_csharp"
+	kind "ConsoleApp"
+	language "C#"
+	links { "xatlas_csharp" }
+	files { path.join(EXAMPLES_DIR, "example_csharp.cs") }
