@@ -112,6 +112,8 @@ Y. O’Donnell. [Precomputed Global Illumination in Frostbite](https://media.con
 
 [toy](https://github.com/hugoam/toy) / [two](https://github.com/hugoam/two)
 
+[UNIGINE](https://unigine.com/) - [video](https://www.youtube.com/watch?v=S0gR9T1tWPg)
+
 [Wicked Engine](https://github.com/turanszkij/WickedEngine)
 
 ## Related projects
