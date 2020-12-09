@@ -36,7 +36,7 @@ jobs:
     - name: Run premake
       shell: powershell
       run: |
-        .\bin\windows\premake5.exe vs2019
+        .\bin\premake5.exe vs2019
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1
     - name: Build
