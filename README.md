@@ -39,6 +39,10 @@ Required packages: `libgl1-mesa-dev libgtk-3-dev xorg-dev`.
 
 Install Premake version 5. Run `premake5 gmake`, `cd build/gmake`, `make`.
 
+### Bindings
+
+[Python](https://github.com/mworchel/xatlas-python)
+
 ### Generate an atlas (simple API)
 
 1. Create an empty atlas with `xatlas::Create`.
