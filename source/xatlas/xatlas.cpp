@@ -4294,8 +4294,8 @@ static NLMatrix nlCRSMatrixNewFromSparseMatrix(NLSparseMatrix* M)
 		CRS->sliceptr[0] = 0;
 		for (slice = 1; slice < nslices; ++slice) {
 			while (cur_NNZ < cur_bound && cur_row < M->m) {
-				++cur_row;
 				cur_NNZ += CRS->rowptr[cur_row + 1] - CRS->rowptr[cur_row];
+				++cur_row;
 			}
 			CRS->sliceptr[slice] = cur_row;
 			cur_bound += slice_size;
