@@ -29,7 +29,7 @@ Integration into an existing build is simple, only `xatlas.cpp` and `xatlas.h` a
 
 #### Windows
 
-Run `build\premake.bat`. Open `build\vs2019\xatlas.sln`.
+Run `bin\premake.bat`. Open `build\vs2019\xatlas.sln`.
 
 Note: change the build configuration to "Release". The default - "Debug" - severely degrades performance.
 
