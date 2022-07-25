@@ -1,10 +1,12 @@
 os:
-  - Visual Studio 2019
+  - Visual Studio 2022
 
 environment:
   matrix:
     - ACTION: vs2015
     - ACTION: vs2017
+    - ACTION: vs2019
+    - ACTION: vs2022
 
 platform:
   - Win32
