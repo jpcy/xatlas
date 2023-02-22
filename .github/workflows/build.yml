@@ -1,0 +1,47 @@
+name: build
+
+on: [push]
+
+jobs:
+  Linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install packages
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install libgl1-mesa-dev libgtk-3-dev xorg-dev
+    - name: Install premake
+      run: |
+         wget https://github.com/premake/premake-core/releases/download/v5.0.0-beta2/premake-5.0.0-beta2-linux.tar.gz -O premake.tar.gz
+         tar -xf premake.tar.gz
+    - name: Run premake
+      run: |
+        ./premake5 --cc=${{matrix.compiler}} gmake
+    - name: Build
+      run: |
+        cd build/gmake_${{matrix.compiler}}
+        make
+
+  Windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        platform: [x64]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install and run premake
+      shell: powershell
+      run: |
+        wget https://github.com/premake/premake-core/releases/download/v5.0.0-beta2/premake-5.0.0-beta2-windows.zip -O premake.zip
+        Expand-Archive .\premake.zip
+        ./premake/premake5.exe vs2022
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1
+    - name: Build
+      shell: cmd
+      run: |
+        msbuild build\vs2022\xatlas.sln /p:Configuration=Release /p:Platform="${{matrix.platform}}" /verbosity:minimal

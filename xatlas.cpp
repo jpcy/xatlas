@@ -35,8 +35,21 @@ Copyright (c) 2012 Brandon Pelfrey
 */
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
+#include <cstdio>
+#include <exception>
+#include <functional>
+#include <iostream>
 #include <mutex>
+#include <optional>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 #include <thread>
+#include <unordered_map>
+#include <chrono>
+using namespace std::chrono_literals;
+
 #include <assert.h>
 #include <float.h> // FLT_MAX
 #include <limits.h>
@@ -70,12 +83,19 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_XSTR(x) XA_STR(x)
 
 #ifndef XA_ASSERT
-#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT_WARNING("\rASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
+#define XA_ASSERT(exp) if (!(exp)) { XA_PRINT_WARNING("\r%s: ASSERT: %s %s %d\n", internal::getTID().c_str(), XA_XSTR(exp), __FILE__, __LINE__); }
 #endif
 
 #ifndef XA_DEBUG_ASSERT
 #define XA_DEBUG_ASSERT(exp) assert(exp)
 #endif
+
+#ifndef XA_ABORT
+#define XA_ABORT() std::fflush(stdout); std::fflush(stderr); abort();
+#endif
+
+#define XA_EXPECT_OR_ABORT(exp)   				\
+if (!(exp)) { printf("\r%s: ASSERT: %s %s %d\nAborting.\n", internal::getTID().c_str(), XA_XSTR(exp), __FILE__, __LINE__); XA_ABORT(); }
 
 #ifndef XA_PRINT
 #define XA_PRINT(...) \
@@ -87,6 +107,16 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_PRINT_WARNING(...) \
 	if (xatlas::internal::s_print) \
 		xatlas::internal::s_print(__VA_ARGS__);
+#endif
+
+#ifndef XA_DEBUG_PRINT
+#if XA_DEBUG==1
+#define XA_DEBUG_PRINT(...) \
+	if (xatlas::internal::s_print) \
+		xatlas::internal::s_print(__VA_ARGS__);
+#else
+#define XA_DEBUG_PRINT(...)
+#endif
 #endif
 
 #define XA_ALLOC(tag, type) (type *)internal::Realloc(nullptr, sizeof(type), tag, __FILE__, __LINE__)
@@ -162,6 +192,13 @@ static ReallocFunc s_realloc = realloc;
 static FreeFunc s_free = free;
 static PrintFunc s_print = printf;
 static bool s_printVerbose = false;
+
+std::string getTID() {
+    auto myid = std::this_thread::get_id();
+    std::stringstream ss;
+    ss << myid;
+    return ss.str();
+}
 
 #if XA_PROFILE
 typedef uint64_t Duration;
@@ -857,7 +894,7 @@ struct Extents2
 	Vector2 min, max;
 
 	Extents2() {}
-	
+
 	Extents2(Vector2 p1, Vector2 p2)
 	{
 		min = xatlas::internal::min(p1, p2);
@@ -2483,7 +2520,7 @@ public:
 				// No colocals for this vertex.
 				m_nextColocalVertex[i] = i;
 				m_firstColocalVertex[i] = i;
-				continue; 
+				continue;
 			}
 			// Link in ascending order.
 			insertionSort(colocals.data(), colocals.size());
@@ -2522,7 +2559,7 @@ public:
 				// No colocals for this vertex.
 				m_nextColocalVertex[i] = i;
 				m_firstColocalVertex[i] = i;
-				continue; 
+				continue;
 			}
 			// Link in ascending order.
 			insertionSort(colocals.data(), colocals.size());
@@ -2686,7 +2723,7 @@ public:
 		float area = 0;
 		for (uint32_t f = 0; f < faceCount(); f++)
 			area += fabsf(computeFaceParametricArea(f)); // May be negative, depends on texcoord winding.
-		return area; 
+		return area;
 	}
 
 	float computeFaceArea(uint32_t face) const
@@ -2739,7 +2776,7 @@ public:
 		const Vector2 &t2 = m_texcoords[m_indices[face * 3 + 2]];
 		return triangleArea(t0, t1, t2);
 	}
-	
+
 	// @@ This is not exactly accurate, we should compare the texture coordinates...
 	bool isSeam(uint32_t edge) const
 	{
@@ -2817,7 +2854,7 @@ private:
 	HashMap<EdgeKey, EdgeHash> m_edgeMap;
 
 public:
-	class FaceEdgeIterator 
+	class FaceEdgeIterator
 	{
 	public:
 		FaceEdgeIterator (const Mesh *mesh, uint32_t face) : m_mesh(mesh), m_face(face), m_relativeEdge(0)
@@ -2845,7 +2882,7 @@ public:
 		uint32_t relativeEdge() const { return m_relativeEdge; }
 		uint32_t face() const { return m_face; }
 		uint32_t oppositeEdge() const { return m_mesh->m_oppositeEdges[m_edge]; }
-		
+
 		uint32_t oppositeFace() const
 		{
 			const uint32_t oedge = m_mesh->m_oppositeEdges[m_edge];
@@ -3131,10 +3168,7 @@ private:
 	std::atomic_flag m_lock = ATOMIC_FLAG_INIT;
 };
 
-struct TaskGroupHandle
-{
-	uint32_t value = UINT32_MAX;
-};
+using TaskGroupHandle = uint64_t;
 
 struct Task
 {
@@ -3142,24 +3176,94 @@ struct Task
 	void *userData; // Passed to func as taskUserData.
 };
 
+// An std::unordered_map exposing a subset of methods,
+// all of which are synchronized by a common mutex.
+//
+template <typename K, typename V>
+class sync_unordered_map {
+private:
+	std::unordered_map<K, V> m_data;
+	mutable std::mutex mx_mutex;
+
+public:
+	sync_unordered_map()
+	  : m_data(4'096) {}
+
+	// Simple emplace with perfect forwarding.
+	//
+	template<typename... Args >
+	void emplace(K k, Args&&... args) {
+		std::lock_guard<std::mutex> guard(mx_mutex);
+		auto [itr, succ] = m_data.try_emplace(k, std::forward<Args>(args)...);
+		XA_EXPECT_OR_ABORT(succ);
+	}
+
+	// Simple erase given the key.
+	//
+	void erase(const K& k) {
+		std::lock_guard<std::mutex> guard(mx_mutex);
+		m_data.erase(k);
+	}
+
+	// This is a get that expects the key to be in the map.
+	// Returns a reference to its value if found.
+	// Throws exception if not found.
+	//
+	V& get (const K& k) {
+		std::lock_guard<std::mutex> guard(mx_mutex);
+
+		auto iter = m_data.find(k);
+		if (iter == m_data.end()) {
+			throw std::runtime_error("Xatlas: TaskHandle not found in syncmap.");
+		}
+		return m_data.find(k)->second;
+	}
+
+	// Searches for a value that satisfies the given predicate.
+	// Returns nullopt if not found.
+	//
+	std::optional<V*> find_first_of(auto lambda) {
+		std::lock_guard<std::mutex> guard(mx_mutex);
+
+		for (auto & [key, val] : m_data) {
+			if (lambda(val)) {
+				return &val;
+			}
+		}
+
+		return std::nullopt;
+	}
+};
+
 #if XA_MULTITHREADED
 class TaskScheduler
 {
+	struct TaskGroup
+	{
+		std::atomic<bool> free;
+		Array<Task> queue; // Items are never removed. queueHead is incremented to pop items.
+		uint64_t queueHead = 0;
+		Spinlock queueLock;
+		std::atomic<uint64_t> ref; // Increment when a task is enqueued, decrement when a task finishes.
+		void *userData;
+
+		TaskGroup(void *userdata = nullptr, uint64_t desiredSize = 0)
+		: free(false)
+		, ref(0)
+		, userData(userdata)
+		{
+			queue.reserve(desiredSize);
+		}
+
+		TaskGroup(const TaskGroup&) = default;
+	};
+
 public:
 	TaskScheduler() : m_shutdown(false)
 	{
 		m_threadIndex = 0;
-		// Max with current task scheduler usage is 1 per thread + 1 deep nesting, but allow for some slop.
-		m_maxGroups = std::thread::hardware_concurrency() * 4;
-		m_groups = XA_ALLOC_ARRAY(MemTag::Default, TaskGroup, m_maxGroups);
-		for (uint32_t i = 0; i < m_maxGroups; i++) {
-			new (&m_groups[i]) TaskGroup();
-			m_groups[i].free = true;
-			m_groups[i].ref = 0;
-			m_groups[i].userData = nullptr;
-		}
 		m_workers.resize(std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1);
-		for (uint32_t i = 0; i < m_workers.size(); i++) {
+		for (uint64_t i = 0; i < m_workers.size(); i++) {
 			new (&m_workers[i]) Worker();
 			m_workers[i].wakeup = false;
 			m_workers[i].thread = XA_NEW_ARGS(MemTag::Default, std::thread, workerThread, this, &m_workers[i], i + 1);
@@ -3168,107 +3272,91 @@ public:
 
 	~TaskScheduler()
 	{
+		XA_DEBUG_PRINT("xatlas::~TaskScheduler %x", this);
 		m_shutdown = true;
-		for (uint32_t i = 0; i < m_workers.size(); i++) {
+		for (uint64_t i = 0; i < m_workers.size(); i++) {
 			Worker &worker = m_workers[i];
-			XA_DEBUG_ASSERT(worker.thread);
+			XA_EXPECT_OR_ABORT(worker.thread);
 			worker.wakeup = true;
 			worker.cv.notify_one();
+		}
+		for (uint64_t i = 0; i < m_workers.size(); i++) {
+			Worker &worker = m_workers[i];
+			XA_EXPECT_OR_ABORT(worker.thread);
 			if (worker.thread->joinable())
 				worker.thread->join();
 			worker.thread->~thread();
 			XA_FREE(worker.thread);
 			worker.~Worker();
 		}
-		for (uint32_t i = 0; i < m_maxGroups; i++)
-			m_groups[i].~TaskGroup();
-		XA_FREE(m_groups);
 	}
 
-	uint32_t threadCount() const
+	uint64_t threadCount() const
 	{
 		return max(1u, std::thread::hardware_concurrency()); // Including the main thread.
 	}
 
+	uint64_t getNewTaskHandle() {
+		static std::atomic<uint64_t> s_counter {1};
+		return s_counter++;
+	}
+
 	// userData is passed to Task::func as groupUserData.
-	TaskGroupHandle createTaskGroup(void *userData = nullptr, uint32_t reserveSize = 0)
+	TaskGroupHandle createTaskGroup(void *userData = nullptr, uint64_t reserveSize = 0)
 	{
-		// Claim the first free group.
-		for (uint32_t i = 0; i < m_maxGroups; i++) {
-			TaskGroup &group = m_groups[i];
-			bool expected = true;
-			if (!group.free.compare_exchange_strong(expected, false))
-				continue;
-			group.queueLock.lock();
-			group.queueHead = 0;
-			group.queue.clear();
-			group.queue.reserve(reserveSize);
-			group.queueLock.unlock();
-			group.userData = userData;
-			group.ref = 0;
-			TaskGroupHandle handle;
-			handle.value = i;
-			return handle;
-		}
-		XA_DEBUG_ASSERT(false);
-		TaskGroupHandle handle;
-		handle.value = UINT32_MAX;
+		TaskGroupHandle handle = getNewTaskHandle();
+
+		m_groups.emplace(handle, userData, reserveSize);
+
 		return handle;
 	}
 
 	void run(TaskGroupHandle handle, const Task &task)
 	{
-		XA_DEBUG_ASSERT(handle.value != UINT32_MAX);
-		TaskGroup &group = m_groups[handle.value];
+		XA_EXPECT_OR_ABORT(handle != 0);
+		TaskGroup &group = m_groups.get(handle);
 		group.queueLock.lock();
 		group.queue.push_back(task);
 		group.queueLock.unlock();
 		group.ref++;
 		// Wake up a worker to run this task.
-		for (uint32_t i = 0; i < m_workers.size(); i++) {
+		for (uint64_t i = 0; i < m_workers.size(); i++) {
 			m_workers[i].wakeup = true;
 			m_workers[i].cv.notify_one();
 		}
 	}
 
-	void wait(TaskGroupHandle *handle)
+	void wait(TaskGroupHandle& handle)
 	{
-		if (handle->value == UINT32_MAX) {
-			XA_DEBUG_ASSERT(false);
-			return;
-		}
+		XA_EXPECT_OR_ABORT(handle != 0);
 		// Run tasks from the group queue until empty.
-		TaskGroup &group = m_groups[handle->value];
+		TaskGroup &group = m_groups.get(handle);
 		for (;;) {
 			Task *task = nullptr;
 			group.queueLock.lock();
-			if (group.queueHead < group.queue.size())
+			if (group.queueHead < group.queue.size()) {
 				task = &group.queue[group.queueHead++];
+			}
 			group.queueLock.unlock();
-			if (!task)
+			if (!task) {
 				break;
+			}
 			task->func(group.userData, task->userData);
 			group.ref--;
 		}
 		// Even though the task queue is empty, workers can still be running tasks.
-		while (group.ref > 0)
+		while (group.ref > 0) {
 			std::this_thread::yield();
+		}
 		group.free = true;
-		handle->value = UINT32_MAX;
+		handle = 0;
+
+		m_groups.erase(handle);
 	}
 
-	static uint32_t currentThreadIndex() { return m_threadIndex; }
+	static uint64_t currentThreadIndex() { return m_threadIndex; }
 
 private:
-	struct TaskGroup
-	{
-		std::atomic<bool> free;
-		Array<Task> queue; // Items are never removed. queueHead is incremented to pop items.
-		uint32_t queueHead = 0;
-		Spinlock queueLock;
-		std::atomic<uint32_t> ref; // Increment when a task is enqueued, decrement when a task finishes.
-		void *userData;
-	};
 
 	struct Worker
 	{
@@ -3278,47 +3366,75 @@ private:
 		std::atomic<bool> wakeup;
 	};
 
-	TaskGroup *m_groups;
+	sync_unordered_map<TaskGroupHandle, TaskGroup> m_groups;
 	Array<Worker> m_workers;
 	std::atomic<bool> m_shutdown;
-	uint32_t m_maxGroups;
-	static thread_local uint32_t m_threadIndex;
+	static thread_local uint64_t m_threadIndex;
 
-	static void workerThread(TaskScheduler *scheduler, Worker *worker, uint32_t threadIndex)
+	static void workerThread(TaskScheduler *scheduler, Worker *worker, uint64_t threadIndex)
 	{
 		m_threadIndex = threadIndex;
 		std::unique_lock<std::mutex> lock(worker->mutex);
-		for (;;) {
-			worker->cv.wait(lock, [=]{ return worker->wakeup.load(); });
-			worker->wakeup = false;
+		XA_DEBUG_PRINT("WorkerThread %u starting.\n", threadIndex);
+		try {
 			for (;;) {
-				if (scheduler->m_shutdown)
+				if (scheduler->m_shutdown) {
+					XA_DEBUG_PRINT("WorkerThread %u shutting down.\n", threadIndex);
 					return;
-				// Look for a task in any of the groups and run it.
-				TaskGroup *group = nullptr;
-				Task *task = nullptr;
-				for (uint32_t i = 0; i < scheduler->m_maxGroups; i++) {
-					group = &scheduler->m_groups[i];
-					if (group->free || group->ref == 0)
-						continue;
-					group->queueLock.lock();
-					if (group->queueHead < group->queue.size()) {
-						task = &group->queue[group->queueHead++];
-						group->queueLock.unlock();
+				}
+
+				while (!worker->wakeup.load()) {
+					worker->cv.wait_for(lock, 100ms, [=]{ return worker->wakeup.load(); });
+				}
+				worker->wakeup.store(false);
+
+				for (;;) {
+					if (scheduler->m_shutdown) {
+					XA_DEBUG_PRINT("WorkerThread %u shutting down.\n", threadIndex);
+						return;
+					}
+					// Look for a task in any of the groups and run it.
+					Task *task = nullptr;
+
+					auto opt_group = scheduler->m_groups.find_first_of(
+						[=, &task] (TaskGroup & group) -> bool {
+							if (group.free || group.ref == 0) {
+								return false;
+							}
+							group.queueLock.lock();
+							if (group.queueHead < group.queue.size()) {
+								task = &group.queue[group.queueHead++];
+								group.queueLock.unlock();
+								return true;
+							}
+							group.queueLock.unlock();
+							return false;
+						}
+					);
+
+					if (!task || !opt_group.has_value()) {
 						break;
 					}
-					group->queueLock.unlock();
+
+					TaskGroup* group = opt_group.value();
+					task->func(group->userData, task->userData);
+					group->ref--;
 				}
-				if (!task)
-					break;
-				task->func(group->userData, task->userData);
-				group->ref--;
 			}
+		} catch (const std::runtime_error & ex) {
+			XA_PRINT_WARNING("std::runtime_error in XAtlas WorkerThread %u.\n%s.\nAborting.\n", threadIndex, ex.what());
+			XA_ABORT();
+		} catch (const std::exception & ex) {
+			XA_PRINT_WARNING("std::exception in XAtlas WorkerThread %u.\n%s.\nAborting.\n", threadIndex, ex.what());
+			XA_ABORT();
+		} catch (...) {
+			XA_PRINT_WARNING("Unknown Exception in XAtlas WorkerThread %u.\nAborting.\n", threadIndex);
+			XA_ABORT();
 		}
 	}
 };
 
-thread_local uint32_t TaskScheduler::m_threadIndex;
+thread_local uint64_t TaskScheduler::m_threadIndex;
 #else
 class TaskScheduler
 {
@@ -3849,10 +3965,10 @@ namespace opennl {
 #define NL_NEW(T)              XA_ALLOC(MemTag::OpenNL, T)
 #define NL_NEW_ARRAY(T,NB)     XA_ALLOC_ARRAY(MemTag::OpenNL, T, NB)
 #define NL_RENEW_ARRAY(T,x,NB) XA_REALLOC(MemTag::OpenNL, x, T, NB)
-#define NL_DELETE(x)           XA_FREE(x); x = nullptr 
+#define NL_DELETE(x)           XA_FREE(x); x = nullptr
 #define NL_DELETE_ARRAY(x)     XA_FREE(x); x = nullptr
 #define NL_CLEAR(x, T)         memset(x, 0, sizeof(T));
-#define NL_CLEAR_ARRAY(T,x,NB) memset(x, 0, (size_t)(NB)*sizeof(T)) 
+#define NL_CLEAR_ARRAY(T,x,NB) memset(x, 0, (size_t)(NB)*sizeof(T))
 #define NL_NEW_VECTOR(dim)     XA_ALLOC_ARRAY(MemTag::OpenNL, double, dim)
 #define NL_DELETE_VECTOR(ptr)  XA_FREE(ptr)
 
@@ -5077,7 +5193,7 @@ struct PlanarCharts
 	PlanarCharts(AtlasData &data) : m_data(data), m_nextRegionFace(MemTag::SegmentAtlasPlanarRegions), m_faceToRegionId(MemTag::SegmentAtlasPlanarRegions) {}
 	const Basis &chartBasis(uint32_t chartIndex) const { return m_chartBasis[chartIndex]; }
 	uint32_t chartCount() const { return m_charts.size(); }
-	
+
 	ConstArrayView<uint32_t> chartFaces(uint32_t chartIndex) const
 	{
 		const Chart &chart = m_charts[chartIndex];
@@ -5495,7 +5611,7 @@ private:
 					// Merge if chart2 has a single face.
 					// chart1 must have more than 1 face.
 					// chart2 area must be <= 10% of chart1 area.
-					if (m_sharedBoundaryLengthsNoSeams[cc] > 0.0f && chart->faces.size() > 1 && chart2->faces.size() == 1 && chart2->area <= chart->area * 0.1f) 
+					if (m_sharedBoundaryLengthsNoSeams[cc] > 0.0f && chart->faces.size() > 1 && chart2->faces.size() == 1 && chart2->area <= chart->area * 0.1f)
 						goto merge;
 					// Merge if chart2 has two faces (probably a quad), and chart1 bounds at least 2 of its edges.
 					if (chart2->faces.size() == 2 && m_sharedBoundaryEdgeCountNoSeams[cc] >= 2)
@@ -5503,7 +5619,7 @@ private:
 					// Merge if chart2 is wholely inside chart1, ignoring seams.
 					if (m_sharedBoundaryLengthsNoSeams[cc] > 0.0f && equal(m_sharedBoundaryLengthsNoSeams[cc], chart2->boundaryLength, kEpsilon))
 						goto merge;
-					if (m_sharedBoundaryLengths[cc] > 0.2f * max(0.0f, chart->boundaryLength - externalBoundaryLength) || 
+					if (m_sharedBoundaryLengths[cc] > 0.2f * max(0.0f, chart->boundaryLength - externalBoundaryLength) ||
 						m_sharedBoundaryLengths[cc] > 0.75f * chart2->boundaryLength)
 						goto merge;
 					continue;
@@ -5659,7 +5775,7 @@ private:
 		// Append the face and any coplanar connected faces to the chart faces array.
 		chart->faces.push_back(face);
 		uint32_t coplanarFace = m_planarCharts.nextRegionFace(face);
-		while (coplanarFace != face) { 
+		while (coplanarFace != face) {
 			XA_DEBUG_ASSERT(!m_data.isFaceInChart.get(coplanarFace));
 			chart->faces.push_back(coplanarFace);
 			coplanarFace = m_planarCharts.nextRegionFace(coplanarFace);
@@ -5819,7 +5935,7 @@ private:
 		float l_in = 0.0f; // Length that does border the chart.
 		const uint32_t planarRegionId = m_planarCharts.regionIdFromFace(firstFace);
 		uint32_t face = firstFace;
-		for (;;) { 
+		for (;;) {
 			for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
 				const float l = m_data.edgeLengths[it.edge()];
 				if (it.isBoundary()) {
@@ -5868,7 +5984,7 @@ private:
 	{
 		float seamFactor = 0.0f, totalLength = 0.0f;
 		uint32_t face = firstFace;
-		for (;;) { 
+		for (;;) {
 			for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
 				if (it.isBoundary())
 					continue;
@@ -5909,7 +6025,7 @@ private:
 	{
 		float seamLength = 0.0f, totalLength = 0.0f;
 		uint32_t face = firstFace;
-		for (;;) { 
+		for (;;) {
 			for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
 				if (it.isBoundary())
 					continue;
@@ -5936,7 +6052,7 @@ private:
 	{
 		float area = chart->area;
 		uint32_t face = firstFace;
-		for (;;) { 
+		for (;;) {
 			area += m_data.faceAreas[face];
 			face = m_planarCharts.nextRegionFace(face);
 			if (face == firstFace)
@@ -5951,7 +6067,7 @@ private:
 		// Add new edges, subtract edges shared with the chart.
 		const uint32_t planarRegionId = m_planarCharts.regionIdFromFace(firstFace);
 		uint32_t face = firstFace;
-		for (;;) { 
+		for (;;) {
 			for (Mesh::FaceEdgeIterator it(m_data.mesh, face); !it.isDone(); it.advance()) {
 				const float edgeLength = m_data.edgeLengths[it.edge()];
 				if (it.isBoundary()) {
@@ -6241,7 +6357,7 @@ static bool computeUvMeshCharts(TaskScheduler *taskScheduler, ArrayView<UvMesh *
 		task.func = runComputeUvMeshChartsTask;
 		taskScheduler->run(taskGroup, task);
 	}
-	taskScheduler->wait(&taskGroup);
+	taskScheduler->wait(taskGroup);
 	return !progress.cancel;
 }
 
@@ -6418,7 +6534,7 @@ static bool computeLeastSquaresConformalMap(Mesh *mesh)
 		if (i == lockedVertex0 || i == lockedVertex1) {
 			opennl::nlLockVariable(context, 2 * i);
 			opennl::nlLockVariable(context, 2 * i + 1);
-		} 
+		}
 	}
 	opennl::nlBegin(context, NL_MATRIX);
 	const uint32_t faceCount = mesh->faceCount();
@@ -7579,7 +7695,7 @@ public:
 			task.func = runCreateAndParameterizeChartTask;
 			taskScheduler->run(taskGroup, task);
 		}
-		taskScheduler->wait(&taskGroup);
+		taskScheduler->wait(taskGroup);
 		XA_PROFILE_END(createChartMeshAndParameterizeReal)
 #if XA_RECOMPUTE_CHARTS
 		// Count charts. Skip invalid ones and include new ones added by recomputing.
@@ -7811,7 +7927,7 @@ static void runMeshComputeChartsTask(void *groupUserData, void *taskUserData)
 			task.func = runChartGroupComputeChartsTask;
 			groupArgs->taskScheduler->run(taskGroup, task);
 		}
-		groupArgs->taskScheduler->wait(&taskGroup);
+		groupArgs->taskScheduler->wait(taskGroup);
 		XA_PROFILE_END(chartGroupComputeChartsReal)
 	}
 	XA_PROFILE_END(computeChartsThread)
@@ -7915,7 +8031,7 @@ public:
 			task.func = runMeshComputeChartsTask;
 			taskScheduler->run(taskGroup, task);
 		}
-		taskScheduler->wait(&taskGroup);
+		taskScheduler->wait(taskGroup);
 		XA_PROFILE_END(computeChartsReal)
 		if (progress.cancel)
 			return false;
@@ -8162,7 +8278,7 @@ struct Atlas
 				}
 			}
 		}
-		taskScheduler->wait(&taskGroup);
+		taskScheduler->wait(taskGroup);
 		// Get task output.
 		m_charts.resize(chartCount);
 		for (uint32_t i = 0; i < chartCount; i++)
@@ -9107,7 +9223,7 @@ AddMeshError::Enum AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t mesh
 	XA_PROFILE_END(addMeshCopyData)
 	ctx->meshes.push_back(mesh);
 	ctx->paramAtlas.addMesh(mesh);
-	if (ctx->addMeshTaskGroup.value == UINT32_MAX)
+	if (ctx->addMeshTaskGroup == 0)
 		ctx->addMeshTaskGroup = ctx->taskScheduler->createTaskGroup(ctx);
 	internal::Task task;
 	task.userData = mesh;
@@ -9138,7 +9254,7 @@ void AddMeshJoin(Atlas *atlas)
 	} else {
 		if (!ctx->addMeshProgress)
 			return;
-		ctx->taskScheduler->wait(&ctx->addMeshTaskGroup);
+		ctx->taskScheduler->wait(ctx->addMeshTaskGroup);
 		ctx->addMeshProgress->~Progress();
 		XA_FREE(ctx->addMeshProgress);
 		ctx->addMeshProgress = nullptr;
