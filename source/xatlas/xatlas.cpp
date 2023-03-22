@@ -3139,7 +3139,7 @@ public:
 			m_groups[i].ref = 0;
 			m_groups[i].userData = nullptr;
 		}
-		m_workers.resize(std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1);
+		m_workers.resize(std::thread::hardware_concurrency() <= 1 ? 0 : std::thread::hardware_concurrency() - 1);
 		for (uint32_t i = 0; i < m_workers.size(); i++) {
 			new (&m_workers[i]) Worker();
 			m_workers[i].wakeup = false;
