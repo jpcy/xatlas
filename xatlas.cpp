@@ -3235,6 +3235,8 @@ public:
 	}
 };
 
+const uint64_t defaultConcurrency = std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1;
+
 #if XA_MULTITHREADED
 class TaskScheduler
 {
@@ -3257,12 +3259,11 @@ class TaskScheduler
 
 		TaskGroup(const TaskGroup&) = default;
 	};
-
 public:
-	TaskScheduler() : m_shutdown(false)
+	TaskScheduler(uint64_t threadPoolSize = defaultConcurrency) : m_shutdown(false)
 	{
 		m_threadIndex = 0;
-		m_workers.resize(std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1);
+		m_workers.resize(threadPoolSize);
 		for (uint64_t i = 0; i < m_workers.size(); i++) {
 			new (&m_workers[i]) Worker();
 			m_workers[i].wakeup = false;
@@ -8965,11 +8966,11 @@ struct Context
 	bool uvMeshChartsComputed = false;
 };
 
-Atlas *Create()
+Atlas *Create(uint64_t concurrency)
 {
 	Context *ctx = XA_NEW(internal::MemTag::Default, Context);
 	memset(&ctx->atlas, 0, sizeof(Atlas));
-	ctx->taskScheduler = XA_NEW(internal::MemTag::Default, internal::TaskScheduler);
+	ctx->taskScheduler = XA_NEW_ARGS(internal::MemTag::Default, internal::TaskScheduler, concurrency);
 	return &ctx->atlas;
 }
 
