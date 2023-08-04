@@ -96,8 +96,12 @@ struct Atlas
 	float texelsPerUnit; // Equal to PackOptions texelsPerUnit if texelsPerUnit > 0, otherwise an estimated value to match PackOptions resolution.
 };
 
+namespace internal {
+extern const uint64_t defaultConcurrency;
+}
+
 // Create an empty atlas.
-Atlas *Create();
+Atlas *Create(uint64_t concurrency = internal::defaultConcurrency);
 
 void Destroy(Atlas *atlas);
 
@@ -117,7 +121,7 @@ struct MeshDecl
 	const void *vertexNormalData = nullptr; // optional
 	const void *vertexUvData = nullptr; // optional. The input UVs are provided as a hint to the chart generator.
 	const void *indexData = nullptr; // optional
-	
+
 	// Optional. Must be indexCount / 3 in length.
 	// Don't atlas faces set to true. Ignored faces still exist in the output meshes, Vertex uv is set to (0, 0) and Vertex atlasIndex to -1.
 	const bool *faceIgnoreData = nullptr;
