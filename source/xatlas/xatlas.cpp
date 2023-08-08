@@ -10021,6 +10021,7 @@ AddMeshError AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 				}
 			}
 			// Check for zero area faces.
+			// TODO: make a workaround for preserving original functionality
 //			if (!ignore) {
 //				const internal::Vector2 &v1 = mesh->texcoords[tri[0]];
 //				const internal::Vector2 &v2 = mesh->texcoords[tri[1]];
