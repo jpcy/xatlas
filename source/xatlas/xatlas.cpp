@@ -61,6 +61,8 @@ Copyright (c) 2012 Brandon Pelfrey
 #endif
 #endif
 
+#define XA_PROFILE 1
+
 #ifndef XA_PROFILE
 #define XA_PROFILE 0
 #endif
@@ -78,6 +80,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #ifndef XA_ASSERT
 #define XA_ASSERT(exp) if (!(exp)) { XA_PRINT_WARNING("\rASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
 #endif
+
 
 #ifndef XA_DEBUG_ASSERT
 #define XA_DEBUG_ASSERT(exp) assert(exp)
@@ -159,6 +162,8 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_FOPEN(_file, _filename, _mode) _file = fopen(_filename, _mode)
 #define XA_SPRINTF(_buffer, _size, _format, ...) sprintf(_buffer, _format, __VA_ARGS__)
 #endif
+
+#include "parallel_tools.h"
 
 namespace xatlas {
 namespace internal {
@@ -1383,6 +1388,7 @@ public:
 	bool get(uint32_t x, uint32_t y) const
 	{
 		XA_DEBUG_ASSERT(x < m_width && y < m_height);
+//		XA_ASSERT(x < m_width && y < m_height);
 		const uint32_t index = (x >> 6) + y * m_rowStride;
 		return (m_data[index] & (UINT64_C(1) << (uint64_t(x) & UINT64_C(63)))) != 0;
 	}
@@ -1390,6 +1396,7 @@ public:
 	void set(uint32_t x, uint32_t y)
 	{
 		XA_DEBUG_ASSERT(x < m_width && y < m_height);
+//		XA_ASSERT(x < m_width && y < m_height);
 		const uint32_t index = (x >> 6) + y * m_rowStride;
 		m_data[index] |= UINT64_C(1) << (uint64_t(x) & UINT64_C(63));
 		XA_DEBUG_ASSERT(get(x, y));
@@ -8661,6 +8668,9 @@ private:
 	{
 		const int stepSize = options.blockAlign ? 4 : 1;
 		int best_metric = INT_MAX;
+        volatile bool returnFlag = false;
+        if (startPosition.x < 0 || startPosition.y < 0)
+            printf("lol... what?");
 		// Try two different orientations.
 		for (int r = 0; r < 2; r++) {
 			int cw = chartBitImage->width();
@@ -8671,13 +8681,19 @@ private:
 				else
 					break;
 			}
-			for (int y = startPosition.y; y <= h + stepSize; y += stepSize) {
-				if (maxResolution > 0 && y > (int)maxResolution - ch)
-					break;
-				for (int x = (y == startPosition.y ? startPosition.x : 0); x <= w + stepSize; x += stepSize) {
-					if (maxResolution > 0 && x > (int)maxResolution - cw)
-						break;
-					// Early out if metric is not better.
+            const int xLimit = maxResolution > 0 ? min(w + stepSize, (int)maxResolution - cw) : w + stepSize;
+            const int yLimit = maxResolution > 0 ? min(h + stepSize, (int)maxResolution - ch) : h + stepSize;
+
+            OMP_DISPATCHER
+            #pragma omp parallel for collapse(2)
+            for (int y = startPosition.y; y <= yLimit; y += stepSize) {
+				for (int x = 0; x <= xLimit; x += stepSize) {
+                    OMP_TRY
+                    if (y == startPosition.y && x < startPosition.x)
+                        continue;
+                    if (returnFlag)
+                        continue;
+                    // Early out if metric is not better.
 					const int extentX = max(w, x + cw), extentY = max(h, y + ch);
 					const int area = extentX * extentY;
 					const int extents = max(extentX, extentY);
@@ -8689,16 +8705,26 @@ private:
 						continue;
 					if (!atlasBitImage->canBlit(r == 1 ? *chartBitImageRotated : *chartBitImage, x, y))
 						continue;
-					best_metric = metric;
-					*best_x = x;
-					*best_y = y;
-					*best_w = cw;
-					*best_h = ch;
-					*best_r = r;
+                    #pragma omp critical
+                    {
+                        if (metric <= best_metric) {
+                            best_metric = metric;
+                            *best_x = x;
+                            *best_y = y;
+                            *best_w = cw;
+                            *best_h = ch;
+                            *best_r = r;
+                        }
+                    }
 					if (area == w * h)
-						return true; // Chart is completely inside, do not look at any other location.
+//						return true; // Chart is completely inside, do not look at any other location.
+                        returnFlag = true;
+                    OMP_CATCH
 				}
 			}
+            OMP_RETHROW
+            if (returnFlag)
+                return true;
 		}
 		return best_metric != INT_MAX;
 	}
@@ -8774,6 +8800,7 @@ private:
 						if (image->get(x, y)) {
 							if (xx < atlas_w && yy < atlas_h) {
 								XA_DEBUG_ASSERT(atlasBitImage->get(xx, yy) == false);
+//								XA_ASSERT(atlasBitImage->get(xx, yy) == false);
 								atlasBitImage->set(xx, yy);
 							}
 						}
@@ -9335,17 +9362,17 @@ AddMeshError AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 				}
 			}
 			// Check for zero area faces.
-			if (!ignore) {
-				const internal::Vector2 &v1 = mesh->texcoords[tri[0]];
-				const internal::Vector2 &v2 = mesh->texcoords[tri[1]];
-				const internal::Vector2 &v3 = mesh->texcoords[tri[2]];
-				const float area = fabsf(((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f);
-				if (area <= internal::kAreaEpsilon) {
-					ignore = true;
-					if (++warningCount <= kMaxWarnings)
-						XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", f, tri[0], tri[1], tri[2], area);
-				}
-			}
+//			if (!ignore) {
+//				const internal::Vector2 &v1 = mesh->texcoords[tri[0]];
+//				const internal::Vector2 &v2 = mesh->texcoords[tri[1]];
+//				const internal::Vector2 &v3 = mesh->texcoords[tri[2]];
+//				const float area = fabsf(((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f);
+//				if (area <= internal::kAreaEpsilon) {
+//					ignore = true;
+//					if (++warningCount <= kMaxWarnings)
+//						XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", f, tri[0], tri[1], tri[2], area);
+//				}
+//			}
 			if (ignore)
 				mesh->faceIgnore.set(f);
 		}
