@@ -1567,6 +1567,7 @@ public:
     void reduceTo(BitImage *image, int rate, int offset_x, int offset_y, bool pessimistic) const
     {
         XA_DEBUG_ASSERT(image != nullptr);
+        XA_DEBUG_ASSERT(image != this);
         XA_ASSERT(offset_x >= 0);
         XA_ASSERT(offset_y >= 0);
         offset_x %= rate;
@@ -1574,20 +1575,13 @@ public:
 
         image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
         for (int y = 0; y < image->height(); ++y) {
-            if ((y + 1) * rate - offset_y > m_height)
-                // the block will be not full
-                break;
-
             for (int x = 0; x < image->width(); ++x) {
-                if ((x + 1) * rate - offset_x > m_width)
-                    // the block will be not full
-                    break;
 
                 bool all = true;
                 bool any = false;
                 // traversal within reduction square
-                for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y; ++yy) {
-                    for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x; ++xx) {
+                for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
+                    for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
                         if (yy >= 0 && xx >= 0 && get(xx, yy)) {
                             any = true;
                             if (!pessimistic) {
@@ -1605,6 +1599,8 @@ public:
                     if (any && !pessimistic)
                         break;
                 }
+				if ((x + 1) * rate - offset_x > (int)m_width || (y + 1) * rate - offset_y > (int)m_height)
+					all = false;
                 if (!pessimistic) {
                     if (any)
                         image->set(x, y);
@@ -1648,7 +1644,6 @@ public:
         image.copyTo(m_data[0]);
         if (m_rate == 1)
             return;
-        int image_idx = 1;
         for (int level = 1; level < m_levels; ++level) {
             // do something
             int rate_cur = 1;
@@ -1656,8 +1651,9 @@ public:
                 rate_cur *= m_rate;
             for (int offset_y = 0; offset_y < rate_cur; offset_y++) {
                 for (int offset_x = 0; offset_x < rate_cur; offset_x++) {
-                    image.reduceTo(&m_data[image_idx], rate_cur, offset_x, offset_y, pessimistic);
-                    image_idx++;
+                    BitImage &parent = getByLevelAndOffset(level - 1, offset_x, offset_y);
+                    BitImage &child = getByLevelAndOffset(level, offset_x, offset_y);
+                    parent.reduceTo(&child, m_rate, offset_x * m_rate / rate_cur, offset_y * m_rate / rate_cur, pessimistic);
                 }
             }
         }
@@ -1693,8 +1689,8 @@ public:
         // number of images on all previous layers
         const int num_offset = (cur_level_rate * cur_level_rate - 1) / (m_rate * m_rate - 1);
 
-        XA_DEBUG_ASSERT(offset_x < cur_level_rate);
-        XA_DEBUG_ASSERT(offset_y < cur_level_rate);
+		offset_x %= cur_level_rate;
+		offset_y %= cur_level_rate;
 
         return m_data[num_offset + offset_y * cur_level_rate + offset_x];
     }
@@ -8798,14 +8794,14 @@ struct Atlas
 			CoarsePyramid chartImageToPack(m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate);
             CoarsePyramid chartImageToPackRotated(m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate);
             if (options.padding > 0) {
-                chartImageToPack.init(chartImagePadding, true);
-                chartImageToPackRotated.init(chartImagePaddingRotated, true);
+                chartImageToPack.init(chartImagePadding, false);
+                chartImageToPackRotated.init(chartImagePaddingRotated, false);
             } else if (options.bilinear) {
-                chartImageToPack.init(chartImageBilinear, true);
-                chartImageToPackRotated.init(chartImageBilinearRotated, true);
+                chartImageToPack.init(chartImageBilinear, false);
+                chartImageToPackRotated.init(chartImageBilinearRotated, false);
             } else {
-                chartImageToPack.init(chartImage, true);
-                chartImageToPackRotated.init(chartImageRotated, true);
+                chartImageToPack.init(chartImage, false);
+                chartImageToPackRotated.init(chartImageRotated, false);
 			}
 
 
@@ -9320,8 +9316,8 @@ private:
             const int coarse_offset_x = *offset_x / coarse_reduction;
             const int coarse_offset_y = *offset_y / coarse_reduction;
             const BitImage &imageChart = chartBitImages.getByLevelAndOffset(coarse_level,
-                                                                            *offset_x % coarse_reduction,
-                                                                            *offset_y % coarse_reduction);
+                                                                            *offset_x,
+                                                                            *offset_y);
             if (coarse_offset_x > (int)maxResolution - (int)imageChart.width()
                 || coarse_offset_y > (int)maxResolution - (int)imageChart.height())
                 return false;
@@ -9407,174 +9403,42 @@ private:
             }
         }
         return best_metric != INT_MAX;
-
-//        struct stackFrame {
-//            int x;
-//            int y;
-//            int level;
-//        };
-//        Array<stackFrame> callbackStack;
-//        callbackStack.reserve(coarse_reduction);
-//        callbackStack.push_back({coarse_offset_x, coarse_offset_y, coarse_size - 1});
-//        while(!callbackStack.isEmpty()) {
-//            stackFrame curOffset = callbackStack.back();
-//            callbackStack.pop_back();
-//
-//            const BitImage &imageChart = chartBitImages.getByLevelAndOffset(curOffset.level,
-//                                                                            *offset_x,
-//                                                                            *offset_y);
-//
-//            const bool canBlit = (*atlasBitImages)[curOffset.level]->canBlit(imageChart, curOffset.x, curOffset.y);
-//#if DRAW
-//            if (cimg_draw)
-//            {
-////                            for (a = m_bitImagesCoarseLevels - 1; a >= m_bitImagesCoarseLevels - 1; --a) {
-//                for (int a = curOffset.level; a >= curOffset.level; --a) {
-//                    if (curOffset.level == 0)
-//                        break;
-//                    int ixlen = (*atlasBitImages)[a]->width();
-//                    int iylen = (*atlasBitImages)[a]->height();
-////                        int *offset_x = &best_x;
-////                        int *offset_y = &best_y;
-//                    // image for a current layer
-//                    cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
-//                    for (int ix = 0; ix < ixlen; ix++) {
-//                        for (int iy = 0; iy < iylen; iy++) {
-//                            unsigned char red = 0;
-//                            unsigned char green = 0;
-//                            unsigned char blue = 0;
-//                            int pixel_status = 0;
-//                            pixel_status += (*atlasBitImages)[a]->get(ix, iy) ? 2 : 0;
-//                                if (ix >= (curOffset.x)
-//                                    &&
-//                                    ix < (curOffset.x) + imageChart.width()
-//                                    && iy >= (curOffset.y)
-//                                    && iy <
-//                                       (curOffset.y) + imageChart.height())
-//                                    pixel_status += (imageChart.get(
-//                                            ix - (curOffset.x),
-//                                            iy - (curOffset.y))) ? 1 : 0;
-//
-//                            switch (pixel_status) {
-//                                case 0:
-//                                    break;
-//                                case 1:
-//                                    red = green = blue = 192;
-//                                    break;
-//                                case 2:
-//                                    red = green = blue = 96;
-//                                    break;
-//                                case 3:
-//                                    red = 255;
-//                                    break;
-//                                default:
-//                                    green = blue = 255;
-//                            }
-////                                if (ix >= coarseStartPosition.x && ix <= coarseEndPosition.x + cw
-////                                    && iy >= coarseStartPosition.y && iy <= coarseEndPosition.y + ch) {
-////                                    red = min(255, red + 64);
-////                                    green = min(255, green + 64);
-////                                    blue = min(255, blue + 64);
-////                                }
-//                            export_img(ix, iy, 0) = red;
-////                                        export_img(ix, iy, 1) = green;
-////                                        export_img(ix, iy, 2) = blue;
-//                        }
-//                    }
-//                    export_img.save(("data/debug/imges/iii/overlap" + std::to_string(PARALLEL)
-//                    + "_" + std::to_string(a)
-//                    + "_" + (canBlit ? "y" : "n") + "(" + std::to_string(curOffset.x) + ", " + std::to_string(curOffset.y) + ").png").c_str());
-//                }
-//            }
-//#endif
-//
-//            if (!canBlit)
-//                continue;
-//
-//            // first matched - minimal of y, minimal of x.
-//            if (curOffset.level == 0) {
-//                const unsigned int extentX = max(w, curOffset.x + (int)chartBitImages.getByLevelAndOffset(0).width());
-//                const unsigned int extentY = max(h, curOffset.y + (int)chartBitImages.getByLevelAndOffset(0).height());
-//                const unsigned int area = extentX * extentY;
-//                const unsigned int extents = max(extentX, extentY);
-//                const unsigned int metric = extents * extents + area;
-//                if (metric < best_metric) {
-//                    best_metric = metric;
-//                    *offset_x = curOffset.x;
-//                    *offset_y = curOffset.y;
-//                }
-//                continue;
-//            }
-//            const Vector2i startPosition = {max(0, curOffset.x * (int)m_bitImagesCoarseLevelRate),
-//                                            max(0, curOffset.y * (int)m_bitImagesCoarseLevelRate)};
-//
-//            int resolution = maxResolution;
-//            for (int i = 0; i < curOffset.level - 1; ++i) {
-//                resolution /= m_bitImagesCoarseLevelRate;
-//            }
-////            const Vector2i endPosition = {min(*offset_x >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate,
-////                                          ((int)maxResolution >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate) - (int)chartBitImages[curOffset.level - 1].width()),
-////                                          min(*offset_y >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate,
-////                                              ((int)maxResolution >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate) - (int)chartBitImages[curOffset.level - 1].height())};
-//            const Vector2i endPosition = {(int32_t)min((curOffset.x + 1) * (int)m_bitImagesCoarseLevelRate - 1,
-//                                                       resolution - (int)chartBitImages.getByLevelAndOffset(curOffset.level - 1,
-//                                                                                                            curOffset.x,
-//                                                                                                            curOffset.y).width()),
-//                                          (int32_t)min((curOffset.y + 1) * (int)m_bitImagesCoarseLevelRate - 1,
-//                                                       resolution - (int)chartBitImages.getByLevelAndOffset(curOffset.level - 1,
-//                                                                                                            curOffset.x,
-//                                                                                                            curOffset.y).height())};
-//            if (startPosition.x > endPosition.x || startPosition.y > endPosition.y)
-//                continue;
-//            // pushing in stack worst-to-best so that best can be taken out first
-//            for (int y2 = endPosition.y; y2 >= startPosition.y; --y2) {
-//                for (int x1 = endPosition.x; x1 >= startPosition.x; --x1) {
-//                    callbackStack.push_back({x1, y2, curOffset.level - 1});
-//                }
-//            }
-//        }
-        // if reached,
-        return best_metric != INT_MAX;
     }
 
 	void addChart(Array<BitImage *> *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r) {
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
 
 #if SOFT_RASTER
+		BitImage image[m_bitImagesCoarseLevels];
         for (int coarse_level = 0; coarse_level < m_bitImagesCoarseLevels; coarse_level++)
         {
             int rate_cur = 1;
             for (int i = 0; i < coarse_level; ++i)
                 rate_cur *= m_bitImagesCoarseLevelRate;
 
-            BitImage image;
             if (coarse_level == 0) {
                 if (r == 0) {
-                    chartBitImage->copyTo(image);
+                    chartBitImage->copyTo(image[0]);
                 } else {
-                    chartBitImageRotated->copyTo(image);
+                    chartBitImageRotated->copyTo(image[0]);
                 }
             } else {
-                if (r == 0) {
-                    chartBitImage->reduceTo(&image, rate_cur, offset_x, offset_y, false);
-                } else {
-                    chartBitImageRotated->reduceTo(&image, rate_cur, offset_x, offset_y, false);
-                }
+				int true_rate = rate_cur / m_bitImagesCoarseLevelRate;
+				image[coarse_level - 1].reduceTo(&image[coarse_level], m_bitImagesCoarseLevelRate,
+												 offset_x / true_rate, offset_y / true_rate, true);
             }
             BitImage& curCoarseAtlasImageLayer = *(*atlasBitImage)[coarse_level];
-            int w = image.width();
-            int h = image.height();
+            int w = image[coarse_level].width();
+            int h = image[coarse_level].height();
             for (int y = 0; y < h; y++) {
                 int yy = y + offset_y / rate_cur;
                 if (yy >= 0) {
                     for (int x = 0; x < w; x++) {
                         int xx = x + offset_x / rate_cur;
                         if (xx < 0) continue;
-                        if (!image.get(x, y)) continue;
+                        if (!image[coarse_level].get(x, y)) continue;
                         if (xx >= atlas_w || yy >= atlas_h) continue;
-                        if (coarse_level == 0) {
-                            XA_DEBUG_ASSERT(curCoarseAtlasImageLayer.get(xx, yy) == false);
-                        }
+						XA_DEBUG_ASSERT(curCoarseAtlasImageLayer.get(xx, yy) == false);
                         curCoarseAtlasImageLayer.set(xx, yy);
                     }
                 }
