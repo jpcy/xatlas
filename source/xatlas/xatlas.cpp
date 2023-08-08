@@ -166,7 +166,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #include "parallel_tools.h"
 #define PARALLEL 1
 #define HONEST_PROGRESS 0
-#define REDUCE_OPTIMISTIC_SPEEDUP 0
+#define REDUCE_OPTIMISTIC_SPEEDUP 1
 
 #define DRAW 0
 #define XA_DEBUG_CHART -1
@@ -1579,6 +1579,9 @@ private:
 	{
 		image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
 
+#if PARALLEL
+#pragma omp parallel for collapse(2)
+#endif
 		for (int y = 0; y < image->height(); ++y) {
 			for (int x = 0; x < image->width(); ++x) {
 				if ((x + 1) * rate - offset_x > (int)m_width || (y + 1) * rate - offset_y > (int)m_height)
@@ -1609,22 +1612,22 @@ private:
 
 #if REDUCE_OPTIMISTIC_SPEEDUP
 		BitImage rect;
-		if (rate > 4) {
-			rect.resize(rate, rate, true);
-			for (int yy = 0; yy < rate; ++yy) {
-				for (int xx = 0; xx < rate; ++xx) {
-					rect.set(xx, yy);
-				}
+		rect.resize(rate, rate, true);
+		for (int yy = 0; yy < rate; ++yy) {
+			for (int xx = 0; xx < rate; ++xx) {
+				rect.set(xx, yy);
 			}
 		}
 #endif // REDUCE_OPTIMISTIC_SPEEDUP
 
+#if PARALLEL
+		#pragma omp parallel for collapse(2)
+#endif
 		for (int y = 0; y < image->height(); ++y) {
 			for (int x = 0; x < image->width(); ++x) {
-				// fast check for big rates; does not work near edges
+				// fast check using existing code; does not work near edges
 #if REDUCE_OPTIMISTIC_SPEEDUP
-				if (rate > 4
-				&& x * rate - offset_x >= 0 && (x + 1) * rate - offset_x <= (int)m_width
+				if (x * rate - offset_x >= 0 && (x + 1) * rate - offset_x <= (int)m_width
 				&& y * rate - offset_y >= 0 && (y + 1) * rate - offset_y <= (int)m_height) {
 					if (!canBlit(rect, x * rate - offset_x, y * rate - offset_y))
 						image->set(x, y);
@@ -1659,28 +1662,37 @@ private:
 
 class CoarsePyramid {
 public:
-    CoarsePyramid(int levels, int rate) : m_levels(levels), m_rate(rate) {
-        if (m_levels == 0 || m_rate == 1) {
-            m_levels = 0;
+    CoarsePyramid(const BitImage &image, int levels, int rate, bool pessimistic) : m_levels(levels), m_rate(rate) {
+        if (m_levels == 1 || m_rate == 1) {
+            m_levels = 1;
             m_rate = 1;
             m_data.resize(1);
             m_data.runCtors();
+			m_data[0].resize(image.width(), image.height(), true);
             return;
         }
+
+		// making hard limit on levels; charts that are small enough would not be reduced
+		const int MAX_REDUCTION_SIZE = 64;
+		int extents = max(image.width(), image.height());
+		levels = 1;
+		while (extents > MAX_REDUCTION_SIZE && levels < m_levels) {
+			extents /= m_rate;
+			++levels;
+		}
+		m_levels = levels;
+
         int rate_squared = rate * rate;
         int rate_pow_levels = 1;
-        for (int i = 0; i < m_levels; ++i)
-            rate_pow_levels *= rate_squared;
+        for (int i = 0; i < m_levels; ++i) {
+			rate_pow_levels *= rate_squared;
+		}
         const int num_images = (rate_pow_levels - 1) / (rate_squared - 1);
         m_data.resize(num_images);
         m_data.runCtors();
-    }
 
-    void init(const BitImage &image, bool pessimistic) {
         m_data[0].resize(image.width(), image.height(), true);
         image.copyTo(m_data[0]);
-        if (m_rate == 1)
-            return;
         for (int level = 1; level < m_levels; ++level) {
             // do something
             int rate_cur = 1;
@@ -1713,6 +1725,10 @@ public:
 
         return m_data[num_offset + offset_y * cur_level_rate + offset_x];
     }
+
+	int levels() const {
+		return m_levels;
+	}
 
     BitImage& getByLevelAndOffset(int level, int offset_x = 0, int offset_y = 0) {
         if (m_rate == 1)
@@ -8775,18 +8791,22 @@ struct Atlas
 			}
 
 			// Find a location to place the chart in the atlas.
-			CoarsePyramid chartImageToPack(m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate);
-            CoarsePyramid chartImageToPackRotated(m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate);
+
+			BitImage *chartImageToPack, *chartImageToPackRotated;
+
             if (options.padding > 0) {
-                chartImageToPack.init(chartImagePadding, false);
-                chartImageToPackRotated.init(chartImagePaddingRotated, false);
+                chartImageToPack = &chartImagePadding;
+                chartImageToPackRotated = &chartImagePaddingRotated;
             } else if (options.bilinear) {
-                chartImageToPack.init(chartImageBilinear, false);
-                chartImageToPackRotated.init(chartImageBilinearRotated, false);
+                chartImageToPack = &chartImageBilinear;
+                chartImageToPackRotated = &chartImageBilinearRotated;
             } else {
-                chartImageToPack.init(chartImage, false);
-                chartImageToPackRotated.init(chartImageRotated, false);
+                chartImageToPack = &chartImage;
+                chartImageToPackRotated = &chartImageRotated;
 			}
+
+			CoarsePyramid chartPyramid(*chartImageToPack, m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate, false);
+			CoarsePyramid chartPyramidRotated(*chartImageToPackRotated, m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate, false);
 
 
 			uint32_t currentAtlas = 0;
@@ -8829,7 +8849,7 @@ struct Atlas
                 else {
                     cimg_draw = false;
                 }
-				const bool foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
+				const bool foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, chartPyramidRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
 				XA_PROFILE_END(packChartsFindLocation)
 				XA_DEBUG_ASSERT(!(firstChartInBitImage && !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
 				if (maxResolution == 0) {
@@ -8922,7 +8942,7 @@ struct Atlas
             }
 #endif
 
-			addChart(atlasBitImages[currentAtlas], &chartImageToPack.getByLevelAndOffset(0), &chartImageToPackRotated.getByLevelAndOffset(0), atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_r);
+			addChart(atlasBitImages[currentAtlas], &chartPyramid.getByLevelAndOffset(0), &chartPyramidRotated.getByLevelAndOffset(0), atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_r);
 			XA_PROFILE_END(packChartsBlit)
 			if (createImage) {
 				if (best_r == 0) {
@@ -9249,7 +9269,7 @@ private:
 
     // if true, offset_x and offset_y are tuned accordingly, returning true offset instead of approximate.
     bool canBlitCoarseToFine(const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int *offset_x, int *offset_y, uint32_t maxResolution, int w, int h) const {
-        const int coarse_size = m_bitImagesCoarseLevels;
+        const int coarse_size = chartBitImages.levels();
 //        int coarse_reduction = 1;
 //        for (int i = 0; i < coarse_size - 1; ++i) {
 //            coarse_reduction *= m_bitImagesCoarseLevelRate;
@@ -9265,7 +9285,6 @@ private:
         unsigned int best_metric = INT_MAX;
 
         for (int coarse_level = coarse_size - 1; coarse_level >= 0; --coarse_level) {
-            const int coarse_size = m_bitImagesCoarseLevels;
             int coarse_reduction = 1;
             for (int i = 0; i < coarse_level; ++i) {
                 coarse_reduction *= m_bitImagesCoarseLevelRate;
