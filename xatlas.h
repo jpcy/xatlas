@@ -97,11 +97,11 @@ struct Atlas
 };
 
 namespace internal {
-extern const uint64_t defaultConcurrency;
+extern const uint64_t maxConcurrency;
 }
 
 // Create an empty atlas.
-Atlas *Create(uint64_t concurrency = internal::defaultConcurrency);
+Atlas *Create(uint64_t concurrency = internal::maxConcurrency);
 
 void Destroy(Atlas *atlas);
 
