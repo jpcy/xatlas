@@ -61,8 +61,6 @@ Copyright (c) 2012 Brandon Pelfrey
 #endif
 #endif
 
-#define XA_PROFILE 1
-
 #ifndef XA_PROFILE
 #define XA_PROFILE 0
 #endif
@@ -80,7 +78,6 @@ Copyright (c) 2012 Brandon Pelfrey
 #ifndef XA_ASSERT
 #define XA_ASSERT(exp) if (!(exp)) { XA_PRINT_WARNING("\rASSERT: %s %s %d\n", XA_XSTR(exp), __FILE__, __LINE__); }
 #endif
-
 
 #ifndef XA_DEBUG_ASSERT
 #define XA_DEBUG_ASSERT(exp) assert(exp)
@@ -1504,7 +1501,8 @@ public:
 		}
 	}
 
-	void rotateTo(BitImage *image1, BitImage *image2, BitImage *image3) const {
+	void rotateTo(BitImage *image1, BitImage *image2, BitImage *image3) const
+	{
 		XA_DEBUG_ASSERT(image1 != this);
 		XA_DEBUG_ASSERT(image2 != this);
 		XA_DEBUG_ASSERT(image3 != this);
@@ -1620,9 +1618,11 @@ private:
 	Array<uint64_t> m_data;
 };
 
-class CoarsePyramid {
+class CoarsePyramid
+{
 public:
-	CoarsePyramid(const BitImage *image, const BitImage *imageTransposed, int levels, int rate, bool rotate = false) : m_levels(levels), m_rate(rate), m_rotated(rotate) {
+	CoarsePyramid(const BitImage *image, const BitImage *imageTransposed, int levels, int rate, bool rotate = false) : m_levels(levels), m_rate(rate), m_rotated(rotate)
+	{
 		XA_DEBUG_ASSERT(image != nullptr);
 		m_orientations = 1;
 		if (imageTransposed != nullptr) {
@@ -1702,11 +1702,13 @@ public:
 		}
 	}
 
-	~CoarsePyramid() {
+	~CoarsePyramid()
+	{
 		m_data.runDtors();
 	}
 
-	const BitImage& get(int level, int offset_x = 0, int offset_y = 0, int orientation = 0) const {
+	const BitImage& get(int level, int offset_x = 0, int offset_y = 0, int orientation = 0) const
+	{
 		XA_DEBUG_ASSERT(level < m_levels);
 		XA_DEBUG_ASSERT(orientation < 8);
 		XA_DEBUG_ASSERT(orientation < 4 || m_transposed);
@@ -1725,7 +1727,8 @@ public:
 		return m_data[num_offset + orientation * (cur_level_rate * cur_level_rate) + offset_y * cur_level_rate + offset_x];
 	}
 
-	BitImage& get(int level, int offset_x = 0, int offset_y = 0, int orientation = 0) {
+	BitImage& get(int level, int offset_x = 0, int offset_y = 0, int orientation = 0)
+	{
 		XA_DEBUG_ASSERT(level < m_levels);
 		XA_DEBUG_ASSERT(orientation < 8);
 		XA_DEBUG_ASSERT(orientation < 4 || m_transposed);
@@ -1744,7 +1747,8 @@ public:
 		return m_data[num_offset + orientation * (cur_level_rate * cur_level_rate) + offset_y * cur_level_rate + offset_x];
 	}
 
-	XA_INLINE const BitImage& getTransposed(int level, int offset_x = 0, int offset_y = 0, int rotation = 0) const {
+	XA_INLINE const BitImage& getTransposed(int level, int offset_x = 0, int offset_y = 0, int rotation = 0) const
+	{
 		if (m_rotated)
 			return get(level, offset_x, offset_y, rotation + 4);
 		else {
@@ -1753,7 +1757,8 @@ public:
 		}
 	}
 
-	XA_INLINE BitImage& getTransposed(int level, int offset_x = 0, int offset_y = 0, int rotation = 0) {
+	XA_INLINE BitImage& getTransposed(int level, int offset_x = 0, int offset_y = 0, int rotation = 0)
+	{
 		if (m_rotated)
 			return get(level, offset_x, offset_y, rotation + 4);
 		else {
@@ -1762,19 +1767,23 @@ public:
 		}
 	}
 
-	XA_INLINE const BitImage& getRotation(int level, int rotation, int offset_x = 0, int offset_y = 0, bool transposed = false) const {
+	XA_INLINE const BitImage& getRotation(int level, int rotation, int offset_x = 0, int offset_y = 0, bool transposed = false) const
+	{
 		return get(level, offset_x, offset_y, transposed ? rotation + 4 : rotation);
 	}
 
-	XA_INLINE BitImage& getRotation(int level, int rotation, int offset_x = 0, int offset_y = 0, bool transposed = false)  {
+	XA_INLINE BitImage& getRotation(int level, int rotation, int offset_x = 0, int offset_y = 0, bool transposed = false)
+	{
 		return get(level, offset_x, offset_y, transposed ? rotation + 4 : rotation);
 	}
 
-	int levels() const {
+	int levels() const
+	{
 		return m_levels;
 	}
 
-	int orientations() const {
+	int orientations() const
+	{
 		return m_orientations;
 	}
 
@@ -9315,7 +9324,8 @@ private:
 	}
 
 	// if true, offset_x and offset_y are tuned accordingly, returning true offset instead of approximate.
-	bool canBlitCoarseToFine(const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int offset_x, int offset_y, int orientation, uint32_t maxResolution, int w, int h) const {
+	bool canBlitCoarseToFine(const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int offset_x, int offset_y, int orientation, uint32_t maxResolution, int w, int h) const
+	{
 		const int coarse_size = chartBitImages.levels();
 
 		for (int coarse_level = coarse_size - 1; coarse_level >= 0; --coarse_level) {
@@ -9430,7 +9440,8 @@ private:
 		return false;
 	}
 
-	void addChart(Array<BitImage *> *atlasBitImage, const CoarsePyramid &chartBitImages, int atlas_w, int atlas_h, int offset_x, int offset_y, int orientation) {
+	void addChart(Array<BitImage *> *atlasBitImage, const CoarsePyramid &chartBitImages, int atlas_w, int atlas_h, int offset_x, int offset_y, int orientation)
+	{
 		XA_DEBUG_ASSERT(orientation <= chartBitImages.orientations());
 
 		const int coarse_levels = chartBitImages.levels();
@@ -9724,8 +9735,7 @@ AddMeshError AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountH
 	// Don't know how many times AddMesh will be called, so progress needs to adjusted each time.
 	if (!ctx->addMeshProgress) {
 		ctx->addMeshProgress = XA_NEW_ARGS(internal::MemTag::Default, internal::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
-	}
-	else {
+	} else {
 		ctx->addMeshProgress->setMaxValue(internal::max(ctx->meshes.size() + 1, meshCountHint));
 	}
 	XA_PROFILE_START(addMeshCopyData)
