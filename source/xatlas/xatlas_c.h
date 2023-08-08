@@ -206,8 +206,8 @@ typedef struct
 	bool createImage;
 	bool rotateChartsToAxis;
 	bool rotateCharts;
-	int coarseSteps;
-	int coarseStepRate;
+	int coarseLevels;
+	int coarseLevelRate;
 }
 xatlasPackOptions;
 
