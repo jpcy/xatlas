@@ -170,7 +170,10 @@ Copyright (c) 2012 Brandon Pelfrey
 #define SOFT_RASTER 1
 #define SHRINK 1
 #define CUSTOM_DILATE 1
-#define HONEST_PROGRESS 1
+#define HONEST_PROGRESS 0
+
+#define BIT_COMPRESS_LISTS 0
+#define BIT_COMPRESS_TREE 1
 
 #define DRAW 0
 
@@ -178,8 +181,8 @@ Copyright (c) 2012 Brandon Pelfrey
 #include <omp.h>
 #endif
 
-#if DRAW
 static bool cimg_draw = false;
+#if DRAW
 #include "CImg.h"
 #undef Success // From X11/X.h (shadows AddMeshError::Success
 #endif
@@ -8073,6 +8076,559 @@ private:
 
 namespace pack {
 
+#if BIT_COMPRESS_LISTS
+// Saves BitImage as an array of [m_height] lists that describe each row's continuous intervals of 1s
+class BitCompressor {
+// they are horizontal
+public:
+    BitCompressor() {}
+
+    BitCompressor(uint32_t width, uint32_t height) {
+        resize(width, height);
+    }
+
+    BitCompressor(const BitImage &image) : BitCompressor(image.width(), image.height()) {
+        fillWith(image);
+    }
+
+    // Only expansion allowed
+    void resize(uint32_t width, uint32_t height) {
+        XA_DEBUG_ASSERT(height >= m_height);
+        XA_DEBUG_ASSERT(width >= m_width);
+        m_starts.resize(height);
+        m_finishes.resize(height);
+        if (height < m_height)
+        {
+            XA_ASSERT(height >= m_height);
+            return;
+        }
+        for (uint32_t y = m_height; y < height; ++y) {
+            m_starts[y] = XA_NEW(MemTag::Default, Array<uint32_t>);
+            m_finishes[y] = XA_NEW(MemTag::Default, Array<uint32_t>);
+        }
+        m_width = width;
+        m_height = height;
+    }
+
+    ~BitCompressor() {
+        for (int i = 0; i < m_height; ++i) {
+            m_starts[i]->destroy();
+            XA_FREE(m_starts[i]);
+            m_finishes[i]->destroy();
+            XA_FREE(m_finishes[i]);
+        }
+    }
+
+    uint32_t width() const { return m_width; }
+
+    uint32_t height() const { return m_height; }
+
+    void fillWith(const BitImage &image) {
+        XA_DEBUG_ASSERT(image.width() == m_width);
+        for (int y = 0; y < m_height; ++y) {
+            bool prev = false;
+            for (int x = 0; x < m_width; ++x) {
+                bool cur = image.get(x, y);
+                if (cur != prev) {
+                    if (!prev) {
+                        m_starts[y]->push_back(x);
+                    } else {
+                        m_finishes[y]->push_back(x);
+                    }
+                }
+                prev = cur;
+            }
+            if (image.get(m_width - 1, y)) {
+                m_finishes[y]->push_back(m_width);
+            }
+//            for (int x = 0; x < m_starts[y]->size(); ++x) {
+//                std::cout << (*m_starts[y])[x] << " ";
+//            }
+//            std::cout << std::endl;
+//            for (int x = 0; x < m_finishes[y]->size(); ++x) {
+//                std::cout << (*m_finishes[y])[x] << " ";
+//            }
+//            std::cout << std::endl;
+            XA_DEBUG_ASSERT(m_starts[y]->size() == m_finishes[y]->size());
+        }
+    }
+
+    void decompressInto(BitImage *image) const {
+        XA_DEBUG_ASSERT(image != nullptr);
+        image->resize(m_width, m_height, true);
+        for (int y = 0; y < m_height; ++y) {
+            for (int idx = 0; idx < (*m_starts[y]).size(); ++idx) {
+                for (int x = (*m_starts[y])[idx]; x < (*m_finishes[y])[idx]; ++x) {
+                    image->set(x, y);
+                }
+            }
+        }
+    }
+
+    // It is asserted that other BitCompressor is fully located in this BitCompressor
+    bool canBlit(const BitCompressor &other, uint32_t offset_x, uint32_t offset_y) const {
+        XA_DEBUG_ASSERT(offset_y + other.height() <= m_height);
+        XA_DEBUG_ASSERT(offset_x + other.width() <= m_width);
+
+        for (uint32_t y = 0; y < other.height(); y++) {
+            uint32_t yy = y + offset_y;
+            if (m_starts[yy]->size() == 0)
+                continue;
+
+            uint32_t index = 0;
+            for (int idx = 0; idx < other.m_starts[y]->size(); idx++) {
+                uint32_t other_start = (*other.m_starts[y])[idx] + offset_x;
+                uint32_t other_finish = (*other.m_finishes[y])[idx] + offset_x;
+                // finds maximal start of '1' in this BC that is less than (or equal to) a current start in other BC
+                index = binSearch(other_start, *m_starts[yy], index);
+                if (index == UINT32_MAX) {
+                    // start that is <= does not exist, therefore it is on the right
+                    index = 0;
+                }
+                while (index < m_starts[yy]->size() && (*m_starts[yy])[index] <= other_start) {
+//                    std::cout << "Looking for " << value << " in array: ";
+//                    for (auto a : array) {
+//                        std::cout << a << " ";
+//                    }
+                    XA_DEBUG_ASSERT((*m_starts[yy])[index] <= other_start);
+                    uint32_t curFinish = (*m_finishes[yy])[index];
+//                    std::cout << (*m_starts[yy])[index] << " " << (*m_finishes[yy])[index] << std::endl;
+                    if (curFinish > other_start)
+                        return false;
+
+                    index++;
+                }
+                if (index < m_starts[yy]->size()) {
+                    uint32_t curStart = (*m_starts[yy])[index];
+                    if (curStart < other_finish)
+                        return false;
+                }
+                if (index >= m_starts[yy]->size())
+                    index = 0;
+            }
+        }
+        return true;
+    }
+
+    // finds last appearance of an element that is LESS OR EQUAL to value
+    // returns UINT32_MAX if not found
+    static uint32_t binSearch(uint32_t value, Array<uint32_t> &array, uint32_t l = 0, uint32_t r = -1) {
+        if (r == -1)
+            r = array.size();
+        XA_DEBUG_ASSERT(l >= 0 && l < array.size());
+        XA_DEBUG_ASSERT(r > 0 && r <= array.size());
+//        std::cout << "Looking for " << value << " in array: ";
+        for (auto a : array) {
+//            std::cout << a << " ";
+        }
+//        std::cout << std::endl;
+        while (r - l > 1) {
+//            std::cout << "l,r:" << l << " " << r << std::endl;
+            uint32_t m = (r + l) / 2;
+            if (array[m] <= value)
+                l = m;
+            else
+                r = m;
+        }
+//        std::cout << "l:" << l << std::endl;
+        if (l >= array.size())
+            return UINT32_MAX;
+        return (array[l] <= value) ? l : UINT32_MAX;
+    }
+
+    void insert(const BitCompressor &other, uint32_t offset_x, uint32_t offset_y) {
+        XA_DEBUG_ASSERT(offset_y + other.height() <= m_height);
+        XA_DEBUG_ASSERT(offset_x + other.width() <= m_width);
+
+        XA_DEBUG_ASSERT(canBlit(other, offset_x, offset_y));
+        XA_ASSERT(canBlit(other, offset_x, offset_y));
+
+        for (uint32_t y = 0; y < other.height(); y++) {
+            uint32_t yy = y + offset_y;
+
+            uint32_t index = 0;
+            for (int idx = 0; idx < other.m_starts[y]->size(); idx++) {
+                uint32_t other_start = (*other.m_starts[y])[idx] + offset_x;
+                uint32_t other_finish = (*other.m_finishes[y])[idx] + offset_x;
+                if (index < m_starts[yy]->size() && (*m_starts[yy])[index] <= other_start) {
+                    // finds maximal start of '1' in this BC that is less than (or equal to) a current start in other BC
+                    index = binSearch(other_start, *m_starts[yy], index);
+                    if (index == UINT32_MAX) {
+                        // start that is <= does not exist, therefore it is on the right
+                        index = 0;
+                    }
+                    index++;
+                }
+                XA_DEBUG_ASSERT(index <= m_starts[yy]->size());
+                if (index < m_starts[yy]->size() && (*m_finishes[yy])[index] == other_start) {
+                    (*m_finishes[yy])[index] = other_finish;
+                } else {
+                    m_starts[yy]->insertAt(index, other_start);
+                    m_finishes[yy]->insertAt(index, other_finish);
+                }
+                index++;
+            }
+        }
+    }
+
+private:
+    uint32_t m_width = 0;
+    uint32_t m_height = 0;
+    Array<Array<uint32_t> *> m_starts;
+    Array<Array<uint32_t> *> m_finishes;
+};
+#endif
+
+#if BIT_COMPRESS_TREE
+// Wraps BitImage, adding a list of exact coverage of that image with rectangles, in order of area
+class BitImageOpt {
+public:
+    // let's try simplest, slow-to-construct QuadTree
+    // TODO: make it faster
+    BitImageOpt(const BitImage &image) : m_width(image.width()), m_height(image.height()) {
+        createRect_recursive(image, {0, 0, image.width() - 1, image.height() - 1});
+        XA_ASSERT(m_data.size() > 0);
+        sort();
+    }
+
+    struct Rectangle {
+        uint32_t start_x;
+        uint32_t start_y;
+        uint32_t end_x;
+        uint32_t end_y;
+
+        bool operator<(const Rectangle &other) {
+            uint32_t lx = end_x - start_x;
+            uint32_t ly = end_y - start_y;
+            uint32_t olx = other.end_x - other.start_x;
+            uint32_t oly = other.end_y - other.start_y;
+            return (lx * ly < olx * oly) || (lx * ly == olx * oly) && (start_x < other.start_x || (start_x == other.start_x && start_y < other.start_y));
+        }
+    };
+
+    void decompressInto(BitImage *image) const {
+        XA_DEBUG_ASSERT(image != nullptr);
+        image->resize(m_width, m_height, true);
+        for (int i = 0; i < m_data.size(); ++i) {
+            const Rectangle &rect = m_data[i];
+            for (int y = rect.start_y; y <= rect.end_y; ++y) {
+                for (int x = rect.start_x; x <= rect.end_x; ++x) {
+                    image->set(x, y);
+                }
+            }
+        }
+    }
+
+    Array<Rectangle> m_data;
+
+    uint32_t width() const { return m_width; }
+    uint32_t height() const { return m_height; }
+
+private:
+    void createRect_recursive(const BitImage &image, const Rectangle bounds) {
+        if (bounds.start_y > bounds.end_y || bounds.start_x > bounds.end_x)
+            return;
+        if (bounds.start_y == bounds.end_y && bounds.start_x == bounds.end_x) {
+            if (image.get(bounds.start_x, bounds.start_y))
+                m_data.push_back(bounds);
+            return;
+        }
+        bool has_holes = false;
+        for (int y = bounds.start_y; y <= bounds.end_y; ++y) {
+            for (int x = bounds.start_x; x <= bounds.end_x; ++x) {
+                if (!image.get(x, y)) {
+                    has_holes = true;
+                    break;
+                }
+            }
+        }
+        if (!has_holes) {
+            m_data.push_back(bounds);
+        } else {
+            uint32_t mid_x = (bounds.start_x + bounds.end_x) / 2;
+            uint32_t mid_y = (bounds.start_y + bounds.end_y) / 2;
+            createRect_recursive(image, {bounds.start_x, bounds.start_y, mid_x, mid_y});
+            createRect_recursive(image, {bounds.start_x, mid_y + 1, mid_x, bounds.end_y});
+            createRect_recursive(image, {mid_x + 1, bounds.start_y, bounds.end_x, mid_y});
+            createRect_recursive(image, {mid_x + 1, mid_y + 1, bounds.end_x, bounds.end_y});
+        }
+    }
+
+
+    void sort() {
+        for (int i = 0; i < m_data.size(); ++i) {
+            for (int j = 0; j < m_data.size() - i - 1; ++j) {
+                if (m_data[j] < m_data[j + 1]) {
+                    swap(m_data[j], m_data[j + 1]);
+                }
+            }
+        }
+    }
+
+    uint32_t m_width;
+    uint32_t m_height;
+};
+
+// Wraps BitImage into a 2d segment tree with optimized set(), get() and canBlit() functions
+// Every node of tree contains 2 bits:
+//   First bit indicates if children of the node have 1s in them
+//   Second bit indicates if both of the children are filled.
+// Has slow insertion that guarantees fast query.
+class BitImage2dTree
+{
+public:
+    BitImage2dTree(uint32_t width, uint32_t height) : m_width(width), m_height(height) {
+        // every node in segment tree requires 2 bits
+        m_bitImageOffset_x = (calculateOffset(m_width) + 1) * 2;
+        m_bitImageOffset_y = calculateOffset(m_height) + 1;
+//        m_data.resize(m_bitImageOffset_x + m_width * 2, m_bitImageOffset_y + m_height, true);
+        m_data.resize(m_bitImageOffset_x * 2, m_bitImageOffset_y * 2, true);
+    }
+
+    uint32_t width() const { return m_width; }
+    uint32_t height() const { return m_height; }
+
+    void set(uint32_t x, uint32_t y) {
+        fill(x, y, x, y);
+    }
+
+    bool get(uint32_t x, uint32_t y) const {
+        return !canBlit(x, y, x, y);
+    }
+
+    void fill(uint32_t start_x, uint32_t start_y,
+              uint32_t end_x, uint32_t end_y) {
+        XA_DEBUG_ASSERT(start_x >= 0);
+        XA_DEBUG_ASSERT(start_y >= 0);
+
+        XA_DEBUG_ASSERT(start_x <= end_x);
+        XA_DEBUG_ASSERT(start_y <= end_y);
+
+        XA_DEBUG_ASSERT(end_x < m_width);
+        XA_DEBUG_ASSERT(end_y < m_height);
+
+        fill_recursive_y(1,
+                         start_x, start_y, end_x, end_y,
+                         0, m_height - 1);
+    }
+
+    void fill(const BitImageOpt &imageOpt, uint32_t offset_x, uint32_t offset_y) {
+        for (int i = 0; i < imageOpt.m_data.size(); ++i) {
+            const BitImageOpt::Rectangle &rect = imageOpt.m_data[i];
+            fill(offset_x + rect.start_x, offset_y + rect.start_y, offset_x + rect.end_x, offset_y + rect.end_y);
+        }
+    }
+
+    bool canBlit(uint32_t start_x, uint32_t start_y,
+                 uint32_t end_x, uint32_t end_y) const {
+        XA_DEBUG_ASSERT(start_x >= 0);
+        XA_DEBUG_ASSERT(start_y >= 0);
+
+        XA_DEBUG_ASSERT(end_x < m_width);
+        XA_DEBUG_ASSERT(end_y < m_height);
+
+        XA_DEBUG_ASSERT(start_x <= end_x);
+        XA_DEBUG_ASSERT(start_y <= end_y);
+        return canBlit_recursive_y(1,
+                                   start_x, start_y, end_x, end_y,
+                                   0, m_height - 1);
+    }
+
+    bool canBlit(const BitImageOpt &imageOpt, uint32_t offset_x, uint32_t offset_y, int *total_iterations = nullptr) const {
+        for (int i = 0; i < imageOpt.m_data.size(); ++i) {
+            const BitImageOpt::Rectangle &rect = imageOpt.m_data[i];
+            if (!canBlit(offset_x + rect.start_x, offset_y + rect.start_y, offset_x + rect.end_x, offset_y + rect.end_y)) {
+                if (total_iterations)
+                    *total_iterations = i + 1;
+                return false;
+            }
+        }
+        if (total_iterations)
+            *total_iterations = imageOpt.m_data.size();
+        return true;
+    }
+
+    static uint32_t calculateOffset(uint32_t size) {
+        return nextPowerOfTwo(size);
+//        uint32_t sum = 0;
+//        while (size > 1) {
+//            size = (size + 1) / 2;
+//            sum += size;
+//        }
+//        return sum;
+    }
+
+    void decompressInto(BitImage *image) const {
+        XA_DEBUG_ASSERT(image != nullptr);
+        image->resize(m_width, m_height, true);
+        for (int y = 0; y < m_height; ++y) {
+            for (int x = 0; x < m_width; ++x) {
+                if (get(x, y))
+                    image->set(x, y);
+            }
+        }
+    }
+
+private:
+    void fill_recursive_y(uint32_t vert_y,
+                          uint32_t start_x, uint32_t start_y, uint32_t end_x, uint32_t end_y,
+                          uint32_t vert_start_y, uint32_t vert_end_y) {
+        if (start_x > end_x || start_y > end_y)
+            return;
+        if (vert_end_y < start_y || vert_start_y > end_y)
+            return;
+
+        uint32_t vert_x = 1;
+
+
+//        if (start_y != vert_start_y || end_y != vert_end_y) {
+        if (vert_start_y != vert_end_y) {
+            uint32_t mid_y = (vert_start_y + vert_end_y) / 2;
+            fill_recursive_y(vert_y * 2,
+                             start_x, start_y, end_x, min(end_y, mid_y),
+                             vert_start_y, mid_y);
+            fill_recursive_y(vert_y * 2 + 1,
+                             start_x, max(start_y, mid_y + 1), end_x, end_y,
+                             mid_y + 1, vert_end_y);
+        }
+
+        fill_recursive_x(vert_x, vert_y,
+                         start_x, start_y, end_x, end_y,
+                         0, vert_start_y, m_width - 1, vert_end_y);
+    }
+
+    void fill_recursive_x(uint32_t vert_x, uint32_t vert_y,
+                          uint32_t start_x, uint32_t start_y, uint32_t end_x, uint32_t end_y,
+                          uint32_t vert_start_x, uint32_t vert_start_y,
+                          uint32_t vert_end_x, uint32_t vert_end_y) {
+        if (start_x > end_x || start_y > end_y)
+            return;
+        if (vert_end_x < start_x || vert_start_x > end_x)
+            return;
+
+        set_data(vert_x, vert_y);
+        if (start_x <= vert_start_x && end_x >= vert_end_x) {
+            if (start_y <= vert_start_y && end_y >= vert_end_y) {
+                XA_DEBUG_ASSERT(!get_full(vert_x, vert_y));
+                set_full(vert_x, vert_y);
+            }
+//            // else there's nothing we can do
+//            return;
+        }
+
+        // leave on last level
+        if (vert_start_x == vert_end_x)
+            return;
+        uint32_t mid_x = (vert_start_x + vert_end_x) / 2;
+
+        fill_recursive_x(vert_x * 2, vert_y,
+                         start_x, start_y, min(end_x, mid_x), end_y,
+                         vert_start_x, vert_start_y, mid_x, vert_end_y);
+        fill_recursive_x(vert_x * 2 + 1, vert_y,
+                         max(start_x, mid_x + 1), start_y, end_x, end_y,
+                         mid_x + 1, vert_start_y, vert_end_x, vert_end_y);
+    }
+
+    bool canBlit_recursive_y(uint32_t vert_y,
+                             uint32_t start_x, uint32_t start_y,
+                             uint32_t end_x, uint32_t end_y,
+                             uint32_t vert_start_y, uint32_t vert_end_y) const {
+        if (start_x > end_x || start_y > end_y)
+            return true;
+        if (vert_end_y < start_y || vert_start_y > end_y)
+            return true;
+
+        uint32_t vert_x = 1;
+        bool data = get_data(vert_x, vert_y);
+        bool is_full = get_full(vert_x, vert_y);
+        if (is_full)
+            return false;
+        if (!data) {
+            return true;
+        }
+
+//        if (!canBlit_recursive_x(vert_x, vert_y, start_x, start_y, end_x, end_y, 0, m_width - 1, vert_start_y, vert_end_y))
+//            return false;
+
+        if (start_y == vert_start_y && end_y == vert_end_y) {
+//            return true;
+            return canBlit_recursive_x(vert_x, vert_y, start_x, start_y, end_x, end_y, 0, m_width - 1, vert_start_y, vert_end_y);
+        }
+
+        uint32_t mid_y = (vert_start_y + vert_end_y) / 2;
+
+        return (canBlit_recursive_y(vert_y * 2,
+                                    start_x, start_y, end_x, min(end_y, mid_y),
+                                    vert_start_y, mid_y)
+                && canBlit_recursive_y(vert_y * 2 + 1,
+                                       start_x, max(start_y, mid_y + 1), end_x, end_y,
+                                       mid_y + 1, vert_end_y));
+    }
+
+    bool canBlit_recursive_x(uint32_t vert_x, uint32_t vert_y,
+                             uint32_t start_x, uint32_t start_y,
+                             uint32_t end_x, uint32_t end_y,
+                             uint32_t vert_start_x, uint32_t vert_end_x,
+                             uint32_t vert_start_y, uint32_t vert_end_y) const {
+        if (start_x > end_x || start_y > end_y)
+            return true;
+        if (vert_end_x < start_x || vert_start_x > end_x)
+            return true;
+
+        bool data = get_data(vert_x, vert_y);
+        bool is_full = get_full(vert_x, vert_y);
+        if (is_full)
+            return false;
+        if (!data) {
+            return true;
+        }
+
+        if (start_x == vert_start_x && end_x == vert_end_x) {
+            if (start_y == vert_start_y && end_y == vert_end_y) {
+                // exact vert, has data in it
+                return false;
+            }
+            // non-exact vert
+            return true;
+        }
+
+        uint32_t mid_x = (vert_start_x + vert_end_x) / 2;
+
+        return (canBlit_recursive_x(vert_x * 2, vert_y,
+                                    start_x, start_y, min(end_x, mid_x), end_y,
+                                    vert_start_x, mid_x,
+                                    vert_start_y, vert_end_y)
+                && canBlit_recursive_x(vert_x * 2 + 1, vert_y,
+                                       max(start_x, mid_x + 1), start_y, end_x, end_y,
+                                       mid_x + 1, vert_end_x,
+                                       vert_start_y, vert_end_y));
+    }
+
+    inline bool get_data(uint32_t vert_x, uint32_t vert_y) const {
+        return m_data.get(vert_x * 2, vert_y);
+    }
+
+    inline bool get_full(uint32_t vert_x, uint32_t vert_y) const {
+        return m_data.get(vert_x * 2 + 1, vert_y);
+    }
+
+    inline void set_data(uint32_t vert_x, uint32_t vert_y) {
+        m_data.set(vert_x * 2, vert_y);
+    }
+
+    inline void set_full(uint32_t vert_x, uint32_t vert_y) {
+        m_data.set(vert_x * 2 + 1, vert_y);
+    }
+
+public:
+    BitImage m_data;
+    uint32_t m_width;
+    uint32_t m_height;
+    uint32_t m_bitImageOffset_x;
+    uint32_t m_bitImageOffset_y;
+};
+#endif
+
 class AtlasImage
 {
 public:
@@ -8369,180 +8925,192 @@ struct Atlas
 
 	// Pack charts in the smallest possible rectangle.
 	bool packCharts(const PackOptions &options, ProgressFunc progressFunc, void *progressUserData)
-	{
-		if (progressFunc) {
-			if (!progressFunc(ProgressCategory::PackCharts, 0, progressUserData))
-				return false;
-		}
-		const uint32_t chartCount = m_charts.size();
-		XA_PRINT("Packing %u charts\n", chartCount);
-		if (chartCount == 0) {
-			if (progressFunc) {
-				if (!progressFunc(ProgressCategory::PackCharts, 100, progressUserData))
-					return false;
-			}
-			return true;
-		}
-		// Estimate resolution and/or texels per unit if not specified.
-		m_texelsPerUnit = options.texelsPerUnit;
+    {
+        if (progressFunc) {
+            if (!progressFunc(ProgressCategory::PackCharts, 0, progressUserData))
+                return false;
+        }
+        const uint32_t chartCount = m_charts.size();
+        XA_PRINT("Packing %u charts\n", chartCount);
+        if (chartCount == 0) {
+            if (progressFunc) {
+                if (!progressFunc(ProgressCategory::PackCharts, 100, progressUserData))
+                    return false;
+            }
+            return true;
+        }
+        // Estimate resolution and/or texels per unit if not specified.
+        m_texelsPerUnit = options.texelsPerUnit;
         m_bitImagesCoarseLevels = options.coarseLevels;
         m_bitImagesCoarseLevelRate = options.coarseLevelRate;
-		uint32_t resolution = options.resolution > 0 ? options.resolution + options.padding * 2 : 0;
-		const uint32_t maxResolution = m_texelsPerUnit > 0.0f ? resolution : 0;
-		if (resolution <= 0 || m_texelsPerUnit <= 0) {
-			if (resolution <= 0 && m_texelsPerUnit <= 0)
-				resolution = 1024;
-			float meshArea = 0;
-			for (uint32_t c = 0; c < chartCount; c++)
-				meshArea += m_charts[c]->surfaceArea;
-			if (resolution <= 0) {
-				// Estimate resolution based on the mesh surface area and given texel scale.
-				const float texelCount = max(1.0f, meshArea * square(m_texelsPerUnit) / 0.75f); // Assume 75% utilization.
-				resolution = max(1u, nextPowerOfTwo(uint32_t(sqrtf(texelCount))));
-			}
-			if (m_texelsPerUnit <= 0) {
-				// Estimate a suitable texelsPerUnit to fit the given resolution.
-				const float texelCount = max(1.0f, meshArea / 0.75f); // Assume 75% utilization.
-				m_texelsPerUnit = sqrtf((resolution * resolution) / texelCount);
-				XA_PRINT("   Estimating texelsPerUnit as %g\n", m_texelsPerUnit);
-			}
-		}
-		Array<float> chartOrderArray;
-		chartOrderArray.resize(chartCount);
-		Array<Vector2> chartExtents;
-		chartExtents.resize(chartCount);
-		float minChartPerimeter = FLT_MAX, maxChartPerimeter = 0.0f;
-		for (uint32_t c = 0; c < chartCount; c++) {
-			Chart *chart = m_charts[c];
-			// Compute chart scale
-			float scale = 1.0f;
-			if (chart->parametricArea != 0.0f) {
-				scale = sqrtf(chart->surfaceArea / chart->parametricArea) * m_texelsPerUnit;
-				XA_ASSERT(isFinite(scale));
-			}
-			// Translate, rotate and scale vertices. Compute extents.
-			Vector2 minCorner(FLT_MAX, FLT_MAX);
-			if (!options.rotateChartsToAxis) {
-				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
-					minCorner = min(minCorner, chart->uniqueVertexAt(i));
-			}
-			Vector2 extents(0.0f);
-			for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
-				Vector2 &texcoord = chart->uniqueVertexAt(i);
-				if (options.rotateChartsToAxis) {
-					const float x = dot(texcoord, chart->majorAxis);
-					const float y = dot(texcoord, chart->minorAxis);
-					texcoord.x = x;
-					texcoord.y = y;
-					texcoord -= chart->minCorner;
-				} else {
-					texcoord -= minCorner;
-				}
-				texcoord *= scale;
-				XA_DEBUG_ASSERT(texcoord.x >= 0.0f && texcoord.y >= 0.0f);
-				XA_DEBUG_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
-				extents = max(extents, texcoord);
-			}
-			XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
-			// Scale the charts to use the entire texel area available. So, if the width is 0.1 we could scale it to 1 without increasing the lightmap usage and making a better use of it. In many cases this also improves the look of the seams, since vertices on the chart boundaries have more chances of being aligned with the texel centers.
-			if (extents.x > 0.0f && extents.y > 0.0f) {
-				// Block align: align all chart extents to 4x4 blocks, but taking padding and texel center offset into account.
-				const int blockAlignSizeOffset = options.padding * 2 + 1;
-				int width = ftoi_ceil(extents.x);
-				if (options.blockAlign)
-					width = align(width + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
-				int height = ftoi_ceil(extents.y);
-				if (options.blockAlign)
-					height = align(height + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
-				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
-					Vector2 &texcoord = chart->uniqueVertexAt(v);
-					texcoord.x = texcoord.x / extents.x * (float)width;
-					texcoord.y = texcoord.y / extents.y * (float)height;
-				}
-				extents.x = (float)width;
-				extents.y = (float)height;
-			}
-			// Limit chart size, either to PackOptions::maxChartSize or maxResolution (if set), whichever is smaller.
-			// If limiting chart size to maxResolution, print a warning, since that may not be desirable to the user.
-			uint32_t maxChartSize = options.maxChartSize;
-			bool warnChartResized = false;
-			if (maxResolution > 0 && (maxChartSize == 0 || maxResolution < maxChartSize)) {
-				maxChartSize = maxResolution - options.padding * 2; // Don't include padding.
-				warnChartResized = true;
-			}
-			if (maxChartSize > 0) {
-				const float realMaxChartSize = (float)maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
-				if (extents.x > realMaxChartSize || extents.y > realMaxChartSize) {
-					if (warnChartResized)
-						XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y, maxChartSize, maxChartSize);
-					scale = realMaxChartSize / max(extents.x, extents.y);
-					for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
-						Vector2 &texcoord = chart->uniqueVertexAt(i);
-						texcoord = min(texcoord * scale, Vector2(realMaxChartSize));
-					}
-				}
-			}
-			// Align to texel centers and add padding offset.
-			extents.x = extents.y = 0.0f;
-			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
-				Vector2 &texcoord = chart->uniqueVertexAt(v);
-				texcoord.x += 0.5f + options.padding;
-				texcoord.y += 0.5f + options.padding;
-				extents = max(extents, texcoord);
-			}
-			if (extents.x > resolution || extents.y > resolution)
-				XA_PRINT("   Chart %u extents are large (%gx%g)\n", c, extents.x, extents.y);
-			chartExtents[c] = extents;
-			chartOrderArray[c] = extents.x + extents.y; // Use perimeter for chart sort key.
-			minChartPerimeter = min(minChartPerimeter, chartOrderArray[c]);
-			maxChartPerimeter = max(maxChartPerimeter, chartOrderArray[c]);
-		}
-		// Sort charts by perimeter.
-		m_radix.sort(chartOrderArray);
-		const uint32_t *ranks = m_radix.ranks();
-		// Divide chart perimeter range into buckets.
-		const float chartPerimeterBucketSize = (maxChartPerimeter - minChartPerimeter) / 16.0f;
-		uint32_t currentChartBucket = 0;
-		Array<Vector2i> chartStartPositions; // per atlas
-		chartStartPositions.push_back(Vector2i(0, 0));
-		// Pack sorted charts.
+        uint32_t resolution = options.resolution > 0 ? options.resolution + options.padding * 2 : 0;
+        const uint32_t maxResolution = m_texelsPerUnit > 0.0f ? resolution : 0;
+        if (resolution <= 0 || m_texelsPerUnit <= 0) {
+            if (resolution <= 0 && m_texelsPerUnit <= 0)
+                resolution = 1024;
+            float meshArea = 0;
+            for (uint32_t c = 0; c < chartCount; c++)
+                meshArea += m_charts[c]->surfaceArea;
+            if (resolution <= 0) {
+                // Estimate resolution based on the mesh surface area and given texel scale.
+                const float texelCount = max(1.0f,
+                                             meshArea * square(m_texelsPerUnit) / 0.75f); // Assume 75% utilization.
+                resolution = max(1u, nextPowerOfTwo(uint32_t(sqrtf(texelCount))));
+            }
+            if (m_texelsPerUnit <= 0) {
+                // Estimate a suitable texelsPerUnit to fit the given resolution.
+                const float texelCount = max(1.0f, meshArea / 0.75f); // Assume 75% utilization.
+                m_texelsPerUnit = sqrtf((resolution * resolution) / texelCount);
+                XA_PRINT("   Estimating texelsPerUnit as %g\n", m_texelsPerUnit);
+            }
+        }
+        Array<float> chartOrderArray;
+        chartOrderArray.resize(chartCount);
+        Array <Vector2> chartExtents;
+        chartExtents.resize(chartCount);
+        float minChartPerimeter = FLT_MAX, maxChartPerimeter = 0.0f;
+        for (uint32_t c = 0; c < chartCount; c++) {
+            Chart *chart = m_charts[c];
+            // Compute chart scale
+            float scale = 1.0f;
+            if (chart->parametricArea != 0.0f) {
+                scale = sqrtf(chart->surfaceArea / chart->parametricArea) * m_texelsPerUnit;
+                XA_ASSERT(isFinite(scale));
+            }
+            // Translate, rotate and scale vertices. Compute extents.
+            Vector2 minCorner(FLT_MAX, FLT_MAX);
+            if (!options.rotateChartsToAxis) {
+                for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
+                    minCorner = min(minCorner, chart->uniqueVertexAt(i));
+            }
+            Vector2 extents(0.0f);
+            for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
+                Vector2 &texcoord = chart->uniqueVertexAt(i);
+                if (options.rotateChartsToAxis) {
+                    const float x = dot(texcoord, chart->majorAxis);
+                    const float y = dot(texcoord, chart->minorAxis);
+                    texcoord.x = x;
+                    texcoord.y = y;
+                    texcoord -= chart->minCorner;
+                } else {
+                    texcoord -= minCorner;
+                }
+                texcoord *= scale;
+                XA_DEBUG_ASSERT(texcoord.x >= 0.0f && texcoord.y >= 0.0f);
+                XA_DEBUG_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
+                extents = max(extents, texcoord);
+            }
+            XA_DEBUG_ASSERT(extents.x >= 0 && extents.y >= 0);
+            // Scale the charts to use the entire texel area available. So, if the width is 0.1 we could scale it to 1 without increasing the lightmap usage and making a better use of it. In many cases this also improves the look of the seams, since vertices on the chart boundaries have more chances of being aligned with the texel centers.
+            if (extents.x > 0.0f && extents.y > 0.0f) {
+                // Block align: align all chart extents to 4x4 blocks, but taking padding and texel center offset into account.
+                const int blockAlignSizeOffset = options.padding * 2 + 1;
+                int width = ftoi_ceil(extents.x);
+                if (options.blockAlign)
+                    width = align(width + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
+                int height = ftoi_ceil(extents.y);
+                if (options.blockAlign)
+                    height = align(height + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
+                for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+                    Vector2 &texcoord = chart->uniqueVertexAt(v);
+                    texcoord.x = texcoord.x / extents.x * (float) width;
+                    texcoord.y = texcoord.y / extents.y * (float) height;
+                }
+                extents.x = (float) width;
+                extents.y = (float) height;
+            }
+            // Limit chart size, either to PackOptions::maxChartSize or maxResolution (if set), whichever is smaller.
+            // If limiting chart size to maxResolution, print a warning, since that may not be desirable to the user.
+            uint32_t maxChartSize = options.maxChartSize;
+            bool warnChartResized = false;
+            if (maxResolution > 0 && (maxChartSize == 0 || maxResolution < maxChartSize)) {
+                maxChartSize = maxResolution - options.padding * 2; // Don't include padding.
+                warnChartResized = true;
+            }
+            if (maxChartSize > 0) {
+                const float realMaxChartSize =
+                        (float) maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
+                if (extents.x > realMaxChartSize || extents.y > realMaxChartSize) {
+                    if (warnChartResized)
+                        XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y,
+                                 maxChartSize, maxChartSize);
+                    scale = realMaxChartSize / max(extents.x, extents.y);
+                    for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
+                        Vector2 &texcoord = chart->uniqueVertexAt(i);
+                        texcoord = min(texcoord * scale, Vector2(realMaxChartSize));
+                    }
+                }
+            }
+            // Align to texel centers and add padding offset.
+            extents.x = extents.y = 0.0f;
+            for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+                Vector2 &texcoord = chart->uniqueVertexAt(v);
+                texcoord.x += 0.5f + options.padding;
+                texcoord.y += 0.5f + options.padding;
+                extents = max(extents, texcoord);
+            }
+            if (extents.x > resolution || extents.y > resolution)
+                XA_PRINT("   Chart %u extents are large (%gx%g)\n", c, extents.x, extents.y);
+            chartExtents[c] = extents;
+            chartOrderArray[c] = extents.x + extents.y; // Use perimeter for chart sort key.
+            minChartPerimeter = min(minChartPerimeter, chartOrderArray[c]);
+            maxChartPerimeter = max(maxChartPerimeter, chartOrderArray[c]);
+        }
+        // Sort charts by perimeter.
+        m_radix.sort(chartOrderArray);
+        const uint32_t *ranks = m_radix.ranks();
+        // Divide chart perimeter range into buckets.
+        const float chartPerimeterBucketSize = (maxChartPerimeter - minChartPerimeter) / 16.0f;
+        uint32_t currentChartBucket = 0;
+        Array <Vector2i> chartStartPositions; // per atlas
+        chartStartPositions.push_back(Vector2i(0, 0));
+        // Pack sorted charts.
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES
-		const bool createImage = true;
+        const bool createImage = true;
 #else
-		const bool createImage = options.createImage;
+        const bool createImage = options.createImage;
 #endif
-		// chartImage: result from conservative rasterization
-		// chartImageBilinear: chartImage plus any texels that would be sampled by bilinear filtering.
-		// chartImagePadding: either chartImage or chartImageBilinear depending on options, with a dilate filter applied options.padding times.
-		// Rotated versions swap x and y.
-		BitImage chartImage[m_bitImagesCoarseLevels], chartImageBilinear[m_bitImagesCoarseLevels], chartImagePadding[m_bitImagesCoarseLevels];
-		BitImage chartImageRotated[m_bitImagesCoarseLevels], chartImageBilinearRotated[m_bitImagesCoarseLevels], chartImagePaddingRotated[m_bitImagesCoarseLevels];
-		UniformGrid2 boundaryEdgeGrid;
-		Array<Vector2i> atlasSizes;
+        // chartImage: result from conservative rasterization
+        // chartImageBilinear: chartImage plus any texels that would be sampled by bilinear filtering.
+        // chartImagePadding: either chartImage or chartImageBilinear depending on options, with a dilate filter applied options.padding times.
+        // Rotated versions swap x and y.
+        BitImage chartImage[m_bitImagesCoarseLevels], chartImageBilinear[m_bitImagesCoarseLevels], chartImagePadding[m_bitImagesCoarseLevels];
+        BitImage chartImageRotated[m_bitImagesCoarseLevels], chartImageBilinearRotated[m_bitImagesCoarseLevels], chartImagePaddingRotated[m_bitImagesCoarseLevels];
+        UniformGrid2 boundaryEdgeGrid;
+        Array <Vector2i> atlasSizes;
+#if BIT_COMPRESS_LISTS
+        Array < BitCompressor * > atlasCompressors;
+#else
+#if BIT_COMPRESS_TREE
+        Array< BitImage2dTree * > atlasBitImageTrees;
+#else
         Array<Array<BitImage*>*> atlasBitImages;
-		atlasSizes.push_back(Vector2i(0, 0));
-		int progress = 0;
-		for (uint32_t i = 0; i < chartCount; i++) {
-			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
-			Chart *chart = m_charts[c];
-			// @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
-			// @@ We could also have a special case for chart quads. If the quad surface <= 4 texels, align vertices with texel centers and do not add padding. May be very useful for foliage.
-			// @@ In general we could reduce the padding of all charts by one texel by using a rasterizer that takes into account the 2-texel footprint of the tent bilinear filter. For example,
-			// if we have a chart that is less than 1 texel wide currently we add one texel to the left and one texel to the right creating a 3-texel-wide bitImage. However, if we know that the
-			// chart is only 1 texel wide we could align it so that it only touches the footprint of two texels:
-			//      |   |      <- Touches texels 0, 1 and 2.
-			//    |   |        <- Only touches texels 0 and 1.
-			// \   \ / \ /   /
-			//  \   X   X   /
-			//   \ / \ / \ /
-			//    V   V   V
-			//    0   1   2
-			XA_PROFILE_START(packChartsRasterize)
-			// Resize and clear (discard = true) chart images.
-			// Leave room for padding at extents.
+#endif
+#endif
+        atlasSizes.push_back(Vector2i(0, 0));
+        int progress = 0;
+        for (uint32_t i = 0; i < chartCount; i++) {
+            uint32_t c = ranks[chartCount - i - 1]; // largest chart first
+            Chart *chart = m_charts[c];
+            // @@ Add special cases for dot and line charts. @@ Lightmap rasterizer also needs to handle these special cases.
+            // @@ We could also have a special case for chart quads. If the quad surface <= 4 texels, align vertices with texel centers and do not add padding. May be very useful for foliage.
+            // @@ In general we could reduce the padding of all charts by one texel by using a rasterizer that takes into account the 2-texel footprint of the tent bilinear filter. For example,
+            // if we have a chart that is less than 1 texel wide currently we add one texel to the left and one texel to the right creating a 3-texel-wide bitImage. However, if we know that the
+            // chart is only 1 texel wide we could align it so that it only touches the footprint of two texels:
+            //      |   |      <- Touches texels 0, 1 and 2.
+            //    |   |        <- Only touches texels 0 and 1.
+            // \   \ / \ /   /
+            //  \   X   X   /
+            //   \ / \ / \ /
+            //    V   V   V
+            //    0   1   2
+            XA_PROFILE_START(packChartsRasterize)
+            // Resize and clear (discard = true) chart images.
+            // Leave room for padding at extents.
             for (int coarse_level = 0; coarse_level < m_bitImagesCoarseLevels; coarse_level++) {
                 if (coarse_level == 0)
-                    chartImage[coarse_level].resize((ftoi_ceil(chartExtents[c].x) + options.padding),(ftoi_ceil(chartExtents[c].y) + options.padding),true);
+                    chartImage[coarse_level].resize((ftoi_ceil(chartExtents[c].x) + options.padding),
+                                                    (ftoi_ceil(chartExtents[c].y) + options.padding), true);
                 else {
                     uint32_t margin = (1 << (coarse_level * m_bitImagesCoarseLevelRate)) - 1;
                     chartImage[coarse_level].resize(
@@ -8551,24 +9119,29 @@ struct Atlas
                             true);
                 }
                 if (options.rotateCharts)
-                    chartImageRotated[coarse_level].resize(chartImage[coarse_level].height(), chartImage[coarse_level].width(), true);
+                    chartImageRotated[coarse_level].resize(chartImage[coarse_level].height(),
+                                                           chartImage[coarse_level].width(), true);
                 if (options.bilinear) {
-                    chartImageBilinear[coarse_level].resize(chartImage[coarse_level].width(), chartImage[coarse_level].height(), true);
+                    chartImageBilinear[coarse_level].resize(chartImage[coarse_level].width(),
+                                                            chartImage[coarse_level].height(), true);
                     if (options.rotateCharts)
-                        chartImageBilinearRotated[coarse_level].resize(chartImage[coarse_level].height(), chartImage[coarse_level].width(), true);
+                        chartImageBilinearRotated[coarse_level].resize(chartImage[coarse_level].height(),
+                                                                       chartImage[coarse_level].width(), true);
                 }
             }
-			// Rasterize chart faces.
+            // Rasterize chart faces.
             for (int coarse_level = 0; coarse_level < m_bitImagesCoarseLevels; coarse_level++) {
                 const uint32_t faceCount = chart->indices.length / 3;
                 for (uint32_t f = 0; f < faceCount; f++) {
                     Vector2 vertices[3];
                     for (uint32_t v = 0; v < 3; v++)
-                        vertices[v] = (chart->vertices[chart->indices[f * 3 + v]]) >> (coarse_level * m_bitImagesCoarseLevelRate);
+                        vertices[v] = (chart->vertices[chart->indices[f * 3 + v]])
+                                >> (coarse_level * m_bitImagesCoarseLevelRate);
                     DrawTriangleCallbackArgs args;
                     args.chartBitImage = &chartImage[coarse_level];
                     args.chartBitImageRotated = options.rotateCharts ? &chartImageRotated[coarse_level] : nullptr;
-                    raster::drawTriangle(Vector2((float) chartImage[coarse_level].width(), (float) chartImage[coarse_level].height()), vertices,
+                    raster::drawTriangle(Vector2((float) chartImage[coarse_level].width(),
+                                                 (float) chartImage[coarse_level].height()), vertices,
                                          drawTriangleCallback, &args);
                 }
 
@@ -8580,12 +9153,13 @@ struct Atlas
                 }
 #endif // SHRINK
             }
-			// Expand chart by pixels sampled by bilinear interpolation.
+            // Expand chart by pixels sampled by bilinear interpolation.
 
-			if (options.bilinear)
-				bilinearExpand(chart, chartImage, chartImageBilinear, options.rotateCharts ? chartImageBilinearRotated : nullptr, boundaryEdgeGrid);
-			// Expand chart by padding pixels (dilation).
-			if (options.padding > 0) {
+            if (options.bilinear)
+                bilinearExpand(chart, chartImage, chartImageBilinear,
+                               options.rotateCharts ? chartImageBilinearRotated : nullptr, boundaryEdgeGrid);
+            // Expand chart by padding pixels (dilation).
+            if (options.padding > 0) {
                 // Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
                 XA_PROFILE_START(packChartsDilate)
 #if CUSTOM_DILATE
@@ -8640,42 +9214,59 @@ struct Atlas
                 }
 #endif // CUSTOM_DILATE
                 XA_PROFILE_END(packChartsDilate)
-			}
-			XA_PROFILE_END(packChartsRasterize)
-			// Update brute force bucketing.
-			if (options.bruteForce) {
-				if (chartOrderArray[c] > minChartPerimeter && chartOrderArray[c] <= maxChartPerimeter - (chartPerimeterBucketSize * (currentChartBucket + 1))) {
-					// Moved to a smaller bucket, reset start location.
-					for (uint32_t j = 0; j < chartStartPositions.size(); j++)
-						chartStartPositions[j] = Vector2i(0, 0);
-					currentChartBucket++;
-				}
-			}
-			// Find a location to place the chart in the atlas.
-			BitImage *chartImageToPack, *chartImageToPackRotated;
+            }
+            XA_PROFILE_END(packChartsRasterize)
+            // Update brute force bucketing.
+            if (options.bruteForce) {
+                if (chartOrderArray[c] > minChartPerimeter &&
+                    chartOrderArray[c] <= maxChartPerimeter - (chartPerimeterBucketSize * (currentChartBucket + 1))) {
+                    // Moved to a smaller bucket, reset start location.
+                    for (uint32_t j = 0; j < chartStartPositions.size(); j++)
+                        chartStartPositions[j] = Vector2i(0, 0);
+                    currentChartBucket++;
+                }
+            }
+            // Find a location to place the chart in the atlas.
+            BitImage *chartImageToPack, *chartImageToPackRotated;
             if (options.padding > 0) {
-				chartImageToPack = chartImagePadding;
-				chartImageToPackRotated = chartImagePaddingRotated;
+                chartImageToPack = chartImagePadding;
+                chartImageToPackRotated = chartImagePaddingRotated;
             } else if (options.bilinear) {
-				chartImageToPack = chartImageBilinear;
-				chartImageToPackRotated = chartImageBilinearRotated;
+                chartImageToPack = chartImageBilinear;
+                chartImageToPackRotated = chartImageBilinearRotated;
             } else {
-				chartImageToPack = chartImage;
-				chartImageToPackRotated = chartImageRotated;
-			}
-			uint32_t currentAtlas = 0;
-			int best_x = 0, best_y = 0;
-			int best_cw = 0, best_ch = 0;
-			int best_r = 0;
-			for (;;)
-			{
-#if XA_DEBUG
-				bool firstChartInBitImage = false;
+                chartImageToPack = chartImage;
+                chartImageToPackRotated = chartImageRotated;
+            }
+#if BIT_COMPRESS_LISTS
+            BitCompressor chartCompressor(chartImageToPack[0]);
+            BitCompressor chartCompressorRotated(chartImageToPackRotated[0]);
+#else
+#if BIT_COMPRESS_TREE
+            BitImageOpt chartImageOpt(chartImageToPack[0]);
+            BitImageOpt chartImageOptRotated(chartImageToPackRotated[0]);
 #endif
-				if (currentAtlas + 1 > m_bitImages.size()) {
-					// Chart doesn't fit in the current bitImage, create a new one.
+#endif
+            uint32_t currentAtlas = 0;
+            int best_x = 0, best_y = 0;
+            int best_cw = 0, best_ch = 0;
+            int best_r = 0;
+            for (;;) {
+#if XA_DEBUG
+                bool firstChartInBitImage = false;
+#endif
+                if (currentAtlas + 1 > m_bitImages.size()) {
+                    // Chart doesn't fit in the current bitImage, create a new one.
                     auto *bi = XA_NEW_ARGS(MemTag::Default, BitImage, resolution, resolution);
                     m_bitImages.push_back(bi);
+#if BIT_COMPRESS_LISTS
+                    BitCompressor *bc = XA_NEW_ARGS(MemTag::Default, BitCompressor, *bi);
+                    atlasCompressors.push_back(bc);
+#else
+#if BIT_COMPRESS_TREE
+                    BitImage2dTree *bi2dt = XA_NEW_ARGS(MemTag::Default, BitImage2dTree, resolution, resolution);
+                    atlasBitImageTrees.push_back(bi2dt);
+#else
                     auto *coarseBitImages = XA_NEW(MemTag::Default, Array<BitImage*>);
                     coarseBitImages->reserve(m_bitImagesCoarseLevels);
                     coarseBitImages->push_back(bi);
@@ -8686,121 +9277,217 @@ struct Atlas
                         coarseBitImages->push_back(bi1);
                     }
                     atlasBitImages.push_back(coarseBitImages);
+#endif
+#endif
                     atlasSizes.push_back(Vector2i(0, 0));
 #if XA_DEBUG
                     firstChartInBitImage = true;
 #endif
-					if (createImage)
-						m_atlasImages.push_back(XA_NEW_ARGS(MemTag::Default, AtlasImage, resolution, resolution));
-					// Start positions are per-atlas, so create a new one of those too.
-					chartStartPositions.push_back(Vector2i(0, 0));
-				}
-				XA_PROFILE_START(packChartsFindLocation)
-//                if (i == 971) {
-//                    printf("  %d\n", i);
-//
-//#if DRAW
-//                    cimg_draw = true;
-//                    {
-//        //                            for (a = m_bitImagesCoarseLevels - 1; a >= m_bitImagesCoarseLevels - 1; --a) {
-//                        for (int a = m_bitImagesCoarseLevels - 1; a >= 0; --a) {
-//                            int ixlen = chartImageToPack[a].width();
-//                            int iylen = chartImageToPack[a].height();
-//                            int *offset_x = &best_x;
-//                            int *offset_y = &best_y;
-//                            // image for a current layer
-//                            cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
-//                            #pragma omp parallel for collapse(2)
-//                            for (int ix = 0; ix < ixlen; ix++) {
-//                                for (int iy = 0; iy < iylen; iy++) {
-//                                    unsigned char red = 0;
-//                                    unsigned char green = 0;
-//                                    unsigned char blue = 0;
-//                                    int pixel_status = 0;
-//                                    pixel_status += chartImageToPack[a].get(ix, iy) ? 1 : 0;
-//
-//                                    switch (pixel_status) {
-//                                        case 0:
-//                                            break;
-//                                        case 1:
-//                                            red = green = blue = 128;
-//                                            break;
-//                                        case 2:
-//                                            red = green = blue = 96;
-//                                            break;
-//                                        case 3:
-//                                            red = 255;
-//                                            break;
-//                                        default:
-//                                            green = blue = 255;
-//                                    }
-//        //                                if (ix >= coarseStartPosition.x && ix <= coarseEndPosition.x + cw
-//        //                                    && iy >= coarseStartPosition.y && iy <= coarseEndPosition.y + ch) {
-//        //                                    red = min(255, red + 64);
-//        //                                    green = min(255, green + 64);
-//        //                                    blue = min(255, blue + 64);
-//        //                                }
-//                                    export_img(ix, iy, 0) = red;
-//        //                                        export_img(ix, iy, 1) = green;
-//        //                                        export_img(ix, iy, 2) = blue;
-//                                }
-//                            }
-//                            export_img.save(("i/chart" + std::to_string(i) + "_" + std::to_string(currentAtlas) + "_" + std::to_string(a) + ".png").c_str());
-//                        }
-//                    }
-//#endif
-//                }
-//#if DRAW
-//                else {
-//                    cimg_draw = false;
-//                }
-//#endif
-				const bool foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
-				XA_PROFILE_END(packChartsFindLocation)
-				XA_DEBUG_ASSERT(!(firstChartInBitImage && !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
-				if (maxResolution == 0) {
-					XA_DEBUG_ASSERT(foundLocation); // The atlas isn't limited to a fixed resolution, a chart location should be found on the first attempt.
-					break;
-				}
+                    if (createImage)
+                        m_atlasImages.push_back(XA_NEW_ARGS(MemTag::Default, AtlasImage, resolution, resolution));
+                    // Start positions are per-atlas, so create a new one of those too.
+                    chartStartPositions.push_back(Vector2i(0, 0));
+                }
+                XA_PROFILE_START(packChartsFindLocation)
+                if (i == -1) {
+                    printf("  %d\n", i);
+                    cimg_draw = true;
+
+#if DRAW
+                    /*
+                    //                    {
+                    //        //                            for (a = m_bitImagesCoarseLevels - 1; a >= m_bitImagesCoarseLevels - 1; --a) {
+                    //                        for (int a = m_bitImagesCoarseLevels - 1; a >= 0; --a) {
+                    //                            int ixlen = chartImageToPack[a].width();
+                    //                            int iylen = chartImageToPack[a].height();
+                    //                            int *offset_x = &best_x;
+                    //                            int *offset_y = &best_y;
+                    //                            // image for a current layer
+                    //                            cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
+                    //                            #pragma omp parallel for collapse(2)
+                    //                            for (int ix = 0; ix < ixlen; ix++) {
+                    //                                for (int iy = 0; iy < iylen; iy++) {
+                    //                                    unsigned char red = 0;
+                    //                                    unsigned char green = 0;
+                    //                                    unsigned char blue = 0;
+                    //                                    int pixel_status = 0;
+                    //                                    pixel_status += chartImageToPack[a].get(ix, iy) ? 1 : 0;
+                    //
+                    //                                    switch (pixel_status) {
+                    //                                        case 0:
+                    //                                            break;
+                    //                                        case 1:
+                    //                                            red = green = blue = 128;
+                    //                                            break;
+                    //                                        case 2:
+                    //                                            red = green = blue = 96;
+                    //                                            break;
+                    //                                        case 3:
+                    //                                            red = 255;
+                    //                                            break;
+                    //                                        default:
+                    //                                            green = blue = 255;
+                    //                                    }
+                    //        //                                if (ix >= coarseStartPosition.x && ix <= coarseEndPosition.x + cw
+                    //        //                                    && iy >= coarseStartPosition.y && iy <= coarseEndPosition.y + ch) {
+                    //        //                                    red = min(255, red + 64);
+                    //        //                                    green = min(255, green + 64);
+                    //        //                                    blue = min(255, blue + 64);
+                    //        //                                }
+                    //                                    export_img(ix, iy, 0) = red;
+                    //        //                                        export_img(ix, iy, 1) = green;
+                    //        //                                        export_img(ix, iy, 2) = blue;
+                    //                                }
+                    //                            }
+                    //                            export_img.save(("i/chart" + std::to_string(i) + "_" + std::to_string(currentAtlas) + "_" + std::to_string(a) + ".png").c_str());
+                    //                        }
+                    //                    }
+                    */
+#endif
+                }
+                else {
+                    cimg_draw = false;
+                }
+#if BIT_COMPRESS_LISTS
+                const bool foundLocation = findChartLocation_bruteForce_compressed(options, chartStartPositions[currentAtlas], *atlasCompressors[currentAtlas], chartCompressor, chartCompressorRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
+#else
+#if BIT_COMPRESS_TREE
+                const bool foundLocation = findChartLocation_bruteForce_compressed(options, chartStartPositions[currentAtlas], *atlasBitImageTrees[currentAtlas], chartImageOpt, chartImageOptRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
+#else
+                const bool foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
+#endif
+#endif
+                XA_PROFILE_END(packChartsFindLocation)
+                XA_DEBUG_ASSERT(!(firstChartInBitImage &&
+                                  !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
+                if (maxResolution == 0) {
+                    XA_DEBUG_ASSERT(
+                            foundLocation); // The atlas isn't limited to a fixed resolution, a chart location should be found on the first attempt.
+                    break;
+                }
 //                if (!foundLocation) {
 //                    printf("%d\n", i);
 //                }
-				if (foundLocation)
+                if (foundLocation)
                     break;
-				// Chart doesn't fit in the current bitImage, try the next one.
-				currentAtlas++;
-			}
-			// Update brute force start location.
-			if (options.bruteForce) {
-				// Reset start location if the chart expanded the atlas.
-				if (best_x + best_cw > atlasSizes[currentAtlas].x || best_y + best_ch > atlasSizes[currentAtlas].y) {
-					for (uint32_t j = 0; j < chartStartPositions.size(); j++)
-						chartStartPositions[j] = Vector2i(0, 0);
-				}
-				else {
-					chartStartPositions[currentAtlas] = Vector2i(best_x, best_y);
-				}
-			}
-			// Update parametric extents.
-			atlasSizes[currentAtlas].x = max(atlasSizes[currentAtlas].x, best_x + best_cw);
-			atlasSizes[currentAtlas].y = max(atlasSizes[currentAtlas].y, best_y + best_ch);
-			// Resize bitImage if necessary.
-			// If maxResolution > 0, the bitImage is always set to maxResolutionIncludingPadding on creation and doesn't need to be dynamically resized.
-			if (maxResolution == 0) {
-				const uint32_t w = (uint32_t)atlasSizes[currentAtlas].x;
-				const uint32_t h = (uint32_t)atlasSizes[currentAtlas].y;
-				if (w > m_bitImages[0]->width() || h > m_bitImages[0]->height()) {
-					m_bitImages[0]->resize(nextPowerOfTwo(w), nextPowerOfTwo(h), false);
-					if (createImage)
-						m_atlasImages[0]->resize(m_bitImages[0]->width(), m_bitImages[0]->height());
-				}
-			} else {
-				XA_DEBUG_ASSERT(atlasSizes[currentAtlas].x <= (int)maxResolution);
-				XA_DEBUG_ASSERT(atlasSizes[currentAtlas].y <= (int)maxResolution);
-			}
-			XA_PROFILE_START(packChartsBlit)
+                // Chart doesn't fit in the current bitImage, try the next one.
+                currentAtlas++;
+            }
+            // Update brute force start location.
+            if (options.bruteForce) {
+                // Reset start location if the chart expanded the atlas.
+                if (best_x + best_cw > atlasSizes[currentAtlas].x || best_y + best_ch > atlasSizes[currentAtlas].y) {
+                    for (uint32_t j = 0; j < chartStartPositions.size(); j++)
+                        chartStartPositions[j] = Vector2i(0, 0);
+                } else {
+                    chartStartPositions[currentAtlas] = Vector2i(best_x, best_y);
+                }
+            }
+            // Update parametric extents.
+            atlasSizes[currentAtlas].x = max(atlasSizes[currentAtlas].x, best_x + best_cw);
+            atlasSizes[currentAtlas].y = max(atlasSizes[currentAtlas].y, best_y + best_ch);
+            // Resize bitImage if necessary.
+            // If maxResolution > 0, the bitImage is always set to maxResolutionIncludingPadding on creation and doesn't need to be dynamically resized.
+            if (maxResolution == 0) {
+                const uint32_t w = (uint32_t) atlasSizes[currentAtlas].x;
+                const uint32_t h = (uint32_t) atlasSizes[currentAtlas].y;
+                if (w > m_bitImages[0]->width() || h > m_bitImages[0]->height()) {
+                    m_bitImages[0]->resize(nextPowerOfTwo(w), nextPowerOfTwo(h), false);
+                    if (createImage)
+                        m_atlasImages[0]->resize(m_bitImages[0]->width(), m_bitImages[0]->height());
+                }
+            } else {
+                XA_DEBUG_ASSERT(atlasSizes[currentAtlas].x <= (int) maxResolution);
+                XA_DEBUG_ASSERT(atlasSizes[currentAtlas].y <= (int) maxResolution);
+            }
+            XA_PROFILE_START(packChartsBlit)
+#if BIT_COMPRESS_LISTS
+            if (cimg_draw) {
+                BitImage atl, chrt;
+                atlasCompressors[currentAtlas]->decompressInto(&atl);
+                if (best_r == 0)
+                    chartCompressor.decompressInto(&chrt);
+                else
+                    chartCompressorRotated.decompressInto(&chrt);
+
+                FILE *f = fopen("bitimgChart.log", "w");
+                fprintf(f, "%d %d\n", best_x, best_y);
+                for (int y = 0; y < chrt.height(); ++y) {
+                    for (int x = 0; x < chrt.width(); ++x) {
+                        fprintf(f, "%i", chrt.get(x, y));
+                    }
+                    fprintf(f, "\n");
+                }
+                fclose(f);
+                f = fopen("bitimgAtlas.log", "w");
+                for (int y = 0; y < atl.height(); ++y) {
+                    for (int x = 0; x < atl.width(); ++x) {
+                        fprintf(f, "%i", atl.get(x, y));
+                    }
+                    fprintf(f, "\n");
+                }
+                fclose(f);
+                printf("%d %d\n", best_x, best_y);
+            }
+            atlasCompressors[currentAtlas]->insert(best_r == 1 ? chartCompressorRotated : chartCompressor, best_x, best_y);
+#else
+#if BIT_COMPRESS_TREE
+            if (cimg_draw) {
+                BitImage atl;
+                atlasBitImageTrees[currentAtlas]->decompressInto(&atl);
+                BitImage &chrt = (best_r == 0) ? *chartImageToPack : *chartImageToPackRotated;
+
+                FILE *f = fopen("bitimgChart.log", "w");
+                fprintf(f, "%d %d\n", best_x, best_y);
+                for (int y = 0; y < chrt.height(); ++y) {
+                    for (int x = 0; x < chrt.width(); ++x) {
+                        fprintf(f, "%i", chrt.get(x, y));
+                    }
+                    fprintf(f, "\n");
+                }
+                fclose(f);
+                f = fopen("bitimgAtlas.log", "w");
+                for (int y = 0; y < atl.height(); ++y) {
+                    for (int x = 0; x < atl.width(); ++x) {
+                        fprintf(f, "%i", atl.get(x, y));
+                    }
+                    fprintf(f, "\n");
+                }
+                fclose(f);
+                printf("%d %d\n", best_x, best_y);
+            }
+//            printf("%d: %d, %d (%d)\n", i, best_x, best_y, best_r);
+            atlasBitImageTrees[currentAtlas]->fill(best_r == 1 ? chartImageOptRotated : chartImageOpt, best_x, best_y);
+#else
+            if (cimg_draw) {
+                BitImage &atl = *(*atlasBitImages[currentAtlas])[0];
+//                atlasBitImages[currentAtlas]->decompressInto(&atl);
+                BitImage &chrt = (best_r == 0) ? *chartImageToPack : *chartImageToPackRotated;
+
+                FILE *f = fopen("bitimgChart.log", "w");
+                fprintf(f, "%d %d\n", best_x, best_y);
+                for (int y = 0; y < chrt.height(); ++y) {
+                    for (int x = 0; x < chrt.width(); ++x) {
+                        fprintf(f, "%i", chrt.get(x, y));
+                    }
+                    fprintf(f, "\n");
+                }
+                fclose(f);
+                f = fopen("bitimgAtlas.log", "w");
+                for (int y = 0; y < atl.height(); ++y) {
+                    for (int x = 0; x < atl.width(); ++x) {
+                        fprintf(f, "%i", atl.get(x, y));
+                    }
+                    fprintf(f, "\n");
+                }
+                fclose(f);
+                printf("%d %d\n", best_x, best_y);
+            }
+//            printf("%d: %d, %d (%d)\n", i, best_x, best_y, best_r);
 			addChart(atlasBitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_r);
-			XA_PROFILE_END(packChartsBlit)
+#endif
+#endif
+            XA_PROFILE_END(packChartsBlit)
 			if (createImage) {
 				if (best_r == 0) {
 					m_atlasImages[currentAtlas]->addChart(c, &chartImage[0], options.bilinear ? &chartImageBilinear[0] : nullptr, options.padding > 0 ? &chartImagePadding[0] : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
@@ -8818,10 +9505,96 @@ struct Atlas
 
 #if DRAW
             {
-//                            for (a = m_bitImagesCoarseLevels - 1; a >= m_bitImagesCoarseLevels - 1; --a) {
+#if BIT_COMPRESS_LISTS
+                BitImage atl;
+                atlasCompressors[currentAtlas]->decompressInto(&atl);
+                BitImage &chrt = (best_r == 0) ? *chartImageToPack : *chartImageToPackRotated;
+
+                int ixlen = atl.width();
+                int iylen = atl.height();
+                // image for a current layer
+                cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
+                #pragma omp parallel for collapse(2)
+                for (int ix = 0; ix < ixlen; ix++) {
+                    for (int iy = 0; iy < iylen; iy++) {
+                        unsigned char intensity = 0;
+                        int pixel_status = 0;
+                        pixel_status += atl.get(ix, iy) * 2;
+                        if (ix >= best_x
+                            && ix < best_x + chrt.width()
+                            && iy >= best_y
+                            && iy < best_y + chrt.height()) {
+                            pixel_status += (chrt.get(ix - best_x, iy - best_y)) * 1;
+                        }
+
+                        switch (pixel_status) {
+                            case 0:
+                                break;
+                            case 1:
+                                intensity = 128;
+                                break;
+                            case 2:
+                                intensity = 96;
+                                break;
+                            case 3:
+                                intensity = 255;
+                                break;
+                            default:
+                                intensity = 10;
+                        }
+//                        if (intensity > 0) intensity = 255;
+                        export_img(ix, iy) = intensity;
+                    }
+                }
+                export_img.save(("data/debug/imges/i/overlap" + std::to_string(PARALLEL) + "_" + std::to_string(currentAtlas) + "_" + std::to_string(i) + ".png").c_str());
+#else
+#if BIT_COMPRESS_TREE
+                BitImage atl;
+                atlasBitImageTrees[currentAtlas]->decompressInto(&atl);
+                BitImage &chrt = (best_r == 0) ? *chartImageToPack : *chartImageToPackRotated;
+
+                int ixlen = atl.width();
+                int iylen = atl.height();
+                // image for a current layer
+                cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
+                #pragma omp parallel for collapse(2)
+                for (int ix = 0; ix < ixlen; ix++) {
+                    for (int iy = 0; iy < iylen; iy++) {
+                        unsigned char intensity = 0;
+                        int pixel_status = 0;
+                        pixel_status += atl.get(ix, iy) * 2;
+                        if (ix >= best_x
+                            && ix < best_x + chrt.width()
+                            && iy >= best_y
+                            && iy < best_y + chrt.height()) {
+                            pixel_status += (chrt.get(ix - best_x, iy - best_y)) * 1;
+                        }
+
+                        switch (pixel_status) {
+                            case 0:
+                                break;
+                            case 1:
+                                intensity = 128;
+                                break;
+                            case 2:
+                                intensity = 96;
+                                break;
+                            case 3:
+                                intensity = 255;
+                                break;
+                            default:
+                                intensity = 10;
+                        }
+//                        if (intensity > 0) intensity = 255;
+                        export_img(ix, iy) = intensity;
+                    }
+                }
+                export_img.save(("data/debug/imges/i/overlap" + std::to_string(PARALLEL) + "_" + std::to_string(currentAtlas) + "_" + std::to_string(i) + ".png").c_str());
+#else
+    //                            for (a = m_bitImagesCoarseLevels - 1; a >= m_bitImagesCoarseLevels - 1; --a) {
                 for (int a = m_bitImagesCoarseLevels - 1; a >= 0; --a) {
-                    if (i != 113)
-                        break;
+//                    if (i != 113)
+//                        break;
                     int ixlen = (*atlasBitImages[currentAtlas])[a]->width();
                     int iylen = (*atlasBitImages[currentAtlas])[a]->height();
                     int *offset_x = &best_x;
@@ -8831,49 +9604,43 @@ struct Atlas
                     #pragma omp parallel for collapse(2)
                     for (int ix = 0; ix < ixlen; ix++) {
                         for (int iy = 0; iy < iylen; iy++) {
-                            unsigned char red = 0;
-                            unsigned char green = 0;
-                            unsigned char blue = 0;
+                            unsigned char intensity = 0;
                             int pixel_status = 0;
                             pixel_status += (*atlasBitImages[currentAtlas])[a]->get(ix, iy) ? 2 : 0;
-//                                    if (ix >= (*offset_x >> (a * m_bitImagesCoarseLevelRate))
-//                                        &&
-//                                        ix < (*offset_x >> (a * m_bitImagesCoarseLevelRate)) + chartImageToPack[a].width()
-//                                        && iy >= (*offset_y >> (a * m_bitImagesCoarseLevelRate))
-//                                        && iy <
-//                                           (*offset_y >> (a * m_bitImagesCoarseLevelRate)) + chartImageToPack[a].height())
-//                                        pixel_status += (chartImageToPack[a].get(
-//                                                ix - (*offset_x >> (a * m_bitImagesCoarseLevelRate)),
-//                                                iy - (*offset_y >> (a * m_bitImagesCoarseLevelRate)))) ? 1 : 0;
+                                    if (ix >= (*offset_x >> (a * m_bitImagesCoarseLevelRate))
+                                        &&
+                                        ix < (*offset_x >> (a * m_bitImagesCoarseLevelRate)) + chartImageToPack[a].width()
+                                        && iy >= (*offset_y >> (a * m_bitImagesCoarseLevelRate))
+                                        && iy <
+                                           (*offset_y >> (a * m_bitImagesCoarseLevelRate)) + chartImageToPack[a].height())
+                                        pixel_status += (chartImageToPack[a].get(
+                                                ix - (*offset_x >> (a * m_bitImagesCoarseLevelRate)),
+                                                iy - (*offset_y >> (a * m_bitImagesCoarseLevelRate)))) ? 1 : 0;
 
                             switch (pixel_status) {
-                                case 0:
-                                    break;
-                                case 1:
-                                    red = green = blue = 128;
-                                    break;
-                                case 2:
-                                    red = green = blue = 96;
-                                    break;
-                                case 3:
-                                    red = 255;
-                                    break;
-                                default:
-                                    green = blue = 255;
+                            case 0:
+                                break;
+                            case 1:
+                                intensity = 128;
+                            break;
+                            case 2:
+                                intensity = 96;
+                            break;
+                            case 3:
+                                intensity = 255;
+                            break;
+                            default:
+                                intensity = 10;
                             }
-//                                if (ix >= coarseStartPosition.x && ix <= coarseEndPosition.x + cw
-//                                    && iy >= coarseStartPosition.y && iy <= coarseEndPosition.y + ch) {
-//                                    red = min(255, red + 64);
-//                                    green = min(255, green + 64);
-//                                    blue = min(255, blue + 64);
-//                                }
-                            export_img(ix, iy, 0) = red;
-//                                        export_img(ix, iy, 1) = green;
-//                                        export_img(ix, iy, 2) = blue;
+//                        if (intensity > 0) intensity = 255;
+
+                            export_img(ix, iy) = intensity;
                         }
                     }
-                    export_img.save(("overlap" + std::to_string(PARALLEL) + "_" + std::to_string(currentAtlas) + "_" + std::to_string(a) + "_" + std::to_string(i) + ".png").c_str());
+                    export_img.save(("data/debug/imges/ii/overlap" + std::to_string(PARALLEL) + "_" + std::to_string(currentAtlas) + "_" + std::to_string(i) + ".png").c_str());
                 }
+#endif
+#endif
             }
 #endif
 			chart->atlasIndex = (int32_t)currentAtlas;
@@ -8908,6 +9675,17 @@ struct Atlas
 				}
 			}
 		}
+#if BIT_COMPRESS_LISTS
+        for (int i = 0; i < m_bitImages.size(); ++i) {
+            atlasCompressors[i]->decompressInto(m_bitImages[i]);
+        }
+#else
+#if BIT_COMPRESS_TREE
+        for (int i = 0; i < m_bitImages.size(); ++i) {
+            atlasBitImageTrees[i]->decompressInto(m_bitImages[i]);
+        }
+#endif
+#endif
 		// Remove padding from outer edges.
 		if (maxResolution == 0) {
 			m_width = max(0, atlasSizes[0].x - (int)options.padding * 2);
@@ -8915,6 +9693,18 @@ struct Atlas
 		} else {
 			m_width = m_height = maxResolution - (int)options.padding * 2;
 		}
+#if BIT_COMPRESS_LISTS
+        for (uint32_t i = 0; i < atlasCompressors.size(); ++i) {
+            atlasCompressors[i]->~BitCompressor();
+            XA_FREE(atlasCompressors[i]);
+        }
+#else
+#if BIT_COMPRESS_TREE
+        for (uint32_t i = 0; i < atlasBitImageTrees.size(); ++i) {
+            atlasBitImageTrees[i]->~BitImage2dTree();
+            XA_FREE(atlasBitImageTrees[i]);
+        }
+#else
         for (uint32_t i = 0; i < atlasBitImages.size(); ++i) {
             for (uint32_t j = 1; j < (atlasBitImages[i])->size(); ++j) {
                 (*atlasBitImages[i])[j]->~BitImage();
@@ -8923,6 +9713,8 @@ struct Atlas
             atlasBitImages[i]->destroy();
             XA_FREE(atlasBitImages[i]);
         }
+#endif
+#endif
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
 		m_utilization.resize(getNumAtlases());
 		for (uint32_t i = 0; i < m_utilization.size(); i++) {
@@ -8963,7 +9755,7 @@ private:
 		const int attempts = 4096;
 		if (options.bruteForce || attempts >= w * h)
 			return findChartLocation_bruteForce(options, startPosition, atlasBitImages, chartBitImages, chartBitImagesRotated, w, h, best_x, best_y, best_w, best_h, best_r, maxResolution);
-		return findChartLocation_random(options, (*atlasBitImages)[0], &chartBitImages[0], &chartBitImagesRotated[0], w, h, best_x, best_y, best_w, best_h, best_r, attempts, maxResolution);
+        return findChartLocation_random(options, (*atlasBitImages)[0], &chartBitImages[0], &chartBitImagesRotated[0], w, h, best_x, best_y, best_w, best_h, best_r, attempts, maxResolution);
 	}
 
 	bool findChartLocation_bruteForce(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const BitImage *chartBitImages, const BitImage *chartBitImagesRotated, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
@@ -8980,9 +9772,9 @@ private:
         // d_infty
         auto sameMetricWorse = [](int x, int y, int r, int comp_x, int comp_y, int comp_r) {
             return (max(x, y) > max(comp_x, comp_y)
-                   || max(x, y) == max(comp_x, comp_y)
-                   && (y > comp_y || y == comp_y
-                   && (x > comp_x || x == comp_x && r > comp_r)));
+                   || max(x, y) == max(comp_x, comp_y) && (y > comp_y
+                                                        || y == comp_y && (x > comp_x
+                                                                        || x == comp_x && r > comp_r)));
         };
 #else
         // d_1
@@ -9001,7 +9793,9 @@ private:
 #if !PARALLEL
         omp_set_num_threads(1);
 #endif // PARALLEL
+#if PARALLEL
         #pragma omp parallel
+#endif // PARALLEL
         {
             bool returnFlag = false;
             Vector2i endPosition;
@@ -9040,7 +9834,9 @@ private:
                     continue;
 
                 OMP_DISPATCHER
+#if PARALLEL
 #pragma omp for collapse(2)
+#endif // PARALLEL
                 for (int y = 0; y <= endPosition.y; y += stepSize) {
                     for (int x = 0; x <= endPosition.x; x += stepSize) {
                         OMP_TRY
@@ -9098,8 +9894,9 @@ private:
                     XA_ASSERT(local_best_y + chartBitImages[0].width() <= (*atlasBitImages)[0]->height());
                 }
             }
-
+#if PARALLEL
 #pragma omp critical
+#endif // PARALLEL
             {
                 if (local_best_metric != INT_MAX) {
                     {
@@ -9115,6 +9912,10 @@ private:
                 }
             }
         }
+//        FILE *f = fopen("output_np.log", "a");
+//        fprintf(f, "%d;\t x: %d, y: %d, r: %d\n", best_metric, *best_x, *best_y, *best_r);
+//        fprintf(f, "\n");
+//        fclose(f);
 
         if (best_metric == INT_MAX) {
 //            XA_ASSERT(coarse_level == coarse_size - 1);
@@ -9308,6 +10109,451 @@ private:
         // if reached,
         return false;
     }
+
+#if BIT_COMPRESS_LISTS || BIT_COMPRESS_TREE
+#if BIT_COMPRESS_LISTS
+    bool findChartLocation_bruteForce_compressed(const PackOptions &options, const Vector2i &startPosition, const BitCompressor &atlasCompressor, const BitCompressor &chartCompressor, const BitCompressor &chartCompressorRotated, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
+#else // BIT_COMPRESS_TREE
+    bool findChartLocation_bruteForce_compressed(const PackOptions &options, const Vector2i &startPosition, const BitImage2dTree &atlasTree, const BitImageOpt &chartImageOpt, const BitImageOpt &chartImageOptRotated, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
+#endif
+    {
+        unsigned int best_metric = INT_MAX;
+        const int coarse_size = m_bitImagesCoarseLevels;
+        const int coarse_reduction = (coarse_size - 1) * m_bitImagesCoarseLevelRate;
+//		const int stepSize = options.blockAlign ? 4 : 1;
+        const int stepSize = 1 << coarse_reduction;
+
+        int iterations = 0;
+        int fast_out_free = 0;
+        int fast_out_busy = 0;
+        int saved_iterations = 0;
+
+#if CLOSER_TO_ZERO
+#if D_INFTY
+        // d_infty
+        auto sameMetricWorse = [](int x, int y, int r, int comp_x, int comp_y, int comp_r) {
+            return (max(x, y) > max(comp_x, comp_y)
+                    || max(x, y) == max(comp_x, comp_y)
+                       && (y > comp_y || y == comp_y
+                                         && (x > comp_x || x == comp_x && r > comp_r)));
+        };
+#else
+        // d_1
+        auto sameMetricWorse = [](int x, int y, int r, int comp_x, int comp_y, int comp_r) {
+            return (x + y > comp_x + comp_y || x + y == comp_x + comp_y
+            && (y > comp_y || y == comp_y && (x > comp_x || x == comp_x && r > comp_r)));
+        };
+#endif // D_INFTY
+#else
+        // best_x
+        auto sameMetricWorse = [](int x, int y, int r, int comp_x, int comp_y, int comp_r) {
+            return (y > comp_y || y == comp_y && (x > comp_x || x == comp_x && r > comp_r));
+        };
+#endif // CLOSER_TO_ZERO
+
+#if !PARALLEL
+        omp_set_num_threads(1);
+#endif // PARALLEL
+#if PARALLEL
+#pragma omp parallel
+#endif // PARALLEL
+        {
+            bool returnFlag = false;
+            Vector2i endPosition;
+
+            endPosition.x = w + stepSize;
+            endPosition.y = h + stepSize;
+
+            unsigned int local_best_metric = INT_MAX;
+            int local_best_x = *best_x;
+            int local_best_y = *best_y;
+            int local_best_r = *best_r;
+            // Try two different orientations...
+            for (int r = 0; r < 2; r++) {
+#if BIT_COMPRESS_LISTS
+                int cw = chartCompressor.width();
+                int ch = chartCompressor.height();
+#else // BIT_COMPRESS_TREE
+                int cw = chartImageOpt.width();
+                int ch = chartImageOpt.height();
+#endif
+                if (r == 1) {
+                    if (options.rotateCharts)
+                        swap(cw, ch);
+                    else
+                        break;
+                }
+                if (maxResolution > 0) {
+                    // with some leeway
+//                        endPosition.x = min(endPosition.x,
+//                                                  (int32_t) (*atlasBitImages)[0]->width() - cw);
+//                        endPosition.y = min(endPosition.y,
+//                                                  (int32_t) (*atlasBitImages)[0]->height() - ch);
+                    // without leeway
+                    endPosition.x = min(endPosition.x,
+                                        (int) maxResolution - cw);
+                    endPosition.y = min(endPosition.y,
+                                        (int) maxResolution - ch);
+                }
+                if (startPosition.x > endPosition.x
+                    || startPosition.y > endPosition.y)
+                    continue;
+
+                OMP_DISPATCHER
+#if PARALLEL
+#pragma omp for collapse(2) reduction(+: iterations, fast_out_free, fast_out_busy, saved_iterations)
+#endif // PARALLEL
+                for (int y = 0; y <= endPosition.y; y += stepSize) {
+                    for (int x = 0; x <= endPosition.x; x += stepSize) {
+                        OMP_TRY
+//                            if (y <= (startPosition.y) && x < (startPosition.x))
+//                                continue;
+                            if (returnFlag)
+                                continue;
+                            // Early out if metric is not better.
+                            const unsigned int extentX = max(w, x + cw);
+                            const unsigned int extentY = max(h, y + ch);
+                            const unsigned int area = extentX * extentY;
+                            const unsigned int extents = max(extentX, extentY);
+                            const unsigned int metric = extents * extents + area;
+
+                            if (metric > local_best_metric)
+                                continue;
+                            if (metric == local_best_metric &&
+                                sameMetricWorse(x, y, r, local_best_x, local_best_y,
+                                                local_best_r)) // comparison with *best_x and *best_y
+                                continue;
+
+#if BIT_COMPRESS_LISTS
+                            if (!atlasCompressor.canBlit(r == 1 ? chartCompressorRotated : chartCompressor, x, y))
+                                continue;
+#else // BIT_COMPRESS_TREE
+                            bool is_fast_out_free = atlasTree.canBlit(x, y, x + cw, y + ch);
+
+                            bool is_fast_out_busy = false;
+                            if (!chartImageOptRotated.m_data.isEmpty()) {
+                                BitImageOpt::Rectangle rect =
+                                        r == 1 ? chartImageOptRotated.m_data[0] : chartImageOpt.m_data[0];
+
+                                is_fast_out_busy = !atlasTree.canBlit(rect.start_x + x, rect.start_y + y,
+                                                                           rect.end_x + x, rect.end_y + y);
+                            }
+
+                            int iters = 0;
+                            bool is_correct = atlasTree.canBlit(r == 1 ? chartImageOptRotated : chartImageOpt, x, y, &iters);
+
+                            iterations += iters;
+                            if (is_fast_out_free || is_fast_out_busy) {
+                                fast_out_free += is_fast_out_free;
+                                fast_out_busy += is_fast_out_busy;
+                                saved_iterations += (iters > 0 ? iters - 1 : iters);
+                            }
+                            if (is_fast_out_busy) {
+                                XA_DEBUG_ASSERT(!is_correct);
+                            }
+
+                            if (!is_correct) {
+                                XA_DEBUG_ASSERT(!is_fast_out_free);
+                                continue;
+                            }
+#endif
+
+                            if (metric < local_best_metric
+                                || metric == local_best_metric &&
+                                   sameMetricWorse(local_best_x, local_best_y, local_best_r, x, y, r)) {
+                                local_best_metric = metric;
+                                local_best_x = x;
+                                local_best_y = y;
+                                local_best_r = r;
+                            }
+//#if !PARALLEL
+//                            const int extentX = max(w, offset_x + cw);
+//                            const int extentY = max(h, offset_y + ch);
+//                            const int area = extentX * extentY;
+//                            if (area == w * h)
+//                                returnFlag = true; // Chart is completely inside, do not look at any other location.
+//#endif // !PARALLEL
+                        OMP_CATCH
+                    }
+                }
+                OMP_RETHROW
+#if BIT_COMPRESS_LISTS
+                if (local_best_r == 0) {
+                    XA_ASSERT(local_best_x + chartCompressor.width() <= atlasCompressor.width());
+                    XA_ASSERT(local_best_y + chartCompressor.height() <= atlasCompressor.height());
+                } else {
+                    XA_ASSERT(local_best_x + chartCompressor.height() <= atlasCompressor.width());
+                    XA_ASSERT(local_best_y + chartCompressor.width() <= atlasCompressor.height());
+                }
+#else // BIT_COMPRESS_TREE
+                if (local_best_r == 0) {
+                    XA_ASSERT(local_best_x + chartImageOpt.width() <= atlasTree.width());
+                    XA_ASSERT(local_best_y + chartImageOpt.height() <= atlasTree.height());
+                } else {
+                    XA_ASSERT(local_best_x + chartImageOpt.height() <= atlasTree.width());
+                    XA_ASSERT(local_best_y + chartImageOpt.width() <= atlasTree.height());
+                }
+#endif
+            }
+#if PARALLEL
+#pragma omp critical
+#endif // PARALLEL
+            {
+                if (local_best_metric != INT_MAX) {
+                    {
+                        if (local_best_metric < best_metric
+                            || local_best_metric == best_metric &&
+                               sameMetricWorse(*best_x, *best_y, *best_r, local_best_x, local_best_y, local_best_r)) {
+                            best_metric = local_best_metric;
+                            *best_x = local_best_x;
+                            *best_y = local_best_y;
+                            *best_r = local_best_r;
+                        }
+                    }
+                }
+            }
+        }
+        FILE *f = fopen("output.log", "a");
+        fprintf(f, "total: %d\t could be saved: %d (%d free, %d busy), %d could not (%.2f%%)\n", iterations, saved_iterations, fast_out_free, fast_out_busy, iterations - fast_out_busy,  100.0 - (fast_out_busy * 100.0/ iterations));
+//        fprintf(f, "\n");
+        fclose(f);
+
+        if (best_metric == INT_MAX) {
+//            XA_ASSERT(coarse_level == coarse_size - 1);
+//            if (coarse_level < coarse_size - 1) {
+//                printf("Hmm...\n");
+//            }
+            return false;
+        }
+
+#if BIT_COMPRESS_LISTS
+        if (*best_r == 1 && options.rotateCharts) {
+            *best_w = chartCompressorRotated.width();
+            *best_h = chartCompressorRotated.height();
+        } else {
+            *best_w = chartCompressor.width();
+            *best_h = chartCompressor.height();
+        }
+#else // BIT_COMPRESS_TREE
+        if (*best_r == 1 && options.rotateCharts) {
+            *best_w = chartImageOptRotated.width();
+            *best_h = chartImageOptRotated.height();
+        } else {
+            *best_w = chartImageOpt.width();
+            *best_h = chartImageOpt.height();
+        }
+#endif
+        return best_metric != INT_MAX;
+    }
+#endif
+#if BIT_COMPRESS_LISTS
+    bool canBlitCoarseToFine_compressed(const Array<BitImage *> *atlasBitImages, const BitImage *chartBitImages, const BitCompressor &atlasCompressor, const BitCompressor &chartCompressor, int *offset_x, int *offset_y, uint32_t maxResolution) const {
+        const int coarse_size = m_bitImagesCoarseLevels;
+        const int coarse_reduction = (coarse_size - 1) * m_bitImagesCoarseLevelRate;
+        const int coarse_offset_x = *offset_x >> coarse_reduction;
+        const int coarse_offset_y = *offset_y >> coarse_reduction;
+
+        if (coarse_offset_x > (int)maxResolution - (int)chartBitImages[0].width()
+            || coarse_offset_y > (int)maxResolution - (int)chartBitImages[0].height())
+            return false;
+
+        struct stackFrame {
+            int x;
+            int y;
+            int level;
+        };
+        Array<stackFrame> callbackStack;
+        callbackStack.reserve(coarse_reduction);
+        callbackStack.push_back({coarse_offset_x, coarse_offset_y, coarse_size - 1});
+        while(!callbackStack.isEmpty()) {
+            stackFrame curOffset = callbackStack.back();
+            callbackStack.pop_back();
+
+            const bool canBlitCompressed = atlasCompressor.canBlit(chartCompressor,curOffset.x, curOffset.y);
+
+            const bool canBlit = (*atlasBitImages)[curOffset.level]->canBlit(chartBitImages[curOffset.level],
+                                                                             curOffset.x, curOffset.y);
+
+            if (canBlit != canBlitCompressed) {
+                FILE *f = fopen("bitimgChart.log", "w");
+                fprintf(f, "%d %d\n", curOffset.x, curOffset.y);
+                for (int y = 0; y < chartBitImages[curOffset.level].height(); ++y) {
+                    for (int x = 0; x < chartBitImages[curOffset.level].width(); ++x) {
+                        fprintf(f, "%i", chartBitImages[curOffset.level].get(x, y));
+                    }
+                    fprintf(f, "\n");
+                }
+                fclose(f);
+                f = fopen("bitimgAtlas.log", "w");
+                for (int y = 0; y < (*atlasBitImages)[curOffset.level]->height(); ++y) {
+                    for (int x = 0; x < (*atlasBitImages)[curOffset.level]->width(); ++x) {
+                        fprintf(f, "%i", (*atlasBitImages)[curOffset.level]->get(x, y));
+                    }
+                    fprintf(f, "\n");
+                }
+                fclose(f);
+                printf("%d %d\n", curOffset.x, curOffset.y);
+                printf("%d~%d\n", canBlit, canBlitCompressed);
+//                throw std::runtime_error("Error!");
+
+#if DRAW
+                for (int a = curOffset.level; a >= curOffset.level; --a) {
+//                    if (curOffset.level == 0)
+//                        break;
+                    int ixlen = (*atlasBitImages)[a]->width();
+                    int iylen = (*atlasBitImages)[a]->height();
+//                        int *offset_x = &best_x;
+//                        int *offset_y = &best_y;
+                    // image for a current layer
+                    cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
+                    for (int ix = 0; ix < ixlen; ix++) {
+                        for (int iy = 0; iy < iylen; iy++) {
+                            unsigned char red = 0;
+                            unsigned char green = 0;
+                            unsigned char blue = 0;
+                            int pixel_status = 0;
+                            pixel_status += (*atlasBitImages)[a]->get(ix, iy) ? 2 : 0;
+                            if (ix >= (curOffset.x)
+                                &&
+                                ix < (curOffset.x) + chartBitImages[a].width()
+                                && iy >= (curOffset.y)
+                                && iy <
+                                   (curOffset.y) + chartBitImages[a].height())
+                                pixel_status += (chartBitImages[a].get(
+                                        ix - (curOffset.x),
+                                        iy - (curOffset.y))) ? 1 : 0;
+
+                            switch (pixel_status) {
+                                case 0:
+                                    break;
+                                case 1:
+                                    red = green = blue = 192;
+                                    break;
+                                case 2:
+                                    red = green = blue = 96;
+                                    break;
+                                case 3:
+                                    red = 255;
+                                    break;
+                                default:
+                                    green = blue = 255;
+                            }
+//                                if (ix >= coarseStartPosition.x && ix <= coarseEndPosition.x + cw
+//                                    && iy >= coarseStartPosition.y && iy <= coarseEndPosition.y + ch) {
+//                                    red = min(255, red + 64);
+//                                    green = min(255, green + 64);
+//                                    blue = min(255, blue + 64);
+//                                }
+                            export_img(ix, iy, 0) = red;
+//                                        export_img(ix, iy, 1) = green;
+//                                        export_img(ix, iy, 2) = blue;
+                        }
+                    }
+                    export_img.save(("ii/overlap" + std::to_string(PARALLEL)
+                                     + "_" + std::to_string(a)
+                                     + "_" + (canBlit ? "y" : "n") + "(" + std::to_string(curOffset.x) + ", " + std::to_string(curOffset.y) + ").png").c_str());
+                }
+#endif
+                XA_DEBUG_ASSERT(false);
+                XA_ASSERT(false);
+            }
+
+#if DRAW
+            if (cimg_draw)
+            {
+//                            for (a = m_bitImagesCoarseLevels - 1; a >= m_bitImagesCoarseLevels - 1; --a) {
+                for (int a = curOffset.level; a >= curOffset.level; --a) {
+                    if (curOffset.level == 0)
+                        break;
+                    int ixlen = (*atlasBitImages)[a]->width();
+                    int iylen = (*atlasBitImages)[a]->height();
+//                        int *offset_x = &best_x;
+//                        int *offset_y = &best_y;
+                    // image for a current layer
+                    cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
+                    for (int ix = 0; ix < ixlen; ix++) {
+                        for (int iy = 0; iy < iylen; iy++) {
+                            unsigned char red = 0;
+                            unsigned char green = 0;
+                            unsigned char blue = 0;
+                            int pixel_status = 0;
+                            pixel_status += (*atlasBitImages)[a]->get(ix, iy) ? 2 : 0;
+                            if (ix >= (curOffset.x)
+                                &&
+                                ix < (curOffset.x) + chartBitImages[a].width()
+                                && iy >= (curOffset.y)
+                                && iy <
+                                   (curOffset.y) + chartBitImages[a].height())
+                                pixel_status += (chartBitImages[a].get(
+                                        ix - (curOffset.x),
+                                        iy - (curOffset.y))) ? 1 : 0;
+
+                            switch (pixel_status) {
+                                case 0:
+                                    break;
+                                case 1:
+                                    red = green = blue = 192;
+                                    break;
+                                case 2:
+                                    red = green = blue = 96;
+                                    break;
+                                case 3:
+                                    red = 255;
+                                    break;
+                                default:
+                                    green = blue = 255;
+                            }
+//                                if (ix >= coarseStartPosition.x && ix <= coarseEndPosition.x + cw
+//                                    && iy >= coarseStartPosition.y && iy <= coarseEndPosition.y + ch) {
+//                                    red = min(255, red + 64);
+//                                    green = min(255, green + 64);
+//                                    blue = min(255, blue + 64);
+//                                }
+                            if (red > 0) red = 255;
+                            export_img(ix, iy, 0) = red;
+//                                        export_img(ix, iy, 1) = green;
+//                                        export_img(ix, iy, 2) = blue;
+                        }
+                    }
+                    export_img.save(("i/overlap" + std::to_string(PARALLEL)
+                                     + "_" + std::to_string(a)
+                                     + "_" + (canBlit ? "y" : "n") + "(" + std::to_string(curOffset.x) + ", " + std::to_string(curOffset.y) + ").png").c_str());
+                }
+            }
+#endif
+
+            if (!canBlit)
+                continue;
+
+            // first matched - minimal of y, minimal of x.
+            if (curOffset.level == 0) {
+                *offset_x = curOffset.x;
+                *offset_y = curOffset.y;
+                return true;
+            }
+            const Vector2i startPosition = {max(0, (curOffset.x - 1) << m_bitImagesCoarseLevelRate),
+                                            max(0, (curOffset.y - 1) << m_bitImagesCoarseLevelRate)};
+//            const Vector2i endPosition = {min(*offset_x >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate,
+//                                          ((int)maxResolution >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate) - (int)chartBitImages[curOffset.level - 1].width()),
+//                                          min(*offset_y >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate,
+//                                              ((int)maxResolution >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate) - (int)chartBitImages[curOffset.level - 1].height())};
+            const Vector2i endPosition = {min((curOffset.x) << m_bitImagesCoarseLevelRate,
+                                              ((int)maxResolution >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate) - (int)chartBitImages[curOffset.level - 1].width()),
+                                          min((curOffset.y) << m_bitImagesCoarseLevelRate,
+                                              ((int)maxResolution >> (curOffset.level - 1) * m_bitImagesCoarseLevelRate) - (int)chartBitImages[curOffset.level - 1].height())};
+            if (startPosition.x > endPosition.x || startPosition.y > endPosition.y)
+                continue;
+            // pushing in stack worst-to-best so that best can be taken out first
+            for (int y2 = endPosition.y; y2 >= startPosition.y; --y2) {
+                for (int x1 = endPosition.x; x1 >= startPosition.x; --x1) {
+                    callbackStack.push_back({x1, y2, curOffset.level - 1});
+                }
+            }
+        }
+        // if reached,
+        return false;
+    }
+#endif
 
 	void addChart(Array<BitImage *> *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r) {
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
