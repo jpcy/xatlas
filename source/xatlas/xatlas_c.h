@@ -205,6 +205,7 @@ typedef struct
 	bool bruteForce;
 	bool createImage;
 	bool rotateChartsToAxis;
+	bool rotateCharts;
 	bool transposeCharts;
 	int coarseLevels;
 	int coarseLevelRate;

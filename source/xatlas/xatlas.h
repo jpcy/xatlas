@@ -227,16 +227,20 @@ struct PackOptions
 	// Rotate charts to the axis of their convex hull.
 	bool rotateChartsToAxis = true;
 
+	// Rotate charts to improve packing.
+	bool rotateCharts = true;
+
 	// Transpose charts to improve packing.
 	bool transposeCharts = true;
 
     // Number of steps in coarse-to-fine scheme.
-    // Number of n means that n charts and atlases of smaller resolution would be generated.
-    int coarseLevels = 1;
+    // Number of N means that N charts and atlases of smaller resolution would be generated.
+	// N=0 means no coarse-to-fine scheme would be applied.
+    int coarseLevels = 0;
 
     // Rate of steps in coarse-to-fine scheme.
-    // Rate of n means that chart resolution in every next step is 2^n times smaller.
-    int coarseLevelRate = 1;
+    // Rate of N means that every next step compresses squares of N x N pixels of previous step into single pixel.
+    int coarseLevelRate = 2;
 };
 
 // Call after ComputeCharts. Can be called multiple times to re-pack charts with different options.
