@@ -229,6 +229,14 @@ struct PackOptions
 
 	// Rotate charts to improve packing.
 	bool rotateCharts = true;
+
+    // Number of steps in coarse-to-fine scheme.
+    // Number of n means that n charts and atlases of smaller resolution would be generated.
+    int coarseSteps = 1;
+
+    // Rate of steps in coarse-to-fine scheme.
+    // Rate of n means that chart resolution in every next step is 2^n times smaller.
+    int coarseStepRate = 1;
 };
 
 // Call after ComputeCharts. Can be called multiple times to re-pack charts with different options.
