@@ -3235,7 +3235,7 @@ public:
 	}
 };
 
-const uint64_t defaultConcurrency = std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1;
+const uint64_t maxConcurrency = std::thread::hardware_concurrency() <= 1 ? 1 : std::thread::hardware_concurrency() - 1;
 
 #if XA_MULTITHREADED
 class TaskScheduler
@@ -3260,9 +3260,10 @@ class TaskScheduler
 		TaskGroup(const TaskGroup&) = default;
 	};
 public:
-	TaskScheduler(uint64_t threadPoolSize = defaultConcurrency) : m_shutdown(false)
+	TaskScheduler(uint64_t threadPoolSize = maxConcurrency) : m_shutdown(false)
 	{
 		m_threadIndex = 0;
+		threadPoolSize = std::min(threadPoolSize, maxConcurrency);
 		m_workers.resize(threadPoolSize);
 		for (uint64_t i = 0; i < m_workers.size(); i++) {
 			new (&m_workers[i]) Worker();
