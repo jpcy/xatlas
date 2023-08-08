@@ -1652,6 +1652,10 @@ public:
         }
     }
 
+	~CoarsePyramid() {
+		m_data.runDtors();
+	}
+
     const BitImage& getByLevelAndOffset(int level, int offset_x = 0, int offset_y = 0) const {
         if (m_rate == 1)
             return m_data[0];
@@ -8655,6 +8659,7 @@ struct Atlas
 		// chartImagePadding: either chartImage or chartImageBilinear depending on options, with a dilate filter applied options.padding times.
 		// Rotated versions swap x and y.
 
+		// TODO: support up to 8 orientations
 		BitImage chartImage, chartImageBilinear, chartImagePadding;
 		BitImage chartImageRotated, chartImageBilinearRotated, chartImagePaddingRotated;
         UniformGrid2 boundaryEdgeGrid;
@@ -8690,6 +8695,7 @@ struct Atlas
                     chartImageBilinearRotated.resize(chartImage.height(), chartImage.width(), true);
             }
 			// Rasterize chart faces.
+			// TODO: support up to 8 orientations
             const uint32_t faceCount = chart->indices.length / 3;
             for (uint32_t f = 0; f < faceCount; f++) {
                 Vector2 vertices[3];
@@ -8735,7 +8741,7 @@ struct Atlas
 			}
 
 			// Find a location to place the chart in the atlas.
-
+			// TODO: support up to 8 orientations
 			BitImage *chartImageToPack, *chartImageToPackRotated;
 
             if (options.padding > 0) {
@@ -8908,6 +8914,7 @@ struct Atlas
 			//  - rotate if the chart should be rotated
 			//  - translate to chart location
 			//  - translate to remove padding from top and left atlas edges (unless block aligned)
+			// TODO: support up to 8 orientations
 			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(v);
 				Vector2 t = texcoord;
@@ -9027,6 +9034,7 @@ private:
             int local_best_y = *best_y;
             int local_best_r = *best_r;
             // Try two different orientations...
+			// TODO: support up to 8 orientations
             for (int r = 0; r < 2; r++) {
                 int cw = chartBitImages.getByLevelAndOffset(0).width();
                 int ch = chartBitImages.getByLevelAndOffset(0).height();
@@ -9059,8 +9067,6 @@ private:
                 for (int y = 0; y <= endPosition.y; y += stepSize) {
                     for (int x = 0; x <= endPosition.x; x += stepSize) {
                         OMP_TRY
-//                            if (y <= (startPosition.y) && x < (startPosition.x))
-//                                continue;
                             if (returnFlag)
                                 continue;
                             // Early out if metric is not better.
@@ -9100,13 +9106,6 @@ private:
                                 local_best_y = offset_y;
                                 local_best_r = r;
                             }
-//#if !PARALLEL
-//                            const int extentX = max(w, offset_x + cw);
-//                            const int extentY = max(h, offset_y + ch);
-//                            const int area = extentX * extentY;
-//                            if (area == w * h)
-//                                returnFlag = true; // Chart is completely inside, do not look at any other location.
-//#endif // !PARALLEL
                         OMP_CATCH
                     }
                 }
@@ -9138,13 +9137,9 @@ private:
             }
         }
 
-        if (best_metric == INT_MAX) {
-//            XA_ASSERT(coarse_level == coarse_size - 1);
-//            if (coarse_level < coarse_size - 1) {
-//                printf("Hmm...\n");
-//            }
+        if (best_metric == INT_MAX)
             return false;
-        }
+
         if (*best_r == 1 && options.rotateCharts) {
             *best_w = chartBitImagesRotated.getByLevelAndOffset(0).width();
             *best_h = chartBitImagesRotated.getByLevelAndOffset(0).height();
@@ -9214,18 +9209,6 @@ private:
     // if true, offset_x and offset_y are tuned accordingly, returning true offset instead of approximate.
     bool canBlitCoarseToFine(const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int *offset_x, int *offset_y, uint32_t maxResolution, int w, int h) const {
         const int coarse_size = chartBitImages.levels();
-//        int coarse_reduction = 1;
-//        for (int i = 0; i < coarse_size - 1; ++i) {
-//            coarse_reduction *= m_bitImagesCoarseLevelRate;
-//        }
-//        const int coarse_offset_x = *offset_x / coarse_reduction;
-//        const int coarse_offset_y = *offset_y / coarse_reduction;
-
-//        if (coarse_offset_x > (int)maxResolution - (int)chartBitImages.getByLevelAndOffset(0).width()
-//            || coarse_offset_y > (int)maxResolution - (int)chartBitImages.getByLevelAndOffset(0).height())
-//            return false;
-
-
         unsigned int best_metric = INT_MAX;
 
         for (int coarse_level = coarse_size - 1; coarse_level >= 0; --coarse_level) {
@@ -9354,6 +9337,7 @@ private:
     }
 
 	void addChart(Array<BitImage *> *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r) {
+		// TODO: support up to 8 orientations
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
 
 		BitImage image[m_bitImagesCoarseLevels];
