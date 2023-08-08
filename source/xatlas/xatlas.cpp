@@ -1574,40 +1574,45 @@ public:
         offset_y %= rate;
 
         image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
+
         for (int y = 0; y < image->height(); ++y) {
             for (int x = 0; x < image->width(); ++x) {
+				if (!pessimistic) {
+					bool any = false;
+					// traversal within reduction square
+					for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
+						for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
+							if (yy >= 0 && xx >= 0 && get(xx, yy)) {
+								any = true;
+								break;
+							}
+						}
+						if (any)
+							break;
+					}
 
-                bool all = true;
-                bool any = false;
-                // traversal within reduction square
-                for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
-                    for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
-                        if (yy >= 0 && xx >= 0 && get(xx, yy)) {
-                            any = true;
-                            if (!pessimistic) {
-                                break;
-                            }
-                        } else {
-                            all = false;
-                            if (pessimistic) {
-                                break;
-                            }
-                        }
-                    }
-                    if (!all && pessimistic)
-                        break;
-                    if (any && !pessimistic)
-                        break;
-                }
-				if ((x + 1) * rate - offset_x > (int)m_width || (y + 1) * rate - offset_y > (int)m_height)
-					all = false;
-                if (!pessimistic) {
-                    if (any)
-                        image->set(x, y);
-                } else {
-                    if (all)
-                        image->set(x, y);
-                }
+					if (any)
+						image->set(x, y);
+				} else {
+					if ((x + 1) * rate - offset_x > (int)m_width || (y + 1) * rate - offset_y > (int)m_height)
+						continue;
+
+					bool all = true;
+					// traversal within reduction square
+					for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
+						for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
+							if (yy < 0 || xx < 0 || !get(xx, yy)) {
+								all = false;
+								break;
+							}
+						}
+						if (!all)
+							break;
+					}
+
+					if (all)
+						image->set(x, y);
+				}
             }
         }
     }
