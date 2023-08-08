@@ -227,8 +227,8 @@ struct PackOptions
 	// Rotate charts to the axis of their convex hull.
 	bool rotateChartsToAxis = true;
 
-	// Rotate charts to improve packing.
-	bool rotateCharts = true;
+	// Transpose charts to improve packing.
+	bool transposeCharts = true;
 
     // Number of steps in coarse-to-fine scheme.
     // Number of n means that n charts and atlases of smaller resolution would be generated.

@@ -8657,11 +8657,11 @@ struct Atlas
 		// chartImage: result from conservative rasterization
 		// chartImageBilinear: chartImage plus any texels that would be sampled by bilinear filtering.
 		// chartImagePadding: either chartImage or chartImageBilinear depending on options, with a dilate filter applied options.padding times.
-		// Rotated versions swap x and y.
+		// Transposed versions swap x and y.
 
 		// TODO: support up to 8 orientations
 		BitImage chartImage, chartImageBilinear, chartImagePadding;
-		BitImage chartImageRotated, chartImageBilinearRotated, chartImagePaddingRotated;
+		BitImage chartImageTransposed, chartImageBilinearTransposed, chartImagePaddingTransposed;
 		UniformGrid2 boundaryEdgeGrid;
 		Array<Vector2i> atlasSizes;
 		Array<Array<BitImage*>*> atlasBitImages;
@@ -8687,12 +8687,12 @@ struct Atlas
 			// Leave room for padding at extents.
 				chartImage.resize((ftoi_ceil(chartExtents[c].x) + options.padding),
 								  (ftoi_ceil(chartExtents[c].y) + options.padding), true);
-			if (options.rotateCharts)
-				chartImageRotated.resize(chartImage.height(), chartImage.width(), true);
+			if (options.transposeCharts)
+				chartImageTransposed.resize(chartImage.height(), chartImage.width(), true);
 			if (options.bilinear) {
 				chartImageBilinear.resize(chartImage.width(), chartImage.height(), true);
-				if (options.rotateCharts)
-					chartImageBilinearRotated.resize(chartImage.height(), chartImage.width(), true);
+				if (options.transposeCharts)
+					chartImageBilinearTransposed.resize(chartImage.height(), chartImage.width(), true);
 			}
 			// Rasterize chart faces.
 			// TODO: support up to 8 orientations
@@ -8703,14 +8703,14 @@ struct Atlas
 					vertices[v] = chart->vertices[chart->indices[f * 3 + v]];
 				DrawTriangleCallbackArgs args;
 				args.chartBitImage = &chartImage;
-				args.chartBitImageRotated = options.rotateCharts ? &chartImageRotated : nullptr;
+				args.chartBitImageTransposed = options.transposeCharts ? &chartImageTransposed : nullptr;
 				raster::drawTriangle(Vector2((float) chartImage.width(), (float) chartImage.height()), vertices,
 									 drawTriangleCallback, &args);
 			}
 
 			// Expand chart by pixels sampled by bilinear interpolation.
 			if (options.bilinear)
-				bilinearExpand(chart, &chartImage, &chartImageBilinear, options.rotateCharts ? &chartImageBilinearRotated : nullptr, boundaryEdgeGrid);
+				bilinearExpand(chart, &chartImage, &chartImageBilinear, options.transposeCharts ? &chartImageBilinearTransposed : nullptr, boundaryEdgeGrid);
 			// Expand chart by padding pixels (dilation).
 			if (options.padding > 0) {
 				// Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
@@ -8720,12 +8720,12 @@ struct Atlas
 				else
 					chartImage.copyTo(chartImagePadding);
 				chartImagePadding.dilate(options.padding);
-				if (options.rotateCharts) {
+				if (options.transposeCharts) {
 					if (options.bilinear)
-						chartImageBilinearRotated.copyTo(chartImagePaddingRotated);
+						chartImageBilinearTransposed.copyTo(chartImagePaddingTransposed);
 					else
-						chartImageRotated.copyTo(chartImagePaddingRotated);
-					chartImagePaddingRotated.dilate(options.padding);
+						chartImageTransposed.copyTo(chartImagePaddingTransposed);
+					chartImagePaddingTransposed.dilate(options.padding);
 				}
 				XA_PROFILE_END(packChartsDilate)
 			}
@@ -8742,21 +8742,21 @@ struct Atlas
 
 			// Find a location to place the chart in the atlas.
 			// TODO: support up to 8 orientations
-			BitImage *chartImageToPack, *chartImageToPackRotated;
+			BitImage *chartImageToPack, *chartImageToPackTransposed;
 
 			if (options.padding > 0) {
 				chartImageToPack = &chartImagePadding;
-				chartImageToPackRotated = &chartImagePaddingRotated;
+				chartImageToPackTransposed = &chartImagePaddingTransposed;
 			} else if (options.bilinear) {
 				chartImageToPack = &chartImageBilinear;
-				chartImageToPackRotated = &chartImageBilinearRotated;
+				chartImageToPackTransposed = &chartImageBilinearTransposed;
 			} else {
 				chartImageToPack = &chartImage;
-				chartImageToPackRotated = &chartImageRotated;
+				chartImageToPackTransposed = &chartImageTransposed;
 			}
 
 			CoarsePyramid chartPyramid(*chartImageToPack, m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate, false);
-			CoarsePyramid chartPyramidRotated(*chartImageToPackRotated, m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate, false);
+			CoarsePyramid chartPyramidTransposed(*chartImageToPackTransposed, m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate, false);
 
 
 			uint32_t currentAtlas = 0;
@@ -8799,7 +8799,7 @@ struct Atlas
 				else {
 					cimg_draw = false;
 				}
-				const bool foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, chartPyramidRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
+				const bool foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, chartPyramidTransposed, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
 				XA_PROFILE_END(packChartsFindLocation)
 				XA_DEBUG_ASSERT(!(firstChartInBitImage && !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
 				if (maxResolution == 0) {
@@ -8848,7 +8848,7 @@ struct Atlas
 					int ixlen = (*atlasBitImages[currentAtlas])[a]->width();
 					int iylen = (*atlasBitImages[currentAtlas])[a]->height();
 
-					BitImage &chrt = (best_r == 0) ? chartImageToPack.getByLevelAndOffset(0) : chartImageToPackRotated.getByLevelAndOffset(0);
+					BitImage &chrt = (best_r == 0) ? chartImageToPack.getByLevelAndOffset(0) : chartImageToPackTransposed.getByLevelAndOffset(0);
 					// image for a current layer
 					cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
 					#pragma omp parallel for collapse(2)
@@ -8892,13 +8892,13 @@ struct Atlas
 			}
 #endif
 
-			addChart(atlasBitImages[currentAtlas], &chartPyramid.getByLevelAndOffset(0), &chartPyramidRotated.getByLevelAndOffset(0), atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_r);
+			addChart(atlasBitImages[currentAtlas], &chartPyramid.getByLevelAndOffset(0), &chartPyramidTransposed.getByLevelAndOffset(0), atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_r);
 			XA_PROFILE_END(packChartsBlit)
 			if (createImage) {
 				if (best_r == 0) {
 					m_atlasImages[currentAtlas]->addChart(c, &chartImage, options.bilinear ? &chartImageBilinear : nullptr, options.padding > 0 ? &chartImagePadding : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
 				} else {
-					m_atlasImages[currentAtlas]->addChart(c, &chartImageRotated, options.bilinear ? &chartImageBilinearRotated : nullptr, options.padding > 0 ? &chartImagePaddingRotated : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
+					m_atlasImages[currentAtlas]->addChart(c, &chartImageTransposed, options.bilinear ? &chartImageBilinearTransposed : nullptr, options.padding > 0 ? &chartImagePaddingTransposed : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
 				}
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES && XA_DEBUG_EXPORT_ATLAS_IMAGES_PER_CHART
 				for (uint32_t j = 0; j < m_atlasImages.size(); j++) {
@@ -8911,7 +8911,7 @@ struct Atlas
 
 			chart->atlasIndex = (int32_t)currentAtlas;
 			// Modify texture coordinates:
-			//  - rotate if the chart should be rotated
+			//  - transpose if the chart should be transposed
 			//  - translate to chart location
 			//  - translate to remove padding from top and left atlas edges (unless block aligned)
 			// TODO: support up to 8 orientations
@@ -8919,7 +8919,7 @@ struct Atlas
 				Vector2 &texcoord = chart->uniqueVertexAt(v);
 				Vector2 t = texcoord;
 				if (best_r) {
-					XA_DEBUG_ASSERT(options.rotateCharts);
+					XA_DEBUG_ASSERT(options.transposeCharts);
 					swap(t.x, t.y);
 				}
 				texcoord.x = best_x + t.x;
@@ -8992,15 +8992,15 @@ struct Atlas
 	}
 
 private:
-	bool findChartLocation(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const CoarsePyramid &chartBitImagesRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
+	bool findChartLocation(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const CoarsePyramid &chartBitImagesTransposed, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
 	{
 		const int attempts = 4096;
 		if (options.bruteForce || attempts >= w * h)
-			return findChartLocation_bruteForce(options, startPosition, atlasBitImages, chartBitImages, chartBitImagesRotated, w, h, best_x, best_y, best_w, best_h, best_r, maxResolution);
-		return findChartLocation_random(options, (*atlasBitImages)[0], &chartBitImages.getByLevelAndOffset(0), &chartBitImagesRotated.getByLevelAndOffset(0), w, h, best_x, best_y, best_w, best_h, best_r, attempts, maxResolution);
+			return findChartLocation_bruteForce(options, startPosition, atlasBitImages, chartBitImages, chartBitImagesTransposed, w, h, best_x, best_y, best_w, best_h, best_r, maxResolution);
+		return findChartLocation_random(options, (*atlasBitImages)[0], &chartBitImages.getByLevelAndOffset(0), &chartBitImagesTransposed.getByLevelAndOffset(0), w, h, best_x, best_y, best_w, best_h, best_r, attempts, maxResolution);
 	}
 
-	bool findChartLocation_bruteForce(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const CoarsePyramid &chartBitImagesRotated, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
+	bool findChartLocation_bruteForce(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const CoarsePyramid &chartBitImagesTransposed, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
 	{
 		unsigned int best_metric = INT_MAX;
 		const int coarse_size = m_bitImagesCoarseLevels;
@@ -9038,7 +9038,7 @@ private:
 				int cw = chartBitImages.getByLevelAndOffset(0).width();
 				int ch = chartBitImages.getByLevelAndOffset(0).height();
 				if (r == 1) {
-					if (options.rotateCharts)
+					if (options.transposeCharts)
 						swap(cw, ch);
 					else
 						break;
@@ -9083,7 +9083,7 @@ private:
 							int offset_x = x;
 							int offset_y = y;
 							if (!canBlitCoarseToFine(atlasBitImages,
-													 r == 1 ? chartBitImagesRotated : chartBitImages,
+													 r == 1 ? chartBitImagesTransposed : chartBitImages,
 													 &offset_x,
 													 &offset_y,
 													 maxResolution, w, h))
@@ -9137,9 +9137,9 @@ private:
 		if (best_metric == INT_MAX)
 			return false;
 
-		if (*best_r == 1 && options.rotateCharts) {
-			*best_w = chartBitImagesRotated.getByLevelAndOffset(0).width();
-			*best_h = chartBitImagesRotated.getByLevelAndOffset(0).height();
+		if (*best_r == 1 && options.transposeCharts) {
+			*best_w = chartBitImagesTransposed.getByLevelAndOffset(0).width();
+			*best_h = chartBitImagesTransposed.getByLevelAndOffset(0).height();
 		} else {
 			*best_w = chartBitImages.getByLevelAndOffset(0).width();
 			*best_h = chartBitImages.getByLevelAndOffset(0).height();
@@ -9147,7 +9147,7 @@ private:
 		return best_metric != INT_MAX;
 	}
 
-	bool findChartLocation_random(const PackOptions &options, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int attempts, uint32_t maxResolution)
+	bool findChartLocation_random(const PackOptions &options, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageTransposed, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int attempts, uint32_t maxResolution)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
@@ -9155,7 +9155,7 @@ private:
 		for (int i = 0; i < attempts; i++) {
 			int cw = chartBitImage->width();
 			int ch = chartBitImage->height();
-			int r = options.rotateCharts ? m_rand.getRange(1) : 0;
+			int r = options.transposeCharts ? m_rand.getRange(1) : 0;
 			if (r == 1)
 				swap(cw, ch);
 			// + 1 to extend atlas in case atlas full. We may want to use a higher number to increase probability of extending atlas.
@@ -9186,14 +9186,14 @@ private:
 				// If metric is the same, pick the one closest to the origin.
 				continue;
 			}
-			if (atlasBitImage->canBlit(r == 1 ? *chartBitImageRotated : *chartBitImage, x, y)) {
+			if (atlasBitImage->canBlit(r == 1 ? *chartBitImageTransposed : *chartBitImage, x, y)) {
 				result = true;
 				best_metric = metric;
 				*best_x = x;
 				*best_y = y;
 				*best_w = cw;
 				*best_h = ch;
-				*best_r = options.rotateCharts ? r : 0;
+				*best_r = options.transposeCharts ? r : 0;
 				if (area == w * h) {
 					// Chart is completely inside, do not look at any other location.
 					break;
@@ -9333,7 +9333,7 @@ private:
 		return best_metric != INT_MAX;
 	}
 
-	void addChart(Array<BitImage *> *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r) {
+	void addChart(Array<BitImage *> *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageTransposed, int atlas_w, int atlas_h, int offset_x, int offset_y, int r) {
 		// TODO: support up to 8 orientations
 		XA_DEBUG_ASSERT(r == 0 || r == 1);
 
@@ -9348,7 +9348,7 @@ private:
 				if (r == 0) {
 					chartBitImage->copyTo(image[0]);
 				} else {
-					chartBitImageRotated->copyTo(image[0]);
+					chartBitImageTransposed->copyTo(image[0]);
 				}
 			} else {
 				int true_rate = rate_cur / m_bitImagesCoarseLevelRate;
@@ -9374,7 +9374,7 @@ private:
 		}
 	}
 
-	void bilinearExpand(const Chart *chart, const BitImage *source, BitImage *dest, BitImage *destRotated, UniformGrid2 &boundaryEdgeGrid) const
+	void bilinearExpand(const Chart *chart, const BitImage *source, BitImage *dest, BitImage *destTransposed, UniformGrid2 &boundaryEdgeGrid) const
 	{
 		boundaryEdgeGrid.reset(chart->vertices, chart->indices);
 		if (chart->boundaryEdges) {
@@ -9424,23 +9424,23 @@ private:
 				continue;
 				setPixel:
 				dest->set(x, y);
-				if (destRotated)
-					destRotated->set(y, x);
+				if (destTransposed)
+					destTransposed->set(y, x);
 			}
 		}
 	}
 
 	struct DrawTriangleCallbackArgs
 	{
-		BitImage *chartBitImage, *chartBitImageRotated;
+		BitImage *chartBitImage, *chartBitImageTransposed;
 	};
 
 	static bool drawTriangleCallback(void *param, int x, int y)
 	{
 		auto args = (DrawTriangleCallbackArgs *)param;
 		args->chartBitImage->set(x, y);
-		if (args->chartBitImageRotated)
-			args->chartBitImageRotated->set(y, x);
+		if (args->chartBitImageTransposed)
+			args->chartBitImageTransposed->set(y, x);
 		return true;
 	}
 
