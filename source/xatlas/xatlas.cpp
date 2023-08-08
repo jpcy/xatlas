@@ -1497,62 +1497,6 @@ public:
 		}
 	}
 
-	void shrink(uint32_t padding)
-	{
-		BitImage tmp(m_width, m_height);
-		for (uint32_t p = 0; p < padding; p++) {
-			tmp.zeroOutMemory();
-			for (uint32_t y = 0; y < m_height; y++) {
-				for (uint32_t x = 0; x < m_width; x++) {
-					bool b = get(x, y);
-                    if (!b)
-                        continue;
-                    int neighbors = 0;
-                    int non_empty_neighbors = 0;
-					if (b) {
-						if (x > 0) {
-                            neighbors++;
-                            non_empty_neighbors += get(x - 1, y);
-							if (y > 0) {
-                                neighbors++;
-                                non_empty_neighbors += get(x - 1, y - 1);
-                            }
-							if (y < m_height - 1) {
-                                neighbors++;
-                                non_empty_neighbors += get(x - 1, y + 1);
-                            }
-						}
-						if (y > 0) {
-                            neighbors++;
-                            non_empty_neighbors += get(x, y - 1);
-                        }
-						if (y < m_height - 1) {
-                            neighbors++;
-                            non_empty_neighbors += get(x, y + 1);
-                        }
-						if (x < m_width - 1) {
-                            neighbors++;
-                            non_empty_neighbors += get(x + 1, y);
-							if (y > 0) {
-                                neighbors++;
-                                non_empty_neighbors += get(x + 1, y - 1);
-                            }
-							if (y < m_height - 1) {
-                                neighbors++;
-                                non_empty_neighbors += get(x + 1, y + 1);
-                            }
-						}
-					}
-					if (non_empty_neighbors == neighbors && neighbors != 0)
-						tmp.set(x, y);
-//					if (non_empty_neighbors == 0)
-//						tmp.set(x, y);
-				}
-			}
-			tmp.m_data.copyTo(m_data);
-		}
-	}
-
     // This BitImage would be reduced into *image by rules:
     //   Image is divided into blocks of size rate x rate
     //   (depending on pessimistic=false/true, respectively) -
