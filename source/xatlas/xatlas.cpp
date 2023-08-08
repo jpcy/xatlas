@@ -171,8 +171,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define SHRINK 1
 #define CUSTOM_DILATE 0
 #define HONEST_PROGRESS 0
-
-#define STRICT_COARSE_RASTER 1
+#define REDUCE_OPTIMISTIC_SPEEDUP 0
 
 #define DRAW 0
 #define XA_DEBUG_CHART -1
@@ -1573,51 +1572,89 @@ public:
         offset_x %= rate;
         offset_y %= rate;
 
-        image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
-
-        for (int y = 0; y < image->height(); ++y) {
-            for (int x = 0; x < image->width(); ++x) {
-				if (!pessimistic) {
-					bool any = false;
-					// traversal within reduction square
-					for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
-						for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
-							if (yy >= 0 && xx >= 0 && get(xx, yy)) {
-								any = true;
-								break;
-							}
-						}
-						if (any)
-							break;
-					}
-
-					if (any)
-						image->set(x, y);
-				} else {
-					if ((x + 1) * rate - offset_x > (int)m_width || (y + 1) * rate - offset_y > (int)m_height)
-						continue;
-
-					bool all = true;
-					// traversal within reduction square
-					for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
-						for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
-							if (yy < 0 || xx < 0 || !get(xx, yy)) {
-								all = false;
-								break;
-							}
-						}
-						if (!all)
-							break;
-					}
-
-					if (all)
-						image->set(x, y);
-				}
-            }
-        }
+		if (pessimistic) {
+			reduceToPessimistic(image, rate, offset_x, offset_y);
+		} else {
+			reduceToOptimistic(image, rate, offset_x, offset_y);
+		}
     }
 
 private:
+	void reduceToPessimistic(BitImage *image, int rate, int offset_x, int offset_y) const
+	{
+		image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
+
+		for (int y = 0; y < image->height(); ++y) {
+			for (int x = 0; x < image->width(); ++x) {
+				if ((x + 1) * rate - offset_x > (int)m_width || (y + 1) * rate - offset_y > (int)m_height)
+					continue;
+
+				bool all = true;
+				// traversal within reduction square
+				for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
+					for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
+						if (yy < 0 || xx < 0 || !get(xx, yy)) {
+							all = false;
+							break;
+						}
+					}
+					if (!all)
+						break;
+				}
+
+				if (all)
+					image->set(x, y);
+			}
+		}
+	}
+
+	void reduceToOptimistic(BitImage *image, int rate, int offset_x, int offset_y) const
+	{
+		image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
+
+#if REDUCE_OPTIMISTIC_SPEEDUP
+		BitImage rect;
+		if (rate > 4) {
+			rect.resize(rate, rate, true);
+			for (int yy = 0; yy < rate; ++yy) {
+				for (int xx = 0; xx < rate; ++xx) {
+					rect.set(xx, yy);
+				}
+			}
+		}
+#endif // REDUCE_OPTIMISTIC_SPEEDUP
+
+		for (int y = 0; y < image->height(); ++y) {
+			for (int x = 0; x < image->width(); ++x) {
+				// fast check for big rates; does not work near edges
+#if REDUCE_OPTIMISTIC_SPEEDUP
+				if (rate > 4
+				&& x * rate - offset_x >= 0 && (x + 1) * rate - offset_x <= (int)m_width
+				&& y * rate - offset_y >= 0 && (y + 1) * rate - offset_y <= (int)m_height) {
+					if (!canBlit(rect, x * rate - offset_x, y * rate - offset_y))
+						image->set(x, y);
+					continue;
+				}
+#endif // REDUCE_OPTIMISTIC_SPEEDUP
+				bool any = false;
+				// traversal within reduction square
+				for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
+					for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
+						if (yy >= 0 && xx >= 0 && get(xx, yy)) {
+							any = true;
+							break;
+						}
+					}
+					if (any)
+						break;
+				}
+
+				if (any)
+					image->set(x, y);
+			}
+		}
+	}
+
 	uint32_t m_width;
 	uint32_t m_height;
 	uint32_t m_rowStride; // In uint64_t's
