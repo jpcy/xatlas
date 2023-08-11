@@ -233,14 +233,14 @@ struct PackOptions
 	// Transpose charts to improve packing.
 	bool transposeCharts = true;
 
-    // Number of steps in coarse-to-fine scheme.
-    // Number of N means that N charts and atlases of smaller resolution would be generated.
+	// Number of steps in coarse-to-fine scheme.
+	// Number of N means that N charts and atlases of smaller resolution would be generated.
 	// N=0 means no coarse-to-fine scheme would be applied.
-    int coarseLevels = 0;
+	int coarseLevels = 0;
 
-    // Rate of steps in coarse-to-fine scheme.
-    // Rate of N means that every next step compresses squares of N x N pixels of previous step into single pixel.
-    int coarseLevelRate = 2;
+	// Rate of steps in coarse-to-fine scheme.
+	// Rate of N means that every next step compresses squares of N x N pixels of previous step into single pixel.
+	int coarseLevelRate = 2;
 };
 
 // Call after ComputeCharts. Can be called multiple times to re-pack charts with different options.

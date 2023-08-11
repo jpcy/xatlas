@@ -1538,9 +1538,6 @@ private:
 	{
 		image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
 
-#if PARALLEL
-#pragma omp parallel for collapse(2)
-#endif // PARALLEL
 		for (int y = 0; y < image->height(); ++y) {
 			for (int x = 0; x < image->width(); ++x) {
 				if ((x + 1) * rate - offset_x > (int)m_width || (y + 1) * rate - offset_y > (int)m_height)
@@ -1579,9 +1576,6 @@ private:
 		}
 #endif // REDUCE_OPTIMISTIC_SPEEDUP
 
-#if PARALLEL
-		#pragma omp parallel for collapse(2)
-#endif // PARALLEL
 		for (int y = 0; y < image->height(); ++y) {
 			for (int x = 0; x < image->width(); ++x) {
 				// fast check using existing code; does not work near edges
@@ -1658,7 +1652,9 @@ public:
 			for (int i = 0; i < m_levels; ++i) {
 				rate_pow_levels *= rate_squared;
 			}
-			XA_ASSERT(rate_pow_levels < UINT32_MAX);
+			// TODO: somehow limit user input?
+			// using too many levels together with too high rate could create to many images.
+			XA_ASSERT(rate_pow_levels * m_orientations < UINT32_MAX);
 			num_images = (rate_pow_levels - 1) / (rate_squared - 1) * m_orientations;
 		}
 		m_data.resize(num_images);
@@ -9157,11 +9153,6 @@ private:
 		#pragma omp parallel
 #endif // PARALLEL
 		{
-			bool returnFlag = false;
-			Vector2i endPosition;
-
-			endPosition.x = w + stepSize;
-			endPosition.y = h + stepSize;
 
 			unsigned int local_best_metric = INT_MAX;
 			int local_best_x = *best_x;
@@ -9170,6 +9161,10 @@ private:
 
 			// Try different orientations
 			for (int ori = 0; ori < chartBitImages.orientations(); ori++) {
+				Vector2i endPosition;
+
+				endPosition.x = w + stepSize;
+				endPosition.y = h + stepSize;
 				int cw = chartBitImages.get(0, 0, 0, ori).width();
 				int ch = chartBitImages.get(0, 0, 0, ori).height();
 
@@ -9194,8 +9189,6 @@ private:
 				for (int y = 0; y <= endPosition.y; y += stepSize) {
 					for (int x = 0; x <= endPosition.x; x += stepSize) {
 						OMP_TRY
-							if (returnFlag)
-								continue;
 							// Early out if metric is not better.
 							const unsigned int extentX = max(w, x + cw);
 							const unsigned int extentY = max(h, y + ch);
@@ -9231,12 +9224,12 @@ private:
 					}
 				}
 				OMP_RETHROW
-				if ((local_best_ori < 4) == (chartBitImages.orientations() % 2)) {
-					XA_ASSERT(local_best_x + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->width());
-					XA_ASSERT(local_best_y + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->height());
+				if ((local_best_ori < 4) != (local_best_ori % 2)) {
+					XA_DEBUG_ASSERT(local_best_x + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->width());
+					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->height());
 				} else {
-					XA_ASSERT(local_best_x + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->width());
-					XA_ASSERT(local_best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
+					XA_DEBUG_ASSERT(local_best_x + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->width());
+					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
 				}
 			}
 #if PARALLEL
@@ -9350,7 +9343,7 @@ private:
 			{
 //							for (a = m_bitImagesCoarseLevels - 1; a >= m_bitImagesCoarseLevels - 1; --a) {
 				for (int a = coarse_level; a >= coarse_level; --a) {
-					if (*offset_x < 103 || *offset_x > 103 || *offset_y < 0 || *offset_y > 0)
+					if (offset_x < 103 || offset_x > 103 || offset_y < 0 || offset_y > 0)
 						break;
 					int ixlen = (*atlasBitImages)[a]->width();
 					int iylen = (*atlasBitImages)[a]->height();
@@ -9392,13 +9385,13 @@ private:
 						}
 					}
 					export_img.save(("data/debug/imges/iii/overlap" + std::to_string(a)
-					+ "_" + (canBlit ? "y" : "n") + std::to_string(orientation) + "(" + std::to_string(coarse_offset_x) + ", " + std::to_string(coarse_offset_y) + ")"+ std::to_string(*offset_x) + std::to_string(*offset_y) + ".png").c_str());
+					+ "_" + (canBlit ? "y" : "n") + std::to_string(orientation) + "(" + std::to_string(coarse_offset_x) + ", " + std::to_string(coarse_offset_y) + ")"+ std::to_string(offset_x) + std::to_string(offset_y) + ".png").c_str());
 				}
 
 				for (int a = coarse_level; a >= 0; --a) {
-					if (*offset_x < 96 || *offset_x > 103 || *offset_y < 0 || *offset_y > 0)
+					if (offset_x < 96 || offset_x > 103 || offset_y < 0 || offset_y > 0)
 						break;
-					const BitImage &imageChartPrint = chartBitImages.get(a, *offset_x, *offset_y, orientation);
+					const BitImage &imageChartPrint = chartBitImages.get(a, offset_x, offset_y, orientation);
 					int ixlen = imageChartPrint.width();
 					int iylen = imageChartPrint.height();
 //						int *offset_x = &best_x;
@@ -9423,11 +9416,11 @@ private:
 							export_img(ix, iy) = intensity;
 						}
 					}
-					export_img.save(("data/debug/imges/iv/chart_" + std::to_string(*offset_x) + "," + std::to_string(*offset_y)
+					export_img.save(("data/debug/imges/iv/chart_" + std::to_string(offset_x) + "," + std::to_string(offset_y)
 									 + "_" + std::to_string(a) + (canBlit ? "y" : "n") + std::to_string(orientation)
 									 + "(" + std::to_string(coarse_offset_x) + ", " + std::to_string(coarse_offset_y) + ")_" + ".png").c_str());
-					if (coarse_level != 0)
-						canBlit = true;
+//					if (coarse_level != 0)
+//						canBlit = true;
 				}
 			}
 #endif
@@ -10278,6 +10271,22 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	}
 	if (packOptions.coarseLevels == 0) {
 		XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is set to 0. Coarse-to-fine disabled.\n");
+	}
+	// other checks
+	{
+		uint64_t total_coarse_rate = 1;
+		for (int i = 0; i < packOptions.coarseLevels; ++i) {
+			total_coarse_rate *= packOptions.coarseLevelRate;
+			if (total_coarse_rate >= UINT32_MAX) {
+				XA_PRINT_WARNING("PackCharts: Bad combination of PackOptions::coarseLevelRate and PackOptions::coarseLevels.\n"
+								 "            Consider decreasing one or both values.\n");
+				break;
+			}
+		}
+	}
+	if (packOptions.resolution >= UINT16_MAX) {
+
+		XA_PRINT_WARNING("Resolution is limited to 65535. See 9203458923756982 in cl\\blit.cl\n");
 	}
 	// Cleanup atlas.
 	DestroyOutputMeshes(ctx);
