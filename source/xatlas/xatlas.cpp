@@ -9149,11 +9149,12 @@ private:
 				   && (x > comp_x || x == comp_x && ori > comp_ori)));
 		};
 
+		OMP_DISPATCHER
 #if PARALLEL
 		#pragma omp parallel
 #endif // PARALLEL
 		{
-
+			OMP_TRY
 			unsigned int local_best_metric = INT_MAX;
 			int local_best_x = *best_x;
 			int local_best_y = *best_y;
@@ -9182,7 +9183,6 @@ private:
 					|| startPosition.y > endPosition.y)
 					continue;
 
-				OMP_DISPATCHER
 #if PARALLEL
 #pragma omp for collapse(2)
 #endif // PARALLEL
@@ -9232,6 +9232,7 @@ private:
 					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
 				}
 			}
+			OMP_CATCH
 #if PARALLEL
 #pragma omp critical
 #endif // PARALLEL
@@ -9250,6 +9251,7 @@ private:
 				}
 			}
 		}
+		OMP_RETHROW
 
 		if (best_metric == INT_MAX)
 			return false;
