@@ -233,6 +233,13 @@ struct PackOptions
 	// Transpose charts to improve packing.
 	bool transposeCharts = true;
 
+	// In case of photogrammetry texturing each built texture pixel was sampled from pixel in the "best" photo.
+	// To mitigate information loss/blur due to color sampling from the "best" photo - it can be
+	// beneficial to have center-to-center atlas-pixel to photo-pixel projection.
+	// So we want to use atlas parametrization based on texture coordinates of 2D projection into "best" photo.
+	// And to guarantee center-to-center pixel-pixel projection - we need to preserve fractional part of such texture coordinates. 
+	bool preserveInputTexcoordsFractionalPart = false;
+
 	// Number of steps in coarse-to-fine scheme.
 	// Number of N means that N charts and atlases of smaller resolution would be generated.
 	// N=0 means no coarse-to-fine scheme would be applied.
