@@ -8655,6 +8655,10 @@ struct Atlas
 			if (!options.rotateChartsToAxis) {
 				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
 					minCorner = min(minCorner, chart->uniqueVertexAt(i));
+				if (options.preserveInputTexcoordsFractionalPart) {
+					minCorner.x = std::floor(minCorner.x);
+					minCorner.y = std::floor(minCorner.y);
+				}
 			}
 			Vector2 extents(0.0f);
 			for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
@@ -8684,10 +8688,12 @@ struct Atlas
 				int height = ftoi_ceil(extents.y);
 				if (options.blockAlign)
 					height = align(height + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
-				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
-					Vector2 &texcoord = chart->uniqueVertexAt(v);
-					texcoord.x = texcoord.x / extents.x * (float)width;
-					texcoord.y = texcoord.y / extents.y * (float)height;
+				if (!options.preserveInputTexcoordsFractionalPart) {
+					for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+						Vector2 &texcoord = chart->uniqueVertexAt(v);
+						texcoord.x = texcoord.x / extents.x * (float)width;
+						texcoord.y = texcoord.y / extents.y * (float)height;
+					}
 				}
 				extents.x = (float)width;
 				extents.y = (float)height;
@@ -8700,25 +8706,27 @@ struct Atlas
 				maxChartSize = maxResolution - options.padding * 2; // Don't include padding.
 				warnChartResized = true;
 			}
-			if (maxChartSize > 0) {
-				const float realMaxChartSize = (float)maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
-				if (extents.x > realMaxChartSize || extents.y > realMaxChartSize) {
-					if (warnChartResized)
-						XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y, maxChartSize, maxChartSize);
-					scale = realMaxChartSize / max(extents.x, extents.y);
-					for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
-						Vector2 &texcoord = chart->uniqueVertexAt(i);
-						texcoord = min(texcoord * scale, Vector2(realMaxChartSize));
+			if (!options.preserveInputTexcoordsFractionalPart) {
+				if (maxChartSize > 0) {
+					const float realMaxChartSize = (float)maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
+					if (extents.x > realMaxChartSize || extents.y > realMaxChartSize) {
+						if (warnChartResized)
+							XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y, maxChartSize, maxChartSize);
+						scale = realMaxChartSize / max(extents.x, extents.y);
+						for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
+							Vector2 &texcoord = chart->uniqueVertexAt(i);
+							texcoord = min(texcoord * scale, Vector2(realMaxChartSize));
+						}
 					}
 				}
-			}
-			// Align to texel centers and add padding offset.
-			extents.x = extents.y = 0.0f;
-			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
-				Vector2 &texcoord = chart->uniqueVertexAt(v);
-				texcoord.x += 0.5f + options.padding;
-				texcoord.y += 0.5f + options.padding;
-				extents = max(extents, texcoord);
+				// Align to texel centers and add padding offset.
+				extents.x = extents.y = 0.0f;
+				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+					Vector2 &texcoord = chart->uniqueVertexAt(v);
+					texcoord.x += 0.5f + options.padding;
+					texcoord.y += 0.5f + options.padding;
+					extents = max(extents, texcoord);
+				}
 			}
 			if (extents.x > resolution || extents.y > resolution)
 				XA_PRINT("   Chart %u extents are large (%gx%g)\n", c, extents.x, extents.y);
@@ -9149,11 +9157,12 @@ private:
 				   && (x > comp_x || x == comp_x && ori > comp_ori)));
 		};
 
+		OMP_DISPATCHER
 #if PARALLEL
 		#pragma omp parallel
 #endif // PARALLEL
 		{
-
+			OMP_TRY
 			unsigned int local_best_metric = INT_MAX;
 			int local_best_x = *best_x;
 			int local_best_y = *best_y;
@@ -9182,7 +9191,6 @@ private:
 					|| startPosition.y > endPosition.y)
 					continue;
 
-				OMP_DISPATCHER
 #if PARALLEL
 #pragma omp for collapse(2)
 #endif // PARALLEL
@@ -9232,6 +9240,7 @@ private:
 					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
 				}
 			}
+			OMP_CATCH
 #if PARALLEL
 #pragma omp critical
 #endif // PARALLEL
@@ -9250,6 +9259,7 @@ private:
 				}
 			}
 		}
+		OMP_RETHROW
 
 		if (best_metric == INT_MAX)
 			return false;
