@@ -7577,7 +7577,7 @@ struct Quality
 			const float a = dot(Ss, Ss); // E
 			const float b = dot(Ss, St); // F
 			const float c = dot(St, St); // G
-										 // Compute eigen-values of the first fundamental form:
+			// Compute eigen-values of the first fundamental form:
 			const float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
 			const float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
 			XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2, kEpsilon));
@@ -8344,7 +8344,7 @@ static void runMeshComputeChartsTask(void *groupUserData, void *taskUserData)
 		XA_PROFILE_END(chartGroupComputeChartsReal)
 	}
 	XA_PROFILE_END(computeChartsThread)
-cleanup:
+	cleanup:
 	if (meshFaceGroups) {
 		meshFaceGroups->~MeshFaceGroups();
 		XA_FREE(meshFaceGroups);
@@ -8776,7 +8776,6 @@ struct Atlas
 		// Estimate resolution and/or texels per unit if not specified.
 		m_texelsPerUnit = options.texelsPerUnit;
 		m_bitImagesCoarseLevels = options.coarseLevels + 1;
-		m_bitImagesCoarseLevelRate = options.coarseLevelRate;
 		uint32_t resolution = options.resolution > 0 ? options.resolution + options.padding * 2 : 0;
 		const uint32_t maxResolution = m_texelsPerUnit > 0.0f ? resolution : 0;
 		if (resolution <= 0 || m_texelsPerUnit <= 0) {
@@ -9786,7 +9785,6 @@ private:
 #endif
 #endif // XA_OMP_PARALLEL
 		{
-			OMP_TRY
 #if DEBUG_PLACING_STATISTICS
 			local_false_jumps[0] = local_false_jumps[1] = local_false_jumps[2] = 0;
 			local_jumps = 0;
@@ -9827,7 +9825,7 @@ private:
 					&& maxResolution - h <= 4 * XA_PACKING_REGULAR_GRID_SIZE) {
 					start_offset_x = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * options.blockAlign;
 					start_offset_y = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * options.blockAlign;
-					step *= XA_PACKING_REGULAR_GRID_SIZE;
+					stepSize *= XA_PACKING_REGULAR_GRID_SIZE;
 				}
 
 #if XA_OMP_PARALLEL
@@ -9881,7 +9879,6 @@ private:
 					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
 				}
 			}
-			OMP_CATCH
 #if XA_OMP_PARALLEL
 #pragma omp critical
 #endif // XA_OMP_PARALLEL

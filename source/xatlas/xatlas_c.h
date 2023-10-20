@@ -207,6 +207,7 @@ typedef struct
 	bool rotateChartsToAxis;
 	bool rotateCharts;
 	bool transposeCharts;
+	bool preserveInputTexcoordsFractionalPart;
 	int coarseLevels;
 	bool skipSpeedup;
 	bool gridSpeedup;
