@@ -9095,7 +9095,7 @@ struct Atlas
 #endif
 				bool foundLocation;
 #if XA_USE_GPU
-				#ifdef CUDA_SUPPORT
+#ifdef CUDA_SUPPORT
 				foundLocation = findChartLocation_bruteForce_gpu(context, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_ori, maxResolution);
 #else
 				foundLocation = findChartLocation_bruteForce_gpu(kernels, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_ori, maxResolution);
@@ -9363,7 +9363,7 @@ private:
 	}
 
 #if XA_USE_GPU
-	#ifdef CUDA_SUPPORT
+#ifdef CUDA_SUPPORT
 	bool findChartLocation_bruteForce_gpu(gpu::Context &context, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
 #else
 	bool findChartLocation_bruteForce_gpu(std::map<std::string, ocl::Kernel> &kernels, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
@@ -9759,9 +9759,9 @@ private:
 		// d_infty
 		auto sameMetricWorse = [](int x, int y, int ori, int comp_x, int comp_y, int comp_ori) {
 			return (max(x, y) > max(comp_x, comp_y)
-					|| max(x, y) == max(comp_x, comp_y)
-					   && (y > comp_y || y == comp_y
-										 && (x > comp_x || x == comp_x && ori > comp_ori)));
+				   || max(x, y) == max(comp_x, comp_y)
+				   && (y > comp_y || y == comp_y
+				   && (x > comp_x || x == comp_x && ori > comp_ori)));
 		};
 
 		int prevPositionOffset = ceil(options.usePreviousPositionOffset * maxResolution);
