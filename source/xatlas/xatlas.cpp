@@ -8848,6 +8848,10 @@ struct Atlas
 			if (!options.rotateChartsToAxis) {
 				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
 					minCorner = min(minCorner, chart->uniqueVertexAt(i));
+				if (options.preserveInputTexcoordsFractionalPart) {
+					minCorner.x = std::floor(minCorner.x);
+					minCorner.y = std::floor(minCorner.y);
+				}
 			}
 			Vector2 extents(0.0f);
 			for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
@@ -8877,10 +8881,12 @@ struct Atlas
 				int height = ftoi_ceil(extents.y);
 				if (options.blockAlign)
 					height = align(height + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
-				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
-					Vector2 &texcoord = chart->uniqueVertexAt(v);
-					texcoord.x = texcoord.x / extents.x * (float)width;
-					texcoord.y = texcoord.y / extents.y * (float)height;
+				if (!options.preserveInputTexcoordsFractionalPart) {
+					for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+						Vector2 &texcoord = chart->uniqueVertexAt(v);
+						texcoord.x = texcoord.x / extents.x * (float)width;
+						texcoord.y = texcoord.y / extents.y * (float)height;
+					}
 				}
 				extents.x = (float)width;
 				extents.y = (float)height;
@@ -8893,25 +8899,27 @@ struct Atlas
 				maxChartSize = maxResolution - options.padding * 2; // Don't include padding.
 				warnChartResized = true;
 			}
-			if (maxChartSize > 0) {
-				const float realMaxChartSize = (float)maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
-				if (extents.x > realMaxChartSize || extents.y > realMaxChartSize) {
-					if (warnChartResized)
-						XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y, maxChartSize, maxChartSize);
-					scale = realMaxChartSize / max(extents.x, extents.y);
-					for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
-						Vector2 &texcoord = chart->uniqueVertexAt(i);
-						texcoord = min(texcoord * scale, Vector2(realMaxChartSize));
+			if (!options.preserveInputTexcoordsFractionalPart) {
+				if (maxChartSize > 0) {
+					const float realMaxChartSize = (float)maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
+					if (extents.x > realMaxChartSize || extents.y > realMaxChartSize) {
+						if (warnChartResized)
+							XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y, maxChartSize, maxChartSize);
+						scale = realMaxChartSize / max(extents.x, extents.y);
+						for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
+							Vector2 &texcoord = chart->uniqueVertexAt(i);
+							texcoord = min(texcoord * scale, Vector2(realMaxChartSize));
+						}
 					}
 				}
-			}
-			// Align to texel centers and add padding offset.
-			extents.x = extents.y = 0.0f;
-			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
-				Vector2 &texcoord = chart->uniqueVertexAt(v);
-				texcoord.x += 0.5f + options.padding;
-				texcoord.y += 0.5f + options.padding;
-				extents = max(extents, texcoord);
+				// Align to texel centers and add padding offset.
+				extents.x = extents.y = 0.0f;
+				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+					Vector2 &texcoord = chart->uniqueVertexAt(v);
+					texcoord.x += 0.5f + options.padding;
+					texcoord.y += 0.5f + options.padding;
+					extents = max(extents, texcoord);
+				}
 			}
 			if (extents.x > resolution || extents.y > resolution)
 				XA_PRINT("   Chart %u extents are large (%gx%g)\n", c, extents.x, extents.y);
@@ -9770,6 +9778,7 @@ private:
 #endif
 
 #if XA_OMP_PARALLEL
+		OMP_DISPATCHER
 #if DEBUG_PLACING_STATISTICS
 #pragma omp parallel firstprivate(local_false_jumps, local_jumps)
 #else
@@ -9777,6 +9786,7 @@ private:
 #endif
 #endif // XA_OMP_PARALLEL
 		{
+			OMP_TRY
 #if DEBUG_PLACING_STATISTICS
 			local_false_jumps[0] = local_false_jumps[1] = local_false_jumps[2] = 0;
 			local_jumps = 0;
@@ -9820,7 +9830,6 @@ private:
 					step *= XA_PACKING_REGULAR_GRID_SIZE;
 				}
 
-				OMP_DISPATCHER
 #if XA_OMP_PARALLEL
 #pragma omp for collapse(2) schedule(guided, 4)
 #endif // XA_OMP_PARALLEL
@@ -9872,6 +9881,7 @@ private:
 					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
 				}
 			}
+			OMP_CATCH
 #if XA_OMP_PARALLEL
 #pragma omp critical
 #endif // XA_OMP_PARALLEL
@@ -9898,6 +9908,7 @@ private:
 				}
 			}
 		}
+		OMP_RETHROW
 #if DEBUG_PLACING_STATISTICS
 //		printf("False coarse jumps for this:\n  lv0: %ld\n  lv1: %ld\n  lv2: %ld\n", thisone_false_jumps[0],
 //																		    thisone_false_jumps[1],
