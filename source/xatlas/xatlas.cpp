@@ -1779,17 +1779,20 @@ public:
 		if (m_rotated)
 			m_orientations *= 4;
 
-#if XA_PACKING_COARSE_RATE!=1
-		if (m_levels == 1)
+#if XA_PACKING_COARSE_RATE==1
+		m_levels = 1;
 #endif
-			m_levels = 1;
 
 // making hard limit on levels; charts that are small enough would not be reduced
 #define XA_COARSE_MAX_REDUCTION_SIZE 64
 		int extents = max(image->width(), image->height());
 		levels = 1;
 		while (extents > XA_COARSE_MAX_REDUCTION_SIZE && levels < m_levels) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			extents >>= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
 			extents /= XA_PACKING_COARSE_RATE;
+#endif
 			++levels;
 		}
 		m_levels = levels;
@@ -1798,6 +1801,12 @@ public:
 		if (m_levels == 1) {
 			num_images = m_orientations;
 		} else {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			uint64_t rate_pow_levels = XA_PACKING_COARSE_RATE_POWER_OF_2 * 2 * m_levels;
+			XA_ASSERT(rate_pow_levels < 32 - 3);
+
+			num_images = ((1 << rate_pow_levels) - 1) / ((1 << XA_PACKING_COARSE_RATE_POWER_OF_2 * 2) - 1) * m_orientations;
+#elif
 			uint32_t rate_squared = XA_PACKING_COARSE_RATE * XA_PACKING_COARSE_RATE;
 			uint64_t rate_pow_levels = 1;
 
@@ -1808,6 +1817,7 @@ public:
 			// using too many levels together with too high rate could create to many images.
 			XA_ASSERT(rate_pow_levels * m_orientations < UINT32_MAX);
 			num_images = (rate_pow_levels - 1) / (rate_squared - 1) * m_orientations;
+#endif
 		}
 		m_data.resize(num_images);
 		m_data.runCtors();
@@ -1835,7 +1845,11 @@ public:
 				// do something
 				int rate_cur = 1;
 				for (int i = 0; i < level; ++i)
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+					rate_cur <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
 					rate_cur *= XA_PACKING_COARSE_RATE;
+#endif
 #if XA_OMP_PARALLEL
 #pragma omp parallel for collapse(2)
 #endif // XA_OMP_PARALLEL
@@ -1843,7 +1857,19 @@ public:
 					for (int offset_x = 0; offset_x < rate_cur; offset_x++) {
 						BitImage &parent = get(level - 1, offset_x, offset_y, r);
 						BitImage &child = get(level, offset_x, offset_y, r);
-						parent.reduceTo(&child, XA_PACKING_COARSE_RATE, offset_x * XA_PACKING_COARSE_RATE / rate_cur, offset_y * XA_PACKING_COARSE_RATE / rate_cur, false);
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+						parent.reduceTo(&child,
+										XA_PACKING_COARSE_RATE,
+										offset_x >> (XA_PACKING_COARSE_RATE_POWER_OF_2 * (level - 1)),
+										offset_y >> (XA_PACKING_COARSE_RATE_POWER_OF_2 * (level - 1)),
+										false);
+#elif
+						parent.reduceTo(&child,
+										XA_PACKING_COARSE_RATE,
+										offset_x * XA_PACKING_COARSE_RATE / rate_cur,
+										offset_y * XA_PACKING_COARSE_RATE / rate_cur,
+										false);
+#endif
 					}
 				}
 			}
@@ -1871,20 +1897,25 @@ public:
 		int num_offset = 0;
 		for (int i = 0; i < level; ++i) {
 			num_offset += cur_level_rate * cur_level_rate;
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			cur_level_rate <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
 			cur_level_rate *= XA_PACKING_COARSE_RATE;
+#endif
 		}
 		num_offset *= m_orientations;
 
 		const int cur_orientations = cur_level_rate * cur_level_rate * orientation;
 		const int cur_offset_x = (offset_x % cur_level_rate);
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+		const int cur_offset_y = level == 0 ? 0 : (offset_y & ((1 << (XA_PACKING_COARSE_RATE_POWER_OF_2 * level)) - 1)) << (XA_PACKING_COARSE_RATE_POWER_OF_2 * level);
+#elif
 		const int cur_offset_y = (offset_y % cur_level_rate) * cur_level_rate;
-//		// TODO: add different behaviour iff XA_PACKING_COARSE_RATE is a power of 2
-//		const int cur_offset_y = (offset_y & (cur_level_rate - 1)) * cur_level_rate;
+#endif
 
 		return m_data[num_offset + cur_orientations + cur_offset_y + cur_offset_x];
 	}
 
-	// TODO: copy from const version
 	BitImage& get(int level, int offset_x = 0, int offset_y = 0, int orientation = 0)
 	{
 		XA_DEBUG_ASSERT(level < m_levels);
@@ -1892,17 +1923,32 @@ public:
 		XA_DEBUG_ASSERT(orientation < 4 || m_transposed);
 		XA_DEBUG_ASSERT(m_rotated || (m_transposed && orientation < 2) || orientation == 0);
 
+		if (m_levels == 1)
+			return m_data[orientation];
+
 		// rate on current level
 		int cur_level_rate = 1;
-		for (int i = 0; i < level; ++i)
-			cur_level_rate *= XA_PACKING_COARSE_RATE;
 		// number of images on all previous layers
-		const int num_offset = XA_PACKING_COARSE_RATE == 1 ? 0 : (cur_level_rate * cur_level_rate - 1) / (XA_PACKING_COARSE_RATE * XA_PACKING_COARSE_RATE - 1) * m_orientations;
+		int num_offset = 0;
+		for (int i = 0; i < level; ++i) {
+			num_offset += cur_level_rate * cur_level_rate;
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			cur_level_rate <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
+			cur_level_rate *= XA_PACKING_COARSE_RATE;
+#endif
+		}
+		num_offset *= m_orientations;
 
-		offset_x %= cur_level_rate;
-		offset_y %= cur_level_rate;
+		const int cur_orientations = cur_level_rate * cur_level_rate * orientation;
+		const int cur_offset_x = (offset_x % cur_level_rate);
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+		const int cur_offset_y = level == 0 ? 0 : (offset_y & ((1 << (XA_PACKING_COARSE_RATE_POWER_OF_2 * level)) - 1)) << (XA_PACKING_COARSE_RATE_POWER_OF_2 * level);
+#elif
+		const int cur_offset_y = (offset_y % cur_level_rate) * cur_level_rate;
+#endif
 
-		return m_data[num_offset + orientation * (cur_level_rate * cur_level_rate) + offset_y * cur_level_rate + offset_x];
+		return m_data[num_offset + cur_orientations + cur_offset_y + cur_offset_x];
 	}
 
 	XA_INLINE const BitImage& getTransposed(int level, int offset_x = 0, int offset_y = 0, int rotation = 0) const
@@ -9070,7 +9116,11 @@ struct Atlas
 					coarseBitImages->push_back(bi);
 					uint32_t coarseResolution = resolution;
 					for (int coarse_level = 1; coarse_level < m_bitImagesCoarseLevels; coarse_level++) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+						coarseResolution = (coarseResolution + XA_PACKING_COARSE_RATE) >> XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
 						coarseResolution = (coarseResolution + XA_PACKING_COARSE_RATE) / XA_PACKING_COARSE_RATE;
+#endif
 						auto *bi1 = XA_NEW_ARGS(MemTag::Default, BitImage, coarseResolution, coarseResolution);
 						coarseBitImages->push_back(bi1);
 					}
@@ -9426,7 +9476,11 @@ private:
 			for (int i = 0; i < chartBitImages.levels(); ++i) {
 				int rate_cur = 1;
 				for (int j = 0; j < i; ++j)
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+					rate_cur <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
 					rate_cur *= XA_PACKING_COARSE_RATE;
+#endif
 				for (int y = 0; y < rate_cur; ++y) {
 					for (int x = 0; x < rate_cur; ++x) {
 						const BitImage *chart = &chartBitImages.get(i, x, y, ori);
@@ -9444,7 +9498,11 @@ private:
 				for (int i = 0; i < chartBitImages.levels(); ++i) {
 					int rate_cur = 1;
 					for (int j = 0; j < i; ++j)
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+						rate_cur <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
 						rate_cur *= XA_PACKING_COARSE_RATE;
+#endif
 					for (int y = 0; y < rate_cur; ++y) {
 						for (int x = 0; x < rate_cur; ++x) {
 							const BitImage *chart = &chartBitImages.get(i, x, y, ori);
@@ -9496,7 +9554,11 @@ private:
 				// aggregate results into a list
 				int coarse_reduction = 1;
 				for (int i = 0; i < coarse_level; ++i) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+					coarse_reduction <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
 					coarse_reduction *= XA_PACKING_COARSE_RATE;
+#endif
 				}
 				if (coarse_level == chartBitImages.levels() - 1)
 				{
@@ -10000,13 +10062,17 @@ private:
 		const int coarse_size = chartBitImages.levels();
 
 		for (int coarse_level = coarse_size - 1; coarse_level >= 0; --coarse_level) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			const int coarse_offset_x = offset_x >> (coarse_level * XA_PACKING_COARSE_RATE_POWER_OF_2);
+			const int coarse_offset_y = offset_y >> (coarse_level * XA_PACKING_COARSE_RATE_POWER_OF_2);
+#elif
 			int coarse_reduction = 1;
 			for (int i = 0; i < coarse_level; ++i) {
-				// TODO: improve if XA_PACKING_COARSE_RATE is a power of 2
 				coarse_reduction *= XA_PACKING_COARSE_RATE;
 			}
 			const int coarse_offset_x = offset_x / coarse_reduction;
 			const int coarse_offset_y = offset_y / coarse_reduction;
+#endif
 			const BitImage &imageChart = chartBitImages.get(coarse_level,
 															offset_x,
 															offset_y,
@@ -10126,26 +10192,41 @@ private:
 		BitImage image[coarse_levels];
 		for (int coarse_level = 0; coarse_level < coarse_levels; coarse_level++)
 		{
+#if !XA_PACKING_COARSE_RATE_IS_POWER_OF_2
 			int rate_cur = 1;
 			for (int i = 0; i < coarse_level; ++i)
-				// TODO: improve if XA_PACKING_COARSE_RATE is a power of 2
 				rate_cur *= XA_PACKING_COARSE_RATE;
+#endif
 
 			if (coarse_level == 0) {
 				chartBitImages.get(0, 0, 0, orientation).copyTo(image[0]);
 			} else {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+				int true_rate = (coarse_level - 1) * XA_PACKING_COARSE_RATE_POWER_OF_2;
+				image[coarse_level - 1].reduceTo(&image[coarse_level], XA_PACKING_COARSE_RATE,
+												 offset_x >> true_rate, offset_y >> true_rate, true);
+#elif
 				int true_rate = rate_cur / XA_PACKING_COARSE_RATE;
 				image[coarse_level - 1].reduceTo(&image[coarse_level], XA_PACKING_COARSE_RATE,
 												 offset_x / true_rate, offset_y / true_rate, true);
+#endif
 			}
 			BitImage& curCoarseAtlasImageLayer = *(*atlasBitImage)[coarse_level];
 			int w = image[coarse_level].width();
 			int h = image[coarse_level].height();
 			for (int y = 0; y < h; y++) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+				int yy = y + (offset_y >> coarse_level * XA_PACKING_COARSE_RATE_POWER_OF_2);
+#elif
 				int yy = y + offset_y / rate_cur;
+#endif
 				if (yy >= 0) {
 					for (int x = 0; x < w; x++) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+						int xx = x + (offset_x >> coarse_level * XA_PACKING_COARSE_RATE_POWER_OF_2);
+#elif
 						int xx = x + offset_x / rate_cur;
+#endif
 						if (xx < 0) continue;
 						if (!image[coarse_level].get(x, y)) continue;
 						if (xx >= atlas_w || yy >= atlas_h) continue;
@@ -10964,6 +11045,13 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	}
 	// other checks
 	{
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+		uint64_t total_coarse_rate = packOptions.coarseLevels * XA_PACKING_COARSE_RATE_POWER_OF_2;
+		const int MAX_ARCH_RATE = 32;
+		if (total_coarse_rate >= MAX_ARCH_RATE) {
+			XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is set on a too high value. May result in significant memory consumption.\n");
+		}
+#elif
 		uint64_t total_coarse_rate = 1;
 		for (int i = 0; i < packOptions.coarseLevels; ++i) {
 			total_coarse_rate *= XA_PACKING_COARSE_RATE;
@@ -10972,6 +11060,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 				break;
 			}
 		}
+#endif
 	}
 	if (packOptions.resolution >= UINT16_MAX) {
 
