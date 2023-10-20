@@ -208,7 +208,9 @@ typedef struct
 	bool rotateCharts;
 	bool transposeCharts;
 	int coarseLevels;
-	int coarseLevelRate;
+	bool skipSpeedup;
+	bool gridSpeedup;
+	float usePreviousPositionOffset;
 }
 xatlasPackOptions;
 

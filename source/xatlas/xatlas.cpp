@@ -160,15 +160,169 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_SPRINTF(_buffer, _size, _format, ...) sprintf(_buffer, _format, __VA_ARGS__)
 #endif
 
-#include "parallel_tools.h"
-#define PARALLEL 1
-#define HONEST_PROGRESS 0
-#define REDUCE_OPTIMISTIC_SPEEDUP 1
+
+#define XA_USE_GPU 0
+#define XA_OMP_PARALLEL 1
+
+#define XA_PACKING_REGULAR_GRID_SIZE 4
+
+#define XA_PACKING_COARSE_RATE 4
+#define XA_PACKING_COARSE_RATE_IS_POWER_OF_2 1
+#define XA_PACKING_COARSE_RATE_POWER_OF_2 2
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+static_assert(1 << XA_PACKING_COARSE_RATE_POWER_OF_2 == XA_PACKING_COARSE_RATE, "error: XA_PACKING_COARSE_RATE is expected to be a power of 2");
+#endif
 
 #define DRAW 0
 #define XA_DEBUG_CHART -1
+#define XA_DEBUG_CHART_X 101
+#define XA_DEBUG_CHART_Y 9
+#define DEBUG_PLACING_STATISTICS 0
 
+#if DEBUG_PLACING_STATISTICS
+static long int false_jumps[3] = {0};
+static long int jumps = 0;
+static long int checks = 0;
+static long int accepted = 0;
+static long int local_false_jumps[3] = {0};
+static long int local_jumps = 0;
+#endif
+
+#include <vector>
 static bool cimg_draw = false;
+
+#if XA_USE_GPU
+//#undef CUDA_SUPPORT
+#define CUDA_PROFILE 0
+#define WORK_GROUP_SIZE 16
+#include "cl/blit_cl.h"
+#include <map>
+#include <utils/timer.h>
+
+#include <libgpu/context.h>
+#include <libgpu/shared_device_buffer.h>
+#include <libgpu/device.h>
+#include <libutils/misc.h>
+#ifdef CUDA_SUPPORT
+#include <cuda_profiler_api.h>
+void cuda_blit(const gpu::WorkSize &workSize,
+			   const unsigned long *atlas, const unsigned long *chart,
+			   const int limit_w, const int limit_h,
+			   const int levels,
+			   const int rate,
+			   const unsigned int *atlasSizes,
+			   const unsigned int *chartSizes,
+			   unsigned int *best,
+			   unsigned char *results,
+			   cudaStream_t stream);
+
+void cuda_blitLevel(const gpu::WorkSize &workSize,
+					const unsigned long *atlases,
+					const unsigned long *charts,
+					const int w, const int h,
+					const 			int  limit_w,
+					const 			int  limit_h,
+					const 			int  level,
+					const 			int  rate,
+					const unsigned  int  *atlasSizes,
+					const unsigned  int  *chartSizes,
+					unsigned int *best_metric,
+					unsigned int *results,
+					cudaStream_t stream);
+
+void cuda_blitFiltered(const gpu::WorkSize &workSize,
+					   const unsigned long *atlases,
+					   const unsigned long *charts,
+					   const int w, const int h,
+					   int limit_w,
+					   int limit_h,
+					   int level,
+					   int rate,
+					   const unsigned int *atlasSizes,
+					   const unsigned int *chartSizes,
+					   bool filtered,
+					   const unsigned int candidates,
+					   const unsigned short *filter_x,
+					   const unsigned short *filter_y,
+					   unsigned int *best_metric,
+					   unsigned int *results,
+					   cudaStream_t stream);
+
+void cuda_bufferCleanup(const gpu::WorkSize &workSize,
+					 unsigned int *array,
+					 const uint64_t n,
+					 cudaStream_t stream);
+
+void cuda_scanReduce(const gpu::WorkSize &workSize,
+					 unsigned int *array,
+					 const uint64_t limit,
+					 const uint64_t offset,
+					 cudaStream_t stream);
+
+void cuda_scanDownSweep(const gpu::WorkSize &workSize,
+					 unsigned int *array,
+					 const uint64_t limit,
+					 const uint64_t offset,
+					 cudaStream_t stream);
+
+void cuda_aggregateResults(const gpu::WorkSize &workSize,
+						   const unsigned int *array,
+						   int limit_w, int limit_h,
+						   unsigned short *results_x,
+						   unsigned short *results_y,
+						   cudaStream_t stream);
+#endif
+#endif
+
+#ifdef XA_OMP_PARALLEL
+#include <mutex>
+#include <exception>
+
+namespace pn {
+// See https://stackoverflow.com/questions/11828539/elegant-exception-handling-in-openmp
+class ThreadException {
+	std::exception_ptr ptr;
+	std::mutex lock;
+public:
+	ThreadException() : ptr(nullptr) {}
+
+	~ThreadException() {
+		this->rethrow();
+	}
+
+	void rethrow() {
+		if (this->ptr) {
+			std::exception_ptr e = this->ptr;
+			this->ptr = nullptr;
+			std::rethrow_exception(e);
+		}
+	}
+
+	bool hasException() {
+		return (bool) this->ptr;
+	}
+
+	void captureException() {
+		std::unique_lock<std::mutex> guard(this->lock);
+		this->ptr = std::current_exception();
+	}
+
+	template<typename Function, typename... Parameters>
+	void run(Function f, Parameters... params) {
+		try {
+			f(params...);
+		} catch (...) {
+			captureException();
+		}
+	}
+};
+
+#define OMP_DISPATCHER      pn::ThreadException threadExceptionDispatcher;
+#define OMP_TRY             try { if (threadExceptionDispatcher.hasException()) continue;
+#define OMP_CATCH           } catch (...) { threadExceptionDispatcher.captureException(); }
+#define OMP_RETHROW         threadExceptionDispatcher.rethrow();
+}
+#endif
 
 #if DRAW
 #include "CImg.h"
@@ -1371,6 +1525,9 @@ public:
 	BitImage &operator=(const BitImage &other) = delete;
 	uint32_t width() const { return m_width; }
 	uint32_t height() const { return m_height; }
+	uint32_t stride() const { return m_rowStride; }
+
+	const uint64_t *data() const { return m_data.data(); }
 
 	void copyTo(BitImage &other) const
 	{
@@ -1482,8 +1639,7 @@ public:
 
 	// This BitImage would be reduced into *image by rules:
 	//   Image is divided into blocks of size rate x rate
-	//   (depending on pessimistic=false/true, respectively) -
-	//   If block has any/all bits set to 1:
+	//   If block has any/all bits set to 1 (depending on pessimistic=false/true, respectively):
 	//     Set respective bit of reduced image to 1.
 	void reduceTo(BitImage *image, int rate, int offset_x, int offset_y, bool pessimistic) const
 	{
@@ -1566,7 +1722,6 @@ private:
 	{
 		image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
 
-#if REDUCE_OPTIMISTIC_SPEEDUP
 		BitImage rect;
 		rect.resize(rate, rate, true);
 		for (int yy = 0; yy < rate; ++yy) {
@@ -1574,19 +1729,16 @@ private:
 				rect.set(xx, yy);
 			}
 		}
-#endif // REDUCE_OPTIMISTIC_SPEEDUP
 
 		for (int y = 0; y < image->height(); ++y) {
 			for (int x = 0; x < image->width(); ++x) {
 				// fast check using existing code; does not work near edges
-#if REDUCE_OPTIMISTIC_SPEEDUP
 				if (x * rate - offset_x >= 0 && (x + 1) * rate - offset_x <= (int)m_width
-				&& y * rate - offset_y >= 0 && (y + 1) * rate - offset_y <= (int)m_height) {
+					&& y * rate - offset_y >= 0 && (y + 1) * rate - offset_y <= (int)m_height) {
 					if (!canBlit(rect, x * rate - offset_x, y * rate - offset_y))
 						image->set(x, y);
 					continue;
 				}
-#endif // REDUCE_OPTIMISTIC_SPEEDUP
 				bool any = false;
 				// traversal within reduction square
 				for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
@@ -1615,7 +1767,7 @@ private:
 class CoarsePyramid
 {
 public:
-	CoarsePyramid(const BitImage *image, const BitImage *imageTransposed, int levels, int rate, bool rotate = false) : m_levels(levels), m_rate(rate), m_rotated(rotate)
+	CoarsePyramid(const BitImage *image, const BitImage *imageTransposed, int levels, bool rotate = false) : m_levels(levels), m_rotated(rotate)
 	{
 		XA_DEBUG_ASSERT(image != nullptr);
 		m_orientations = 1;
@@ -1626,27 +1778,26 @@ public:
 		if (m_rotated)
 			m_orientations *= 4;
 
-		if (m_levels == 1 || m_rate == 1) {
+#if XA_PACKING_COARSE_RATE!=1
+		if (m_levels == 1)
+#endif
 			m_levels = 1;
-			m_rate = 1;
-		}
 
 // making hard limit on levels; charts that are small enough would not be reduced
 #define XA_COARSE_MAX_REDUCTION_SIZE 64
 		int extents = max(image->width(), image->height());
 		levels = 1;
 		while (extents > XA_COARSE_MAX_REDUCTION_SIZE && levels < m_levels) {
-			extents /= m_rate;
+			extents /= XA_PACKING_COARSE_RATE;
 			++levels;
 		}
 		m_levels = levels;
 
 		uint32_t num_images;
 		if (m_levels == 1) {
-			m_rate = 1;
 			num_images = m_orientations;
 		} else {
-			uint32_t rate_squared = rate * rate;
+			uint32_t rate_squared = XA_PACKING_COARSE_RATE * XA_PACKING_COARSE_RATE;
 			uint64_t rate_pow_levels = 1;
 
 			for (int i = 0; i < m_levels; ++i) {
@@ -1683,15 +1834,15 @@ public:
 				// do something
 				int rate_cur = 1;
 				for (int i = 0; i < level; ++i)
-					rate_cur *= m_rate;
-#if PARALLEL
-				#pragma omp parallel for collapse(2)
-#endif // PARALLEL
+					rate_cur *= XA_PACKING_COARSE_RATE;
+#if XA_OMP_PARALLEL
+#pragma omp parallel for collapse(2)
+#endif // XA_OMP_PARALLEL
 				for (int offset_y = 0; offset_y < rate_cur; offset_y++) {
 					for (int offset_x = 0; offset_x < rate_cur; offset_x++) {
 						BitImage &parent = get(level - 1, offset_x, offset_y, r);
 						BitImage &child = get(level, offset_x, offset_y, r);
-						parent.reduceTo(&child, m_rate, offset_x * m_rate / rate_cur, offset_y * m_rate / rate_cur, false);
+						parent.reduceTo(&child, XA_PACKING_COARSE_RATE, offset_x * XA_PACKING_COARSE_RATE / rate_cur, offset_y * XA_PACKING_COARSE_RATE / rate_cur, false);
 					}
 				}
 			}
@@ -1710,19 +1861,29 @@ public:
 		XA_DEBUG_ASSERT(orientation < 4 || m_transposed);
 		XA_DEBUG_ASSERT(m_rotated || (m_transposed && orientation < 2) || orientation == 0);
 
+		if (m_levels == 1)
+			return m_data[orientation];
+
 		// rate on current level
 		int cur_level_rate = 1;
-		for (int i = 0; i < level; ++i)
-			cur_level_rate *= m_rate;
 		// number of images on all previous layers
-		const int num_offset = m_rate == 1 ? 0 : (cur_level_rate * cur_level_rate - 1) / (m_rate * m_rate - 1) * m_orientations;
+		int num_offset = 0;
+		for (int i = 0; i < level; ++i) {
+			num_offset += cur_level_rate * cur_level_rate;
+			cur_level_rate *= XA_PACKING_COARSE_RATE;
+		}
+		num_offset *= m_orientations;
 
-		offset_x %= cur_level_rate;
-		offset_y %= cur_level_rate;
+		const int cur_orientations = cur_level_rate * cur_level_rate * orientation;
+		const int cur_offset_x = (offset_x % cur_level_rate);
+		const int cur_offset_y = (offset_y % cur_level_rate) * cur_level_rate;
+//		// TODO: add different behaviour iff XA_PACKING_COARSE_RATE is a power of 2
+//		const int cur_offset_y = (offset_y & (cur_level_rate - 1)) * cur_level_rate;
 
-		return m_data[num_offset + orientation * (cur_level_rate * cur_level_rate) + offset_y * cur_level_rate + offset_x];
+		return m_data[num_offset + cur_orientations + cur_offset_y + cur_offset_x];
 	}
 
+	// TODO: copy from const version
 	BitImage& get(int level, int offset_x = 0, int offset_y = 0, int orientation = 0)
 	{
 		XA_DEBUG_ASSERT(level < m_levels);
@@ -1733,9 +1894,9 @@ public:
 		// rate on current level
 		int cur_level_rate = 1;
 		for (int i = 0; i < level; ++i)
-			cur_level_rate *= m_rate;
+			cur_level_rate *= XA_PACKING_COARSE_RATE;
 		// number of images on all previous layers
-		const int num_offset = m_rate == 1 ? 0 : (cur_level_rate * cur_level_rate - 1) / (m_rate * m_rate - 1) * m_orientations;
+		const int num_offset = XA_PACKING_COARSE_RATE == 1 ? 0 : (cur_level_rate * cur_level_rate - 1) / (XA_PACKING_COARSE_RATE * XA_PACKING_COARSE_RATE - 1) * m_orientations;
 
 		offset_x %= cur_level_rate;
 		offset_y %= cur_level_rate;
@@ -1785,7 +1946,6 @@ public:
 
 private:
 	Array<BitImage> m_data;
-	int m_rate;
 	int m_levels;
 	bool m_transposed = false;
 	bool m_rotated = false;
@@ -4928,8 +5088,8 @@ static void nlBegin(NLContext *context, uint32_t prim)
 		NL_CLEAR_ARRAY(double, context->variable_value, context->nb_variables * context->nb_systems);
 		for (uint32_t k = 0; k < context->nb_systems; ++k) {
 			context->variable_buffer[k].base_address =
-				context->variable_value +
-				k * context->nb_variables;
+					context->variable_value +
+					k * context->nb_variables;
 			context->variable_buffer[k].stride = sizeof(double);
 		}
 		context->variable_is_locked = NL_NEW_ARRAY(bool, context->nb_variables);
@@ -5917,7 +6077,7 @@ private:
 						m_sharedBoundaryLengths[cc] > 0.75f * chart2->boundaryLength)
 						goto merge;
 					continue;
-				merge:
+					merge:
 					if (!mergeChart(chart, chart2, m_sharedBoundaryLengthsNoSeams[cc]))
 						continue;
 					merged = true;
@@ -8641,6 +8801,39 @@ struct Atlas
 		chartOrderArray.resize(chartCount);
 		Array<Vector2> chartExtents;
 		chartExtents.resize(chartCount);
+#if XA_USE_GPU
+		//		std::vector<std::string> arguments = {"this_means_cpu", "0"};
+		std::vector<std::string> arguments = {"this_means_gpu", "1"};
+
+		std::vector<char*> argv;
+		for (const auto& arg : arguments)
+			argv.push_back((char*)arg.data());
+		argv.push_back(nullptr);
+
+		gpu::Device device = gpu::chooseGPUDevice(argv.size() - 1, argv.data());
+
+		gpu::Context context;
+#ifdef CUDA_SUPPORT
+		context.init(device.device_id_cuda);
+#else
+		context.init(device.device_id_opencl);
+#endif
+		context.activate();
+
+#ifndef CUDA_SUPPORT
+		std::map<std::string, ocl::Kernel> kernels;
+		kernels["blit"] = ocl::Kernel(blit_kernel, blit_kernel_length, "blit");
+		kernels["blitLevel"] = ocl::Kernel(blit_kernel, blit_kernel_length, "blitLevel");
+		kernels["bufferCleanup"] = ocl::Kernel(blit_kernel, blit_kernel_length, "bufferCleanup");
+		kernels["scanReduce"] = ocl::Kernel(blit_kernel, blit_kernel_length, "scanReduce");
+		kernels["scanDownSweep"] = ocl::Kernel(blit_kernel, blit_kernel_length, "scanDownSweep");
+		kernels["aggregateResults"] = ocl::Kernel(blit_kernel, blit_kernel_length, "aggregateResults");
+		bool printLog = false;
+		for (auto k : kernels) {
+			k.second.compile(printLog);
+		}
+#endif
+#endif
 		float minChartPerimeter = FLT_MAX, maxChartPerimeter = 0.0f;
 		for (uint32_t c = 0; c < chartCount; c++) {
 			Chart *chart = m_charts[c];
@@ -8743,7 +8936,7 @@ struct Atlas
 #endif
 
 		// Number of images
-		// Every image has a pyramid of reductions; each layer is m_bitImagesCoarseLevelRate^2 times larger than previous
+		// Every image has a pyramid of reductions; each layer is XA_PACKING_COARSE_RATE^2 times larger than previous
 
 		// chartImage: result from conservative rasterization
 		// chartImageBilinear: chartImage plus any texels that would be sampled by bilinear filtering.
@@ -8757,6 +8950,7 @@ struct Atlas
 		Array<Array<BitImage*>*> atlasBitImages;
 		atlasSizes.push_back(Vector2i(0, 0));
 		int progress = 0;
+		uint32_t previous_atlas = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 			Chart *chart = m_charts[c];
@@ -8775,8 +8969,8 @@ struct Atlas
 			XA_PROFILE_START(packChartsRasterize)
 			// Resize and clear (discard = true) chart images.
 			// Leave room for padding at extents.
-				chartImage.resize((ftoi_ceil(chartExtents[c].x) + options.padding),
-								  (ftoi_ceil(chartExtents[c].y) + options.padding), true);
+			chartImage.resize((ftoi_ceil(chartExtents[c].x) + options.padding),
+							  (ftoi_ceil(chartExtents[c].y) + options.padding), true);
 			if (options.transposeCharts)
 				chartImageTransposed.resize(chartImage.height(), chartImage.width(), true);
 			if (options.bilinear) {
@@ -8845,9 +9039,12 @@ struct Atlas
 
 			if (!options.transposeCharts)
 				chartImageToPackTransposed = nullptr;
-			CoarsePyramid chartPyramid(chartImageToPack, chartImageToPackTransposed, m_bitImagesCoarseLevels, m_bitImagesCoarseLevelRate, options.rotateCharts);
+			CoarsePyramid chartPyramid(chartImageToPack, chartImageToPackTransposed, m_bitImagesCoarseLevels, options.rotateCharts);
 
 			uint32_t currentAtlas = 0;
+			if (options.skipSpeedup)
+				currentAtlas = m_rand.getRange(previous_atlas);
+
 			int best_x = 0, best_y = 0;
 			int best_cw = 0, best_ch = 0;
 			int best_ori = 0;
@@ -8865,7 +9062,7 @@ struct Atlas
 					coarseBitImages->push_back(bi);
 					uint32_t coarseResolution = resolution;
 					for (int coarse_level = 1; coarse_level < m_bitImagesCoarseLevels; coarse_level++) {
-						coarseResolution = (coarseResolution + m_bitImagesCoarseLevelRate) / m_bitImagesCoarseLevelRate;
+						coarseResolution = (coarseResolution + XA_PACKING_COARSE_RATE) / XA_PACKING_COARSE_RATE;
 						auto *bi1 = XA_NEW_ARGS(MemTag::Default, BitImage, coarseResolution, coarseResolution);
 						coarseBitImages->push_back(bi1);
 					}
@@ -8880,25 +9077,43 @@ struct Atlas
 					chartStartPositions.push_back(Vector2i(0, 0));
 				}
 				XA_PROFILE_START(packChartsFindLocation)
+#if 0
 				if (i == XA_DEBUG_CHART) {
-					printf("  %d\n", i);
+					printf("  Chart %d of size(%d, %d)\n", i, chartPyramid.get(0).width(), chartPyramid.get(0).height());
 					cimg_draw = true;
 				}
 				else {
 					cimg_draw = false;
 				}
-				const bool foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_ori, maxResolution);
+#endif
+				bool foundLocation;
+#if XA_USE_GPU
+				#ifdef CUDA_SUPPORT
+				foundLocation = findChartLocation_bruteForce_gpu(context, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_ori, maxResolution);
+#else
+				foundLocation = findChartLocation_bruteForce_gpu(kernels, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_ori, maxResolution);
+#endif
+#else
+				foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_ori, maxResolution);
+#endif
 				XA_PROFILE_END(packChartsFindLocation)
 				XA_DEBUG_ASSERT(!(firstChartInBitImage && !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
 				if (maxResolution == 0) {
 					XA_DEBUG_ASSERT(foundLocation); // The atlas isn't limited to a fixed resolution, a chart location should be found on the first attempt.
 					break;
 				}
+#if 0
 				if (i == XA_DEBUG_CHART) {
-					printf("%d %d %d\n", best_x, best_y, best_ori);
+					printf("%d %d %d; %d %d\n", best_x, best_y, best_ori, best_cw, best_ch);
 				}
-				if (foundLocation)
+				if (foundLocation) {
+					printf("%d: (%d %d)r%d\n", i, best_x, best_y, best_ori);
+				}
+#endif
+				if (foundLocation) {
+					previous_atlas = currentAtlas;
 					break;
+				}
 				// Chart doesn't fit in the current bitImage, try the next one.
 				currentAtlas++;
 			}
@@ -8933,7 +9148,7 @@ struct Atlas
 			XA_PROFILE_START(packChartsBlit)
 
 #if DRAW
-			if (true)
+			if (cimg_draw)
 			{
 				for (int a = 0; a >= 0; --a) {
 					int ixlen = (*atlasBitImages[currentAtlas])[a]->width();
@@ -8974,7 +9189,14 @@ struct Atlas
 							export_img(ix, iy) = intensity;
 						}
 					}
-					export_img.save(("data/debug/imges/ii/overlap" + std::to_string(PARALLEL) + "_" + std::to_string(currentAtlas) + "_" + std::to_string(a) + "_" + std::to_string(i) + ".png").c_str());
+					std::string export_path = "data/debug/imges/";
+
+					char buffer[16];
+					sprintf(buffer, "%04d", i);
+					std::string i_str(buffer);
+
+					export_path = export_path + (GPU ? "ii" : "i") + "/overlap_" + std::to_string(currentAtlas) + "_" + std::to_string(a) + "_" + i_str + ".png";
+					export_img.save(export_path.c_str());
 				}
 			}
 #endif
@@ -9061,11 +9283,7 @@ struct Atlas
 				XA_ASSERT(isFinite(texcoord.x) && isFinite(texcoord.y));
 			}
 			if (progressFunc) {
-#if HONEST_PROGRESS
-				const int newProgress = int((i > 1 ? log2(i) : log2((i + 3.f) / 2.3f)) / log2((float)chartCount) * 100.0f);
-#else
 				const int newProgress = int((i + 1) / (float)chartCount * 100.0f);
-#endif
 				if (newProgress != progress) {
 					progress = newProgress;
 					if (!progressFunc(ProgressCategory::PackCharts, progress, progressUserData))
@@ -9080,6 +9298,12 @@ struct Atlas
 		} else {
 			m_width = m_height = maxResolution - (int)options.padding * 2;
 		}
+#if DEBUG_PLACING_STATISTICS
+		printf("False coarse jumps:\n  lv0: %ld\n  lv1: %ld\n  lv2: %ld\n", false_jumps[0], false_jumps[1], false_jumps[2]);
+		printf("Overall checks: %ld\n", checks);
+		printf("Overall jumps: %ld\n", jumps);
+		printf("Overall accepted: %ld\n", accepted);
+#endif
 		for (uint32_t i = 0; i < atlasBitImages.size(); ++i) {
 			for (uint32_t j = 1; j < (atlasBitImages[i])->size(); ++j) {
 				(*atlasBitImages[i])[j]->~BitImage();
@@ -9131,29 +9355,434 @@ private:
 		return findChartLocation_random(options, (*atlasBitImages)[0], &chartBitImages.get(0), &chartBitImages.getTransposed(0), w, h, best_x, best_y, best_w, best_h, best_ori, attempts, maxResolution);
 	}
 
+#if XA_USE_GPU
+	#ifdef CUDA_SUPPORT
+	bool findChartLocation_bruteForce_gpu(gpu::Context &context, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
+#else
+	bool findChartLocation_bruteForce_gpu(std::map<std::string, ocl::Kernel> &kernels, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
+#endif
+	{
+#ifdef CUDA_SUPPORT
+#if CUDA_PROFILE
+		cudaProfilerStart();
+#endif
+#endif
+		timer t_full;
+		unsigned int best_metric = INT_MAX;
+
+		// Prepare atlases and atlasSizes for gpu
+		gpu::gpu_mem_64u atlases_gpu;
+		gpu::gpu_mem_32u atlasSizes_gpu;
+		gpu::gpu_mem_32u best_metric_gpu;
+
+		std::vector<uint32_t> atlasSizes;
+
+		size_t atlases_sizeof = 0;
+		for (int i = 0; i < chartBitImages.levels(); ++i) {
+			const BitImage *atlas = (*atlasBitImages)[i];
+			atlases_sizeof += atlas->stride() * atlas->height();
+			atlasSizes.push_back(atlas->width());
+			atlasSizes.push_back(atlas->height());
+		}
+		atlasSizes_gpu.resizeN(atlasSizes.size());
+		{
+			std::vector<uint64_t> atlases_buffer(atlases_sizeof);
+			size_t atlas_offset = 0;
+			for (int i = 0; i < chartBitImages.levels(); ++i) {
+				const BitImage *atlas = (*atlasBitImages)[i];
+				memcpy(atlases_buffer.data() + atlas_offset, atlas->data(), atlas->stride() * atlas->height() * sizeof(uint64_t));
+//				atlases_gpu.writeN(atlas->data(), atlas->stride() * atlas->height(), atlas_offset);
+				atlas_offset += atlas->stride() * atlas->height();
+			}
+			atlases_gpu.resizeN(atlases_sizeof);
+			atlases_gpu.writeN(atlases_buffer.data(), atlases_sizeof);
+		}
+		atlasSizes_gpu.writeN(atlasSizes.data(), atlasSizes.size());
+#if DEBUG_COARSE_JUMP_STATISTICS
+		local_false_jumps[0] = local_false_jumps[1] = local_false_jumps[2] = 0;
+		local_jumps = 0;
+#endif
+
+		// Metric, best_x+(best_y << 16);
+		best_metric_gpu.resizeN(2);
+		unsigned int uint32max[2] =  {UINT32_MAX, UINT32_MAX};
+		best_metric_gpu.writeN(uint32max, 2);
+
+		for (int ori = 0; ori < chartBitImages.orientations(); ++ori) {
+			timer t;
+			// Prepare charts and chartSizes for gpu
+			gpu::gpu_mem_64u charts_gpu;
+			gpu::gpu_mem_32u chartSizes_gpu;
+			std::vector<uint32_t> chartSizes;
+			size_t charts_sizeof = 0;
+			for (int i = 0; i < chartBitImages.levels(); ++i) {
+				int rate_cur = 1;
+				for (int j = 0; j < i; ++j)
+					rate_cur *= XA_PACKING_COARSE_RATE;
+				for (int y = 0; y < rate_cur; ++y) {
+					for (int x = 0; x < rate_cur; ++x) {
+						const BitImage *chart = &chartBitImages.get(i, x, y, ori);
+						charts_sizeof += chart->stride() * chart->height();
+						chartSizes.push_back(chart->width());
+						chartSizes.push_back(chart->height());
+					}
+				}
+			}
+			chartSizes_gpu.resizeN(chartSizes.size());
+
+			{
+				std::vector<uint64_t> charts_buffer(charts_sizeof);
+				size_t chart_offset = 0;
+				for (int i = 0; i < chartBitImages.levels(); ++i) {
+					int rate_cur = 1;
+					for (int j = 0; j < i; ++j)
+						rate_cur *= XA_PACKING_COARSE_RATE;
+					for (int y = 0; y < rate_cur; ++y) {
+						for (int x = 0; x < rate_cur; ++x) {
+							const BitImage *chart = &chartBitImages.get(i, x, y, ori);
+							memcpy(charts_buffer.data() + chart_offset, chart->data(), chart->stride() * chart->height() * sizeof(uint64_t));
+//							chart_buffer[chart_offset]
+//							charts_gpu.writeN(chart->data(), chart->stride() * chart->height(), chart_offset);
+							chart_offset += chart->stride() * chart->height();
+						}
+					}
+				}
+				charts_gpu.resizeN(charts_sizeof);
+				charts_gpu.writeN(charts_buffer.data(), charts_sizeof);
+			}
+			chartSizes_gpu.writeN(chartSizes.data(), chartSizes.size());
+
+			// Set calculation boundaries
+			Vector2i endPosition = {w + 1, h + 1};
+
+			int cw = chartBitImages.get(0, 0, 0, ori).width();
+			int ch = chartBitImages.get(0, 0, 0, ori).height();
+			if (maxResolution > 0) {
+				// with some leeway
+				endPosition.x = min(endPosition.x,
+									(int32_t) (*atlasBitImages)[0]->width() - cw);
+				endPosition.y = min(endPosition.y,
+									(int32_t) (*atlasBitImages)[0]->height() - ch);
+				// without leeway
+				endPosition.x = min(endPosition.x, (int) maxResolution - cw);
+				endPosition.y = min(endPosition.y, (int) maxResolution - ch);
+			}
+			if (startPosition.x > endPosition.x
+				|| startPosition.y > endPosition.y)
+				continue;
+
+			gpu::gpu_mem_32u inside_buffer_gpu;
+			const size_t offset_limit = (endPosition.x + 1) * (endPosition.y + 1);
+			inside_buffer_gpu.resizeN(offset_limit);
+			unsigned int workGroupSize = WORK_GROUP_SIZE;
+
+			gpu::gpu_mem_16u filter_x_gpu;
+			gpu::gpu_mem_16u filter_y_gpu;
+			unsigned int candidates_num = 1;
+
+#if DEBUG_COARSE_JUMP_STATISTICS
+			unsigned int prev_candidates = offset_limit;
+#endif
+
+			for (int coarse_level = chartBitImages.levels() - 1; coarse_level >= 0; --coarse_level) {
+				// aggregate results into a list
+				int coarse_reduction = 1;
+				for (int i = 0; i < coarse_level; ++i) {
+					coarse_reduction *= XA_PACKING_COARSE_RATE;
+				}
+				if (coarse_level == chartBitImages.levels() - 1)
+				{
+#ifdef CUDA_SUPPORT
+					cuda_blitLevel(
+							// TODO: figure out work size
+							gpu::WorkSize(workGroupSize, workGroupSize,
+												 (endPosition.x + coarse_reduction * workGroupSize) / workGroupSize * workGroupSize,
+												 (endPosition.y + coarse_reduction * workGroupSize) / workGroupSize * workGroupSize),
+//							gpu::WorkSize(workGroupSize, workGroupSize,
+//												 (endPosition.x + XA_PACKING_COARSE_RATE * workGroupSize) / workGroupSize * workGroupSize,
+//												 (endPosition.y + XA_PACKING_COARSE_RATE * workGroupSize) / workGroupSize * workGroupSize),
+
+//							gpu::WorkSize(workGroupSize, workGroupSize,
+//										  endPosition.x + 1,
+//										  endPosition.y + 1),
+								atlases_gpu.cuptr(),
+								charts_gpu.cuptr(),
+								w, h,
+								endPosition.x, endPosition.y,
+								chartBitImages.levels() - 1,
+//								chartBitImages.levels(),
+								(uint32_t)XA_PACKING_COARSE_RATE,
+								atlasSizes_gpu.cuptr(),
+								chartSizes_gpu.cuptr(),
+								best_metric_gpu.cuptr(),
+								inside_buffer_gpu.cuptr(),
+								context.cudaStream());
+#else
+					kernels["blitLevel"].exec(gpu::WorkSize(workGroupSize, workGroupSize, endPosition.x + 1, endPosition.y + 1),
+											  atlases_gpu,
+											  charts_gpu,
+											  endPosition.x, endPosition.y,
+											  coarse_level,
+							//						  	1,
+											  (uint32_t)XA_PACKING_COARSE_RATE,
+											  atlasSizes_gpu,
+											  chartSizes_gpu,
+											  (short) false,
+											  0,
+											  nullptr,
+											  nullptr,
+											  best_metric_gpu,
+											  inside_buffer_gpu);
+#endif
+				} else {
+#ifdef CUDA_SUPPORT
+					cuda_bufferCleanup(gpu::WorkSize(workGroupSize*workGroupSize, offset_limit),
+									   inside_buffer_gpu.cuptr(),
+									   offset_limit,
+									   context.cudaStream());
+
+					cuda_blitFiltered(gpu::WorkSize(workGroupSize*workGroupSize, candidates_num),
+								  atlases_gpu.cuptr(),
+								  charts_gpu.cuptr(),
+								  w, h,
+								  endPosition.x, endPosition.y,
+								  coarse_level,
+								  (uint32_t)XA_PACKING_COARSE_RATE,
+								  atlasSizes_gpu.cuptr(),
+								  chartSizes_gpu.cuptr(),
+								  true,
+								  candidates_num,
+								  filter_x_gpu.cuptr(),
+								  filter_y_gpu.cuptr(),
+								  best_metric_gpu.cuptr(),
+								  inside_buffer_gpu.cuptr(),
+								  context.cudaStream());
+#else
+					kernels["bufferCleanup"].exec(gpu::WorkSize(workGroupSize*workGroupSize, offset_limit),
+												  inside_buffer_gpu,
+												  offset_limit);
+
+					kernels["blitLevel"].exec(gpu::WorkSize(workGroupSize*workGroupSize, candidates_num),
+											  atlases_gpu,
+											  charts_gpu,
+											  endPosition.x, endPosition.y,
+											  coarse_level,
+											  (uint32_t)XA_PACKING_COARSE_RATE,
+											  atlasSizes_gpu,
+											  chartSizes_gpu,
+											  (short) true,
+											  candidates_num,
+											  filter_x_gpu,
+											  filter_y_gpu,
+											  best_metric_gpu,
+											  inside_buffer_gpu);
+#endif
+				}
+//#define DEBUG_FAST_CHECK
+#ifdef DEBUG_FAST_CHECK
+				int a = 0;
+				std::vector<unsigned int> results(offset_limit);
+				if (a == 1) {
+					inside_buffer_gpu.readN(results.data(), offset_limit);
+				}
+#endif
+				size_t offset;
+				for (offset = 1; offset * 2 <= offset_limit; offset <<= 1) {
+#ifdef CUDA_SUPPORT
+					cuda_scanReduce(gpu::WorkSize(workGroupSize*workGroupSize, (offset_limit + offset - 1) / offset),
+									inside_buffer_gpu.cuptr(),
+									offset_limit,
+									offset,
+									context.cudaStream());
+#else
+					kernels["scanReduce"].exec(gpu::WorkSize(workGroupSize*workGroupSize, (offset_limit + offset - 1) / offset),
+											   inside_buffer_gpu,
+											   offset_limit,
+											   offset);
+#endif
+				}
+#ifdef DEBUG_FAST_CHECK
+				if (a == 1) {
+					inside_buffer_gpu.readN(results.data(), offset_limit);
+				}
+#endif
+
+				for (offset = offset >> 1; offset >= 1; offset >>= 1) {
+#ifdef CUDA_SUPPORT
+					cuda_scanDownSweep(gpu::WorkSize(workGroupSize*workGroupSize, (offset_limit + offset - 1) / offset),
+									   inside_buffer_gpu.cuptr(),
+									   offset_limit,
+									   offset,
+									   context.cudaStream());
+#else
+					kernels["scanDownSweep"].exec(gpu::WorkSize(workGroupSize*workGroupSize, (offset_limit + offset - 1) / offset),
+												  inside_buffer_gpu,
+												  offset_limit,
+												  offset);
+#endif
+				}
+#ifdef DEBUG_FAST_CHECK
+				if (a == 1) {
+					inside_buffer_gpu.readN(results.data(), offset_limit);
+				}
+#endif
+				inside_buffer_gpu.readN(&candidates_num, 1, offset_limit - 1);
+
+#if DEBUG_COARSE_JUMP_STATISTICS
+				if (coarse_level != chartBitImages.levels() - 1) {
+					local_false_jumps[coarse_level] = prev_candidates - candidates_num;
+				}
+				prev_candidates = candidates_num;
+				if (coarse_level == 0)
+					accepted += candidates_num;
+				else
+					local_jumps += candidates_num;
+#endif
+
+				if (candidates_num == 0)
+					break;
+
+				filter_x_gpu.resizeN(candidates_num);
+				filter_y_gpu.resizeN(candidates_num);
+				{
+#ifdef CUDA_SUPPORT
+
+					cuda_aggregateResults(gpu::WorkSize(workGroupSize * workGroupSize, offset_limit),
+										  inside_buffer_gpu.cuptr(),
+										  endPosition.x, endPosition.y,
+										  filter_x_gpu.cuptr(),
+										  filter_y_gpu.cuptr(),
+										  context.cudaStream());
+#else
+					kernels["aggregateResults"].exec(gpu::WorkSize(workGroupSize * workGroupSize, offset_limit),
+													 inside_buffer_gpu,
+													 endPosition.x, endPosition.y,
+													 filter_x_gpu,
+													 filter_y_gpu);
+#endif
+				}
+
+#ifdef DEBUG_FAST_CHECK
+
+				if (a == 1) {
+					std::vector<unsigned short> results_x(candidates_num);
+					std::vector<unsigned short> results_y(candidates_num);
+					filter_x_gpu.readN(results_x.data(), candidates_num);
+					filter_y_gpu.readN(results_y.data(), candidates_num);
+				}
+//				printf("cn: %d\n", candidates_num);
+#endif
+#undef DEBUG_FAST_CHECK
+			}
+
+//			printf("Calculation: %.2f seconds (%g ms) elapsed\n", t.elapsed(), t.elapsed() * 1000);
+			if (candidates_num == 0)
+				continue;
+			std::vector<unsigned short> results_x(candidates_num);
+			std::vector<unsigned short> results_y(candidates_num);
+			filter_x_gpu.readN(results_x.data(), candidates_num);
+			filter_y_gpu.readN(results_y.data(), candidates_num);
+			// d_infty
+			auto sameMetricWorse = [](int x, int y, int ori, int comp_x, int comp_y, int comp_ori) {
+				return (max(x, y) > max(comp_x, comp_y)
+						|| max(x, y) == max(comp_x, comp_y)
+						   && (y > comp_y || y == comp_y
+											 && (x > comp_x || x == comp_x && ori > comp_ori)));
+			};
+			{
+				timer t_res;
+
+				for (int i = 0; i < candidates_num; ++i)
+				{
+					int x = results_x[i];
+					int y = results_y[i];
+
+					const unsigned int extentX = max(w, x + cw);
+					const unsigned int extentY = max(h, y + ch);
+					const unsigned int area = extentX * extentY;
+					const unsigned int extents = max(extentX, extentY);
+					const unsigned int metric = extents * extents + area;
+
+					if (metric > best_metric)
+						continue;
+					if (metric == best_metric &&
+						sameMetricWorse(x, y, ori, *best_x, *best_y, *best_ori)) // comparison with *best_x and *best_y
+						continue;
+
+					best_metric = metric;
+					*best_x = x;
+					*best_y = y;
+					*best_ori = ori;
+
+					if ((*best_ori < 4) != (*best_ori % 2))
+					{
+						XA_DEBUG_ASSERT(*best_x + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->width());
+						XA_DEBUG_ASSERT(*best_y + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->height());
+					} else
+					{
+						XA_DEBUG_ASSERT(*best_x + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->width());
+						XA_DEBUG_ASSERT(*best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
+					}
+				}
+//				printf("Results: %.2f seconds (%g ms) elapsed\n", t_res.elapsed(), t_res.elapsed() * 1000);
+			}
+		}
+		*best_w = chartBitImages.get(0, 0, 0, *best_ori).width();
+		*best_h = chartBitImages.get(0, 0, 0, *best_ori).height();
+#if DEBUG_COARSE_JUMP_STATISTICS
+		false_jumps[0] += local_false_jumps[0];
+		false_jumps[1] += local_false_jumps[1];
+		false_jumps[2] += local_false_jumps[2];
+		jumps += local_jumps;
+#endif
+
+#ifdef CUDA_SUPPORT
+#if CUDA_PROFILE
+		cudaProfilerStop();
+#endif
+#endif
+//		printf("Chart (full): %.2f seconds (%g ms) elapsed\n", t_full.elapsed(), t_full.elapsed() * 1000);
+		return best_metric != INT_MAX;
+	}
+#endif
 	bool findChartLocation_bruteForce(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
 	{
 		unsigned int best_metric = INT_MAX;
 		const int coarse_size = m_bitImagesCoarseLevels;
-//		int coarse_reduction = 1;
-//		for (int i = 0; i < coarse_size - 1; ++i) {
-//			coarse_reduction *= m_bitImagesCoarseLevelRate;
-//		}
-		const int stepSize = options.blockAlign ? 4 : 1;
-
 		// d_infty
 		auto sameMetricWorse = [](int x, int y, int ori, int comp_x, int comp_y, int comp_ori) {
 			return (max(x, y) > max(comp_x, comp_y)
-				   || max(x, y) == max(comp_x, comp_y)
-				   && (y > comp_y || y == comp_y
-				   && (x > comp_x || x == comp_x && ori > comp_ori)));
+					|| max(x, y) == max(comp_x, comp_y)
+					   && (y > comp_y || y == comp_y
+										 && (x > comp_x || x == comp_x && ori > comp_ori)));
 		};
 
-#if PARALLEL
-		#pragma omp parallel
-#endif // PARALLEL
-		{
+		int prevPositionOffset = ceil(options.usePreviousPositionOffset * maxResolution);
+		Vector2i leftLimit = {
+				max(0, startPosition.x - prevPositionOffset),
+				max(0, startPosition.y - prevPositionOffset)
+		};
+#if DEBUG_PLACING_STATISTICS
+		long int thisone_false_jumps[3] = {0};
+		long int thisone_jumps = 0;
+		long int thisone_accepted = 0;
+		long int thisone_checks = 0;
+#endif
 
+#if XA_OMP_PARALLEL
+#if DEBUG_PLACING_STATISTICS
+#pragma omp parallel firstprivate(local_false_jumps, local_jumps)
+#else
+#pragma omp parallel
+#endif
+#endif // XA_OMP_PARALLEL
+		{
+#if DEBUG_PLACING_STATISTICS
+			local_false_jumps[0] = local_false_jumps[1] = local_false_jumps[2] = 0;
+			local_jumps = 0;
+			long int local_accepted = 0;
+			long int local_checks = 0;
+#endif
 			unsigned int local_best_metric = INT_MAX;
 			int local_best_x = *best_x;
 			int local_best_y = *best_y;
@@ -9161,34 +9790,45 @@ private:
 
 			// Try different orientations
 			for (int ori = 0; ori < chartBitImages.orientations(); ori++) {
-				Vector2i endPosition;
+				Vector2i endPosition = {w + 1, h + 1};
 
-				endPosition.x = w + stepSize;
-				endPosition.y = h + stepSize;
 				int cw = chartBitImages.get(0, 0, 0, ori).width();
 				int ch = chartBitImages.get(0, 0, 0, ori).height();
 
 				if (maxResolution > 0) {
 					// with some leeway
-						endPosition.x = min(endPosition.x,
-												  (int32_t) (*atlasBitImages)[0]->width() - cw);
-						endPosition.y = min(endPosition.y,
-												  (int32_t) (*atlasBitImages)[0]->height() - ch);
+					endPosition.x = min(endPosition.x,
+										(int32_t) (*atlasBitImages)[0]->width() - cw);
+					endPosition.y = min(endPosition.y,
+										(int32_t) (*atlasBitImages)[0]->height() - ch);
 					// without leeway
-						endPosition.x = min(endPosition.x, (int) maxResolution - cw);
-						endPosition.y = min(endPosition.y, (int) maxResolution - ch);
+					endPosition.x = min(endPosition.x, (int) maxResolution - cw);
+					endPosition.y = min(endPosition.y, (int) maxResolution - ch);
 				}
 				if (startPosition.x > endPosition.x
 					|| startPosition.y > endPosition.y)
 					continue;
 
+				int start_offset_x = 0;
+				int start_offset_y = 0;
+				int stepSize = options.blockAlign ? 4 : 1;
+				if (options.gridSpeedup
+					&& maxResolution - w <= 4 * XA_PACKING_REGULAR_GRID_SIZE
+					&& maxResolution - h <= 4 * XA_PACKING_REGULAR_GRID_SIZE) {
+					start_offset_x = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * options.blockAlign;
+					start_offset_y = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * options.blockAlign;
+					step *= XA_PACKING_REGULAR_GRID_SIZE;
+				}
+
 				OMP_DISPATCHER
-#if PARALLEL
-#pragma omp for collapse(2)
-#endif // PARALLEL
-				for (int y = 0; y <= endPosition.y; y += stepSize) {
-					for (int x = 0; x <= endPosition.x; x += stepSize) {
+#if XA_OMP_PARALLEL
+#pragma omp for collapse(2) schedule(guided, 4)
+#endif // XA_OMP_PARALLEL
+				for (int y = start_offset_y; y <= endPosition.y; y += stepSize) {
+					for (int x = start_offset_x; x <= endPosition.x; x += stepSize) {
 						OMP_TRY
+							if (x < leftLimit.x && y < leftLimit.y)
+								continue;
 							// Early out if metric is not better.
 							const unsigned int extentX = max(w, x + cw);
 							const unsigned int extentY = max(h, y + ch);
@@ -9202,7 +9842,9 @@ private:
 								sameMetricWorse(x, y, ori, local_best_x, local_best_y,
 												local_best_ori)) // comparison with *best_x and *best_y
 								continue;
-
+#if  DEBUG_PLACING_STATISTICS
+							local_checks++;
+#endif
 							if (!canBlitCoarseToFine(atlasBitImages,
 													 chartBitImages,
 													 x,
@@ -9211,15 +9853,13 @@ private:
 													 maxResolution, w, h))
 								continue;
 
-
-							if (metric < local_best_metric
-								|| metric == local_best_metric &&
-								   sameMetricWorse(local_best_x, local_best_y, local_best_ori, x, y, ori)) {
-								local_best_metric = metric;
-								local_best_x = x;
-								local_best_y = y;
-								local_best_ori = ori;
-							}
+							local_best_metric = metric;
+							local_best_x = x;
+							local_best_y = y;
+							local_best_ori = ori;
+#if  DEBUG_PLACING_STATISTICS
+							local_accepted++;
+#endif
 						OMP_CATCH
 					}
 				}
@@ -9232,10 +9872,18 @@ private:
 					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
 				}
 			}
-#if PARALLEL
+#if XA_OMP_PARALLEL
 #pragma omp critical
-#endif // PARALLEL
+#endif // XA_OMP_PARALLEL
 			{
+#if DEBUG_PLACING_STATISTICS
+				thisone_accepted += local_accepted;
+				thisone_false_jumps[0] += local_false_jumps[0];
+				thisone_false_jumps[1] += local_false_jumps[1];
+				thisone_false_jumps[2] += local_false_jumps[2];
+				thisone_jumps += local_jumps;
+				thisone_checks += local_checks;
+#endif
 				if (local_best_metric != INT_MAX) {
 					{
 						if (local_best_metric < best_metric
@@ -9250,6 +9898,22 @@ private:
 				}
 			}
 		}
+#if DEBUG_PLACING_STATISTICS
+//		printf("False coarse jumps for this:\n  lv0: %ld\n  lv1: %ld\n  lv2: %ld\n", thisone_false_jumps[0],
+//																		    thisone_false_jumps[1],
+//																		    thisone_false_jumps[2]);
+//		printf("Jumps: %ld\n", thisone_jumps);
+
+		if (best_metric != INT_MAX)
+			printf("Checks: %ld %u ", thisone_checks, chartBitImages.get(0, 0, 0, *best_ori).width() * chartBitImages.get(0, 0, 0, *best_ori).height());
+//		printf("Accepted: %ld\n", thisone_accepted);
+		false_jumps[0] += thisone_false_jumps[0];
+		false_jumps[1] += thisone_false_jumps[1];
+		false_jumps[2] += thisone_false_jumps[2];
+		jumps += thisone_jumps;
+		accepted += thisone_accepted;
+		checks += thisone_checks;
+#endif
 
 		if (best_metric == INT_MAX)
 			return false;
@@ -9324,7 +9988,8 @@ private:
 		for (int coarse_level = coarse_size - 1; coarse_level >= 0; --coarse_level) {
 			int coarse_reduction = 1;
 			for (int i = 0; i < coarse_level; ++i) {
-				coarse_reduction *= m_bitImagesCoarseLevelRate;
+				// TODO: improve if XA_PACKING_COARSE_RATE is a power of 2
+				coarse_reduction *= XA_PACKING_COARSE_RATE;
 			}
 			const int coarse_offset_x = offset_x / coarse_reduction;
 			const int coarse_offset_y = offset_y / coarse_reduction;
@@ -9424,13 +10089,19 @@ private:
 				}
 			}
 #endif
-			if (!canBlit)
-				break;
-			if (coarse_level == 0) {
-				return true;
+			if (!canBlit) {
+#if DEBUG_PLACING_STATISTICS
+				if (coarse_level < coarse_size - 1 && coarse_level <= 2) {
+					local_false_jumps[coarse_level]++;
+				}
+#endif
+				return false;
 			}
+#if DEBUG_PLACING_STATISTICS
+			local_jumps++;
+#endif
 		}
-		return false;
+		return true;
 	}
 
 	void addChart(Array<BitImage *> *atlasBitImage, const CoarsePyramid &chartBitImages, int atlas_w, int atlas_h, int offset_x, int offset_y, int orientation)
@@ -9443,13 +10114,14 @@ private:
 		{
 			int rate_cur = 1;
 			for (int i = 0; i < coarse_level; ++i)
-				rate_cur *= m_bitImagesCoarseLevelRate;
+				// TODO: improve if XA_PACKING_COARSE_RATE is a power of 2
+				rate_cur *= XA_PACKING_COARSE_RATE;
 
 			if (coarse_level == 0) {
 				chartBitImages.get(0, 0, 0, orientation).copyTo(image[0]);
 			} else {
-				int true_rate = rate_cur / m_bitImagesCoarseLevelRate;
-				image[coarse_level - 1].reduceTo(&image[coarse_level], m_bitImagesCoarseLevelRate,
+				int true_rate = rate_cur / XA_PACKING_COARSE_RATE;
+				image[coarse_level - 1].reduceTo(&image[coarse_level], XA_PACKING_COARSE_RATE,
 												 offset_x / true_rate, offset_y / true_rate, true);
 			}
 			BitImage& curCoarseAtlasImageLayer = *(*atlasBitImage)[coarse_level];
@@ -9547,7 +10219,6 @@ private:
 	Array<Chart *> m_charts;
 	RadixSort m_radix;
 	size_t m_bitImagesCoarseLevels;
-	size_t m_bitImagesCoarseLevelRate;
 	uint32_t m_width = 0;
 	uint32_t m_height = 0;
 	float m_texelsPerUnit = 0.0f;
@@ -9667,7 +10338,7 @@ static void runAddMeshTask(void *groupUserData, void *taskUserData)
 	internal::Progress *progress = ctx->addMeshProgress;
 	if (progress->cancel) {
 		XA_PROFILE_END(addMeshThread)
-			return;
+		return;
 	}
 	XA_PROFILE_START(addMeshCreateColocals)
 	mesh->createColocals();
@@ -10262,24 +10933,28 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 		packOptions.texelsPerUnit = 0.0f;
 	}
 	if (packOptions.coarseLevels < 0) {
-		XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is less than 0.\n");
+		XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is negative.\n");
 		packOptions.coarseLevels = 0;
-	}
-	if (packOptions.coarseLevelRate < 2) {
-		XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevelRate is less than 2.\n");
-		packOptions.coarseLevelRate = 2;
 	}
 	if (packOptions.coarseLevels == 0) {
 		XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is set to 0. Coarse-to-fine disabled.\n");
+	}
+	if (packOptions.usePreviousPositionOffset < 0.0f) {
+		XA_PRINT_WARNING("PackCharts: PackOptions::usePreviousPositionOffset is negative.\n");
+		packOptions.usePreviousPositionOffset = 0.0f;
+	}
+
+	if (packOptions.usePreviousPositionOffset > 1.0f) {
+		XA_PRINT_WARNING("PackCharts: PackOptions::usePreviousPositionOffset is more than 1.\n");
+		packOptions.usePreviousPositionOffset = 1.0f;
 	}
 	// other checks
 	{
 		uint64_t total_coarse_rate = 1;
 		for (int i = 0; i < packOptions.coarseLevels; ++i) {
-			total_coarse_rate *= packOptions.coarseLevelRate;
+			total_coarse_rate *= XA_PACKING_COARSE_RATE;
 			if (total_coarse_rate >= UINT32_MAX) {
-				XA_PRINT_WARNING("PackCharts: Bad combination of PackOptions::coarseLevelRate and PackOptions::coarseLevels.\n"
-								 "            Consider decreasing one or both values.\n");
+				XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is set on a too high value. May result in significant memory consumption.\n");
 				break;
 			}
 		}

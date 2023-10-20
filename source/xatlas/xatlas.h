@@ -219,7 +219,7 @@ struct PackOptions
 	bool blockAlign = false;
 
 	// Slower, but gives the best result. If false, use random chart placement.
-	bool bruteForce = false;
+	bool bruteForce = true;
 
 	// Create Atlas::image
 	bool createImage = false;
@@ -233,14 +233,27 @@ struct PackOptions
 	// Transpose charts to improve packing.
 	bool transposeCharts = true;
 
-	// Number of steps in coarse-to-fine scheme.
-	// Number of N means that N charts and atlases of smaller resolution would be generated.
-	// N=0 means no coarse-to-fine scheme would be applied.
-	int coarseLevels = 0;
+	// Reduce charts `coarseLevels` times to speed up checking if current chart position is valid. Works only with bruteForce on.
+	// If 0, no reduction is done.
+	// In any case, final result is not changed.
+	// Warning: setting this to numbers more than 4 can result in significant memory consumption.
+	int coarseLevels = 1;
 
-	// Rate of steps in coarse-to-fine scheme.
-	// Rate of N means that every next step compresses squares of N x N pixels of previous step into single pixel.
-	int coarseLevelRate = 2;
+	// Disable options below to gain better packing results from bruteForce. Will work slower.
+
+	// Skip atlases for current chart if previous chart was not fitting here.
+	// Works (a bit) faster, with a tradeoff of worse packing.
+	bool skipSpeedup = true;
+
+	// Works as blockAlign, but result is kept dense.
+	// Works (a lot) faster, with a tradeoff of worse packing.
+	bool gridSpeedup = true;
+
+	// Try to place chart near previous chart; value is a fraction of atlas that is counted as "near".
+	// 0.f ------- 1.f
+	// faster      slower
+	// less dense  more dense
+	float usePreviousPositionOffset = 0.04f;
 };
 
 // Call after ComputeCharts. Can be called multiple times to re-pack charts with different options.
