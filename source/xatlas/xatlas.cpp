@@ -317,10 +317,11 @@ public:
 	}
 };
 
-#define OMP_DISPATCHER      pn::ThreadException threadExceptionDispatcher;
-#define OMP_TRY             try { if (threadExceptionDispatcher.hasException()) continue;
-#define OMP_CATCH           } catch (...) { threadExceptionDispatcher.captureException(); }
-#define OMP_RETHROW         threadExceptionDispatcher.rethrow();
+#define OMP_DISPATCHER_INIT pn::ThreadException __dispatcher__;
+#define OMP_TRY {if (!__dispatcher__.hasException()) { try {
+#define OMP_CATCH } catch (...) {  __dispatcher__.captureException();  }}}
+#define OMP_RETHROW __dispatcher__.rethrow();
+#define OMP_CATCH_RETHROW } catch (...) {  __dispatcher__.captureException();  }}}; __dispatcher__.rethrow();
 }
 #endif
 
@@ -9777,14 +9778,17 @@ private:
 #endif
 
 #if XA_OMP_PARALLEL
-		OMP_DISPATCHER
+		OMP_DISPATCHER_INIT
 #if DEBUG_PLACING_STATISTICS
 #pragma omp parallel firstprivate(local_false_jumps, local_jumps)
 #else
 #pragma omp parallel
 #endif
-#endif // XA_OMP_PARALLEL
 		{
+			OMP_TRY
+#else
+		{
+#endif // XA_OMP_PARALLEL
 #if DEBUG_PLACING_STATISTICS
 			local_false_jumps[0] = local_false_jumps[1] = local_false_jumps[2] = 0;
 			local_jumps = 0;
@@ -9905,6 +9909,7 @@ private:
 					}
 				}
 			}
+			OMP_CATCH
 		}
 		OMP_RETHROW
 #if DEBUG_PLACING_STATISTICS
