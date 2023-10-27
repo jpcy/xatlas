@@ -9710,7 +9710,7 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 #if XA_CHECK_PARAM_WINDING
 					uint32_t flippedCount = 0;
 					for (uint32_t f = 0; f < faceCount; f++) {
-						const float area = mesh->computeFaceParametricArea(f);
+						const float area = unifiedMesh->computeFaceParametricArea(f);
 						if (area < 0.0f)
 							flippedCount++;
 					}
