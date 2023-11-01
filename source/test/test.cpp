@@ -71,7 +71,7 @@ bool generateAtlas(const char *filename, bool useUvMesh, AtlasResult *result)
 	std::vector<tinyobj::shape_t> shapes;
 	std::vector<tinyobj::material_t> materials;
 	std::string err;
-	if (!tinyobj::LoadObj(shapes, materials, err, filename, NULL, tinyobj::triangulation)) {
+	if (!tinyobj::LoadObj(shapes, materials, err, filename, NULL, 0)) {
 		logf("   [FAILED]: %s\n", err.c_str());
 		return false;
 	}
@@ -237,12 +237,15 @@ int main(int argc, char **argv)
 			ASSERT(result.chartCount == 2);
 		}
 		if (generateAtlas(MODEL_PATH "gazebo.obj", false, &result)) {
-			ASSERT(result.chartCount == 333);
+			ASSERT(result.chartCount == 332);
 		}
 		if (generateAtlas(MODEL_PATH "zero_area_face.obj", false, &result)) {
 			ASSERT(result.chartCount == 0);
 		}
 		if (generateAtlas(MODEL_PATH "zero_length_edge.obj", false, &result)) {
+			ASSERT(result.chartCount == 1);
+		}
+		if (generateAtlas(MODEL_PATH "plane.obj", false, &result)) {
 			ASSERT(result.chartCount == 1);
 		}
 	}
