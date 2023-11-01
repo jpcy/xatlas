@@ -9083,6 +9083,7 @@ AddMeshError AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountH
 		meshPolygonMapping->triangleToPolygonMap.reserve(meshDecl.faceCount);
 		meshPolygonMapping->triangleToPolygonIndicesMap.reserve(meshDecl.indexCount);
 	}
+	uint32_t firstIndex = 0;
 	const uint32_t kMaxWarnings = 50;
 	uint32_t warningCount = 0;
 	internal::Array<uint32_t> triIndices;
@@ -9093,7 +9094,7 @@ AddMeshError AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountH
 		uint32_t polygon[UINT8_MAX];
 		for (uint32_t i = 0; i < faceVertexCount; i++) {
 			if (hasIndices) {
-				polygon[i] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, face * faceVertexCount + i);
+				polygon[i] = DecodeIndex(meshDecl.indexFormat, meshDecl.indexData, meshDecl.indexOffset, firstIndex + i);
 				// Check if any index is out of range.
 				if (polygon[i] >= meshDecl.vertexCount) {
 					mesh->~Mesh();
@@ -9191,10 +9192,17 @@ AddMeshError AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountH
 			if (meshPolygonMapping)
 				meshPolygonMapping->triangleToPolygonMap.push_back(face);
 		}
+		// For each triangle index, store original index location
 		if (meshPolygonMapping) {
 			for (uint32_t i = 0; i < triIndices.size(); i++)
-				meshPolygonMapping->triangleToPolygonIndicesMap.push_back(triIndices[i]);
+			{
+				uint32_t polygonIndex = 0;
+				for (polygonIndex; polygonIndex < faceVertexCount; polygonIndex++)
+					if (triIndices[i] == polygon[polygonIndex]) break;
+				meshPolygonMapping->triangleToPolygonIndicesMap.push_back(firstIndex+polygonIndex);
+			}
 		}
+		firstIndex += faceVertexCount;
 	}
 	if (warningCount > kMaxWarnings)
 		XA_PRINT("   %u additional warnings truncated\n", warningCount - kMaxWarnings);

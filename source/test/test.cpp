@@ -119,6 +119,11 @@ bool generateAtlas(const char *filename, bool useUvMesh, AtlasResult *result)
 			decl.indexCount = (int)objMesh.indices.size();
 			decl.indexData = objMesh.indices.data();
 			decl.indexFormat = xatlas::IndexFormat::UInt32;
+			if (objMesh.num_vertices.size() != objMesh.indices.size() / 3)
+			{
+				decl.faceVertexCount = objMesh.num_vertices.data();
+				decl.faceCount = (uint32_t)objMesh.num_vertices.size();
+			}
 			xatlas::AddMeshError error = xatlas::AddMesh(atlas, decl);
 			if (error != xatlas::AddMeshError::Success) {
 				xatlas::Destroy(atlas);
@@ -245,7 +250,10 @@ int main(int argc, char **argv)
 		if (generateAtlas(MODEL_PATH "zero_length_edge.obj", false, &result)) {
 			ASSERT(result.chartCount == 1);
 		}
-		if (generateAtlas(MODEL_PATH "plane.obj", false, &result)) {
+		if (generateAtlas(MODEL_PATH "variable_facevert_count.obj", false, &result)) {
+			ASSERT(result.chartCount == 3);
+		}
+		if (generateAtlas(MODEL_PATH "quad_plane.obj", false, &result)) {
 			ASSERT(result.chartCount == 1);
 		}
 	}
