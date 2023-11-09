@@ -165,6 +165,11 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_OMP_PARALLEL 1
 
 #define XA_PACKING_REGULAR_GRID_SIZE 4
+#define XA_PACKING_REGULAR_GRID_ACCOMMODATE 1
+#define XA_PACKING_DETERMINISTIC 1
+
+#define XA_PACKING_RANDOM_ATTEMPTS (1 << 12)
+#define XA_PACKING_RANDOM_THRESHOLD (1e-4f)
 
 #define XA_PACKING_COARSE_RATE 4
 #define XA_PACKING_COARSE_RATE_IS_POWER_OF_2 1
@@ -274,7 +279,7 @@ void cuda_aggregateResults(const gpu::WorkSize &workSize,
 #endif
 #endif
 
-#ifdef XA_OMP_PARALLEL
+#if XA_OMP_PARALLEL
 #include <mutex>
 #include <exception>
 
@@ -323,6 +328,12 @@ public:
 #define OMP_RETHROW __dispatcher__.rethrow();
 #define OMP_CATCH_RETHROW } catch (...) {  __dispatcher__.captureException();  }}}; __dispatcher__.rethrow();
 }
+#else
+#define OMP_DISPATCHER_INIT
+#define OMP_TRY
+#define OMP_CATCH
+#define OMP_RETHROW
+#define OMP_CATCH_RETHROW
 #endif
 
 #if DRAW
@@ -2588,6 +2599,7 @@ public:
 		c = 7654321;
 	}
 
+	// inclusive
 	uint32_t getRange(uint32_t range)
 	{
 		if (range == 0)
@@ -9407,10 +9419,16 @@ struct Atlas
 private:
 	bool findChartLocation(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
 	{
-		const int attempts = 4096;
-		if (options.bruteForce || attempts >= w * h)
+		const int attempts = XA_PACKING_RANDOM_ATTEMPTS;
+		const BitImage &image = chartBitImages.get(0);
+		uint32_t cw = image.width();
+		uint32_t ch = image.height();
+		if (options.bruteForce
+			|| (options.randomUseBruteForce && (float)(cw * ch) >= (float)w * h * XA_PACKING_RANDOM_THRESHOLD) // better, but slower
+			|| (!options.randomUseBruteForce && attempts >= w * h) // faster, but worse
+			)
 			return findChartLocation_bruteForce(options, startPosition, atlasBitImages, chartBitImages, w, h, best_x, best_y, best_w, best_h, best_ori, maxResolution);
-		return findChartLocation_random(options, (*atlasBitImages)[0], &chartBitImages.get(0), &chartBitImages.getTransposed(0), w, h, best_x, best_y, best_w, best_h, best_ori, attempts, maxResolution);
+		return findChartLocation_random(options, atlasBitImages, chartBitImages, w, h, best_x, best_y, best_w, best_h, best_ori, attempts, maxResolution);
 	}
 
 #if XA_USE_GPU
@@ -9832,11 +9850,28 @@ private:
 				max(0, startPosition.x - prevPositionOffset),
 				max(0, startPosition.y - prevPositionOffset)
 		};
+
+		int stepSize = options.blockAlign ? 4 : 1;
+
+		int start_offset_x = 0;
+		int start_offset_y = 0;
+		if (options.gridSpeedup
+			&& maxResolution - w <= 4 * XA_PACKING_REGULAR_GRID_SIZE
+			&& maxResolution - h <= 4 * XA_PACKING_REGULAR_GRID_SIZE) {
+			start_offset_x = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * (options.blockAlign ? 4 : 1);
+			start_offset_y = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * (options.blockAlign ? 4 : 1);
+			stepSize *= XA_PACKING_REGULAR_GRID_SIZE;
+			stepSize *= XA_PACKING_REGULAR_GRID_SIZE;
+		}
 #if DEBUG_PLACING_STATISTICS
 		long int thisone_false_jumps[3] = {0};
 		long int thisone_jumps = 0;
 		long int thisone_accepted = 0;
 		long int thisone_checks = 0;
+#endif
+
+#if !XA_PACKING_DETERMINISTIC
+		bool fastOut = false;
 #endif
 
 #if XA_OMP_PARALLEL
@@ -9883,56 +9918,54 @@ private:
 					|| startPosition.y > endPosition.y)
 					continue;
 
-				int start_offset_x = 0;
-				int start_offset_y = 0;
-				int stepSize = options.blockAlign ? 4 : 1;
-				if (options.gridSpeedup
-					&& maxResolution - w <= 4 * XA_PACKING_REGULAR_GRID_SIZE
-					&& maxResolution - h <= 4 * XA_PACKING_REGULAR_GRID_SIZE) {
-					start_offset_x = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * options.blockAlign;
-					start_offset_y = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * options.blockAlign;
-					stepSize *= XA_PACKING_REGULAR_GRID_SIZE;
-					stepSize *= XA_PACKING_REGULAR_GRID_SIZE;
-				}
-
 #if XA_OMP_PARALLEL
 #pragma omp for collapse(2) schedule(guided, 4)
 #endif // XA_OMP_PARALLEL
 				for (int y = start_offset_y; y <= endPosition.y; y += stepSize) {
 					for (int x = start_offset_x; x <= endPosition.x; x += stepSize) {
 						OMP_TRY
-							if (x < leftLimit.x && y < leftLimit.y)
-								continue;
-							// Early out if metric is not better.
-							const unsigned int extentX = max(w, x + cw);
-							const unsigned int extentY = max(h, y + ch);
-							const unsigned int area = extentX * extentY;
-							const unsigned int extents = max(extentX, extentY);
-							const unsigned int metric = extents * extents + area;
-
-							if (metric > local_best_metric)
-								continue;
-							if (metric == local_best_metric &&
-								sameMetricWorse(x, y, ori, local_best_x, local_best_y,
-												local_best_ori)) // comparison with *best_x and *best_y
-								continue;
-#if  DEBUG_PLACING_STATISTICS
-							local_checks++;
+#if !XA_PACKING_DETERMINISTIC
+						if (fastOut)
+							continue;
 #endif
-							if (!canBlitCoarseToFine(atlasBitImages,
-													 chartBitImages,
-													 x,
-													 y,
-													 ori,
-													 maxResolution, w, h))
-								continue;
+						if (x < leftLimit.x && y < leftLimit.y)
+							continue;
+						// Early out if metric is not better.
+						const unsigned int extentX = max(w, x + cw);
+						const unsigned int extentY = max(h, y + ch);
+						const unsigned int area = extentX * extentY;
+						const unsigned int extents = max(extentX, extentY);
+						const unsigned int metric = extents * extents + area;
 
-							local_best_metric = metric;
-							local_best_x = x;
-							local_best_y = y;
-							local_best_ori = ori;
+						if (metric > local_best_metric)
+							continue;
+						if (metric == local_best_metric &&
+							sameMetricWorse(x, y, ori, local_best_x, local_best_y,
+											local_best_ori)) // comparison with *best_x and *best_y
+							continue;
 #if  DEBUG_PLACING_STATISTICS
-							local_accepted++;
+						local_checks++;
+#endif
+						if (!canBlitCoarseToFine(atlasBitImages,
+												 chartBitImages,
+												 x,
+												 y,
+												 ori,
+												 maxResolution, w, h))
+							continue;
+
+						local_best_metric = metric;
+						local_best_x = x;
+						local_best_y = y;
+						local_best_ori = ori;
+#if  DEBUG_PLACING_STATISTICS
+						local_accepted++;
+#endif
+#if !XA_PACKING_DETERMINISTIC
+						if (area == w * h) {
+							// Chart is completely inside, do not look at any other location.
+							fastOut = true;
+						}
 #endif
 						OMP_CATCH
 					}
@@ -9980,9 +10013,10 @@ private:
 //																		    thisone_false_jumps[2]);
 //		printf("Jumps: %ld\n", thisone_jumps);
 
-		if (best_metric != INT_MAX)
-			printf("Checks: %ld %u ", thisone_checks, chartBitImages.get(0, 0, 0, *best_ori).width() * chartBitImages.get(0, 0, 0, *best_ori).height());
-//		printf("Accepted: %ld\n", thisone_accepted);
+		if (best_metric != INT_MAX) {
+			printf("Checks: %ld %u\n", thisone_checks, chartBitImages.get(0, 0, 0, *best_ori).width() * chartBitImages.get(0, 0, 0, *best_ori).height());
+			printf("Accepted: %ld\n", thisone_accepted);
+		}
 		false_jumps[0] += thisone_false_jumps[0];
 		false_jumps[1] += thisone_false_jumps[1];
 		false_jumps[2] += thisone_false_jumps[2];
@@ -9994,23 +10028,56 @@ private:
 		if (best_metric == INT_MAX)
 			return false;
 
+#if XA_PACKING_REGULAR_GRID_ACCOMMODATE
+		int cur_best_x = *best_x;
+		int cur_best_y = *best_y;
+		for (int dy = 0; dy < stepSize; dy += options.blockAlign ? 4 : 1) {
+			for (int dx = 0; dx < stepSize; dy += options.blockAlign ? 4 : 1) {
+				if (dy == 0 && dx == 0)
+					continue;
+				int x = cur_best_x - dx;
+				int y = cur_best_y - dy;
+				if (x < 0 || y < 0)
+					break;
+
+				if (!canBlitCoarseToFine(atlasBitImages,
+										 chartBitImages,
+										 x,
+										 y,
+										 *best_ori,
+										 maxResolution, w, h))
+					continue;
+
+				*best_x = x;
+				*best_y = y;
+			}
+		}
+#endif
+
 		*best_w = chartBitImages.get(0, 0, 0, *best_ori).width();
 		*best_h = chartBitImages.get(0, 0, 0, *best_ori).height();
 
-		return best_metric != INT_MAX;
+		return true;
 	}
 
-	bool findChartLocation_random(const PackOptions &options, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageTransposed, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, int attempts, uint32_t maxResolution)
+	bool findChartLocation_random(const PackOptions &options, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, int attempts, uint32_t maxResolution)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
 		int best_metric = INT_MAX;
+#if DEBUG_PLACING_STATISTICS
+		long int thisone_jumps = attempts;
+		long int thisone_accepted = 0;
+		long int thisone_checks = 0;
+#endif
 		for (int i = 0; i < attempts; i++) {
-			int cw = chartBitImage->width();
-			int ch = chartBitImage->height();
-			int r = options.transposeCharts ? m_rand.getRange(1) : 0;
-			if (r == 1)
-				swap(cw, ch);
+			int orientation_options = 1 * (options.transposeCharts ? 2 : 1) * (options.rotateCharts ? 4 : 1);
+			int ori = m_rand.getRange(orientation_options - 1);
+
+			const BitImage *image = &chartBitImages.get(0, 0, 0, ori);
+			int cw = image->width();
+			int ch = image->height();
+
 			// + 1 to extend atlas in case atlas full. We may want to use a higher number to increase probability of extending atlas.
 			int xRange = w + 1;
 			int yRange = h + 1;
@@ -10035,24 +10102,71 @@ private:
 			if (metric > best_metric) {
 				continue;
 			}
-			if (metric == best_metric && min(x, y) > min(*best_x, *best_y)) {
+			if (metric == best_metric && min(x, y) >= min(*best_x, *best_y)) {
 				// If metric is the same, pick the one closest to the origin.
 				continue;
 			}
-			if (atlasBitImage->canBlit(r == 1 ? *chartBitImageTransposed : *chartBitImage, x, y)) {
+#if DEBUG_PLACING_STATISTICS
+			thisone_checks++;
+#endif
+
+			if (canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, ori, maxResolution, w, h)) {
 				result = true;
 				best_metric = metric;
 				*best_x = x;
 				*best_y = y;
 				*best_w = cw;
 				*best_h = ch;
-				*best_ori = options.transposeCharts ? r : 0;
+				*best_ori = ori;
+#if DEBUG_PLACING_STATISTICS
+				thisone_accepted++;
+#endif
 				if (area == w * h) {
 					// Chart is completely inside, do not look at any other location.
 					break;
 				}
 			}
 		}
+#if XA_PACKING_REGULAR_GRID_ACCOMMODATE
+		if (result) {
+			while(*best_x >= 0 && *best_y >= 0) {
+				int cur_best_x = *best_x;
+				int cur_best_y = *best_y;
+				const BitImage *image = &chartBitImages.get(0, 0, 0, *best_ori);
+				int x = cur_best_x;
+				int y = cur_best_y - 1;
+
+				if (y >= 0 && canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, *best_ori, maxResolution, w, h)) {
+					*best_x = x;
+					*best_y = y;
+					continue;
+				}
+				x = cur_best_x - 1;
+				y = cur_best_y;
+				if (x < 0)
+					break;
+				if (!canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, *best_ori, maxResolution, w, h))
+					break;
+				*best_x = x;
+				*best_y = y;
+			}
+		}
+#endif
+#if DEBUG_PLACING_STATISTICS
+		//		printf("False coarse jumps for this:\n  lv0: %ld\n  lv1: %ld\n  lv2: %ld\n", thisone_false_jumps[0],
+//																		    thisone_false_jumps[1],
+//																		    thisone_false_jumps[2]);
+//		printf("Jumps: %ld\n", thisone_jumps);
+
+		if (best_metric != INT_MAX) {
+			printf("Jumps: %ld\n", thisone_jumps);
+			printf("Checks: %ld (%f%%) %u\n", thisone_checks, thisone_checks * 1.0 / thisone_jumps, chartBitImages.get(0, 0, 0, *best_ori).width() * chartBitImages.get(0, 0, 0, *best_ori).height());
+			printf("Accepted: %ld\n", thisone_accepted);
+		}
+		jumps += thisone_jumps;
+		accepted += thisone_accepted;
+		checks += thisone_checks;
+#endif
 		return result;
 	}
 

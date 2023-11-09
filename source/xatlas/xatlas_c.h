@@ -203,6 +203,7 @@ typedef struct
 	bool bilinear;
 	bool blockAlign;
 	bool bruteForce;
+	bool randomUseBruteForce;
 	bool createImage;
 	bool rotateChartsToAxis;
 	bool rotateCharts;

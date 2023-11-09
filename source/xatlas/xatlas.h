@@ -221,6 +221,11 @@ struct PackOptions
 	// Slower, but gives the best result. If false, use random chart placement.
 	bool bruteForce = true;
 
+	// If bruteForce is true, this option does nothing.
+	// If bruteForce is false, determines if it will be used for bigger charts (leads to better results).
+	// Disable only if you need result FAST, as it considerably reduces packing quality.
+	bool randomUseBruteForce = true;
+
 	// Create Atlas::image
 	bool createImage = false;
 
