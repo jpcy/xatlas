@@ -8907,8 +8907,8 @@ struct Atlas
 				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
 					minCorner = min(minCorner, chart->uniqueVertexAt(i));
 				if (options.preserveInputTexcoordsFractionalPart) {
-					minCorner.x = std::floor(minCorner.x);
-					minCorner.y = std::floor(minCorner.y);
+					minCorner.x = floorf(minCorner.x);
+					minCorner.y = floorf(minCorner.y);
 				}
 			}
 			Vector2 extents(0.0f);
@@ -10303,7 +10303,9 @@ private:
 		XA_DEBUG_ASSERT(orientation <= chartBitImages.orientations());
 
 		const int coarse_levels = chartBitImages.levels();
-		BitImage image[coarse_levels];
+		Array<BitImage> images;
+		images.resize(coarse_levels);
+		images.runCtors();
 		for (int coarse_level = 0; coarse_level < coarse_levels; coarse_level++)
 		{
 #if !XA_PACKING_COARSE_RATE_IS_POWER_OF_2
@@ -10313,21 +10315,23 @@ private:
 #endif
 
 			if (coarse_level == 0) {
-				chartBitImages.get(0, 0, 0, orientation).copyTo(image[0]);
+				const BitImage &img = chartBitImages.get(0, 0, 0, orientation);
+				images[0].resize(img.width(), img.height(), true);
+				img.copyTo(images[0]);
 			} else {
 #if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
 				int true_rate = (coarse_level - 1) * XA_PACKING_COARSE_RATE_POWER_OF_2;
-				image[coarse_level - 1].reduceTo(&image[coarse_level], XA_PACKING_COARSE_RATE,
-												 offset_x >> true_rate, offset_y >> true_rate, true);
+				images[coarse_level - 1].reduceTo(&images[coarse_level], XA_PACKING_COARSE_RATE,
+												  offset_x >> true_rate, offset_y >> true_rate, true);
 #elif
 				int true_rate = rate_cur / XA_PACKING_COARSE_RATE;
-				image[coarse_level - 1].reduceTo(&image[coarse_level], XA_PACKING_COARSE_RATE,
+				images[coarse_level - 1].reduceTo(&images[coarse_level], XA_PACKING_COARSE_RATE,
 												 offset_x / true_rate, offset_y / true_rate, true);
 #endif
 			}
 			BitImage& curCoarseAtlasImageLayer = *(*atlasBitImage)[coarse_level];
-			int w = image[coarse_level].width();
-			int h = image[coarse_level].height();
+			int w = images[coarse_level].width();
+			int h = images[coarse_level].height();
 			for (int y = 0; y < h; y++) {
 #if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
 				int yy = y + (offset_y >> coarse_level * XA_PACKING_COARSE_RATE_POWER_OF_2);
@@ -10342,7 +10346,7 @@ private:
 						int xx = x + offset_x / rate_cur;
 #endif
 						if (xx < 0) continue;
-						if (!image[coarse_level].get(x, y)) continue;
+						if (!images[coarse_level].get(x, y)) continue;
 						if (xx >= atlas_w || yy >= atlas_h) continue;
 						XA_DEBUG_ASSERT(curCoarseAtlasImageLayer.get(xx, yy) == false);
 						curCoarseAtlasImageLayer.set(xx, yy);
@@ -10350,6 +10354,7 @@ private:
 				}
 			}
 		}
+		images.runDtors();
 	}
 
 	void bilinearExpand(const Chart *chart, const BitImage *source, BitImage *dest, BitImage *destTransposed, UniformGrid2 &boundaryEdgeGrid) const
