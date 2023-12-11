@@ -8965,14 +8965,21 @@ struct Atlas
 						}
 					}
 				}
-				// Align to texel centers and add padding offset.
-				extents.x = extents.y = 0.0f;
+				// Align to texel centers.
 				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
 					Vector2 &texcoord = chart->uniqueVertexAt(v);
-					texcoord.x += 0.5f + options.padding;
-					texcoord.y += 0.5f + options.padding;
-					extents = max(extents, texcoord);
+					texcoord.x += 0.5f;
+					texcoord.y += 0.5f;
 				}
+			}
+
+			// Add padding offset.
+			extents.x = extents.y = 0.0f;
+			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+				Vector2 &texcoord = chart->uniqueVertexAt(v);
+				texcoord.x += options.padding;
+				texcoord.y += options.padding;
+				extents = max(extents, texcoord);
 			}
 			if (extents.x > resolution || extents.y > resolution)
 				XA_PRINT("   Chart %u extents are large (%gx%g)\n", c, extents.x, extents.y);
@@ -9261,7 +9268,6 @@ struct Atlas
 						{
 							XA_DEBUG_ASSERT(options.rotateCharts);
 							float tmp = t.x;
-//							t.x = (chartAABB_maxCorner.y - chartAABB_minCorner.y) - t.y;
 							t.x = chartSize.y - t.y;
 							t.y = tmp;
 							break;
@@ -9269,8 +9275,6 @@ struct Atlas
 						case 2:
 						{
 							XA_DEBUG_ASSERT(options.rotateCharts);
-//							t.x = (chartAABB_maxCorner.x - chartAABB_minCorner.x) - t.x;
-//							t.y = (chartAABB_maxCorner.y - chartAABB_minCorner.y) - t.y;
 							t.x = chartSize.x - t.x;
 							t.y = chartSize.y - t.y;
 							break;
@@ -9279,7 +9283,6 @@ struct Atlas
 						{
 							XA_DEBUG_ASSERT(options.rotateCharts);
 							float tmp = t.y;
-//							t.y = (chartAABB_maxCorner.x - chartAABB_minCorner.x) - t.x;
 							t.y = chartSize.x - t.x;
 							t.x = tmp;
 							break;
