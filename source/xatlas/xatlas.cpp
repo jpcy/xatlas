@@ -178,7 +178,6 @@ Copyright (c) 2012 Brandon Pelfrey
 static_assert(1 << XA_PACKING_COARSE_RATE_POWER_OF_2 == XA_PACKING_COARSE_RATE, "error: XA_PACKING_COARSE_RATE is expected to be a power of 2");
 #endif
 
-#define DRAW 0
 #define XA_DEBUG_CHART -1
 #define XA_DEBUG_CHART_X 101
 #define XA_DEBUG_CHART_Y 9
@@ -336,10 +335,6 @@ public:
 #define OMP_CATCH_RETHROW
 #endif
 
-#if DRAW
-#include "CImg.h"
-#undef Success // From X11/X.h (shadows AddMeshError::Success
-#endif
 
 namespace xatlas {
 namespace internal {
@@ -9217,60 +9212,6 @@ struct Atlas
 			}
 			XA_PROFILE_START(packChartsBlit)
 
-#if DRAW
-			if (cimg_draw)
-			{
-				for (int a = 0; a >= 0; --a) {
-					int ixlen = (*atlasBitImages[currentAtlas])[a]->width();
-					int iylen = (*atlasBitImages[currentAtlas])[a]->height();
-
-					BitImage &chrt = chartPyramid.get(0, 0, 0, best_ori);
-					// image for a current layer
-					cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
-					#pragma omp parallel for collapse(2)
-					for (int ix = 0; ix < ixlen; ix++) {
-						for (int iy = 0; iy < iylen; iy++) {
-							unsigned char intensity = 0;
-							int pixel_status = 0;
-							pixel_status += (*atlasBitImages[currentAtlas])[a]->get(ix, iy) ? 2 : 0;
-									if (ix >= best_x
-										&& ix < best_x + chrt.width()
-										&& iy >= best_y
-										&& iy < best_y  + chrt.height())
-										pixel_status += (chrt.get(
-												ix - best_x,
-												iy - best_y)) ? 1 : 0;
-
-							switch (pixel_status) {
-								case 0:
-									break;
-								case 1:
-									intensity = 128;
-									break;
-								case 2:
-									intensity = 96;
-									break;
-								case 3:
-									intensity = 255;
-									break;
-								default:
-									intensity = 3;
-							}
-							export_img(ix, iy) = intensity;
-						}
-					}
-					std::string export_path = "data/debug/imges/";
-
-					char buffer[16];
-					sprintf(buffer, "%04d", i);
-					std::string i_str(buffer);
-
-					export_path = export_path + (GPU ? "ii" : "i") + "/overlap_" + std::to_string(currentAtlas) + "_" + std::to_string(a) + "_" + i_str + ".png";
-					export_img.save(export_path.c_str());
-				}
-			}
-#endif
-
 			addChart(atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_ori);
 			XA_PROFILE_END(packChartsBlit)
 			if (createImage) {
@@ -10170,7 +10111,6 @@ private:
 		return result;
 	}
 
-	// if true, offset_x and offset_y are tuned accordingly, returning true offset instead of approximate.
 	bool canBlitCoarseToFine(const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int offset_x, int offset_y, int orientation, uint32_t maxResolution, int w, int h) const
 	{
 		const int coarse_size = chartBitImages.levels();
@@ -10197,92 +10137,6 @@ private:
 
 			const bool canBlit = (*atlasBitImages)[coarse_level]->canBlit(imageChart, coarse_offset_x, coarse_offset_y);
 
-#if DRAW
-			if (cimg_draw)
-			{
-//							for (a = m_bitImagesCoarseLevels - 1; a >= m_bitImagesCoarseLevels - 1; --a) {
-				for (int a = coarse_level; a >= coarse_level; --a) {
-					if (offset_x < 103 || offset_x > 103 || offset_y < 0 || offset_y > 0)
-						break;
-					int ixlen = (*atlasBitImages)[a]->width();
-					int iylen = (*atlasBitImages)[a]->height();
-//						int *offset_x = &best_x;
-//						int *offset_y = &best_y;
-					// image for a current layer
-					cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
-					for (int ix = 0; ix < ixlen; ix++) {
-						for (int iy = 0; iy < iylen; iy++) {
-							unsigned char intensity = 0;
-							int pixel_status = 0;
-							pixel_status += (*atlasBitImages)[a]->get(ix, iy) ? 2 : 0;
-								if (ix >= (coarse_offset_x)
-									&&
-									ix < (coarse_offset_x) + imageChart.width()
-									&& iy >= (coarse_offset_y)
-									&& iy <
-									   (coarse_offset_y) + imageChart.height())
-									pixel_status += (imageChart.get(
-											ix - (coarse_offset_x),
-											iy - (coarse_offset_y))) ? 1 : 0;
-
-							switch (pixel_status) {
-								case 0:
-									break;
-								case 1:
-									intensity = 192;
-									break;
-								case 2:
-									intensity = 96;
-									break;
-								case 3:
-									intensity = 255;
-									break;
-								default:
-									intensity = 2;
-							}
-							export_img(ix, iy) = intensity;
-						}
-					}
-					export_img.save(("data/debug/imges/iii/overlap" + std::to_string(a)
-					+ "_" + (canBlit ? "y" : "n") + std::to_string(orientation) + "(" + std::to_string(coarse_offset_x) + ", " + std::to_string(coarse_offset_y) + ")"+ std::to_string(offset_x) + std::to_string(offset_y) + ".png").c_str());
-				}
-
-				for (int a = coarse_level; a >= 0; --a) {
-					if (offset_x < 96 || offset_x > 103 || offset_y < 0 || offset_y > 0)
-						break;
-					const BitImage &imageChartPrint = chartBitImages.get(a, offset_x, offset_y, orientation);
-					int ixlen = imageChartPrint.width();
-					int iylen = imageChartPrint.height();
-//						int *offset_x = &best_x;
-//						int *offset_y = &best_y;
-					// image for a current layer
-					cimg_library::CImg<unsigned char> export_img = cimg_library::CImg(ixlen, iylen, 1, 1);
-					for (int ix = 0; ix < ixlen; ix++) {
-						for (int iy = 0; iy < iylen; iy++) {
-							unsigned char intensity = 0;
-							int pixel_status = 0;
-							pixel_status += imageChartPrint.get(ix, iy) ? 1 : 0;
-
-							switch (pixel_status) {
-								case 0:
-									break;
-								case 1:
-									intensity = 255;
-									break;
-								default:
-									intensity = 2;
-							}
-							export_img(ix, iy) = intensity;
-						}
-					}
-					export_img.save(("data/debug/imges/iv/chart_" + std::to_string(offset_x) + "," + std::to_string(offset_y)
-									 + "_" + std::to_string(a) + (canBlit ? "y" : "n") + std::to_string(orientation)
-									 + "(" + std::to_string(coarse_offset_x) + ", " + std::to_string(coarse_offset_y) + ")_" + ".png").c_str());
-//					if (coarse_level != 0)
-//						canBlit = true;
-				}
-			}
-#endif
 			if (!canBlit) {
 #if DEBUG_PLACING_STATISTICS
 				if (coarse_level < coarse_size - 1 && coarse_level <= 2) {
