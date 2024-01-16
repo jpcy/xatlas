@@ -47,6 +47,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #include <assert.h>
 #include <float.h> // FLT_MAX
 #include <limits.h>
+#define _USE_MATH_DEFINES
 #include <math.h>
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
@@ -2722,9 +2723,9 @@ public:
 
 		// use the corner whose angle is the closest to a right angle,
 		// as that will give the most stable results for the cross product calculation
-		const float diff0 = abs(M_PI * 0.5f - angle(e00, e01));
-		const float diff1 = abs(M_PI * 0.5f - angle(e10, e11));
-		const float diff2 = abs(M_PI * 0.5f - angle(e20, e21));
+		const float diff0 = abs(M_PI_2 - angle(e00, e01));
+		const float diff1 = abs(M_PI_2 - angle(e10, e11));
+		const float diff2 = abs(M_PI_2 - angle(e20, e21));
 		Vector3 normalAreaScaled;
 		if (diff0 <= diff1 && diff0 <= diff2) {
 			normalAreaScaled = cross(e00, e01);
