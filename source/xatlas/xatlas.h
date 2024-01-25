@@ -219,7 +219,12 @@ struct PackOptions
 	bool blockAlign = false;
 
 	// Slower, but gives the best result. If false, use random chart placement.
-	bool bruteForce = false;
+	bool bruteForce = true;
+
+	// If bruteForce is true, this option does nothing.
+	// If bruteForce is false, determines if it will be used for bigger charts (leads to better results).
+	// Disable only if you need result FAST, as it considerably reduces packing quality.
+	bool randomUseBruteForce = true;
 
 	// Create Atlas::image
 	bool createImage = false;
@@ -229,6 +234,38 @@ struct PackOptions
 
 	// Rotate charts to improve packing.
 	bool rotateCharts = true;
+
+	// Transpose charts to improve packing.
+	bool transposeCharts = true;
+
+	// In case of photogrammetry texturing each built texture pixel was sampled from pixel in the "best" photo.
+	// To mitigate information loss/blur due to color sampling from the "best" photo - it can be
+	// beneficial to have center-to-center atlas-pixel to photo-pixel projection.
+	// So we want to use atlas parametrization based on texture coordinates of 2D projection into "best" photo.
+	// And to guarantee center-to-center pixel-pixel projection - we need to preserve fractional part of such texture coordinates.
+	bool preserveInputTexcoordsFractionalPart = false;
+
+	// Reduce charts `coarseLevels` times to speed up checking if current chart position is valid. Works only with bruteForce on.
+	// If 0, no reduction is done.
+	// In any case, final result is not changed.
+	// Warning: setting this to numbers more than 4 can result in significant memory consumption.
+	int coarseLevels = 1;
+
+	// Disable options below to gain better packing results from bruteForce. Will work slower.
+
+	// Skip atlases for current chart if previous chart was not fitting here.
+	// Works (a bit) faster, with a tradeoff of worse packing.
+	bool skipSpeedup = true;
+
+	// Works as blockAlign, but result is kept dense.
+	// Works (a lot) faster, with a tradeoff of worse packing.
+	bool gridSpeedup = true;
+
+	// Try to place chart near previous chart; value is a fraction of atlas that is counted as "near".
+	// 0.f ------- 1.f
+	// faster      slower
+	// less dense  more dense
+	float usePreviousPositionOffset = 0.04f;
 };
 
 // Call after ComputeCharts. Can be called multiple times to re-pack charts with different options.

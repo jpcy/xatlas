@@ -160,6 +160,124 @@ Copyright (c) 2012 Brandon Pelfrey
 #define XA_SPRINTF(_buffer, _size, _format, ...) sprintf(_buffer, _format, __VA_ARGS__)
 #endif
 
+
+#define XA_USE_GPU 0
+#define XA_OMP_PARALLEL 1
+
+#define XA_PACKING_REGULAR_GRID_SIZE 4
+#define XA_PACKING_REGULAR_GRID_ACCOMMODATE 1
+#define XA_PACKING_DETERMINISTIC 1
+
+#define XA_PACKING_RANDOM_ATTEMPTS (1 << 12)
+#define XA_PACKING_RANDOM_THRESHOLD (1e-4f)
+
+#define XA_PACKING_COARSE_RATE 4
+#define XA_PACKING_COARSE_RATE_IS_POWER_OF_2 1
+#define XA_PACKING_COARSE_RATE_POWER_OF_2 2
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+static_assert(1 << XA_PACKING_COARSE_RATE_POWER_OF_2 == XA_PACKING_COARSE_RATE, "error: XA_PACKING_COARSE_RATE is expected to be a power of 2");
+#endif
+
+#define XA_DEBUG_CHART -1
+#define XA_DEBUG_CHART_X 101
+#define XA_DEBUG_CHART_Y 9
+#define DEBUG_PLACING_STATISTICS 0
+
+#if DEBUG_PLACING_STATISTICS
+static long int false_jumps[3] = {0};
+static long int jumps = 0;
+static long int checks = 0;
+static long int accepted = 0;
+static long int local_false_jumps[3] = {0};
+static long int local_jumps = 0;
+#endif
+
+#include <vector>
+
+#if XA_USE_GPU
+//#undef CUDA_SUPPORT
+#define CUDA_PROFILE 0
+#define WORK_GROUP_SIZE 16
+#include "cl/blit_cl.h"
+#include <map>
+#include <utils/timer.h>
+
+#include <libgpu/context.h>
+#include <libgpu/shared_device_buffer.h>
+#include <libgpu/device.h>
+#include <libutils/misc.h>
+#ifdef CUDA_SUPPORT
+#include <cuda_profiler_api.h>
+void cuda_blit(const gpu::WorkSize &workSize,
+			   const unsigned long *atlas, const unsigned long *chart,
+			   const int limit_w, const int limit_h,
+			   const int levels,
+			   const int rate,
+			   const unsigned int *atlasSizes,
+			   const unsigned int *chartSizes,
+			   unsigned int *best,
+			   unsigned char *results,
+			   cudaStream_t stream);
+
+void cuda_blitLevel(const gpu::WorkSize &workSize,
+					const unsigned long *atlases,
+					const unsigned long *charts,
+					const int w, const int h,
+					const 			int  limit_w,
+					const 			int  limit_h,
+					const 			int  level,
+					const 			int  rate,
+					const unsigned  int  *atlasSizes,
+					const unsigned  int  *chartSizes,
+					unsigned int *best_metric,
+					unsigned int *results,
+					cudaStream_t stream);
+
+void cuda_blitFiltered(const gpu::WorkSize &workSize,
+					   const unsigned long *atlases,
+					   const unsigned long *charts,
+					   const int w, const int h,
+					   int limit_w,
+					   int limit_h,
+					   int level,
+					   int rate,
+					   const unsigned int *atlasSizes,
+					   const unsigned int *chartSizes,
+					   bool filtered,
+					   const unsigned int candidates,
+					   const unsigned short *filter_x,
+					   const unsigned short *filter_y,
+					   unsigned int *best_metric,
+					   unsigned int *results,
+					   cudaStream_t stream);
+
+void cuda_bufferCleanup(const gpu::WorkSize &workSize,
+					 unsigned int *array,
+					 const uint64_t n,
+					 cudaStream_t stream);
+
+void cuda_scanReduce(const gpu::WorkSize &workSize,
+					 unsigned int *array,
+					 const uint64_t limit,
+					 const uint64_t offset,
+					 cudaStream_t stream);
+
+void cuda_scanDownSweep(const gpu::WorkSize &workSize,
+					 unsigned int *array,
+					 const uint64_t limit,
+					 const uint64_t offset,
+					 cudaStream_t stream);
+
+void cuda_aggregateResults(const gpu::WorkSize &workSize,
+						   const unsigned int *array,
+						   int limit_w, int limit_h,
+						   unsigned short *results_x,
+						   unsigned short *results_y,
+						   cudaStream_t stream);
+#endif
+#endif
+
+
 namespace xatlas {
 namespace internal {
 
@@ -1346,8 +1464,11 @@ public:
 	BitImage &operator=(const BitImage &other) = delete;
 	uint32_t width() const { return m_width; }
 	uint32_t height() const { return m_height; }
+	uint32_t stride() const { return m_rowStride; }
 
-	void copyTo(BitImage &other)
+	const uint64_t *data() const { return m_data.data(); }
+
+	void copyTo(BitImage &other) const
 	{
 		other.m_width = m_width;
 		other.m_height = m_height;
@@ -1455,11 +1576,365 @@ public:
 		}
 	}
 
+	// This BitImage would be reduced into *image by rules:
+	//   Image is divided into blocks of size rate x rate
+	//   If block has any/all bits set to 1 (depending on pessimistic=false/true, respectively):
+	//     Set respective bit of reduced image to 1.
+	void reduceTo(BitImage *image, int rate, int offset_x, int offset_y, bool pessimistic) const
+	{
+		XA_DEBUG_ASSERT(image != nullptr);
+		XA_DEBUG_ASSERT(image != this);
+		XA_ASSERT(offset_x >= 0);
+		XA_ASSERT(offset_y >= 0);
+		offset_x %= rate;
+		offset_y %= rate;
+
+		if (pessimistic) {
+			reduceToPessimistic(image, rate, offset_x, offset_y);
+		} else {
+			reduceToOptimistic(image, rate, offset_x, offset_y);
+		}
+	}
+
+	void rotateTo(BitImage *image1, BitImage *image2, BitImage *image3) const
+	{
+		XA_DEBUG_ASSERT(image1 != this);
+		XA_DEBUG_ASSERT(image2 != this);
+		XA_DEBUG_ASSERT(image3 != this);
+
+		BitImage *images[4];
+		images[1] = image1;
+		images[2] = image2;
+		images[3] = image3;
+
+		for (int r = 1; r < 4; ++r) {
+			if (r % 2 == 0)
+				images[r]->resize(m_width, m_height, true);
+			else
+				images[r]->resize(m_height, m_width, true);
+		}
+
+		for (uint32_t y = 0; y < m_height; ++y) {
+			for (uint32_t x = 0; x < m_width; ++x) {
+				if (get(x, y)) {
+					if (images[1] != nullptr)
+						images[1]->set(m_height - y - 1, x);
+					if (images[2] != nullptr)
+						images[2]->set(m_width - x - 1, m_height - y - 1);
+					if (images[3] != nullptr)
+						images[3]->set(y, m_width - x - 1);
+				}
+			}
+		}
+	}
+
 private:
+	void reduceToPessimistic(BitImage *image, int rate, int offset_x, int offset_y) const
+	{
+		image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
+
+		for (uint32_t y = 0; y < image->height(); ++y) {
+			for (uint32_t x = 0; x < image->width(); ++x) {
+				if ((x + 1) * rate - offset_x > (int)m_width || (y + 1) * rate - offset_y > (int)m_height)
+					continue;
+
+				bool all = true;
+				// traversal within reduction square
+				for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
+					for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
+						if (yy < 0 || xx < 0 || !get(xx, yy)) {
+							all = false;
+							break;
+						}
+					}
+					if (!all)
+						break;
+				}
+
+				if (all)
+					image->set(x, y);
+			}
+		}
+	}
+
+	void reduceToOptimistic(BitImage *image, int rate, int offset_x, int offset_y) const
+	{
+		image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
+
+		BitImage rect;
+		rect.resize(rate, rate, true);
+		for (int yy = 0; yy < rate; ++yy) {
+			for (int xx = 0; xx < rate; ++xx) {
+				rect.set(xx, yy);
+			}
+		}
+
+		for (uint32_t y = 0; y < image->height(); ++y) {
+			for (uint32_t x = 0; x < image->width(); ++x) {
+				// fast check using existing code; does not work near edges
+				if (x * rate - offset_x >= 0 && (x + 1) * rate - offset_x <= (int)m_width
+					&& y * rate - offset_y >= 0 && (y + 1) * rate - offset_y <= (int)m_height) {
+					if (!canBlit(rect, x * rate - offset_x, y * rate - offset_y))
+						image->set(x, y);
+					continue;
+				}
+				bool any = false;
+				// traversal within reduction square
+				for (int yy = y * rate - offset_y; yy < (y + 1) * rate - offset_y && yy < (int)m_height; ++yy) {
+					for (int xx = x * rate - offset_x; xx < (x + 1) * rate - offset_x && xx < (int)m_width; ++xx) {
+						if (yy >= 0 && xx >= 0 && get(xx, yy)) {
+							any = true;
+							break;
+						}
+					}
+					if (any)
+						break;
+				}
+
+				if (any)
+					image->set(x, y);
+			}
+		}
+	}
+
 	uint32_t m_width;
 	uint32_t m_height;
 	uint32_t m_rowStride; // In uint64_t's
 	Array<uint64_t> m_data;
+};
+
+class CoarsePyramid
+{
+public:
+	CoarsePyramid(const BitImage *image, const BitImage *imageTransposed, int levels, bool rotate = false) : m_levels(levels), m_rotated(rotate)
+	{
+		XA_DEBUG_ASSERT(image != nullptr);
+		m_orientations = 1;
+		if (imageTransposed != nullptr) {
+			m_transposed = true;
+			m_orientations *= 2;
+		}
+		if (m_rotated)
+			m_orientations *= 4;
+
+#if XA_PACKING_COARSE_RATE==1
+		m_levels = 1;
+#endif
+
+// making hard limit on levels; charts that are small enough would not be reduced
+#define XA_COARSE_MAX_REDUCTION_SIZE 64
+		int extents = max(image->width(), image->height());
+		levels = 1;
+		while (extents > XA_COARSE_MAX_REDUCTION_SIZE && levels < m_levels) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			extents >>= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
+			extents /= XA_PACKING_COARSE_RATE;
+#endif
+			++levels;
+		}
+		m_levels = levels;
+
+		uint32_t num_images;
+		if (m_levels == 1) {
+			num_images = m_orientations;
+		} else {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			uint64_t rate_pow_levels = XA_PACKING_COARSE_RATE_POWER_OF_2 * 2 * m_levels;
+			XA_ASSERT(rate_pow_levels < 32 - 3);
+
+			num_images = ((1 << rate_pow_levels) - 1) / ((1 << XA_PACKING_COARSE_RATE_POWER_OF_2 * 2) - 1) * m_orientations;
+#elif
+			uint32_t rate_squared = XA_PACKING_COARSE_RATE * XA_PACKING_COARSE_RATE;
+			uint64_t rate_pow_levels = 1;
+
+			for (int i = 0; i < m_levels; ++i) {
+				rate_pow_levels *= rate_squared;
+			}
+			// TODO: somehow limit user input?
+			// using too many levels together with too high rate could create to many images.
+			XA_ASSERT(rate_pow_levels * m_orientations < UINT32_MAX);
+			num_images = (rate_pow_levels - 1) / (rate_squared - 1) * m_orientations;
+#endif
+		}
+		m_data.resize(num_images);
+		m_data.runCtors();
+
+		m_data[0].resize(image->width(), image->height(), true);
+		image->copyTo(m_data[0]);
+		if (m_transposed) {
+			int r = m_rotated ? 4 : 1;
+			m_data[r].resize(image->height(), image->width(), true);
+			imageTransposed->copyTo(m_data[r]);
+		}
+
+		// if both transposed and rotated:
+		// the order of transposes and rotations is:
+		// 0 1 2 3 rotations, 4 5 6 7 transposed rotations
+		if (m_rotated) {
+			m_data[0].rotateTo(&m_data[1], &m_data[2], &m_data[3]);
+			if (m_transposed) {
+				m_data[4].rotateTo(&m_data[5], &m_data[6], &m_data[7]);
+			}
+		}
+
+		for (int level = 1; level < m_levels; ++level) {
+			for (int r = 0; r < m_orientations; ++r) {
+				// do something
+				int rate_cur = 1;
+				for (int i = 0; i < level; ++i)
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+					rate_cur <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
+					rate_cur *= XA_PACKING_COARSE_RATE;
+#endif
+#if XA_OMP_PARALLEL
+#pragma omp parallel for collapse(2)
+#endif // XA_OMP_PARALLEL
+				for (int offset_y = 0; offset_y < rate_cur; offset_y++) {
+					for (int offset_x = 0; offset_x < rate_cur; offset_x++) {
+						BitImage &parent = get(level - 1, offset_x, offset_y, r);
+						BitImage &child = get(level, offset_x, offset_y, r);
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+						parent.reduceTo(&child,
+										XA_PACKING_COARSE_RATE,
+										offset_x >> (XA_PACKING_COARSE_RATE_POWER_OF_2 * (level - 1)),
+										offset_y >> (XA_PACKING_COARSE_RATE_POWER_OF_2 * (level - 1)),
+										false);
+#elif
+						parent.reduceTo(&child,
+										XA_PACKING_COARSE_RATE,
+										offset_x * XA_PACKING_COARSE_RATE / rate_cur,
+										offset_y * XA_PACKING_COARSE_RATE / rate_cur,
+										false);
+#endif
+					}
+				}
+			}
+		}
+	}
+
+	~CoarsePyramid()
+	{
+		m_data.runDtors();
+	}
+
+	const BitImage& get(int level, int offset_x = 0, int offset_y = 0, int orientation = 0) const
+	{
+		XA_DEBUG_ASSERT(level < m_levels);
+		XA_DEBUG_ASSERT(orientation < 8);
+		XA_DEBUG_ASSERT(orientation < 4 || m_transposed);
+		XA_DEBUG_ASSERT(m_rotated || (m_transposed && orientation < 2) || orientation == 0);
+
+		if (m_levels == 1)
+			return m_data[orientation];
+
+		// rate on current level
+		int cur_level_rate = 1;
+		// number of images on all previous layers
+		int num_offset = 0;
+		for (int i = 0; i < level; ++i) {
+			num_offset += cur_level_rate * cur_level_rate;
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			cur_level_rate <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
+			cur_level_rate *= XA_PACKING_COARSE_RATE;
+#endif
+		}
+		num_offset *= m_orientations;
+
+		const int cur_orientations = cur_level_rate * cur_level_rate * orientation;
+		const int cur_offset_x = (offset_x % cur_level_rate);
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+		const int cur_offset_y = level == 0 ? 0 : (offset_y & ((1 << (XA_PACKING_COARSE_RATE_POWER_OF_2 * level)) - 1)) << (XA_PACKING_COARSE_RATE_POWER_OF_2 * level);
+#elif
+		const int cur_offset_y = (offset_y % cur_level_rate) * cur_level_rate;
+#endif
+
+		return m_data[num_offset + cur_orientations + cur_offset_y + cur_offset_x];
+	}
+
+	BitImage& get(int level, int offset_x = 0, int offset_y = 0, int orientation = 0)
+	{
+		XA_DEBUG_ASSERT(level < m_levels);
+		XA_DEBUG_ASSERT(orientation < 8);
+		XA_DEBUG_ASSERT(orientation < 4 || m_transposed);
+		XA_DEBUG_ASSERT(m_rotated || (m_transposed && orientation < 2) || orientation == 0);
+
+		if (m_levels == 1)
+			return m_data[orientation];
+
+		// rate on current level
+		int cur_level_rate = 1;
+		// number of images on all previous layers
+		int num_offset = 0;
+		for (int i = 0; i < level; ++i) {
+			num_offset += cur_level_rate * cur_level_rate;
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			cur_level_rate <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
+			cur_level_rate *= XA_PACKING_COARSE_RATE;
+#endif
+		}
+		num_offset *= m_orientations;
+
+		const int cur_orientations = cur_level_rate * cur_level_rate * orientation;
+		const int cur_offset_x = (offset_x % cur_level_rate);
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+		const int cur_offset_y = level == 0 ? 0 : (offset_y & ((1 << (XA_PACKING_COARSE_RATE_POWER_OF_2 * level)) - 1)) << (XA_PACKING_COARSE_RATE_POWER_OF_2 * level);
+#elif
+		const int cur_offset_y = (offset_y % cur_level_rate) * cur_level_rate;
+#endif
+
+		return m_data[num_offset + cur_orientations + cur_offset_y + cur_offset_x];
+	}
+
+	XA_INLINE const BitImage& getTransposed(int level, int offset_x = 0, int offset_y = 0, int rotation = 0) const
+	{
+		if (m_rotated)
+			return get(level, offset_x, offset_y, rotation + 4);
+		else {
+			XA_DEBUG_ASSERT(rotation == 0);
+			return get(level, offset_x, offset_y, 1);
+		}
+	}
+
+	XA_INLINE BitImage& getTransposed(int level, int offset_x = 0, int offset_y = 0, int rotation = 0)
+	{
+		if (m_rotated)
+			return get(level, offset_x, offset_y, rotation + 4);
+		else {
+			XA_DEBUG_ASSERT(rotation == 0);
+			return get(level, offset_x, offset_y, 1);
+		}
+	}
+
+	XA_INLINE const BitImage& getRotation(int level, int rotation, int offset_x = 0, int offset_y = 0, bool transposed = false) const
+	{
+		return get(level, offset_x, offset_y, transposed ? rotation + 4 : rotation);
+	}
+
+	XA_INLINE BitImage& getRotation(int level, int rotation, int offset_x = 0, int offset_y = 0, bool transposed = false)
+	{
+		return get(level, offset_x, offset_y, transposed ? rotation + 4 : rotation);
+	}
+
+	int levels() const
+	{
+		return m_levels;
+	}
+
+	int orientations() const
+	{
+		return m_orientations;
+	}
+
+private:
+	Array<BitImage> m_data;
+	int m_levels;
+	bool m_transposed = false;
+	bool m_rotated = false;
+	int m_orientations = 1;
 };
 
 // From Fast-BVH
@@ -2051,6 +2526,7 @@ public:
 		c = 7654321;
 	}
 
+	// inclusive
 	uint32_t getRange(uint32_t range)
 	{
 		if (range == 0)
@@ -4598,8 +5074,8 @@ static void nlBegin(NLContext *context, uint32_t prim)
 		NL_CLEAR_ARRAY(double, context->variable_value, context->nb_variables * context->nb_systems);
 		for (uint32_t k = 0; k < context->nb_systems; ++k) {
 			context->variable_buffer[k].base_address =
-				context->variable_value +
-				k * context->nb_variables;
+					context->variable_value +
+					k * context->nb_variables;
 			context->variable_buffer[k].stride = sizeof(double);
 		}
 		context->variable_is_locked = NL_NEW_ARRAY(bool, context->nb_variables);
@@ -5587,7 +6063,7 @@ private:
 						m_sharedBoundaryLengths[cc] > 0.75f * chart2->boundaryLength)
 						goto merge;
 					continue;
-				merge:
+					merge:
 					if (!mergeChart(chart, chart2, m_sharedBoundaryLengthsNoSeams[cc]))
 						continue;
 					merged = true;
@@ -7087,7 +7563,7 @@ struct Quality
 			const float a = dot(Ss, Ss); // E
 			const float b = dot(Ss, St); // F
 			const float c = dot(St, St); // G
-										 // Compute eigen-values of the first fundamental form:
+			// Compute eigen-values of the first fundamental form:
 			const float sigma1 = sqrtf(0.5f * max(0.0f, a + c - sqrtf(square(a - c) + 4 * square(b)))); // gamma uppercase, min eigenvalue.
 			const float sigma2 = sqrtf(0.5f * max(0.0f, a + c + sqrtf(square(a - c) + 4 * square(b)))); // gamma lowercase, max eigenvalue.
 			XA_ASSERT(sigma2 > sigma1 || equal(sigma1, sigma2, kEpsilon));
@@ -7854,7 +8330,7 @@ static void runMeshComputeChartsTask(void *groupUserData, void *taskUserData)
 		XA_PROFILE_END(chartGroupComputeChartsReal)
 	}
 	XA_PROFILE_END(computeChartsThread)
-cleanup:
+	cleanup:
 	if (meshFaceGroups) {
 		meshFaceGroups->~MeshFaceGroups();
 		XA_FREE(meshFaceGroups);
@@ -8285,6 +8761,7 @@ struct Atlas
 		}
 		// Estimate resolution and/or texels per unit if not specified.
 		m_texelsPerUnit = options.texelsPerUnit;
+		m_bitImagesCoarseLevels = options.coarseLevels + 1;
 		uint32_t resolution = options.resolution > 0 ? options.resolution + options.padding * 2 : 0;
 		const uint32_t maxResolution = m_texelsPerUnit > 0.0f ? resolution : 0;
 		if (resolution <= 0 || m_texelsPerUnit <= 0) {
@@ -8309,6 +8786,39 @@ struct Atlas
 		chartOrderArray.resize(chartCount);
 		Array<Vector2> chartExtents;
 		chartExtents.resize(chartCount);
+#if XA_USE_GPU
+		//		std::vector<std::string> arguments = {"this_means_cpu", "0"};
+		std::vector<std::string> arguments = {"this_means_gpu", "1"};
+
+		std::vector<char*> argv;
+		for (const auto& arg : arguments)
+			argv.push_back((char*)arg.data());
+		argv.push_back(nullptr);
+
+		gpu::Device device = gpu::chooseGPUDevice(argv.size() - 1, argv.data());
+
+		gpu::Context context;
+#ifdef CUDA_SUPPORT
+		context.init(device.device_id_cuda);
+#else
+		context.init(device.device_id_opencl);
+#endif
+		context.activate();
+
+#ifndef CUDA_SUPPORT
+		std::map<std::string, ocl::Kernel> kernels;
+		kernels["blit"] = ocl::Kernel(blit_kernel, blit_kernel_length, "blit");
+		kernels["blitLevel"] = ocl::Kernel(blit_kernel, blit_kernel_length, "blitLevel");
+		kernels["bufferCleanup"] = ocl::Kernel(blit_kernel, blit_kernel_length, "bufferCleanup");
+		kernels["scanReduce"] = ocl::Kernel(blit_kernel, blit_kernel_length, "scanReduce");
+		kernels["scanDownSweep"] = ocl::Kernel(blit_kernel, blit_kernel_length, "scanDownSweep");
+		kernels["aggregateResults"] = ocl::Kernel(blit_kernel, blit_kernel_length, "aggregateResults");
+		bool printLog = false;
+		for (auto k : kernels) {
+			k.second.compile(printLog);
+		}
+#endif
+#endif
 		float minChartPerimeter = FLT_MAX, maxChartPerimeter = 0.0f;
 		for (uint32_t c = 0; c < chartCount; c++) {
 			Chart *chart = m_charts[c];
@@ -8323,6 +8833,10 @@ struct Atlas
 			if (!options.rotateChartsToAxis) {
 				for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++)
 					minCorner = min(minCorner, chart->uniqueVertexAt(i));
+				if (options.preserveInputTexcoordsFractionalPart) {
+					minCorner.x = floorf(minCorner.x);
+					minCorner.y = floorf(minCorner.y);
+				}
 			}
 			Vector2 extents(0.0f);
 			for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
@@ -8352,10 +8866,12 @@ struct Atlas
 				int height = ftoi_ceil(extents.y);
 				if (options.blockAlign)
 					height = align(height + blockAlignSizeOffset, 4) - blockAlignSizeOffset;
-				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
-					Vector2 &texcoord = chart->uniqueVertexAt(v);
-					texcoord.x = texcoord.x / extents.x * (float)width;
-					texcoord.y = texcoord.y / extents.y * (float)height;
+				if (!options.preserveInputTexcoordsFractionalPart) {
+					for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+						Vector2 &texcoord = chart->uniqueVertexAt(v);
+						texcoord.x = texcoord.x / extents.x * (float)width;
+						texcoord.y = texcoord.y / extents.y * (float)height;
+					}
 				}
 				extents.x = (float)width;
 				extents.y = (float)height;
@@ -8368,24 +8884,33 @@ struct Atlas
 				maxChartSize = maxResolution - options.padding * 2; // Don't include padding.
 				warnChartResized = true;
 			}
-			if (maxChartSize > 0) {
-				const float realMaxChartSize = (float)maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
-				if (extents.x > realMaxChartSize || extents.y > realMaxChartSize) {
-					if (warnChartResized)
-						XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y, maxChartSize, maxChartSize);
-					scale = realMaxChartSize / max(extents.x, extents.y);
-					for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
-						Vector2 &texcoord = chart->uniqueVertexAt(i);
-						texcoord = min(texcoord * scale, Vector2(realMaxChartSize));
+			if (!options.preserveInputTexcoordsFractionalPart) {
+				if (maxChartSize > 0) {
+					const float realMaxChartSize = (float)maxChartSize - 1.0f; // Aligning to texel centers increases texel footprint by 1.
+					if (extents.x > realMaxChartSize || extents.y > realMaxChartSize) {
+						if (warnChartResized)
+							XA_PRINT("   Resizing chart %u from %gx%g to %ux%u to fit atlas\n", c, extents.x, extents.y, maxChartSize, maxChartSize);
+						scale = realMaxChartSize / max(extents.x, extents.y);
+						for (uint32_t i = 0; i < chart->uniqueVertexCount(); i++) {
+							Vector2 &texcoord = chart->uniqueVertexAt(i);
+							texcoord = min(texcoord * scale, Vector2(realMaxChartSize));
+						}
 					}
 				}
+				// Align to texel centers.
+				for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
+					Vector2 &texcoord = chart->uniqueVertexAt(v);
+					texcoord.x += 0.5f;
+					texcoord.y += 0.5f;
+				}
 			}
-			// Align to texel centers and add padding offset.
+
+			// Add padding offset.
 			extents.x = extents.y = 0.0f;
 			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(v);
-				texcoord.x += 0.5f + options.padding;
-				texcoord.y += 0.5f + options.padding;
+				texcoord.x += options.padding;
+				texcoord.y += options.padding;
 				extents = max(extents, texcoord);
 			}
 			if (extents.x > resolution || extents.y > resolution)
@@ -8409,16 +8934,23 @@ struct Atlas
 #else
 		const bool createImage = options.createImage;
 #endif
+
+		// Number of images
+		// Every image has a pyramid of reductions; each layer is XA_PACKING_COARSE_RATE^2 times larger than previous
+
 		// chartImage: result from conservative rasterization
 		// chartImageBilinear: chartImage plus any texels that would be sampled by bilinear filtering.
 		// chartImagePadding: either chartImage or chartImageBilinear depending on options, with a dilate filter applied options.padding times.
-		// Rotated versions swap x and y.
+		// Transposed versions swap x and y.
+
 		BitImage chartImage, chartImageBilinear, chartImagePadding;
-		BitImage chartImageRotated, chartImageBilinearRotated, chartImagePaddingRotated;
+		BitImage chartImageTransposed, chartImageBilinearTransposed, chartImagePaddingTransposed;
 		UniformGrid2 boundaryEdgeGrid;
 		Array<Vector2i> atlasSizes;
+		Array<Array<BitImage*>*> atlasBitImages;
 		atlasSizes.push_back(Vector2i(0, 0));
 		int progress = 0;
+		uint32_t previous_atlas = 0;
 		for (uint32_t i = 0; i < chartCount; i++) {
 			uint32_t c = ranks[chartCount - i - 1]; // largest chart first
 			Chart *chart = m_charts[c];
@@ -8437,13 +8969,14 @@ struct Atlas
 			XA_PROFILE_START(packChartsRasterize)
 			// Resize and clear (discard = true) chart images.
 			// Leave room for padding at extents.
-			chartImage.resize(ftoi_ceil(chartExtents[c].x) + options.padding, ftoi_ceil(chartExtents[c].y) + options.padding, true);
-			if (options.rotateCharts)
-				chartImageRotated.resize(chartImage.height(), chartImage.width(), true);
+			chartImage.resize((ftoi_ceil(chartExtents[c].x) + options.padding),
+							  (ftoi_ceil(chartExtents[c].y) + options.padding), true);
+			if (options.transposeCharts)
+				chartImageTransposed.resize(chartImage.height(), chartImage.width(), true);
 			if (options.bilinear) {
 				chartImageBilinear.resize(chartImage.width(), chartImage.height(), true);
-				if (options.rotateCharts)
-					chartImageBilinearRotated.resize(chartImage.height(), chartImage.width(), true);
+				if (options.transposeCharts)
+					chartImageBilinearTransposed.resize(chartImage.height(), chartImage.width(), true);
 			}
 			// Rasterize chart faces.
 			const uint32_t faceCount = chart->indices.length / 3;
@@ -8453,12 +8986,14 @@ struct Atlas
 					vertices[v] = chart->vertices[chart->indices[f * 3 + v]];
 				DrawTriangleCallbackArgs args;
 				args.chartBitImage = &chartImage;
-				args.chartBitImageRotated = options.rotateCharts ? &chartImageRotated : nullptr;
-				raster::drawTriangle(Vector2((float)chartImage.width(), (float)chartImage.height()), vertices, drawTriangleCallback, &args);
+				args.chartBitImageTransposed = options.transposeCharts ? &chartImageTransposed : nullptr;
+				raster::drawTriangle(Vector2((float) chartImage.width(), (float) chartImage.height()), vertices,
+									 drawTriangleCallback, &args);
 			}
+
 			// Expand chart by pixels sampled by bilinear interpolation.
 			if (options.bilinear)
-				bilinearExpand(chart, &chartImage, &chartImageBilinear, options.rotateCharts ? &chartImageBilinearRotated : nullptr, boundaryEdgeGrid);
+				bilinearExpand(chart, &chartImage, &chartImageBilinear, options.transposeCharts ? &chartImageBilinearTransposed : nullptr, boundaryEdgeGrid);
 			// Expand chart by padding pixels (dilation).
 			if (options.padding > 0) {
 				// Copy into the same BitImage instances for every chart to avoid reallocating BitImage buffers (largest chart is packed first).
@@ -8468,12 +9003,12 @@ struct Atlas
 				else
 					chartImage.copyTo(chartImagePadding);
 				chartImagePadding.dilate(options.padding);
-				if (options.rotateCharts) {
+				if (options.transposeCharts) {
 					if (options.bilinear)
-						chartImageBilinearRotated.copyTo(chartImagePaddingRotated);
+						chartImageBilinearTransposed.copyTo(chartImagePaddingTransposed);
 					else
-						chartImageRotated.copyTo(chartImagePaddingRotated);
-					chartImagePaddingRotated.dilate(options.padding);
+						chartImageTransposed.copyTo(chartImagePaddingTransposed);
+					chartImagePaddingTransposed.dilate(options.padding);
 				}
 				XA_PROFILE_END(packChartsDilate)
 			}
@@ -8487,22 +9022,32 @@ struct Atlas
 					currentChartBucket++;
 				}
 			}
+
 			// Find a location to place the chart in the atlas.
-			BitImage *chartImageToPack, *chartImageToPackRotated;
+			BitImage *chartImageToPack, *chartImageToPackTransposed;
+
 			if (options.padding > 0) {
 				chartImageToPack = &chartImagePadding;
-				chartImageToPackRotated = &chartImagePaddingRotated;
+				chartImageToPackTransposed = &chartImagePaddingTransposed;
 			} else if (options.bilinear) {
 				chartImageToPack = &chartImageBilinear;
-				chartImageToPackRotated = &chartImageBilinearRotated;
+				chartImageToPackTransposed = &chartImageBilinearTransposed;
 			} else {
 				chartImageToPack = &chartImage;
-				chartImageToPackRotated = &chartImageRotated;
+				chartImageToPackTransposed = &chartImageTransposed;
 			}
+
+			if (!options.transposeCharts)
+				chartImageToPackTransposed = nullptr;
+			CoarsePyramid chartPyramid(chartImageToPack, chartImageToPackTransposed, m_bitImagesCoarseLevels, options.rotateCharts);
+
 			uint32_t currentAtlas = 0;
+			if (options.skipSpeedup)
+				currentAtlas = m_rand.getRange(previous_atlas);
+
 			int best_x = 0, best_y = 0;
 			int best_cw = 0, best_ch = 0;
-			int best_r = 0;
+			int best_ori = 0;
 			for (;;)
 			{
 #if XA_DEBUG
@@ -8510,8 +9055,22 @@ struct Atlas
 #endif
 				if (currentAtlas + 1 > m_bitImages.size()) {
 					// Chart doesn't fit in the current bitImage, create a new one.
-					BitImage *bi = XA_NEW_ARGS(MemTag::Default, BitImage, resolution, resolution);
+					auto *bi = XA_NEW_ARGS(MemTag::Default, BitImage, resolution, resolution);
 					m_bitImages.push_back(bi);
+					auto *coarseBitImages = XA_NEW(MemTag::Default, Array<BitImage*>);
+					coarseBitImages->reserve(m_bitImagesCoarseLevels);
+					coarseBitImages->push_back(bi);
+					uint32_t coarseResolution = resolution;
+					for (uint32_t coarse_level = 1; coarse_level < m_bitImagesCoarseLevels; coarse_level++) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+						coarseResolution = (coarseResolution + XA_PACKING_COARSE_RATE) >> XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
+						coarseResolution = (coarseResolution + XA_PACKING_COARSE_RATE) / XA_PACKING_COARSE_RATE;
+#endif
+						auto *bi1 = XA_NEW_ARGS(MemTag::Default, BitImage, coarseResolution, coarseResolution);
+						coarseBitImages->push_back(bi1);
+					}
+					atlasBitImages.push_back(coarseBitImages);
 					atlasSizes.push_back(Vector2i(0, 0));
 #if XA_DEBUG
 					firstChartInBitImage = true;
@@ -8522,15 +9081,43 @@ struct Atlas
 					chartStartPositions.push_back(Vector2i(0, 0));
 				}
 				XA_PROFILE_START(packChartsFindLocation)
-				const bool foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], m_bitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_r, maxResolution);
+#if 0
+				if (i == XA_DEBUG_CHART) {
+					printf("  Chart %d of size(%d, %d)\n", i, chartPyramid.get(0).width(), chartPyramid.get(0).height());
+					cimg_draw = true;
+				}
+				else {
+					cimg_draw = false;
+				}
+#endif
+				bool foundLocation;
+#if XA_USE_GPU
+#ifdef CUDA_SUPPORT
+				foundLocation = findChartLocation_bruteForce_gpu(context, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_ori, maxResolution);
+#else
+				foundLocation = findChartLocation_bruteForce_gpu(kernels, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_ori, maxResolution);
+#endif
+#else
+				foundLocation = findChartLocation(options, chartStartPositions[currentAtlas], atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, &best_x, &best_y, &best_cw, &best_ch, &best_ori, maxResolution);
+#endif
 				XA_PROFILE_END(packChartsFindLocation)
 				XA_DEBUG_ASSERT(!(firstChartInBitImage && !foundLocation)); // Chart doesn't fit in an empty, newly allocated bitImage. Shouldn't happen, since charts are resized if they are too big to fit in the atlas.
 				if (maxResolution == 0) {
 					XA_DEBUG_ASSERT(foundLocation); // The atlas isn't limited to a fixed resolution, a chart location should be found on the first attempt.
 					break;
 				}
-				if (foundLocation)
+#if 0
+				if (i == XA_DEBUG_CHART) {
+					printf("%d %d %d; %d %d\n", best_x, best_y, best_ori, best_cw, best_ch);
+				}
+				if (foundLocation) {
+					printf("%d: (%d %d)r%d\n", i, best_x, best_y, best_ori);
+				}
+#endif
+				if (foundLocation) {
+					previous_atlas = currentAtlas;
 					break;
+				}
 				// Chart doesn't fit in the current bitImage, try the next one.
 				currentAtlas++;
 			}
@@ -8563,13 +9150,14 @@ struct Atlas
 				XA_DEBUG_ASSERT(atlasSizes[currentAtlas].y <= (int)maxResolution);
 			}
 			XA_PROFILE_START(packChartsBlit)
-			addChart(m_bitImages[currentAtlas], chartImageToPack, chartImageToPackRotated, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_r);
+
+			addChart(atlasBitImages[currentAtlas], chartPyramid, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y, best_ori);
 			XA_PROFILE_END(packChartsBlit)
 			if (createImage) {
-				if (best_r == 0) {
+				if (best_ori == 0) {
 					m_atlasImages[currentAtlas]->addChart(c, &chartImage, options.bilinear ? &chartImageBilinear : nullptr, options.padding > 0 ? &chartImagePadding : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
 				} else {
-					m_atlasImages[currentAtlas]->addChart(c, &chartImageRotated, options.bilinear ? &chartImageBilinearRotated : nullptr, options.padding > 0 ? &chartImagePaddingRotated : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
+					m_atlasImages[currentAtlas]->addChart(c, &chartImageTransposed, options.bilinear ? &chartImageBilinearTransposed : nullptr, options.padding > 0 ? &chartImagePaddingTransposed : nullptr, atlasSizes[currentAtlas].x, atlasSizes[currentAtlas].y, best_x, best_y);
 				}
 #if XA_DEBUG_EXPORT_ATLAS_IMAGES && XA_DEBUG_EXPORT_ATLAS_IMAGES_PER_CHART
 				for (uint32_t j = 0; j < m_atlasImages.size(); j++) {
@@ -8579,17 +9167,59 @@ struct Atlas
 				}
 #endif
 			}
+
 			chart->atlasIndex = (int32_t)currentAtlas;
 			// Modify texture coordinates:
-			//  - rotate if the chart should be rotated
+			//  - transpose if the chart should be transposed
 			//  - translate to chart location
 			//  - translate to remove padding from top and left atlas edges (unless block aligned)
+			Vector2 chartSize = {(float)best_cw, (float)best_ch};
+			if (best_ori % 2 == 1)
+				swap(chartSize.x, chartSize.y);
 			for (uint32_t v = 0; v < chart->uniqueVertexCount(); v++) {
 				Vector2 &texcoord = chart->uniqueVertexAt(v);
 				Vector2 t = texcoord;
-				if (best_r) {
-					XA_DEBUG_ASSERT(options.rotateCharts);
-					swap(t.x, t.y);
+
+				int orientation = best_ori;
+				if (orientation > 0) {
+					if (orientation >= 4) {
+						XA_DEBUG_ASSERT(orientation < 8);
+						XA_DEBUG_ASSERT(options.transposeCharts && options.rotateCharts);
+						swap(t.x, t.y);
+						orientation -= 4;
+					}
+					if (!options.rotateCharts) {
+						XA_DEBUG_ASSERT(options.transposeCharts);
+						orientation -= 1;
+						swap(t.x, t.y);
+					}
+					switch (orientation) {
+						case 0:
+							break;
+						case 1:
+						{
+							XA_DEBUG_ASSERT(options.rotateCharts);
+							float tmp = t.x;
+							t.x = chartSize.y - t.y;
+							t.y = tmp;
+							break;
+						}
+						case 2:
+						{
+							XA_DEBUG_ASSERT(options.rotateCharts);
+							t.x = chartSize.x - t.x;
+							t.y = chartSize.y - t.y;
+							break;
+						}
+						case 3:
+						{
+							XA_DEBUG_ASSERT(options.rotateCharts);
+							float tmp = t.y;
+							t.y = chartSize.x - t.x;
+							t.x = tmp;
+							break;
+						}
+					}
 				}
 				texcoord.x = best_x + t.x;
 				texcoord.y = best_y + t.y;
@@ -8614,8 +9244,22 @@ struct Atlas
 		} else {
 			m_width = m_height = maxResolution - (int)options.padding * 2;
 		}
+#if DEBUG_PLACING_STATISTICS
+		printf("False coarse jumps:\n  lv0: %ld\n  lv1: %ld\n  lv2: %ld\n", false_jumps[0], false_jumps[1], false_jumps[2]);
+		printf("Overall checks: %ld\n", checks);
+		printf("Overall jumps: %ld\n", jumps);
+		printf("Overall accepted: %ld\n", accepted);
+#endif
+		for (uint32_t i = 0; i < atlasBitImages.size(); ++i) {
+			for (uint32_t j = 1; j < (atlasBitImages[i])->size(); ++j) {
+				(*atlasBitImages[i])[j]->~BitImage();
+				XA_FREE((*atlasBitImages[i])[j]);
+			}
+			atlasBitImages[i]->destroy();
+			XA_FREE(atlasBitImages[i]);
+		}
 		XA_PRINT("   %dx%d resolution\n", m_width, m_height);
-		m_utilization.resize(m_bitImages.size());
+		m_utilization.resize(getNumAtlases());
 		for (uint32_t i = 0; i < m_utilization.size(); i++) {
 			if (m_width == 0 || m_height == 0)
 				m_utilization[i] = 0.0f;
@@ -8649,71 +9293,659 @@ struct Atlas
 	}
 
 private:
-	bool findChartLocation(const PackOptions &options, const Vector2i &startPosition, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
+	bool findChartLocation(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
 	{
-		const int attempts = 4096;
-		if (options.bruteForce || attempts >= w * h)
-			return findChartLocation_bruteForce(options, startPosition, atlasBitImage, chartBitImage, chartBitImageRotated, w, h, best_x, best_y, best_w, best_h, best_r, maxResolution);
-		return findChartLocation_random(options, atlasBitImage, chartBitImage, chartBitImageRotated, w, h, best_x, best_y, best_w, best_h, best_r, attempts, maxResolution);
+		const int attempts = XA_PACKING_RANDOM_ATTEMPTS;
+		const BitImage &image = chartBitImages.get(0);
+		uint32_t cw = image.width();
+		uint32_t ch = image.height();
+		if (options.bruteForce
+			|| (options.randomUseBruteForce && (float)(cw * ch) >= (float)w * h * XA_PACKING_RANDOM_THRESHOLD) // better, but slower
+			|| (!options.randomUseBruteForce && attempts >= w * h) // faster, but worse
+			)
+			return findChartLocation_bruteForce(options, startPosition, atlasBitImages, chartBitImages, w, h, best_x, best_y, best_w, best_h, best_ori, maxResolution);
+		return findChartLocation_random(options, atlasBitImages, chartBitImages, w, h, best_x, best_y, best_w, best_h, best_ori, attempts, maxResolution);
 	}
 
-	bool findChartLocation_bruteForce(const PackOptions &options, const Vector2i &startPosition, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, uint32_t maxResolution)
+#if XA_USE_GPU
+#ifdef CUDA_SUPPORT
+	bool findChartLocation_bruteForce_gpu(gpu::Context &context, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
+#else
+	bool findChartLocation_bruteForce_gpu(std::map<std::string, ocl::Kernel> &kernels, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
+#endif
 	{
-		const int stepSize = options.blockAlign ? 4 : 1;
-		int best_metric = INT_MAX;
-		// Try two different orientations.
-		for (int r = 0; r < 2; r++) {
-			int cw = chartBitImage->width();
-			int ch = chartBitImage->height();
-			if (r == 1) {
-				if (options.rotateCharts)
-					swap(cw, ch);
-				else
-					break;
+#ifdef CUDA_SUPPORT
+#if CUDA_PROFILE
+		cudaProfilerStart();
+#endif
+#endif
+		timer t_full;
+		unsigned int best_metric = INT_MAX;
+
+		// Prepare atlases and atlasSizes for gpu
+		gpu::gpu_mem_64u atlases_gpu;
+		gpu::gpu_mem_32u atlasSizes_gpu;
+		gpu::gpu_mem_32u best_metric_gpu;
+
+		std::vector<uint32_t> atlasSizes;
+
+		size_t atlases_sizeof = 0;
+		for (int i = 0; i < chartBitImages.levels(); ++i) {
+			const BitImage *atlas = (*atlasBitImages)[i];
+			atlases_sizeof += atlas->stride() * atlas->height();
+			atlasSizes.push_back(atlas->width());
+			atlasSizes.push_back(atlas->height());
+		}
+		atlasSizes_gpu.resizeN(atlasSizes.size());
+		{
+			std::vector<uint64_t> atlases_buffer(atlases_sizeof);
+			size_t atlas_offset = 0;
+			for (int i = 0; i < chartBitImages.levels(); ++i) {
+				const BitImage *atlas = (*atlasBitImages)[i];
+				memcpy(atlases_buffer.data() + atlas_offset, atlas->data(), atlas->stride() * atlas->height() * sizeof(uint64_t));
+//				atlases_gpu.writeN(atlas->data(), atlas->stride() * atlas->height(), atlas_offset);
+				atlas_offset += atlas->stride() * atlas->height();
 			}
-			for (int y = startPosition.y; y <= h + stepSize; y += stepSize) {
-				if (maxResolution > 0 && y > (int)maxResolution - ch)
+			atlases_gpu.resizeN(atlases_sizeof);
+			atlases_gpu.writeN(atlases_buffer.data(), atlases_sizeof);
+		}
+		atlasSizes_gpu.writeN(atlasSizes.data(), atlasSizes.size());
+#if DEBUG_COARSE_JUMP_STATISTICS
+		local_false_jumps[0] = local_false_jumps[1] = local_false_jumps[2] = 0;
+		local_jumps = 0;
+#endif
+
+		// Metric, best_x+(best_y << 16);
+		best_metric_gpu.resizeN(2);
+		unsigned int uint32max[2] =  {UINT32_MAX, UINT32_MAX};
+		best_metric_gpu.writeN(uint32max, 2);
+
+		for (int ori = 0; ori < chartBitImages.orientations(); ++ori) {
+			timer t;
+			// Prepare charts and chartSizes for gpu
+			gpu::gpu_mem_64u charts_gpu;
+			gpu::gpu_mem_32u chartSizes_gpu;
+			std::vector<uint32_t> chartSizes;
+			size_t charts_sizeof = 0;
+			for (int i = 0; i < chartBitImages.levels(); ++i) {
+				int rate_cur = 1;
+				for (int j = 0; j < i; ++j)
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+					rate_cur <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
+					rate_cur *= XA_PACKING_COARSE_RATE;
+#endif
+				for (int y = 0; y < rate_cur; ++y) {
+					for (int x = 0; x < rate_cur; ++x) {
+						const BitImage *chart = &chartBitImages.get(i, x, y, ori);
+						charts_sizeof += chart->stride() * chart->height();
+						chartSizes.push_back(chart->width());
+						chartSizes.push_back(chart->height());
+					}
+				}
+			}
+			chartSizes_gpu.resizeN(chartSizes.size());
+
+			{
+				std::vector<uint64_t> charts_buffer(charts_sizeof);
+				size_t chart_offset = 0;
+				for (int i = 0; i < chartBitImages.levels(); ++i) {
+					int rate_cur = 1;
+					for (int j = 0; j < i; ++j)
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+						rate_cur <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
+						rate_cur *= XA_PACKING_COARSE_RATE;
+#endif
+					for (int y = 0; y < rate_cur; ++y) {
+						for (int x = 0; x < rate_cur; ++x) {
+							const BitImage *chart = &chartBitImages.get(i, x, y, ori);
+							memcpy(charts_buffer.data() + chart_offset, chart->data(), chart->stride() * chart->height() * sizeof(uint64_t));
+//							chart_buffer[chart_offset]
+//							charts_gpu.writeN(chart->data(), chart->stride() * chart->height(), chart_offset);
+							chart_offset += chart->stride() * chart->height();
+						}
+					}
+				}
+				charts_gpu.resizeN(charts_sizeof);
+				charts_gpu.writeN(charts_buffer.data(), charts_sizeof);
+			}
+			chartSizes_gpu.writeN(chartSizes.data(), chartSizes.size());
+
+			// Set calculation boundaries
+			Vector2i endPosition = {w + 1, h + 1};
+
+			int cw = chartBitImages.get(0, 0, 0, ori).width();
+			int ch = chartBitImages.get(0, 0, 0, ori).height();
+			if (maxResolution > 0) {
+				// with some leeway
+				endPosition.x = min(endPosition.x,
+									(int32_t) (*atlasBitImages)[0]->width() - cw);
+				endPosition.y = min(endPosition.y,
+									(int32_t) (*atlasBitImages)[0]->height() - ch);
+				// without leeway
+				endPosition.x = min(endPosition.x, (int) maxResolution - cw);
+				endPosition.y = min(endPosition.y, (int) maxResolution - ch);
+			}
+			if (startPosition.x > endPosition.x
+				|| startPosition.y > endPosition.y)
+				continue;
+
+			gpu::gpu_mem_32u inside_buffer_gpu;
+			const size_t offset_limit = (endPosition.x + 1) * (endPosition.y + 1);
+			inside_buffer_gpu.resizeN(offset_limit);
+			unsigned int workGroupSize = WORK_GROUP_SIZE;
+
+			gpu::gpu_mem_16u filter_x_gpu;
+			gpu::gpu_mem_16u filter_y_gpu;
+			unsigned int candidates_num = 1;
+
+#if DEBUG_COARSE_JUMP_STATISTICS
+			unsigned int prev_candidates = offset_limit;
+#endif
+
+			for (int coarse_level = chartBitImages.levels() - 1; coarse_level >= 0; --coarse_level) {
+				// aggregate results into a list
+				int coarse_reduction = 1;
+				for (int i = 0; i < coarse_level; ++i) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+					coarse_reduction <<= XA_PACKING_COARSE_RATE_POWER_OF_2;
+#elif
+					coarse_reduction *= XA_PACKING_COARSE_RATE;
+#endif
+				}
+				if (coarse_level == chartBitImages.levels() - 1)
+				{
+#ifdef CUDA_SUPPORT
+					cuda_blitLevel(
+							// TODO: figure out work size
+							gpu::WorkSize(workGroupSize, workGroupSize,
+												 (endPosition.x + coarse_reduction * workGroupSize) / workGroupSize * workGroupSize,
+												 (endPosition.y + coarse_reduction * workGroupSize) / workGroupSize * workGroupSize),
+//							gpu::WorkSize(workGroupSize, workGroupSize,
+//												 (endPosition.x + XA_PACKING_COARSE_RATE * workGroupSize) / workGroupSize * workGroupSize,
+//												 (endPosition.y + XA_PACKING_COARSE_RATE * workGroupSize) / workGroupSize * workGroupSize),
+
+//							gpu::WorkSize(workGroupSize, workGroupSize,
+//										  endPosition.x + 1,
+//										  endPosition.y + 1),
+								atlases_gpu.cuptr(),
+								charts_gpu.cuptr(),
+								w, h,
+								endPosition.x, endPosition.y,
+								chartBitImages.levels() - 1,
+//								chartBitImages.levels(),
+								(uint32_t)XA_PACKING_COARSE_RATE,
+								atlasSizes_gpu.cuptr(),
+								chartSizes_gpu.cuptr(),
+								best_metric_gpu.cuptr(),
+								inside_buffer_gpu.cuptr(),
+								context.cudaStream());
+#else
+					kernels["blitLevel"].exec(gpu::WorkSize(workGroupSize, workGroupSize, endPosition.x + 1, endPosition.y + 1),
+											  atlases_gpu,
+											  charts_gpu,
+											  endPosition.x, endPosition.y,
+											  coarse_level,
+							//						  	1,
+											  (uint32_t)XA_PACKING_COARSE_RATE,
+											  atlasSizes_gpu,
+											  chartSizes_gpu,
+											  (short) false,
+											  0,
+											  nullptr,
+											  nullptr,
+											  best_metric_gpu,
+											  inside_buffer_gpu);
+#endif
+				} else {
+#ifdef CUDA_SUPPORT
+					cuda_bufferCleanup(gpu::WorkSize(workGroupSize*workGroupSize, offset_limit),
+									   inside_buffer_gpu.cuptr(),
+									   offset_limit,
+									   context.cudaStream());
+
+					cuda_blitFiltered(gpu::WorkSize(workGroupSize*workGroupSize, candidates_num),
+								  atlases_gpu.cuptr(),
+								  charts_gpu.cuptr(),
+								  w, h,
+								  endPosition.x, endPosition.y,
+								  coarse_level,
+								  (uint32_t)XA_PACKING_COARSE_RATE,
+								  atlasSizes_gpu.cuptr(),
+								  chartSizes_gpu.cuptr(),
+								  true,
+								  candidates_num,
+								  filter_x_gpu.cuptr(),
+								  filter_y_gpu.cuptr(),
+								  best_metric_gpu.cuptr(),
+								  inside_buffer_gpu.cuptr(),
+								  context.cudaStream());
+#else
+					kernels["bufferCleanup"].exec(gpu::WorkSize(workGroupSize*workGroupSize, offset_limit),
+												  inside_buffer_gpu,
+												  offset_limit);
+
+					kernels["blitLevel"].exec(gpu::WorkSize(workGroupSize*workGroupSize, candidates_num),
+											  atlases_gpu,
+											  charts_gpu,
+											  endPosition.x, endPosition.y,
+											  coarse_level,
+											  (uint32_t)XA_PACKING_COARSE_RATE,
+											  atlasSizes_gpu,
+											  chartSizes_gpu,
+											  (short) true,
+											  candidates_num,
+											  filter_x_gpu,
+											  filter_y_gpu,
+											  best_metric_gpu,
+											  inside_buffer_gpu);
+#endif
+				}
+//#define DEBUG_FAST_CHECK
+#ifdef DEBUG_FAST_CHECK
+				int a = 0;
+				std::vector<unsigned int> results(offset_limit);
+				if (a == 1) {
+					inside_buffer_gpu.readN(results.data(), offset_limit);
+				}
+#endif
+				size_t offset;
+				for (offset = 1; offset * 2 <= offset_limit; offset <<= 1) {
+#ifdef CUDA_SUPPORT
+					cuda_scanReduce(gpu::WorkSize(workGroupSize*workGroupSize, (offset_limit + offset - 1) / offset),
+									inside_buffer_gpu.cuptr(),
+									offset_limit,
+									offset,
+									context.cudaStream());
+#else
+					kernels["scanReduce"].exec(gpu::WorkSize(workGroupSize*workGroupSize, (offset_limit + offset - 1) / offset),
+											   inside_buffer_gpu,
+											   offset_limit,
+											   offset);
+#endif
+				}
+#ifdef DEBUG_FAST_CHECK
+				if (a == 1) {
+					inside_buffer_gpu.readN(results.data(), offset_limit);
+				}
+#endif
+
+				for (offset = offset >> 1; offset >= 1; offset >>= 1) {
+#ifdef CUDA_SUPPORT
+					cuda_scanDownSweep(gpu::WorkSize(workGroupSize*workGroupSize, (offset_limit + offset - 1) / offset),
+									   inside_buffer_gpu.cuptr(),
+									   offset_limit,
+									   offset,
+									   context.cudaStream());
+#else
+					kernels["scanDownSweep"].exec(gpu::WorkSize(workGroupSize*workGroupSize, (offset_limit + offset - 1) / offset),
+												  inside_buffer_gpu,
+												  offset_limit,
+												  offset);
+#endif
+				}
+#ifdef DEBUG_FAST_CHECK
+				if (a == 1) {
+					inside_buffer_gpu.readN(results.data(), offset_limit);
+				}
+#endif
+				inside_buffer_gpu.readN(&candidates_num, 1, offset_limit - 1);
+
+#if DEBUG_COARSE_JUMP_STATISTICS
+				if (coarse_level != chartBitImages.levels() - 1) {
+					local_false_jumps[coarse_level] = prev_candidates - candidates_num;
+				}
+				prev_candidates = candidates_num;
+				if (coarse_level == 0)
+					accepted += candidates_num;
+				else
+					local_jumps += candidates_num;
+#endif
+
+				if (candidates_num == 0)
 					break;
-				for (int x = (y == startPosition.y ? startPosition.x : 0); x <= w + stepSize; x += stepSize) {
-					if (maxResolution > 0 && x > (int)maxResolution - cw)
-						break;
-					// Early out if metric is not better.
-					const int extentX = max(w, x + cw), extentY = max(h, y + ch);
-					const int area = extentX * extentY;
-					const int extents = max(extentX, extentY);
-					const int metric = extents * extents + area;
+
+				filter_x_gpu.resizeN(candidates_num);
+				filter_y_gpu.resizeN(candidates_num);
+				{
+#ifdef CUDA_SUPPORT
+
+					cuda_aggregateResults(gpu::WorkSize(workGroupSize * workGroupSize, offset_limit),
+										  inside_buffer_gpu.cuptr(),
+										  endPosition.x, endPosition.y,
+										  filter_x_gpu.cuptr(),
+										  filter_y_gpu.cuptr(),
+										  context.cudaStream());
+#else
+					kernels["aggregateResults"].exec(gpu::WorkSize(workGroupSize * workGroupSize, offset_limit),
+													 inside_buffer_gpu,
+													 endPosition.x, endPosition.y,
+													 filter_x_gpu,
+													 filter_y_gpu);
+#endif
+				}
+
+#ifdef DEBUG_FAST_CHECK
+
+				if (a == 1) {
+					std::vector<unsigned short> results_x(candidates_num);
+					std::vector<unsigned short> results_y(candidates_num);
+					filter_x_gpu.readN(results_x.data(), candidates_num);
+					filter_y_gpu.readN(results_y.data(), candidates_num);
+				}
+//				printf("cn: %d\n", candidates_num);
+#endif
+#undef DEBUG_FAST_CHECK
+			}
+
+//			printf("Calculation: %.2f seconds (%g ms) elapsed\n", t.elapsed(), t.elapsed() * 1000);
+			if (candidates_num == 0)
+				continue;
+			std::vector<unsigned short> results_x(candidates_num);
+			std::vector<unsigned short> results_y(candidates_num);
+			filter_x_gpu.readN(results_x.data(), candidates_num);
+			filter_y_gpu.readN(results_y.data(), candidates_num);
+			// d_infty
+			auto sameMetricWorse = [](int x, int y, int ori, int comp_x, int comp_y, int comp_ori) {
+				return (max(x, y) > max(comp_x, comp_y)
+						|| max(x, y) == max(comp_x, comp_y)
+						   && (y > comp_y || y == comp_y
+											 && (x > comp_x || x == comp_x && ori > comp_ori)));
+			};
+			{
+				timer t_res;
+
+				for (int i = 0; i < candidates_num; ++i)
+				{
+					int x = results_x[i];
+					int y = results_y[i];
+
+					const unsigned int extentX = max(w, x + cw);
+					const unsigned int extentY = max(h, y + ch);
+					const unsigned int area = extentX * extentY;
+					const unsigned int extents = max(extentX, extentY);
+					const unsigned int metric = extents * extents + area;
+
 					if (metric > best_metric)
 						continue;
-					// If metric is the same, pick the one closest to the origin.
-					if (metric == best_metric && max(x, y) >= max(*best_x, *best_y))
+					if (metric == best_metric &&
+						sameMetricWorse(x, y, ori, *best_x, *best_y, *best_ori)) // comparison with *best_x and *best_y
 						continue;
-					if (!atlasBitImage->canBlit(r == 1 ? *chartBitImageRotated : *chartBitImage, x, y))
-						continue;
+
 					best_metric = metric;
 					*best_x = x;
 					*best_y = y;
-					*best_w = cw;
-					*best_h = ch;
-					*best_r = r;
-					if (area == w * h)
-						return true; // Chart is completely inside, do not look at any other location.
+					*best_ori = ori;
+
+					if ((*best_ori < 4) != (*best_ori % 2))
+					{
+						XA_DEBUG_ASSERT(*best_x + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->width());
+						XA_DEBUG_ASSERT(*best_y + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->height());
+					} else
+					{
+						XA_DEBUG_ASSERT(*best_x + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->width());
+						XA_DEBUG_ASSERT(*best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
+					}
+				}
+//				printf("Results: %.2f seconds (%g ms) elapsed\n", t_res.elapsed(), t_res.elapsed() * 1000);
+			}
+		}
+		*best_w = chartBitImages.get(0, 0, 0, *best_ori).width();
+		*best_h = chartBitImages.get(0, 0, 0, *best_ori).height();
+#if DEBUG_COARSE_JUMP_STATISTICS
+		false_jumps[0] += local_false_jumps[0];
+		false_jumps[1] += local_false_jumps[1];
+		false_jumps[2] += local_false_jumps[2];
+		jumps += local_jumps;
+#endif
+
+#ifdef CUDA_SUPPORT
+#if CUDA_PROFILE
+		cudaProfilerStop();
+#endif
+#endif
+//		printf("Chart (full): %.2f seconds (%g ms) elapsed\n", t_full.elapsed(), t_full.elapsed() * 1000);
+		return best_metric != INT_MAX;
+	}
+#endif
+	bool findChartLocation_bruteForce(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
+	{
+		unsigned int best_metric = INT_MAX;
+		// d_infty
+		auto sameMetricWorse = [](int x, int y, int ori, int comp_x, int comp_y, int comp_ori) {
+			return (max(x, y) > max(comp_x, comp_y)
+				   || (max(x, y) == max(comp_x, comp_y)
+				   && (y > comp_y || (y == comp_y
+				   && (x > comp_x || (x == comp_x && ori > comp_ori))))));
+		};
+
+		int prevPositionOffset = ceil(options.usePreviousPositionOffset * maxResolution);
+		Vector2i leftLimit = {
+				max(0, startPosition.x - prevPositionOffset),
+				max(0, startPosition.y - prevPositionOffset)
+		};
+
+		int stepSize = options.blockAlign ? 4 : 1;
+
+		int start_offset_x = 0;
+		int start_offset_y = 0;
+		if (options.gridSpeedup
+			&& maxResolution - w <= 4 * XA_PACKING_REGULAR_GRID_SIZE
+			&& maxResolution - h <= 4 * XA_PACKING_REGULAR_GRID_SIZE) {
+			start_offset_x = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * (options.blockAlign ? 4 : 1);
+			start_offset_y = (int)m_rand.getRange(XA_PACKING_REGULAR_GRID_SIZE) * (options.blockAlign ? 4 : 1);
+			stepSize *= XA_PACKING_REGULAR_GRID_SIZE;
+			stepSize *= XA_PACKING_REGULAR_GRID_SIZE;
+		}
+#if DEBUG_PLACING_STATISTICS
+		long int thisone_false_jumps[3] = {0};
+		long int thisone_jumps = 0;
+		long int thisone_accepted = 0;
+		long int thisone_checks = 0;
+#endif
+
+#if !XA_PACKING_DETERMINISTIC
+		bool fastOut = false;
+#endif
+
+#if XA_OMP_PARALLEL
+#if DEBUG_PLACING_STATISTICS
+#pragma omp parallel firstprivate(local_false_jumps, local_jumps)
+#else
+#pragma omp parallel
+#endif
+		{
+#else
+		{
+#endif // XA_OMP_PARALLEL
+#if DEBUG_PLACING_STATISTICS
+			local_false_jumps[0] = local_false_jumps[1] = local_false_jumps[2] = 0;
+			local_jumps = 0;
+			long int local_accepted = 0;
+			long int local_checks = 0;
+#endif
+			unsigned int local_best_metric = INT_MAX;
+			int local_best_x = *best_x;
+			int local_best_y = *best_y;
+			int local_best_ori = *best_ori;
+
+			// Try different orientations
+			for (int ori = 0; ori < chartBitImages.orientations(); ori++) {
+				Vector2i endPosition = {w + 1, h + 1};
+
+				int cw = chartBitImages.get(0, 0, 0, ori).width();
+				int ch = chartBitImages.get(0, 0, 0, ori).height();
+
+				if (maxResolution > 0) {
+					// with some leeway
+					endPosition.x = min(endPosition.x,
+										(int32_t) (*atlasBitImages)[0]->width() - cw);
+					endPosition.y = min(endPosition.y,
+										(int32_t) (*atlasBitImages)[0]->height() - ch);
+					// without leeway
+					endPosition.x = min(endPosition.x, (int) maxResolution - cw);
+					endPosition.y = min(endPosition.y, (int) maxResolution - ch);
+				}
+				if (startPosition.x > endPosition.x
+					|| startPosition.y > endPosition.y)
+					continue;
+
+#if XA_OMP_PARALLEL
+#pragma omp for collapse(2) schedule(guided, 4)
+#endif // XA_OMP_PARALLEL
+				for (int y = start_offset_y; y <= endPosition.y; y += stepSize) {
+					for (int x = start_offset_x; x <= endPosition.x; x += stepSize) {
+#if !XA_PACKING_DETERMINISTIC
+						if (fastOut)
+							continue;
+#endif
+						if (x < leftLimit.x && y < leftLimit.y)
+							continue;
+						// Early out if metric is not better.
+						const unsigned int extentX = max(w, x + cw);
+						const unsigned int extentY = max(h, y + ch);
+						const unsigned int area = extentX * extentY;
+						const unsigned int extents = max(extentX, extentY);
+						const unsigned int metric = extents * extents + area;
+
+						if (metric > local_best_metric)
+							continue;
+						if (metric == local_best_metric &&
+							sameMetricWorse(x, y, ori, local_best_x, local_best_y,
+											local_best_ori)) // comparison with *best_x and *best_y
+							continue;
+#if  DEBUG_PLACING_STATISTICS
+						local_checks++;
+#endif
+						if (!canBlitCoarseToFine(atlasBitImages,
+												 chartBitImages,
+												 x,
+												 y,
+												 ori,
+												 maxResolution))
+							continue;
+
+						local_best_metric = metric;
+						local_best_x = x;
+						local_best_y = y;
+						local_best_ori = ori;
+#if  DEBUG_PLACING_STATISTICS
+						local_accepted++;
+#endif
+#if !XA_PACKING_DETERMINISTIC
+						if (area == w * h) {
+							// Chart is completely inside, do not look at any other location.
+							fastOut = true;
+						}
+#endif
+					}
+				}
+				if ((local_best_ori < 4) != (local_best_ori % 2)) {
+					XA_DEBUG_ASSERT(local_best_x + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->width());
+					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->height());
+				} else {
+					XA_DEBUG_ASSERT(local_best_x + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->width());
+					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->height());
+				}
+			}
+#if XA_OMP_PARALLEL
+#pragma omp critical
+#endif // XA_OMP_PARALLEL
+			{
+#if DEBUG_PLACING_STATISTICS
+				thisone_accepted += local_accepted;
+				thisone_false_jumps[0] += local_false_jumps[0];
+				thisone_false_jumps[1] += local_false_jumps[1];
+				thisone_false_jumps[2] += local_false_jumps[2];
+				thisone_jumps += local_jumps;
+				thisone_checks += local_checks;
+#endif
+				if (local_best_metric != INT_MAX) {
+					{
+						if (local_best_metric < best_metric
+							|| (local_best_metric == best_metric &&
+							   sameMetricWorse(*best_x, *best_y, *best_ori, local_best_x, local_best_y, local_best_ori))) {
+							best_metric = local_best_metric;
+							*best_x = local_best_x;
+							*best_y = local_best_y;
+							*best_ori = local_best_ori;
+						}
+					}
 				}
 			}
 		}
-		return best_metric != INT_MAX;
+#if DEBUG_PLACING_STATISTICS
+//		printf("False coarse jumps for this:\n  lv0: %ld\n  lv1: %ld\n  lv2: %ld\n", thisone_false_jumps[0],
+//																		    thisone_false_jumps[1],
+//																		    thisone_false_jumps[2]);
+//		printf("Jumps: %ld\n", thisone_jumps);
+
+		if (best_metric != INT_MAX) {
+			printf("Checks: %ld %u\n", thisone_checks, chartBitImages.get(0, 0, 0, *best_ori).width() * chartBitImages.get(0, 0, 0, *best_ori).height());
+			printf("Accepted: %ld\n", thisone_accepted);
+		}
+		false_jumps[0] += thisone_false_jumps[0];
+		false_jumps[1] += thisone_false_jumps[1];
+		false_jumps[2] += thisone_false_jumps[2];
+		jumps += thisone_jumps;
+		accepted += thisone_accepted;
+		checks += thisone_checks;
+#endif
+
+		if (best_metric == INT_MAX)
+			return false;
+
+#if XA_PACKING_REGULAR_GRID_ACCOMMODATE
+		int cur_best_x = *best_x;
+		int cur_best_y = *best_y;
+		for (int dy = 0; dy < stepSize; dy += options.blockAlign ? 4 : 1) {
+			for (int dx = 0; dx < stepSize; dy += options.blockAlign ? 4 : 1) {
+				if (dy == 0 && dx == 0)
+					continue;
+				int x = cur_best_x - dx;
+				int y = cur_best_y - dy;
+				if (x < 0 || y < 0)
+					break;
+
+				if (!canBlitCoarseToFine(atlasBitImages,
+										 chartBitImages,
+										 x,
+										 y,
+										 *best_ori,
+										 maxResolution))
+					continue;
+
+				*best_x = x;
+				*best_y = y;
+			}
+		}
+#endif
+
+		*best_w = chartBitImages.get(0, 0, 0, *best_ori).width();
+		*best_h = chartBitImages.get(0, 0, 0, *best_ori).height();
+
+		return true;
 	}
 
-	bool findChartLocation_random(const PackOptions &options, const BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_r, int attempts, uint32_t maxResolution)
+	bool findChartLocation_random(const PackOptions &options, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int w, int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, int attempts, uint32_t maxResolution)
 	{
 		bool result = false;
 		const int BLOCK_SIZE = 4;
 		int best_metric = INT_MAX;
+#if DEBUG_PLACING_STATISTICS
+		long int thisone_jumps = attempts;
+		long int thisone_accepted = 0;
+		long int thisone_checks = 0;
+#endif
 		for (int i = 0; i < attempts; i++) {
-			int cw = chartBitImage->width();
-			int ch = chartBitImage->height();
-			int r = options.rotateCharts ? m_rand.getRange(1) : 0;
-			if (r == 1)
-				swap(cw, ch);
+			int orientation_options = 1 * (options.transposeCharts ? 2 : 1) * (options.rotateCharts ? 4 : 1);
+			int ori = m_rand.getRange(orientation_options - 1);
+
+			const BitImage *image = &chartBitImages.get(0, 0, 0, ori);
+			int cw = image->width();
+			int ch = image->height();
+
 			// + 1 to extend atlas in case atlas full. We may want to use a higher number to increase probability of extending atlas.
 			int xRange = w + 1;
 			int yRange = h + 1;
@@ -8738,52 +9970,174 @@ private:
 			if (metric > best_metric) {
 				continue;
 			}
-			if (metric == best_metric && min(x, y) > min(*best_x, *best_y)) {
+			if (metric == best_metric && min(x, y) >= min(*best_x, *best_y)) {
 				// If metric is the same, pick the one closest to the origin.
 				continue;
 			}
-			if (atlasBitImage->canBlit(r == 1 ? *chartBitImageRotated : *chartBitImage, x, y)) {
+#if DEBUG_PLACING_STATISTICS
+			thisone_checks++;
+#endif
+
+			if (canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, ori, maxResolution)) {
 				result = true;
 				best_metric = metric;
 				*best_x = x;
 				*best_y = y;
 				*best_w = cw;
 				*best_h = ch;
-				*best_r = options.rotateCharts ? r : 0;
+				*best_ori = ori;
+#if DEBUG_PLACING_STATISTICS
+				thisone_accepted++;
+#endif
 				if (area == w * h) {
 					// Chart is completely inside, do not look at any other location.
 					break;
 				}
 			}
 		}
+#if XA_PACKING_REGULAR_GRID_ACCOMMODATE
+		if (result) {
+			while(*best_x >= 0 && *best_y >= 0) {
+				int cur_best_x = *best_x;
+				int cur_best_y = *best_y;
+				int x = cur_best_x;
+				int y = cur_best_y - 1;
+
+				if (y >= 0 && canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, *best_ori, maxResolution)) {
+					*best_x = x;
+					*best_y = y;
+					continue;
+				}
+				x = cur_best_x - 1;
+				y = cur_best_y;
+				if (x < 0)
+					break;
+				if (!canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, *best_ori, maxResolution))
+					break;
+				*best_x = x;
+				*best_y = y;
+			}
+		}
+#endif
+#if DEBUG_PLACING_STATISTICS
+		//		printf("False coarse jumps for this:\n  lv0: %ld\n  lv1: %ld\n  lv2: %ld\n", thisone_false_jumps[0],
+//																		    thisone_false_jumps[1],
+//																		    thisone_false_jumps[2]);
+//		printf("Jumps: %ld\n", thisone_jumps);
+
+		if (best_metric != INT_MAX) {
+			printf("Jumps: %ld\n", thisone_jumps);
+			printf("Checks: %ld (%f%%) %u\n", thisone_checks, thisone_checks * 1.0 / thisone_jumps, chartBitImages.get(0, 0, 0, *best_ori).width() * chartBitImages.get(0, 0, 0, *best_ori).height());
+			printf("Accepted: %ld\n", thisone_accepted);
+		}
+		jumps += thisone_jumps;
+		accepted += thisone_accepted;
+		checks += thisone_checks;
+#endif
 		return result;
 	}
 
-	void addChart(BitImage *atlasBitImage, const BitImage *chartBitImage, const BitImage *chartBitImageRotated, int atlas_w, int atlas_h, int offset_x, int offset_y, int r)
+	bool canBlitCoarseToFine(const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int offset_x, int offset_y, int orientation, uint32_t maxResolution) const
 	{
-		XA_DEBUG_ASSERT(r == 0 || r == 1);
-		const BitImage *image = r == 0 ? chartBitImage : chartBitImageRotated;
-		const int w = image->width();
-		const int h = image->height();
-		for (int y = 0; y < h; y++) {
-			int yy = y + offset_y;
-			if (yy >= 0) {
-				for (int x = 0; x < w; x++) {
-					int xx = x + offset_x;
-					if (xx >= 0) {
-						if (image->get(x, y)) {
-							if (xx < atlas_w && yy < atlas_h) {
-								XA_DEBUG_ASSERT(atlasBitImage->get(xx, yy) == false);
-								atlasBitImage->set(xx, yy);
-							}
-						}
+		const int coarse_size = chartBitImages.levels();
+
+		for (int coarse_level = coarse_size - 1; coarse_level >= 0; --coarse_level) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			const int coarse_offset_x = offset_x >> (coarse_level * XA_PACKING_COARSE_RATE_POWER_OF_2);
+			const int coarse_offset_y = offset_y >> (coarse_level * XA_PACKING_COARSE_RATE_POWER_OF_2);
+#elif
+			int coarse_reduction = 1;
+			for (int i = 0; i < coarse_level; ++i) {
+				coarse_reduction *= XA_PACKING_COARSE_RATE;
+			}
+			const int coarse_offset_x = offset_x / coarse_reduction;
+			const int coarse_offset_y = offset_y / coarse_reduction;
+#endif
+			const BitImage &imageChart = chartBitImages.get(coarse_level,
+															offset_x,
+															offset_y,
+															orientation);
+			if (coarse_offset_x > (int)maxResolution - (int)imageChart.width()
+				|| coarse_offset_y > (int)maxResolution - (int)imageChart.height())
+				return false;
+
+			const bool canBlit = (*atlasBitImages)[coarse_level]->canBlit(imageChart, coarse_offset_x, coarse_offset_y);
+
+			if (!canBlit) {
+#if DEBUG_PLACING_STATISTICS
+				if (coarse_level < coarse_size - 1 && coarse_level <= 2) {
+					local_false_jumps[coarse_level]++;
+				}
+#endif
+				return false;
+			}
+#if DEBUG_PLACING_STATISTICS
+			local_jumps++;
+#endif
+		}
+		return true;
+	}
+
+	void addChart(Array<BitImage *> *atlasBitImage, const CoarsePyramid &chartBitImages, int atlas_w, int atlas_h, int offset_x, int offset_y, int orientation)
+	{
+		XA_DEBUG_ASSERT(orientation <= chartBitImages.orientations());
+
+		const int coarse_levels = chartBitImages.levels();
+		Array<BitImage> images;
+		images.resize(coarse_levels);
+		images.runCtors();
+		for (int coarse_level = 0; coarse_level < coarse_levels; coarse_level++)
+		{
+#if !XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+			int rate_cur = 1;
+			for (int i = 0; i < coarse_level; ++i)
+				rate_cur *= XA_PACKING_COARSE_RATE;
+#endif
+
+			if (coarse_level == 0) {
+				const BitImage &img = chartBitImages.get(0, 0, 0, orientation);
+				images[0].resize(img.width(), img.height(), true);
+				img.copyTo(images[0]);
+			} else {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+				int true_rate = (coarse_level - 1) * XA_PACKING_COARSE_RATE_POWER_OF_2;
+				images[coarse_level - 1].reduceTo(&images[coarse_level], XA_PACKING_COARSE_RATE,
+												  offset_x >> true_rate, offset_y >> true_rate, true);
+#elif
+				int true_rate = rate_cur / XA_PACKING_COARSE_RATE;
+				images[coarse_level - 1].reduceTo(&images[coarse_level], XA_PACKING_COARSE_RATE,
+												 offset_x / true_rate, offset_y / true_rate, true);
+#endif
+			}
+			BitImage& curCoarseAtlasImageLayer = *(*atlasBitImage)[coarse_level];
+			int w = images[coarse_level].width();
+			int h = images[coarse_level].height();
+			for (int y = 0; y < h; y++) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+				int yy = y + (offset_y >> coarse_level * XA_PACKING_COARSE_RATE_POWER_OF_2);
+#elif
+				int yy = y + offset_y / rate_cur;
+#endif
+				if (yy >= 0) {
+					for (int x = 0; x < w; x++) {
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+						int xx = x + (offset_x >> coarse_level * XA_PACKING_COARSE_RATE_POWER_OF_2);
+#elif
+						int xx = x + offset_x / rate_cur;
+#endif
+						if (xx < 0) continue;
+						if (!images[coarse_level].get(x, y)) continue;
+						if (xx >= atlas_w || yy >= atlas_h) continue;
+						XA_DEBUG_ASSERT(curCoarseAtlasImageLayer.get(xx, yy) == false);
+						curCoarseAtlasImageLayer.set(xx, yy);
 					}
 				}
 			}
 		}
+		images.runDtors();
 	}
 
-	void bilinearExpand(const Chart *chart, BitImage *source, BitImage *dest, BitImage *destRotated, UniformGrid2 &boundaryEdgeGrid) const
+	void bilinearExpand(const Chart *chart, const BitImage *source, BitImage *dest, BitImage *destTransposed, UniformGrid2 &boundaryEdgeGrid) const
 	{
 		boundaryEdgeGrid.reset(chart->vertices, chart->indices);
 		if (chart->boundaryEdges) {
@@ -8794,22 +10148,22 @@ private:
 			for (uint32_t i = 0; i < chart->indices.length; i++)
 				boundaryEdgeGrid.append(i);
 		}
-		const int xOffsets[] = { -1, 0, 1, -1, 1, -1, 0, 1 };
-		const int yOffsets[] = { -1, -1, -1, 0, 0, 1, 1, 1 };
+		const int xOffsets[] = {-1, 0, 1, -1, 1, -1, 0, 1};
+		const int yOffsets[] = {-1, -1, -1, 0, 0, 1, 1, 1};
 		for (uint32_t y = 0; y < source->height(); y++) {
 			for (uint32_t x = 0; x < source->width(); x++) {
 				// Copy pixels from source.
 				if (source->get(x, y))
 					goto setPixel;
-				// Empty pixel. If none of of the surrounding pixels are set, this pixel can't be sampled by bilinear interpolation.
+				// Empty pixel. If none of the surrounding pixels are set, this pixel can't be sampled by bilinear interpolation.
 				{
 					uint32_t s = 0;
 					for (; s < 8; s++) {
-						const int sx = (int)x + xOffsets[s];
-						const int sy = (int)y + yOffsets[s];
-						if (sx < 0 || sy < 0 || sx >= (int)source->width() || sy >= (int)source->height())
+						const int sx = (int) x + xOffsets[s];
+						const int sy = (int) y + yOffsets[s];
+						if (sx < 0 || sy < 0 || sx >= (int) source->width() || sy >= (int) source->height())
 							continue;
-						if (source->get((uint32_t)sx, (uint32_t)sy))
+						if (source->get((uint32_t) sx, (uint32_t) sy))
 							break;
 					}
 					if (s == 8)
@@ -8818,12 +10172,12 @@ private:
 				{
 					// If a 2x2 square centered on the pixels centroid intersects the triangle, this pixel will be sampled by bilinear interpolation.
 					// See "Precomputed Global Illumination in Frostbite (GDC 2018)" page 95
-					const Vector2 centroid((float)x + 0.5f, (float)y + 0.5f);
+					const Vector2 centroid((float) x + 0.5f, (float) y + 0.5f);
 					const Vector2 squareVertices[4] = {
-						Vector2(centroid.x - 1.0f, centroid.y - 1.0f),
-						Vector2(centroid.x + 1.0f, centroid.y - 1.0f),
-						Vector2(centroid.x + 1.0f, centroid.y + 1.0f),
-						Vector2(centroid.x - 1.0f, centroid.y + 1.0f)
+							Vector2(centroid.x - 1.0f, centroid.y - 1.0f),
+							Vector2(centroid.x + 1.0f, centroid.y - 1.0f),
+							Vector2(centroid.x + 1.0f, centroid.y + 1.0f),
+							Vector2(centroid.x - 1.0f, centroid.y + 1.0f)
 					};
 					for (uint32_t j = 0; j < 4; j++) {
 						if (boundaryEdgeGrid.intersect(squareVertices[j], squareVertices[(j + 1) % 4], 0.0f))
@@ -8831,25 +10185,25 @@ private:
 					}
 				}
 				continue;
-			setPixel:
+				setPixel:
 				dest->set(x, y);
-				if (destRotated)
-					destRotated->set(y, x);
+				if (destTransposed)
+					destTransposed->set(y, x);
 			}
 		}
 	}
 
 	struct DrawTriangleCallbackArgs
 	{
-		BitImage *chartBitImage, *chartBitImageRotated;
+		BitImage *chartBitImage, *chartBitImageTransposed;
 	};
 
 	static bool drawTriangleCallback(void *param, int x, int y)
 	{
 		auto args = (DrawTriangleCallbackArgs *)param;
 		args->chartBitImage->set(x, y);
-		if (args->chartBitImageRotated)
-			args->chartBitImageRotated->set(y, x);
+		if (args->chartBitImageTransposed)
+			args->chartBitImageTransposed->set(y, x);
 		return true;
 	}
 
@@ -8858,6 +10212,7 @@ private:
 	Array<BitImage *> m_bitImages;
 	Array<Chart *> m_charts;
 	RadixSort m_radix;
+	size_t m_bitImagesCoarseLevels;
 	uint32_t m_width = 0;
 	uint32_t m_height = 0;
 	float m_texelsPerUnit = 0.0f;
@@ -8977,7 +10332,7 @@ static void runAddMeshTask(void *groupUserData, void *taskUserData)
 	internal::Progress *progress = ctx->addMeshProgress;
 	if (progress->cancel) {
 		XA_PROFILE_END(addMeshThread)
-			return;
+		return;
 	}
 	XA_PROFILE_START(addMeshCreateColocals)
 	mesh->createColocals();
@@ -9038,8 +10393,7 @@ AddMeshError AddMesh(Atlas *atlas, const MeshDecl &meshDecl, uint32_t meshCountH
 	// Don't know how many times AddMesh will be called, so progress needs to adjusted each time.
 	if (!ctx->addMeshProgress) {
 		ctx->addMeshProgress = XA_NEW_ARGS(internal::MemTag::Default, internal::Progress, ProgressCategory::AddMesh, ctx->progressFunc, ctx->progressUserData, 1);
-	}
-	else {
+	} else {
 		ctx->addMeshProgress->setMaxValue(internal::max(ctx->meshes.size() + 1, meshCountHint));
 	}
 	XA_PROFILE_START(addMeshCopyData)
@@ -9335,17 +10689,18 @@ AddMeshError AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 				}
 			}
 			// Check for zero area faces.
-			if (!ignore) {
-				const internal::Vector2 &v1 = mesh->texcoords[tri[0]];
-				const internal::Vector2 &v2 = mesh->texcoords[tri[1]];
-				const internal::Vector2 &v3 = mesh->texcoords[tri[2]];
-				const float area = fabsf(((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f);
-				if (area <= internal::kAreaEpsilon) {
-					ignore = true;
-					if (++warningCount <= kMaxWarnings)
-						XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", f, tri[0], tri[1], tri[2], area);
-				}
-			}
+			// TODO: make a workaround for preserving original functionality
+//			if (!ignore) {
+//				const internal::Vector2 &v1 = mesh->texcoords[tri[0]];
+//				const internal::Vector2 &v2 = mesh->texcoords[tri[1]];
+//				const internal::Vector2 &v3 = mesh->texcoords[tri[2]];
+//				const float area = fabsf(((v2.x - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (v2.y - v1.y)) * 0.5f);
+//				if (area <= internal::kAreaEpsilon) {
+//					ignore = true;
+//					if (++warningCount <= kMaxWarnings)
+//						XA_PRINT("   Zero area face: %d, indices (%d %d %d), area is %f\n", f, tri[0], tri[1], tri[2], area);
+//				}
+//			}
 			if (ignore)
 				mesh->faceIgnore.set(f);
 		}
@@ -9570,6 +10925,45 @@ void PackCharts(Atlas *atlas, PackOptions packOptions)
 	if (packOptions.texelsPerUnit < 0.0f) {
 		XA_PRINT_WARNING("PackCharts: PackOptions::texelsPerUnit is negative.\n");
 		packOptions.texelsPerUnit = 0.0f;
+	}
+	if (packOptions.coarseLevels < 0) {
+		XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is negative.\n");
+		packOptions.coarseLevels = 0;
+	}
+	if (packOptions.coarseLevels == 0) {
+		XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is set to 0. Coarse-to-fine disabled.\n");
+	}
+	if (packOptions.usePreviousPositionOffset < 0.0f) {
+		XA_PRINT_WARNING("PackCharts: PackOptions::usePreviousPositionOffset is negative.\n");
+		packOptions.usePreviousPositionOffset = 0.0f;
+	}
+
+	if (packOptions.usePreviousPositionOffset > 1.0f) {
+		XA_PRINT_WARNING("PackCharts: PackOptions::usePreviousPositionOffset is more than 1.\n");
+		packOptions.usePreviousPositionOffset = 1.0f;
+	}
+	// other checks
+	{
+#if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
+		uint64_t total_coarse_rate = packOptions.coarseLevels * XA_PACKING_COARSE_RATE_POWER_OF_2;
+		const int MAX_ARCH_RATE = 32;
+		if (total_coarse_rate >= MAX_ARCH_RATE) {
+			XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is set on a too high value. May result in significant memory consumption.\n");
+		}
+#elif
+		uint64_t total_coarse_rate = 1;
+		for (int i = 0; i < packOptions.coarseLevels; ++i) {
+			total_coarse_rate *= XA_PACKING_COARSE_RATE;
+			if (total_coarse_rate >= UINT32_MAX) {
+				XA_PRINT_WARNING("PackCharts: PackOptions::coarseLevels is set on a too high value. May result in significant memory consumption.\n");
+				break;
+			}
+		}
+#endif
+	}
+	if (packOptions.resolution >= UINT16_MAX) {
+
+		XA_PRINT_WARNING("Resolution is limited to 65535. See 9203458923756982 in cl\\blit.cl\n");
 	}
 	// Cleanup atlas.
 	DestroyOutputMeshes(ctx);

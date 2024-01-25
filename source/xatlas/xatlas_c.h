@@ -203,9 +203,16 @@ typedef struct
 	bool bilinear;
 	bool blockAlign;
 	bool bruteForce;
+	bool randomUseBruteForce;
 	bool createImage;
 	bool rotateChartsToAxis;
 	bool rotateCharts;
+	bool transposeCharts;
+	bool preserveInputTexcoordsFractionalPart;
+	int coarseLevels;
+	bool skipSpeedup;
+	bool gridSpeedup;
+	float usePreviousPositionOffset;
 }
 xatlasPackOptions;
 
