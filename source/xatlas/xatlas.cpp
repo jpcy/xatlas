@@ -193,7 +193,6 @@ static long int local_jumps = 0;
 #endif
 
 #include <vector>
-static bool cimg_draw = false;
 
 #if XA_USE_GPU
 //#undef CUDA_SUPPORT
@@ -276,63 +275,6 @@ void cuda_aggregateResults(const gpu::WorkSize &workSize,
 						   unsigned short *results_y,
 						   cudaStream_t stream);
 #endif
-#endif
-
-#if XA_OMP_PARALLEL
-#include <mutex>
-#include <exception>
-
-namespace pn {
-// See https://stackoverflow.com/questions/11828539/elegant-exception-handling-in-openmp
-class ThreadException {
-	std::exception_ptr ptr;
-	std::mutex lock;
-public:
-	ThreadException() : ptr(nullptr) {}
-
-	~ThreadException() {
-		this->rethrow();
-	}
-
-	void rethrow() {
-		if (this->ptr) {
-			std::exception_ptr e = this->ptr;
-			this->ptr = nullptr;
-			std::rethrow_exception(e);
-		}
-	}
-
-	bool hasException() {
-		return (bool) this->ptr;
-	}
-
-	void captureException() {
-		std::unique_lock<std::mutex> guard(this->lock);
-		this->ptr = std::current_exception();
-	}
-
-	template<typename Function, typename... Parameters>
-	void run(Function f, Parameters... params) {
-		try {
-			f(params...);
-		} catch (...) {
-			captureException();
-		}
-	}
-};
-
-#define OMP_DISPATCHER_INIT pn::ThreadException __dispatcher__;
-#define OMP_TRY {if (!__dispatcher__.hasException()) { try {
-#define OMP_CATCH } catch (...) {  __dispatcher__.captureException();  }}}
-#define OMP_RETHROW __dispatcher__.rethrow();
-#define OMP_CATCH_RETHROW } catch (...) {  __dispatcher__.captureException();  }}}; __dispatcher__.rethrow();
-}
-#else
-#define OMP_DISPATCHER_INIT
-#define OMP_TRY
-#define OMP_CATCH
-#define OMP_RETHROW
-#define OMP_CATCH_RETHROW
 #endif
 
 
@@ -782,16 +724,6 @@ static Vector2 operator-(const Vector2 &a, const Vector2 &b)
 static Vector2 operator*(const Vector2 &v, float s)
 {
 	return Vector2(v.x * s, v.y * s);
-}
-
-static Vector2 operator>>(const Vector2 &v, int s)
-{
-	return Vector2(v.x / (float)(1UL << s), v.y  / (float)(1UL << s));
-}
-
-static Vector2 operator<<(const Vector2 &v, int s)
-{
-	return Vector2(v.x * (float)(1UL << s), v.y * (float)(1UL << s));
 }
 
 static float dot(const Vector2 &a, const Vector2 &b)
@@ -1682,8 +1614,8 @@ public:
 				images[r]->resize(m_height, m_width, true);
 		}
 
-		for (int y = 0; y < m_height; ++y) {
-			for (int x = 0; x < m_width; ++x) {
+		for (uint32_t y = 0; y < m_height; ++y) {
+			for (uint32_t x = 0; x < m_width; ++x) {
 				if (get(x, y)) {
 					if (images[1] != nullptr)
 						images[1]->set(m_height - y - 1, x);
@@ -1701,8 +1633,8 @@ private:
 	{
 		image->resize((m_width + offset_x + rate - 1) / rate, (m_height + offset_y + rate - 1) / rate, true);
 
-		for (int y = 0; y < image->height(); ++y) {
-			for (int x = 0; x < image->width(); ++x) {
+		for (uint32_t y = 0; y < image->height(); ++y) {
+			for (uint32_t x = 0; x < image->width(); ++x) {
 				if ((x + 1) * rate - offset_x > (int)m_width || (y + 1) * rate - offset_y > (int)m_height)
 					continue;
 
@@ -1737,8 +1669,8 @@ private:
 			}
 		}
 
-		for (int y = 0; y < image->height(); ++y) {
-			for (int x = 0; x < image->width(); ++x) {
+		for (uint32_t y = 0; y < image->height(); ++y) {
+			for (uint32_t x = 0; x < image->width(); ++x) {
 				// fast check using existing code; does not work near edges
 				if (x * rate - offset_x >= 0 && (x + 1) * rate - offset_x <= (int)m_width
 					&& y * rate - offset_y >= 0 && (y + 1) * rate - offset_y <= (int)m_height) {
@@ -9129,7 +9061,7 @@ struct Atlas
 					coarseBitImages->reserve(m_bitImagesCoarseLevels);
 					coarseBitImages->push_back(bi);
 					uint32_t coarseResolution = resolution;
-					for (int coarse_level = 1; coarse_level < m_bitImagesCoarseLevels; coarse_level++) {
+					for (uint32_t coarse_level = 1; coarse_level < m_bitImagesCoarseLevels; coarse_level++) {
 #if XA_PACKING_COARSE_RATE_IS_POWER_OF_2
 						coarseResolution = (coarseResolution + XA_PACKING_COARSE_RATE) >> XA_PACKING_COARSE_RATE_POWER_OF_2;
 #elif
@@ -9780,13 +9712,12 @@ private:
 	bool findChartLocation_bruteForce(const PackOptions &options, const Vector2i &startPosition, const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, const int w, const int h, int *best_x, int *best_y, int *best_w, int *best_h, int *best_ori, uint32_t maxResolution)
 	{
 		unsigned int best_metric = INT_MAX;
-		const int coarse_size = m_bitImagesCoarseLevels;
 		// d_infty
 		auto sameMetricWorse = [](int x, int y, int ori, int comp_x, int comp_y, int comp_ori) {
 			return (max(x, y) > max(comp_x, comp_y)
-				   || max(x, y) == max(comp_x, comp_y)
-				   && (y > comp_y || y == comp_y
-				   && (x > comp_x || x == comp_x && ori > comp_ori)));
+				   || (max(x, y) == max(comp_x, comp_y)
+				   && (y > comp_y || (y == comp_y
+				   && (x > comp_x || (x == comp_x && ori > comp_ori))))));
 		};
 
 		int prevPositionOffset = ceil(options.usePreviousPositionOffset * maxResolution);
@@ -9819,14 +9750,12 @@ private:
 #endif
 
 #if XA_OMP_PARALLEL
-		OMP_DISPATCHER_INIT
 #if DEBUG_PLACING_STATISTICS
 #pragma omp parallel firstprivate(local_false_jumps, local_jumps)
 #else
 #pragma omp parallel
 #endif
 		{
-			OMP_TRY
 #else
 		{
 #endif // XA_OMP_PARALLEL
@@ -9867,7 +9796,6 @@ private:
 #endif // XA_OMP_PARALLEL
 				for (int y = start_offset_y; y <= endPosition.y; y += stepSize) {
 					for (int x = start_offset_x; x <= endPosition.x; x += stepSize) {
-						OMP_TRY
 #if !XA_PACKING_DETERMINISTIC
 						if (fastOut)
 							continue;
@@ -9895,7 +9823,7 @@ private:
 												 x,
 												 y,
 												 ori,
-												 maxResolution, w, h))
+												 maxResolution))
 							continue;
 
 						local_best_metric = metric;
@@ -9911,10 +9839,8 @@ private:
 							fastOut = true;
 						}
 #endif
-						OMP_CATCH
 					}
 				}
-				OMP_RETHROW
 				if ((local_best_ori < 4) != (local_best_ori % 2)) {
 					XA_DEBUG_ASSERT(local_best_x + chartBitImages.get(0).width() <= (*atlasBitImages)[0]->width());
 					XA_DEBUG_ASSERT(local_best_y + chartBitImages.get(0).height() <= (*atlasBitImages)[0]->height());
@@ -9938,8 +9864,8 @@ private:
 				if (local_best_metric != INT_MAX) {
 					{
 						if (local_best_metric < best_metric
-							|| local_best_metric == best_metric &&
-							   sameMetricWorse(*best_x, *best_y, *best_ori, local_best_x, local_best_y, local_best_ori)) {
+							|| (local_best_metric == best_metric &&
+							   sameMetricWorse(*best_x, *best_y, *best_ori, local_best_x, local_best_y, local_best_ori))) {
 							best_metric = local_best_metric;
 							*best_x = local_best_x;
 							*best_y = local_best_y;
@@ -9948,9 +9874,7 @@ private:
 					}
 				}
 			}
-			OMP_CATCH
 		}
-		OMP_RETHROW
 #if DEBUG_PLACING_STATISTICS
 //		printf("False coarse jumps for this:\n  lv0: %ld\n  lv1: %ld\n  lv2: %ld\n", thisone_false_jumps[0],
 //																		    thisone_false_jumps[1],
@@ -9989,7 +9913,7 @@ private:
 										 x,
 										 y,
 										 *best_ori,
-										 maxResolution, w, h))
+										 maxResolution))
 					continue;
 
 				*best_x = x;
@@ -10054,7 +9978,7 @@ private:
 			thisone_checks++;
 #endif
 
-			if (canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, ori, maxResolution, w, h)) {
+			if (canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, ori, maxResolution)) {
 				result = true;
 				best_metric = metric;
 				*best_x = x;
@@ -10076,11 +10000,10 @@ private:
 			while(*best_x >= 0 && *best_y >= 0) {
 				int cur_best_x = *best_x;
 				int cur_best_y = *best_y;
-				const BitImage *image = &chartBitImages.get(0, 0, 0, *best_ori);
 				int x = cur_best_x;
 				int y = cur_best_y - 1;
 
-				if (y >= 0 && canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, *best_ori, maxResolution, w, h)) {
+				if (y >= 0 && canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, *best_ori, maxResolution)) {
 					*best_x = x;
 					*best_y = y;
 					continue;
@@ -10089,7 +10012,7 @@ private:
 				y = cur_best_y;
 				if (x < 0)
 					break;
-				if (!canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, *best_ori, maxResolution, w, h))
+				if (!canBlitCoarseToFine(atlasBitImages, chartBitImages, x, y, *best_ori, maxResolution))
 					break;
 				*best_x = x;
 				*best_y = y;
@@ -10114,7 +10037,7 @@ private:
 		return result;
 	}
 
-	bool canBlitCoarseToFine(const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int offset_x, int offset_y, int orientation, uint32_t maxResolution, int w, int h) const
+	bool canBlitCoarseToFine(const Array<BitImage *> *atlasBitImages, const CoarsePyramid &chartBitImages, int offset_x, int offset_y, int orientation, uint32_t maxResolution) const
 	{
 		const int coarse_size = chartBitImages.levels();
 

@@ -84,6 +84,7 @@ solution "xatlas"
 		optimize "Off"
 		symbols "On"
 	end
+    linkoptions { "-fopenmp" }
 	sanitizer()
 	
 local XATLAS_DIR = "source/xatlas"
@@ -94,6 +95,7 @@ project "xatlas_static"
 	cppdialect "C++11"
 	exceptionhandling "Off"
 	rtti "Off"
+	openmp "On"
 	warnings "Extra"
 	enablewarnings { "shadow" }
 	files { path.join(XATLAS_DIR, "xatlas.*") }
@@ -105,6 +107,7 @@ project "xatlas"
 	cppdialect "C++11"
 	exceptionhandling "Off"
 	rtti "Off"
+	openmp "On"
 	warnings "Extra"
 	enablewarnings { "shadow" }
 	defines { "XATLAS_C_API=1", "XATLAS_EXPORT_API=1" }
@@ -129,8 +132,9 @@ project "test"
 	kind "ConsoleApp"
 	language "C++"
 	cppdialect "C++11"
-	exceptionhandling "Off"
+	exceptionhandling "On"
 	rtti "Off"
+	openmp "On"
 	warnings "Extra"
 	sanitizer()
 	includedirs { XATLAS_DIR, THIRDPARTY_DIR }
