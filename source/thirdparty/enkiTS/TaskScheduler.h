@@ -19,6 +19,7 @@
 #pragma once
 
 #include <atomic>
+#include <initializer_list>
 #include <thread>
 #include <condition_variable>
 #include <stdint.h>

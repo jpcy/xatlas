@@ -23,6 +23,7 @@ SOFTWARE.
 */
 #include <atomic>
 #include <cstddef>
+#include <cstdio>
 #include <mutex>
 #include <thread>
 #include <assert.h>
