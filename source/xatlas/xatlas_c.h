@@ -139,7 +139,7 @@ typedef struct
 	const void *indexData;
 	const bool *faceIgnoreData;
 	const uint32_t *faceMaterialData;
-	const uint8_t *faceVertexCount;
+	const uint32_t *faceVertexCount;
 	uint32_t vertexCount;
 	uint32_t vertexPositionStride;
 	uint32_t vertexNormalStride;

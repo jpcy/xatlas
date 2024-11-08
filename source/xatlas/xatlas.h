@@ -123,7 +123,7 @@ struct MeshDecl
 
 	// Optional. Must be faceCount in length.
 	// Polygon / n-gon support. Faces are assumed to be triangles if this is null.
-	const uint8_t *faceVertexCount = nullptr;
+	const uint32_t *faceVertexCount = nullptr;
 
 	uint32_t vertexCount = 0;
 	uint32_t vertexPositionStride = 0;
