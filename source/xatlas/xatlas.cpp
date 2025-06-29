@@ -9305,17 +9305,17 @@ AddMeshError AddUvMesh(Atlas *atlas, const UvMeshDecl &decl)
 		ctx->uvMeshes.push_back(mesh);
 		mesh->decl = decl;
 		if (decl.faceMaterialData) {
-			mesh->faceMaterials.resize(decl.indexCount / 3);
+			mesh->faceMaterials.resize(indexCount / 3);
 			memcpy(mesh->faceMaterials.data(), decl.faceMaterialData, mesh->faceMaterials.size() * sizeof(uint32_t));
 		}
-		mesh->indices.resize(decl.indexCount);
+		mesh->indices.resize(indexCount);
 		for (uint32_t i = 0; i < indexCount; i++)
 			mesh->indices[i] = hasIndices ? DecodeIndex(decl.indexFormat, decl.indexData, decl.indexOffset, i) : i;
 		mesh->texcoords.resize(decl.vertexCount);
 		for (uint32_t i = 0; i < decl.vertexCount; i++)
 			mesh->texcoords[i] = *((const internal::Vector2 *)&((const uint8_t *)decl.vertexUvData)[decl.vertexStride * i]);
 		// Validate.
-		mesh->faceIgnore.resize(decl.indexCount / 3);
+		mesh->faceIgnore.resize(indexCount / 3);
 		mesh->faceIgnore.zeroOutMemory();
 		const uint32_t kMaxWarnings = 50;
 		uint32_t warningCount = 0;
