@@ -8589,7 +8589,9 @@ struct Atlas
 				Vector2 t = texcoord;
 				if (best_r) {
 					XA_DEBUG_ASSERT(options.rotateCharts);
-					swap(t.x, t.y);
+                    const float x = t.x;
+                    t.x = t.y;
+                    t.y = chartImageToPackRotated->height() - x;
 				}
 				texcoord.x = best_x + t.x;
 				texcoord.y = best_y + t.y;
@@ -8834,7 +8836,7 @@ private:
 			setPixel:
 				dest->set(x, y);
 				if (destRotated)
-					destRotated->set(y, x);
+					destRotated->set(y, destRotated->height() - 1 - x);
 			}
 		}
 	}
@@ -8849,7 +8851,7 @@ private:
 		auto args = (DrawTriangleCallbackArgs *)param;
 		args->chartBitImage->set(x, y);
 		if (args->chartBitImageRotated)
-			args->chartBitImageRotated->set(y, x);
+			args->chartBitImageRotated->set(y, args->chartBitImageRotated->height() - 1 - x);
 		return true;
 	}
 
