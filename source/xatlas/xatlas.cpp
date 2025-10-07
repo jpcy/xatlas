@@ -51,6 +51,7 @@ Copyright (c) 2012 Brandon Pelfrey
 #define __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifndef XA_DEBUG
